@@ -13,6 +13,14 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the code claimed to support the paint.net brightness/contrast baseline, but the visible command surface had drifted into two separate menu commands that do not match the expected workflow
+- Core error: users saw `Brightness...` and `Contrast...` as unrelated actions instead of one `Brightness / Contrast...` adjustment task, which broke 1:1 command-surface parity even though the underlying raster operations already existed
+- Investigation: re-read the `Adjustments` menu against the command-surface baseline after the recent modal work and compared the current split handlers with the PRD's explicit `Brightness / contrast baseline`
+- Root cause: the initial implementation surfaced the two shared-core raster operations directly and stopped there, so the menu structure reflected implementation convenience instead of the product-level workflow target
+- Fix: replaced the two separate `Adjustments` menu items with one `Brightness / Contrast...` command, added a dedicated dual-parameter modal plus a shared helper unit, and routed the command through a single history entry that applies brightness and then contrast in sequence through the existing shared core
+- Reuse note: when the target product treats multiple low-level operations as one user-facing adjustment task, preserve the product's command shape first and adapt the backend under it; do not let internal primitive granularity leak into the menu surface
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the first practical `Levels...` implementation made the command real, but the UI still spread one adjustment task across four generic prompt boxes
 - Core error: users had to answer four sequential `InputQuery` prompts to apply one tonal remap, which is weak desktop UX on macOS and made the feature feel materially less complete than the shared-core implementation behind it
 - Investigation: re-read the `Adjustments` handlers after the `Hue / Saturation...` follow-up, treated `Levels...` as the next obvious prompt-based holdout, and compared it against the current `New`, `Resize Image`, and `Hue / Saturation` dialog patterns

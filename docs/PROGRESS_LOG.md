@@ -1,6 +1,9 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Brightness / Contrast...` route is materially closer to paint.net now: the wrong split `Brightness...` and `Contrast...` menu items have been collapsed back into one combined adjustment command with a dedicated two-field modal.
+- That command is now backed by a shared helper unit for parsing and clamping both parameters, so the current signed ranges are explicit and testable instead of being buried in separate prompt handlers.
+- This is a command-surface parity fix first: the current implementation still applies brightness and then contrast as two sequential shared-core operations rather than a richer previewable combined adjustment engine, but the visible macOS workflow now matches the expected single-task shape much more closely.
 - The `Levels...` route is less placeholder-like now too: it no longer chains four generic prompt boxes, and it now uses one dedicated four-field modal that keeps the full adjustment range on a single task-specific surface.
 - That `Levels` dialog flow is now backed by a shared helper unit for parsing and clamping the four bounds, so the input-range ordering rule and the current independent output-range behavior are explicit, reusable, and covered outside the main form.
 - The adjustment surface is incrementally closer to a credible macOS desktop editor now: both `Hue / Saturation...` and `Levels...` have moved off serial prompts and into dedicated dialogs, although richer paint.net-style `Curves` / channel-level adjustment UIs are still open and the product is still below the user's 90% integration-test threshold.

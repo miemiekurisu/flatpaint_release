@@ -207,8 +207,7 @@ type
     procedure CurvesClick(Sender: TObject);
     procedure HueSaturationClick(Sender: TObject);
     procedure LevelsClick(Sender: TObject);
-    procedure BrightnessClick(Sender: TObject);
-    procedure ContrastClick(Sender: TObject);
+    procedure BrightnessContrastClick(Sender: TObject);
     procedure SepiaClick(Sender: TObject);
     procedure BlackAndWhiteClick(Sender: TObject);
     procedure PosterizeClick(Sender: TObject);
@@ -275,7 +274,7 @@ uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
-  FPLevelsDialog;
+  FPLevelsDialog, FPBrightnessContrastDialog;
 
 const
   DisplayDPI = 96.0;
@@ -864,8 +863,7 @@ begin
   CreateMenuItem(AdjustMenu, '&Curves...', @CurvesClick);
   CreateMenuItem(AdjustMenu, '&Hue / Saturation...', @HueSaturationClick);
   CreateMenuItem(AdjustMenu, '&Levels...', @LevelsClick);
-  CreateMenuItem(AdjustMenu, '&Brightness...', @BrightnessClick);
-  CreateMenuItem(AdjustMenu, '&Contrast...', @ContrastClick);
+  CreateMenuItem(AdjustMenu, '&Brightness / Contrast...', @BrightnessContrastClick);
   CreateMenuItem(AdjustMenu, '&Sepia', @SepiaClick);
   CreateMenuItem(AdjustMenu, 'Black and &White...', @BlackAndWhiteClick);
   CreateMenuItem(AdjustMenu, '&Posterize...', @PosterizeClick);
@@ -2691,28 +2689,18 @@ begin
   RefreshCanvas;
 end;
 
-procedure TMainForm.BrightnessClick(Sender: TObject);
+procedure TMainForm.BrightnessContrastClick(Sender: TObject);
 var
-  ValueText: string;
+  Brightness: Integer;
+  Contrast: Integer;
 begin
-  ValueText := '0';
-  if not InputQuery('Brightness', 'Delta (-255 to 255)', ValueText) then
+  Brightness := 0;
+  Contrast := 0;
+  if not RunBrightnessContrastDialog(Self, Brightness, Contrast) then
     Exit;
-  FDocument.PushHistory('Brightness');
-  FDocument.AdjustBrightness(StrToIntDef(ValueText, 0));
-  SetDirty(True);
-  RefreshCanvas;
-end;
-
-procedure TMainForm.ContrastClick(Sender: TObject);
-var
-  ValueText: string;
-begin
-  ValueText := '0';
-  if not InputQuery('Contrast', 'Amount (-255 to 254)', ValueText) then
-    Exit;
-  FDocument.PushHistory('Contrast');
-  FDocument.AdjustContrast(StrToIntDef(ValueText, 0));
+  FDocument.PushHistory('Brightness / Contrast');
+  FDocument.AdjustBrightness(Brightness);
+  FDocument.AdjustContrast(Contrast);
   SetDirty(True);
   RefreshCanvas;
 end;

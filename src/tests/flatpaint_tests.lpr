@@ -11,6 +11,7 @@ uses
   fpio_tests, fpnewimagehelpers_tests, fputilityhelpers_tests,
   fprulerhelpers_tests, fpzoomhelpers_tests, fpviewhelpers_tests,
   fphuesaturationhelpers_tests, fplevelshelpers_tests,
+  fpbrightnesscontrasthelpers_tests,
   fpresizehelpers_tests, fpviewporthelpers_tests, fpstatushelpers_tests;
 
 var
