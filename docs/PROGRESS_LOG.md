@@ -1,6 +1,9 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Levels...` route is less placeholder-like now too: it no longer chains four generic prompt boxes, and it now uses one dedicated four-field modal that keeps the full adjustment range on a single task-specific surface.
+- That `Levels` dialog flow is now backed by a shared helper unit for parsing and clamping the four bounds, so the input-range ordering rule and the current independent output-range behavior are explicit, reusable, and covered outside the main form.
+- The adjustment surface is incrementally closer to a credible macOS desktop editor now: both `Hue / Saturation...` and `Levels...` have moved off serial prompts and into dedicated dialogs, although richer paint.net-style `Curves` / channel-level adjustment UIs are still open and the product is still below the user's 90% integration-test threshold.
 - The `Hue / Saturation...` route is less placeholder-like now: it no longer chains two generic prompt boxes, and it now uses a dedicated dual-parameter modal that keeps the hue and saturation controls in one task-specific dialog.
 - That dialog flow is now backed by a shared helper unit for parsing and clamping signed adjustment values, so the parameter bounds are explicit, testable, and reusable instead of being re-declared inline in the main form.
 - The current macOS desktop workflow is safer now: replacing or closing the current document no longer silently discards edits, because `New`, `Open`, `Open Recent`, `Close`, and `Quit` now all prompt before abandoning dirty state.

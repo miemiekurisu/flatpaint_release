@@ -10,7 +10,7 @@ uses
   fpsurface_tests, fpuihelpers_tests, fpdocument_tests, fppalettehelpers_tests,
   fpio_tests, fpnewimagehelpers_tests, fputilityhelpers_tests,
   fprulerhelpers_tests, fpzoomhelpers_tests, fpviewhelpers_tests,
-  fphuesaturationhelpers_tests,
+  fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpresizehelpers_tests, fpviewporthelpers_tests, fpstatushelpers_tests;
 
 var

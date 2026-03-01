@@ -13,6 +13,14 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the first practical `Levels...` implementation made the command real, but the UI still spread one adjustment task across four generic prompt boxes
+- Core error: users had to answer four sequential `InputQuery` prompts to apply one tonal remap, which is weak desktop UX on macOS and made the feature feel materially less complete than the shared-core implementation behind it
+- Investigation: re-read the `Adjustments` handlers after the `Hue / Saturation...` follow-up, treated `Levels...` as the next obvious prompt-based holdout, and compared it against the current `New`, `Resize Image`, and `Hue / Saturation` dialog patterns
+- Root cause: the earlier `Levels` pass correctly prioritized command coverage first, but it stopped at the minimal prompt-based collection path and never got the second-step UI upgrade into a task-specific modal
+- Fix: added a dedicated `Levels` dialog plus a shared helper unit for parsing and clamping its four bounds, preserved ordered input limits while intentionally keeping output bounds independent, and routed the menu command through that dialog instead of four inline prompt calls
+- Reuse note: when an adjustment needs multiple related numeric bounds, do not let it stay as a chain of `InputQuery` calls after the first functional pass; move the full parameter set into one dialog and push the validation policy into a pure helper so later UI iterations do not duplicate rules in event handlers
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the `Hue / Saturation...` command technically existed, but the UI still split one adjustment task across two generic prompt boxes
 - Core error: users had to answer two unrelated `InputQuery` prompts in sequence, which is not a credible desktop adjustment flow on macOS and made the command feel less complete than the underlying shared-core implementation
 - Investigation: re-read the `Adjustments` handlers against the development rules and compared the existing route with the already-upgraded `New` and `Resize Image` dialog paths to isolate where this adjustment surface was still lagging behind

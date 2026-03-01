@@ -274,7 +274,8 @@ implementation
 uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
-  FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog;
+  FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
+  FPLevelsDialog;
 
 const
   DisplayDPI = 96.0;
@@ -2668,29 +2669,23 @@ end;
 
 procedure TMainForm.LevelsClick(Sender: TObject);
 var
-  InputLowText: string;
-  InputHighText: string;
-  OutputLowText: string;
-  OutputHighText: string;
+  InputLow: Integer;
+  InputHigh: Integer;
+  OutputLow: Integer;
+  OutputHigh: Integer;
 begin
-  InputLowText := '0';
-  InputHighText := '255';
-  OutputLowText := '0';
-  OutputHighText := '255';
-  if not InputQuery('Levels', 'Input low (0 to 254)', InputLowText) then
-    Exit;
-  if not InputQuery('Levels', 'Input high (1 to 255)', InputHighText) then
-    Exit;
-  if not InputQuery('Levels', 'Output low (0 to 254)', OutputLowText) then
-    Exit;
-  if not InputQuery('Levels', 'Output high (1 to 255)', OutputHighText) then
+  InputLow := 0;
+  InputHigh := 255;
+  OutputLow := 0;
+  OutputHigh := 255;
+  if not RunLevelsDialog(Self, InputLow, InputHigh, OutputLow, OutputHigh) then
     Exit;
   FDocument.PushHistory('Levels');
   FDocument.AdjustLevels(
-    EnsureRange(StrToIntDef(InputLowText, 0), 0, 254),
-    EnsureRange(StrToIntDef(InputHighText, 255), 1, 255),
-    EnsureRange(StrToIntDef(OutputLowText, 0), 0, 254),
-    EnsureRange(StrToIntDef(OutputHighText, 255), 1, 255)
+    InputLow,
+    InputHigh,
+    OutputLow,
+    OutputHigh
   );
   SetDirty(True);
   RefreshCanvas;
