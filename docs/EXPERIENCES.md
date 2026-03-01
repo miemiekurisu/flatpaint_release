@@ -13,6 +13,14 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the `Add Noise...` command still used a raw prompt even after the adjacent effect routes had started moving onto bounded slider dialogs
+- Core error: users had to type a noise amount into `InputQuery`, which made the effect feel inconsistent with the newer modal pattern and less controllable for common trial-and-adjust use
+- Investigation: after upgrading `Blur...`, re-read the remaining effect handlers and isolated `Add Noise...` as the last obvious single-value prompt holdout in `Effects`
+- Root cause: the initial noise path correctly prioritized exposing the shared-core operation, but it stayed on the minimal text-entry route after the UI standards had already moved beyond that baseline
+- Fix: added a dedicated `Add Noise` dialog with a numeric field plus a slider, moved parsing/clamping/slider mapping into a shared helper unit, and routed the menu command through that dialog instead of inline prompt parsing
+- Reuse note: when one effect in a command family has already moved to a bounded slider-backed modal, finish the same treatment for the neighboring single-value effects so the whole menu family reads as one coherent surface
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the `Blur...` command was usable, but its parameter entry still lived on a raw prompt box even after the project had established a better modal pattern for bounded adjustments
 - Core error: users had to type a blur radius into `InputQuery`, which made a frequently used effect feel inconsistent with the newer slider-backed adjustment surfaces
 - Investigation: after upgrading the adjacent single-value adjustment routes, re-read the remaining effect handlers and treated `Blur...` as the next bounded-range prompt holdout

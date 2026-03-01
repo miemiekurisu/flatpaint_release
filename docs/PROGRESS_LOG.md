@@ -1,6 +1,9 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Add Noise...` route is less placeholder-like now: it no longer uses a bare prompt box, and it now uses a dedicated amount dialog with a numeric field plus a slider for the current 0-to-255 range.
+- That `Add Noise` path is now backed by a shared helper unit for parsing, clamping, and slider mapping, so the current amount bounds are explicit and testable instead of being re-declared inline in the menu handler.
+- The most obvious prompt-only effect gap is closed now: `Blur...` and `Add Noise...` both follow the same bounded modal pattern, leaving the remaining bigger gaps concentrated in deeper paint.net fidelity and multi-document shell work rather than these basic parameter surfaces.
 - The `Blur...` route is less placeholder-like now: it no longer uses a bare prompt box, and it now uses a dedicated radius dialog with a numeric field plus a slider for the current 1-to-64 range.
 - That `Blur` path is now backed by a shared helper unit for parsing, clamping, and slider mapping, so the current radius bounds are explicit and testable instead of being re-declared inline in the menu handler.
 - Parameterized adjustments and effects are more consistent now: the remaining prompt-based single-value commands are shrinking, while the common bounded-range commands now follow the same numeric-field-plus-slider modal pattern.

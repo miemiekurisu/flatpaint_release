@@ -275,7 +275,7 @@ uses
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
-  FPBlurDialog;
+  FPBlurDialog, FPNoiseDialog;
 
 const
   DisplayDPI = 96.0;
@@ -2763,13 +2763,13 @@ end;
 
 procedure TMainForm.AddNoiseClick(Sender: TObject);
 var
-  ValueText: string;
+  Amount: Integer;
 begin
-  ValueText := '24';
-  if not InputQuery('Add Noise', 'Amount (0 to 255)', ValueText) then
+  Amount := 24;
+  if not RunNoiseDialog(Self, Amount) then
     Exit;
   FDocument.PushHistory('Add Noise');
-  FDocument.AddNoise(EnsureRange(StrToIntDef(ValueText, 24), 0, 255));
+  FDocument.AddNoise(Amount);
   SetDirty(True);
   RefreshCanvas;
 end;
