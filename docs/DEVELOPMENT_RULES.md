@@ -16,3 +16,4 @@
 14. Whenever Photoshop, GIMP, or Krita is used as a fallback reference for an unclear behavior, record that fallback in the relevant docs before relying on it.
 15. For performance-sensitive work, review the official Lazarus and FPC documentation available in the local toolchain first, then apply those recommendations in the code and record the concrete optimization decisions in `docs/PROGRESS_LOG.md` and `docs/EXPERIENCES.md`.
 16. Follow the Lazarus/LCL painting guidance in practice: keep `DoubleBuffered` enabled for custom-drawn controls, prefer prepared bitmap reuse over rebuilding image buffers on every paint, and avoid unnecessary redraw work inside scrolling surfaces.
+17. For macOS/FPC performance-sensitive changes, also review `docs/FPC_MACOS_PERFORMANCE_GUIDE.md` before editing code so release-flag changes and repaint optimizations stay consistent with the project's documented baseline.

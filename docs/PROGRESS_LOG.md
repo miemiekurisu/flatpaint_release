@@ -2,8 +2,13 @@
 
 ## 2026-03-02
 - The current macOS desktop workflow is safer now: replacing or closing the current document no longer silently discards edits, because `New`, `Open`, `Open Recent`, `Close`, and `Quit` now all prompt before abandoning dirty state.
+- That safety fix now also covers the real macOS window-close path instead of only menu commands: the form's close-query route uses the same dirty-document guard, so the titlebar close button no longer bypasses the unsaved-change prompt.
 - The `Save` command is also slightly closer to normal macOS command semantics: the menu caption now uses an ellipsis only when the current document has no bound file path and the action will actually fall through to a save-location prompt.
 - The current GUI paint cache is less allocation-heavy in the hot path now: content refresh still rebuilds the prepared bitmap only when the document render revision changes, but it no longer creates and assigns a throwaway intermediate `TBitmap` for that refresh step.
+- Shortcut and title-state parity are slightly tighter now as well: the window title now uses a clearer macOS-style edited marker, the `View` surface now exposes `Command+'` for `Pixel Grid` and `Command+Option+R` for `Rulers`, and the palette visibility shortcuts now match the documented `Tools/Colors/Layers/History` order.
+- The Lazarus project file is less machine-specific now: the old hardcoded `/Users/kurisu/.../lazarus` search paths have been replaced with `$(LazarusDir)` macros so the checked-in project configuration no longer depends on one developer's home directory.
+- A project-local performance baseline now exists in `docs/FPC_MACOS_PERFORMANCE_GUIDE.md`, summarizing the current official FPC/Lazarus guidance for optimization levels, smartlinking, symbol stripping, double buffering, and text-IO buffering plus the project's own release-build inferences for macOS.
+- The top-level product docs are less self-contradictory now too: the PRD's architecture section no longer claims a SwiftUI/Swift shell, and it now reflects the real Lazarus/LCL plus shared-FPC implementation path that this repository is actually shipping.
 - This is a targeted standards pass, not a full UI-parity closure: the product still remains materially behind native macOS toolbar density, sheet/dialog fidelity, and true multi-document shell behavior, but it closes one real UX-risk gap (silent data loss) and one real FPC/LCL repaint inefficiency without widening the architecture.
 
 ## 2026-02-28

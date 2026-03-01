@@ -76,8 +76,8 @@
       <Filename Value="flatpaint"/>
     </Target>
     <SearchPaths>
-      <OtherUnitFiles Value="src/app;src/core;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/widgetset;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/nonwin32;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa;/Users/kurisu/Documents/workspace.nosync/lazarus/components/lazutils"/>
-      <IncludeFiles Value="$(ProjOutDir);/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/include;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa"/>
+      <OtherUnitFiles Value="src/app;src/core;$(LazarusDir)/lcl;$(LazarusDir)/lcl/widgetset;$(LazarusDir)/lcl/nonwin32;$(LazarusDir)/lcl/interfaces/cocoa;$(LazarusDir)/components/lazutils"/>
+      <IncludeFiles Value="$(ProjOutDir);$(LazarusDir)/lcl/include;$(LazarusDir)/lcl/interfaces/cocoa"/>
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Other>

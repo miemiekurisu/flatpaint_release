@@ -185,10 +185,10 @@ The gap is specifically in a responsive, familiar, low-friction editor that stil
 - The visual/layout parity audit in `docs/UI_PARITY_AUDIT.md` must be reviewed before claiming UI readiness.
 
 ## Architecture direction
-- App shell: SwiftUI with AppKit bridging where macOS-native controls or performance require it
-- Editing core: pure Swift domain model and raster operations in `FlatPaintCore`
-- Rendering path: CPU raster first; keep a clean seam for future acceleration
-- Compatibility adapters: isolated file-format import/export helpers, separate from core document mutation logic
+- App shell: Lazarus/LCL on the Cocoa widgetset, with macOS-specific behavior handled through LCL-compatible patterns first
+- Editing core: Free Pascal units for document state, raster operations, selections, and file-format routing, kept independent from GUI-only state where practical
+- Rendering path: CPU raster first, with prepared-bitmap reuse in the GUI paint path and a clean seam for future acceleration if the current FPC/LCL baseline becomes a bottleneck
+- Compatibility adapters: isolated file-format import/export helpers in shared FPC units, separate from GUI routing and document mutation orchestration
 - Reference architecture influence:
   - paint.net defines the UX target
   - Krita-style separation informs image core vs plugin/format boundaries

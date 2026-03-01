@@ -816,12 +816,13 @@ begin
   FPixelGridMenuItem := TMenuItem.Create(ViewMenu);
   FPixelGridMenuItem.Caption := 'Pixel &Grid';
   FPixelGridMenuItem.Checked := FShowPixelGrid;
+  FPixelGridMenuItem.ShortCut := ShortCut(39, [ssMeta]);
   FPixelGridMenuItem.OnClick := @TogglePixelGridClick;
   ViewMenu.Add(FPixelGridMenuItem);
   FRulersMenuItem := TMenuItem.Create(ViewMenu);
   FRulersMenuItem.Caption := '&Rulers';
   FRulersMenuItem.Checked := FShowRulers;
-  FRulersMenuItem.ShortCut := ShortCut(VK_R, [ssMeta]);
+  FRulersMenuItem.ShortCut := ShortCut(VK_R, [ssMeta, ssAlt]);
   FRulersMenuItem.OnClick := @ToggleRulersClick;
   ViewMenu.Add(FRulersMenuItem);
   FUnitsMenu := TMenuItem.Create(ViewMenu);
@@ -2214,8 +2215,6 @@ end;
 
 procedure TMainForm.ExitApplicationClick(Sender: TObject);
 begin
-  if not ConfirmDocumentReplacement('quit FlatPaint') then
-    Exit;
   Close;
 end;
 
@@ -3047,7 +3046,8 @@ begin
   MessageDlg(
     'FlatPaint Help',
     'Primary shortcuts:'#13#10 +
-    'Cmd+1 Tools  Cmd+2 Colors  Cmd+3 History  Cmd+4 Layers'#13#10 +
+    'Cmd+1 Tools  Cmd+2 Colors  Cmd+3 Layers  Cmd+4 History'#13#10 +
+    'Cmd+'' Pixel Grid  Cmd+Option+R Rulers'#13#10 +
     'Cmd+N New  Cmd+O Open  Cmd+S Save  Cmd+W Close'#13#10 +
     'Supported open formats:'#13#10 +
     'FlatPaint (.fpd), XCF, PSD, PNG, JPEG, BMP, TIFF, GIF, PCX, PNM, TGA, XPM, XWD',
@@ -3100,6 +3100,11 @@ begin
   else if WheelDelta > 0 then
     ApplyZoomScaleAtViewportPoint(NextZoomInScale(FZoomScale), ViewportPoint);
   Handled := WheelDelta <> 0;
+end;
+
+procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+begin
+  CanClose := ConfirmDocumentReplacement('quit FlatPaint');
 end;
 
 procedure TMainForm.TogglePaletteViewClick(Sender: TObject);
