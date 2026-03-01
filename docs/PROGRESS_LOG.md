@@ -1,5 +1,11 @@
 # Development Progress Log
 
+## 2026-03-02
+- The current macOS desktop workflow is safer now: replacing or closing the current document no longer silently discards edits, because `New`, `Open`, `Open Recent`, `Close`, and `Quit` now all prompt before abandoning dirty state.
+- The `Save` command is also slightly closer to normal macOS command semantics: the menu caption now uses an ellipsis only when the current document has no bound file path and the action will actually fall through to a save-location prompt.
+- The current GUI paint cache is less allocation-heavy in the hot path now: content refresh still rebuilds the prepared bitmap only when the document render revision changes, but it no longer creates and assigns a throwaway intermediate `TBitmap` for that refresh step.
+- This is a targeted standards pass, not a full UI-parity closure: the product still remains materially behind native macOS toolbar density, sheet/dialog fidelity, and true multi-document shell behavior, but it closes one real UX-risk gap (silent data loss) and one real FPC/LCL repaint inefficiency without widening the architecture.
+
 ## 2026-02-28
 - The workspace is less self-conflicting now: the duplicate top-toolbar tool-button strip has been removed, leaving the actual `Tools` palette as the primary icon surface while the toolbar keeps the tool chooser and active-option controls.
 - Default utility-window placement is materially less chaotic now: the baked-in `Tools`, `Colors`, `History`, and `Layers` rectangles no longer overlap each other at launch, and the right-side stack now matches the user's paint.net screenshot more closely with `History` above `Layers`.

@@ -68,6 +68,7 @@ type
     FPreparedRevision: QWord;
     FMainMenu: TMainMenu;
     FRecentMenu: TMenuItem;
+    FSaveMenuItem: TMenuItem;
     FUnitsMenu: TMenuItem;
     FUnitPixelsItem: TMenuItem;
     FUnitInchesItem: TMenuItem;
@@ -140,6 +141,7 @@ type
     procedure LayoutStatusBarControls(Sender: TObject);
     procedure UpdateZoomControls;
     procedure UpdateCaption;
+    procedure UpdateSaveCommandCaption;
     function RecentFilesStorePath: string;
     procedure LoadRecentFiles;
     procedure SaveRecentFiles;
@@ -154,6 +156,7 @@ type
     procedure RefreshPaletteMenuChecks;
     procedure RestorePaletteLayout;
     procedure CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
+    function ConfirmDocumentReplacement(const AAction: string): Boolean;
     procedure SetDirty(AValue: Boolean);
     procedure SaveToPath(const AFileName: string);
     procedure LoadDocumentFromPath(const AFileName: string);
@@ -253,6 +256,7 @@ type
     procedure StatusZoomToggleClick(Sender: TObject);
     procedure AppIdle(Sender: TObject; var Done: Boolean);
     procedure ViewportMouseWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
+    procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
@@ -315,6 +319,7 @@ begin
   DoubleBuffered := True;
   KeyPreview := True;
   OnKeyDown := @FormKeyDown;
+  OnCloseQuery := @FormCloseQuery;
 
   FPrimaryColor := RGBA(0, 0, 0, 255);
   FSecondaryColor := RGBA(255, 255, 255, 255);
@@ -746,7 +751,11 @@ begin
   CreateMenuItem(FileMenu, 'Import as &Layer...', @ImportLayerClick, ShortCut(VK_I, [ssMeta, ssShift]));
   FileMenu.AddSeparator;
   CreateMenuItem(FileMenu, '&Close', @CloseDocumentClick, ShortCut(VK_W, [ssMeta]));
-  CreateMenuItem(FileMenu, '&Save...', @SaveDocumentClick, ShortCut(VK_S, [ssMeta]));
+  FSaveMenuItem := TMenuItem.Create(FileMenu);
+  FSaveMenuItem.Caption := SaveCommandCaption(FCurrentFileName <> '');
+  FSaveMenuItem.OnClick := @SaveDocumentClick;
+  FSaveMenuItem.ShortCut := ShortCut(VK_S, [ssMeta]);
+  FileMenu.Add(FSaveMenuItem);
   CreateMenuItem(FileMenu, 'Save &As...', @SaveAsDocumentClick, ShortCut(VK_S, [ssMeta, ssShift]));
   CreateMenuItem(FileMenu, '&Print...', @PrintDocumentClick, ShortCut(VK_P, [ssMeta]));
   FileMenu.AddSeparator;
@@ -1108,7 +1117,6 @@ end;
 procedure TMainForm.PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
 var
   DisplaySurface: TRasterSurface;
-  Bitmap: TBitmap;
   LeftX: Integer;
   TopY: Integer;
   RightX: Integer;
@@ -1125,12 +1133,7 @@ begin
   begin
     DisplaySurface := BuildDisplaySurface;
     try
-      Bitmap := SurfaceToBitmap(DisplaySurface);
-      try
-        FPreparedBitmap.Assign(Bitmap);
-      finally
-        Bitmap.Free;
-      end;
+      CopySurfaceToBitmap(DisplaySurface, FPreparedBitmap);
     finally
       DisplaySurface.Free;
     end;
@@ -1568,10 +1571,14 @@ end;
 
 procedure TMainForm.UpdateCaption;
 begin
-  if FDirty then
-    Caption := Format('FlatPaint - %s*', [DisplayFileName])
-  else
-    Caption := Format('FlatPaint - %s', [DisplayFileName]);
+  Caption := WindowCaptionForDocument(DisplayFileName, FDirty);
+  UpdateSaveCommandCaption;
+end;
+
+procedure TMainForm.UpdateSaveCommandCaption;
+begin
+  if Assigned(FSaveMenuItem) then
+    FSaveMenuItem.Caption := SaveCommandCaption(FCurrentFileName <> '');
 end;
 
 function TMainForm.RecentFilesStorePath: string;
@@ -1832,6 +1839,23 @@ begin
   CreatePaletteHeader(ATarget, AKind);
   ApplyPaletteVisualState(ATarget, False);
   ClampPaletteToWorkspace(ATarget);
+end;
+
+function TMainForm.ConfirmDocumentReplacement(const AAction: string): Boolean;
+begin
+  if not NeedsDiscardConfirmation(FDirty) then
+    Exit(True);
+
+  Result := MessageDlg(
+    'Unsaved Changes',
+    Format(
+      'The current document has unsaved changes. Discard them and %s?',
+      [AAction]
+    ),
+    mtConfirmation,
+    [mbYes, mbNo],
+    0
+  ) = mrYes;
 end;
 
 procedure TMainForm.SetDirty(AValue: Boolean);
@@ -2115,6 +2139,8 @@ var
   TargetWidth: Integer;
   TargetHeight: Integer;
 begin
+  if not ConfirmDocumentReplacement('create a new document') then
+    Exit;
   TargetWidth := FDocument.Width;
   TargetHeight := FDocument.Height;
   if not RunNewImageDialog(Self, TargetWidth, TargetHeight, FNewImageResolutionDPI) then
@@ -2130,6 +2156,8 @@ begin
   try
     Dialog.Filter := SupportedOpenDialogFilter;
     if not Dialog.Execute then
+      Exit;
+    if not ConfirmDocumentReplacement('open another file') then
       Exit;
     try
       LoadDocumentFromPath(Dialog.FileName);
@@ -2172,16 +2200,22 @@ begin
     Exit;
   end;
 
+  if not ConfirmDocumentReplacement('open another file') then
+    Exit;
   LoadDocumentFromPath(FileName);
 end;
 
 procedure TMainForm.CloseDocumentClick(Sender: TObject);
 begin
+  if not ConfirmDocumentReplacement('close this document') then
+    Exit;
   ResetDocument(FDocument.Width, FDocument.Height);
 end;
 
 procedure TMainForm.ExitApplicationClick(Sender: TObject);
 begin
+  if not ConfirmDocumentReplacement('quit FlatPaint') then
+    Exit;
   Close;
 end;
 

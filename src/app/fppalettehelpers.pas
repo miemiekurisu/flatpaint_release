@@ -52,9 +52,9 @@ begin
       Result := '1';
     pkColors:
       Result := '2';
-    pkHistory:
-      Result := '3';
     pkLayers:
+      Result := '3';
+    pkHistory:
       Result := '4';
   else
     Result := '0';

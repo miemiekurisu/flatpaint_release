@@ -13,6 +13,9 @@ type
     procedure PixelGridRequiresExplicitEnable;
     procedure PixelGridRequiresHighZoom;
     procedure PixelGridVisualConstantsStayStable;
+    procedure SaveCaptionUsesEllipsisOnlyWhenAFilePromptIsNeeded;
+    procedure DiscardConfirmationTracksDirtyState;
+    procedure WindowCaptionUsesEditedSuffixForDirtyDocuments;
   end;
 
 implementation
@@ -32,6 +35,32 @@ procedure TFPViewHelpersTests.PixelGridVisualConstantsStayStable;
 begin
   AssertTrue('minimum scale should be practical', PixelGridMinScale >= 4.0);
   AssertTrue('grid color should be visible', PixelGridColor <> 0);
+end;
+
+procedure TFPViewHelpersTests.SaveCaptionUsesEllipsisOnlyWhenAFilePromptIsNeeded;
+begin
+  AssertEquals('bound file save caption', '&Save', SaveCommandCaption(True));
+  AssertEquals('prompted save caption', '&Save...', SaveCommandCaption(False));
+end;
+
+procedure TFPViewHelpersTests.DiscardConfirmationTracksDirtyState;
+begin
+  AssertTrue('dirty documents should warn before replacement', NeedsDiscardConfirmation(True));
+  AssertFalse('clean documents should not warn before replacement', NeedsDiscardConfirmation(False));
+end;
+
+procedure TFPViewHelpersTests.WindowCaptionUsesEditedSuffixForDirtyDocuments;
+begin
+  AssertEquals(
+    'clean caption',
+    'FlatPaint - Untitled',
+    WindowCaptionForDocument('Untitled', False)
+  );
+  AssertEquals(
+    'dirty caption',
+    'FlatPaint - Untitled (Edited)',
+    WindowCaptionForDocument('Untitled', True)
+  );
 end;
 
 initialization

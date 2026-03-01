@@ -8,6 +8,7 @@ uses
   Graphics, GraphType, FPColor, FPSurface;
 
 function UIToRGBA(AColor: TColor; Alpha: Byte = 255): TRGBA32;
+procedure CopySurfaceToBitmap(ASurface: TRasterSurface; ABitmap: TBitmap);
 function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;
 
 implementation
@@ -17,7 +18,7 @@ begin
   Result := IntColorToRGBA(ColorToRGB(AColor), Alpha);
 end;
 
-function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;
+procedure CopySurfaceToBitmap(ASurface: TRasterSurface; ABitmap: TBitmap);
 var
   RawImage: TRawImage;
   Buffer: Pointer;
@@ -26,6 +27,8 @@ var
   Y: Integer;
   PixelPtr: ^TRGBA32;
 begin
+  if (ASurface = nil) or (ABitmap = nil) then
+    Exit;
   RawImage.Init;
   RawImage.Description.Init_BPP32_B8G8R8A8_BIO_TTB(ASurface.Width, ASurface.Height);
   ByteCount := PtrUInt(ASurface.Width) * PtrUInt(ASurface.Height) * SizeOf(TRGBA32);
@@ -39,8 +42,13 @@ begin
     end;
   RawImage.Data := Buffer;
   RawImage.DataSize := ByteCount;
+  ABitmap.LoadFromRawImage(RawImage, True);
+end;
+
+function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;
+begin
   Result := TBitmap.Create;
-  Result.LoadFromRawImage(RawImage, True);
+  CopySurfaceToBitmap(ASurface, Result);
 end;
 
 end.

@@ -12,6 +12,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-02
+- Problem: the current Lazarus shell still allowed several normal document-replacement actions to destroy unsaved work with no confirmation at all
+- Core error: `New`, `Open`, `Open Recent`, `Close`, and `Quit` all replaced or discarded the live document immediately even when `FDirty` was true, which is a direct desktop-UX safety failure and especially jarring on macOS
+- Investigation: re-read the real `mainform.pas` handlers instead of the optimistic progress notes, then treated the issue as one document-lifecycle policy gap rather than five isolated button/menu bugs
+- Root cause: early command-surface passes prioritized wiring routes and parity labels, but the main form still had no shared "document replacement" guard before mutating or clearing the current session
+- Fix: added one shared confirmation helper, routed every destructive document-replacement path through it, made the `Save` menu caption use an ellipsis only when it truly opens a save-location prompt, and removed one extra intermediate `TBitmap` allocation from the prepared-canvas refresh path while tightening the same standards pass
+- Reuse note: once a desktop editor has real save state, treat unsaved-change confirmation as baseline correctness, not polish; centralize the policy in one helper so new document-replacement routes do not silently bypass it later
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-02-28
 - Problem: the UI had "implemented" major surfaces, but fixed-size layout assumptions made the product feel broken in normal use because controls visibly overlapped and repeated each other
 - Core error: the toolbar duplicated the tool-icon surface, the default palette rectangles overlapped at launch, and the status-bar zoom cluster was positioned from stale hard-coded widths instead of the real status-panel partition

@@ -1,5 +1,11 @@
 # Test Log
 
+## 2026-03-02
+- FPCUnit rebuild after the macOS-safety / paint-cache follow-up: `mkdir -p lib/tests dist/tests && /opt/homebrew/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 54 tests, adding save-caption and dirty-document confirmation policy coverage on top of the earlier palette, viewport, zoom, resize, file-IO, and raster regressions
+- GUI compile check after the same follow-up: `mkdir -p ./lib/gui-check ./dist/gui-check && /opt/homebrew/bin/fpc -Fu./src/core -Fu./src/app -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/widgetset -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/nonwin32 -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/components/lazutils -Fi/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/include -Fi/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa -dCOCOA -FU./lib/gui-check -FE./dist/gui-check -Cn ./flatpaint.lpr`
+- Result: passed through the current Cocoa source build with the user-supplied Lazarus tree; the new dirty-document confirmation flow, save-caption policy, and direct prepared-bitmap copy path compile cleanly in the real GUI target
+
 ## 2026-02-28
 - FPCUnit rebuild after the toolbar / palette / status-bar layout follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
 - Result: passed; the local suite now runs 52 tests, adding palette non-overlap coverage plus adaptive status-bar partition coverage on top of the earlier freeform-shape, viewport-anchor, unified-open-filter, XCF, rounded-rectangle, gamma-curve, resize, levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks

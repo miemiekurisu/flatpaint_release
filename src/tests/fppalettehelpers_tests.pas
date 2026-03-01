@@ -13,7 +13,7 @@ type
     procedure PaletteTitlesAreNonEmpty;
     procedure DefaultPaletteRectsMatchCornerClusters;
     procedure DefaultPaletteRectsDoNotOverlap;
-    procedure PaletteShortcutsFollowUtilityOrder;
+    procedure PaletteShortcutsFollowShortcutPolicy;
     procedure PaletteChromeMetricsStayCompact;
     procedure PaletteDragTintDiffersFromRestTint;
     procedure ToolsPaletteUsesNarrowTwoColumnLayout;
@@ -74,12 +74,12 @@ begin
   );
 end;
 
-procedure TFPPaletteHelpersTests.PaletteShortcutsFollowUtilityOrder;
+procedure TFPPaletteHelpersTests.PaletteShortcutsFollowShortcutPolicy;
 begin
   AssertEquals('tools shortcut', '1', PaletteShortcutDigit(pkTools));
   AssertEquals('colors shortcut', '2', PaletteShortcutDigit(pkColors));
-  AssertEquals('history shortcut', '3', PaletteShortcutDigit(pkHistory));
-  AssertEquals('layers shortcut', '4', PaletteShortcutDigit(pkLayers));
+  AssertEquals('layers shortcut', '3', PaletteShortcutDigit(pkLayers));
+  AssertEquals('history shortcut', '4', PaletteShortcutDigit(pkHistory));
 end;
 
 procedure TFPPaletteHelpersTests.PaletteChromeMetricsStayCompact;
