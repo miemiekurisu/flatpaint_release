@@ -274,7 +274,7 @@ uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
-  FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog;
+  FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog;
 
 const
   DisplayDPI = 96.0;
@@ -2728,13 +2728,13 @@ end;
 
 procedure TMainForm.PosterizeClick(Sender: TObject);
 var
-  ValueText: string;
+  Levels: Integer;
 begin
-  ValueText := '6';
-  if not InputQuery('Posterize', 'Levels (2 to 64)', ValueText) then
+  Levels := 6;
+  if not RunPosterizeDialog(Self, Levels) then
     Exit;
   FDocument.PushHistory('Posterize');
-  FDocument.Posterize(EnsureRange(StrToIntDef(ValueText, 6), 2, 64));
+  FDocument.Posterize(Levels);
   SetDirty(True);
   RefreshCanvas;
 end;

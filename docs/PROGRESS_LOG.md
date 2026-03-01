@@ -1,6 +1,9 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Posterize...` route is less placeholder-like now: it no longer uses a bare prompt box, and it now uses a dedicated levels dialog with a numeric field plus a slider for the current 2-to-64 range.
+- That `Posterize` path is now backed by a shared helper unit for parsing, clamping, and slider mapping, so the current level-count bounds are explicit and testable instead of being re-declared inline in the menu handler.
+- The adjustment surface is incrementally denser and more credible now: `Brightness / Contrast...`, `Curves...`, `Hue / Saturation...`, `Levels...`, and `Posterize...` now all use dedicated modals instead of raw prompts, although effect-side parameter dialogs and fuller paint.net adjustment fidelity still remain open.
 - The `Curves...` route is less placeholder-like now: it no longer uses a one-shot prompt box, and it now uses a dedicated gamma-curve modal with a numeric field plus a slider that matches the current shared-core baseline.
 - That `Curves` path is now backed by a shared helper unit for gamma parsing, clamping, slider mapping, and stable numeric formatting, so the current 0.10 to 5.00 policy is explicit and testable outside the main form.
 - This still does not claim full paint.net curve-editor parity: the current macOS flow is now a credible dialog around the existing one-value RGB gamma engine, but per-channel and multi-point curve editing are still open and remain below the final 1:1 target.

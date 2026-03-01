@@ -13,6 +13,14 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the `Posterize...` command was implemented, but the macOS interaction still exposed it as a raw one-line prompt instead of a stable adjustment dialog
+- Core error: users had to type a level count into `InputQuery`, which made a common tonal adjustment feel unfinished and hid the valid range behind a fragile text-only entry path
+- Investigation: after moving the other adjustment routes off prompt boxes, re-read the remaining `Adjustments` handlers and identified `Posterize...` as the next single-parameter holdout with a clear bounded range
+- Root cause: the first pass stopped at the minimum functional prompt collector and never promoted the command into a dedicated parameter surface once the underlying shared-core operation was stable
+- Fix: added a dedicated `Posterize` dialog with a numeric field plus a slider, moved parsing/clamping/slider mapping into a shared helper unit, and routed the menu command through that dialog instead of inline prompt parsing
+- Reuse note: for bounded single-parameter adjustment commands, replace long-lived prompt boxes with a small modal that exposes both direct entry and slider control once the supported range is stable
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: refreshing `dist/FlatPaint.app` exposed that the current local Cocoa build path is still less stable than the compile-only GUI check used for source validation
 - Core error: a real linked GUI build failed first on unresolved `UserNotifications` symbols and then on a `cocoawsextctrls.o` malformed method-list linker error even after adding the missing framework
 - Investigation: after the `Curves...` UI follow-up passed unit tests and the existing `-Cn` Cocoa compile check, attempted a direct linked build into `dist/FlatPaint.app` and then retried with an explicit `UserNotifications` framework link flag
