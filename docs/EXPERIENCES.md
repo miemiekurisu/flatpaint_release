@@ -13,6 +13,14 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the `Blur...` command was usable, but its parameter entry still lived on a raw prompt box even after the project had established a better modal pattern for bounded adjustments
+- Core error: users had to type a blur radius into `InputQuery`, which made a frequently used effect feel inconsistent with the newer slider-backed adjustment surfaces
+- Investigation: after upgrading the adjacent single-value adjustment routes, re-read the remaining effect handlers and treated `Blur...` as the next bounded-range prompt holdout
+- Root cause: the first effect pass prioritized getting the shared-core box blur wired end-to-end, but the UI never got the second-step upgrade into a bounded control surface
+- Fix: added a dedicated `Blur` dialog with a numeric field plus a slider, moved parsing/clamping/slider mapping into a shared helper unit, and routed the menu command through that dialog instead of inline prompt parsing
+- Reuse note: once a bounded effect command is stable, align it with the same slider-backed modal pattern used by adjustment commands so parameterized flows stop feeling randomly mixed
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the `Posterize...` command was implemented, but the macOS interaction still exposed it as a raw one-line prompt instead of a stable adjustment dialog
 - Core error: users had to type a level count into `InputQuery`, which made a common tonal adjustment feel unfinished and hid the valid range behind a fragile text-only entry path
 - Investigation: after moving the other adjustment routes off prompt boxes, re-read the remaining `Adjustments` handlers and identified `Posterize...` as the next single-parameter holdout with a clear bounded range

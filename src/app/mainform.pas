@@ -274,7 +274,8 @@ uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
-  FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog;
+  FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
+  FPBlurDialog;
 
 const
   DisplayDPI = 96.0;
@@ -2741,13 +2742,13 @@ end;
 
 procedure TMainForm.BlurClick(Sender: TObject);
 var
-  ValueText: string;
+  Radius: Integer;
 begin
-  ValueText := '2';
-  if not InputQuery('Blur', 'Radius (1 to 64)', ValueText) then
+  Radius := 2;
+  if not RunBlurDialog(Self, Radius) then
     Exit;
   FDocument.PushHistory('Blur');
-  FDocument.BoxBlur(EnsureRange(StrToIntDef(ValueText, 2), 1, 64));
+  FDocument.BoxBlur(Radius);
   SetDirty(True);
   RefreshCanvas;
 end;

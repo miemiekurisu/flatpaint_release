@@ -1,6 +1,9 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Blur...` route is less placeholder-like now: it no longer uses a bare prompt box, and it now uses a dedicated radius dialog with a numeric field plus a slider for the current 1-to-64 range.
+- That `Blur` path is now backed by a shared helper unit for parsing, clamping, and slider mapping, so the current radius bounds are explicit and testable instead of being re-declared inline in the menu handler.
+- Parameterized adjustments and effects are more consistent now: the remaining prompt-based single-value commands are shrinking, while the common bounded-range commands now follow the same numeric-field-plus-slider modal pattern.
 - The `Posterize...` route is less placeholder-like now: it no longer uses a bare prompt box, and it now uses a dedicated levels dialog with a numeric field plus a slider for the current 2-to-64 range.
 - That `Posterize` path is now backed by a shared helper unit for parsing, clamping, and slider mapping, so the current level-count bounds are explicit and testable instead of being re-declared inline in the menu handler.
 - The adjustment surface is incrementally denser and more credible now: `Brightness / Contrast...`, `Curves...`, `Hue / Saturation...`, `Levels...`, and `Posterize...` now all use dedicated modals instead of raw prompts, although effect-side parameter dialogs and fuller paint.net adjustment fidelity still remain open.
