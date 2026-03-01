@@ -1,0 +1,17 @@
+.DS_Store
+/.build
+/Packages
+xcuserdata/
+DerivedData/
+.swiftpm/configuration/registries.json
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.netrc
+/.cache
+/.home
+/.swp
+/Rulers
+/dist
+/lib
+/flatpaint
+/flatpaint.app
+/src/cli/flatpaint_cli

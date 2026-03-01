@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectOptions>
+    <Version Value="12"/>
+    <PathDelim Value="/"/>
+    <General>
+      <SessionStorage Value="InProjectDir"/>
+      <Title Value="FlatPaint"/>
+      <Scaled Value="True"/>
+      <ResourceType Value="res"/>
+      <UseXPManifest Value="False"/>
+    </General>
+    <BuildModes Count="1">
+      <Item1 Name="Default" Default="True"/>
+    </BuildModes>
+    <RunParams>
+      <FormatVersion Value="2"/>
+    </RunParams>
+    <RequiredPackages Count="1">
+      <Item1>
+        <PackageName Value="LCL"/>
+      </Item1>
+    </RequiredPackages>
+    <Units Count="9">
+      <Unit0>
+        <Filename Value="flatpaint.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FlatPaint"/>
+      </Unit0>
+      <Unit1>
+        <Filename Value="src/app/mainform.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="MainForm"/>
+      </Unit1>
+      <Unit2>
+        <Filename Value="src/core/fpcolor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPColor"/>
+      </Unit2>
+      <Unit3>
+        <Filename Value="src/core/fpsurface.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPSurface"/>
+      </Unit3>
+      <Unit4>
+        <Filename Value="src/core/fpdocument.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPDocument"/>
+      </Unit4>
+      <Unit5>
+        <Filename Value="src/core/fpio.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPIO"/>
+      </Unit5>
+      <Unit6>
+        <Filename Value="src/app/fplclbridge.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPLCLBridge"/>
+      </Unit6>
+      <Unit7>
+        <Filename Value="src/core/fpselection.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPSelection"/>
+      </Unit7>
+      <Unit8>
+        <Filename Value="src/core/fpnativeio.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPNativeIO"/>
+      </Unit8>
+    </Units>
+  </ProjectOptions>
+  <CompilerOptions>
+    <Version Value="11"/>
+    <PathDelim Value="/"/>
+    <Target>
+      <Filename Value="flatpaint"/>
+    </Target>
+    <SearchPaths>
+      <OtherUnitFiles Value="src/app;src/core;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/widgetset;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/nonwin32;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa;/Users/kurisu/Documents/workspace.nosync/lazarus/components/lazutils"/>
+      <IncludeFiles Value="$(ProjOutDir);/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/include;/Users/kurisu/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa"/>
+      <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
+    </SearchPaths>
+    <Other>
+      <CustomOptions Value="-dCOCOA -k-ld_classic"/>
+    </Other>
+    <Linking>
+      <Options>
+        <Win32>
+          <GraphicApplication Value="True"/>
+        </Win32>
+      </Options>
+    </Linking>
+  </CompilerOptions>
+</CONFIG>

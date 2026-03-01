@@ -1,0 +1,296 @@
+# Test Log
+
+## 2026-02-28
+- FPCUnit rebuild after the toolbar / palette / status-bar layout follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 52 tests, adding palette non-overlap coverage plus adaptive status-bar partition coverage on top of the earlier freeform-shape, viewport-anchor, unified-open-filter, XCF, rounded-rectangle, gamma-curve, resize, levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same UI-layout follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new status-layout helper, toolbar de-duplication, menu updates, and non-overlapping palette defaults compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log still only showed the same macOS-side `LaunchServices` / connection-invalid warnings, not a FlatPaint crash in the new UI-layout path
+- FPCUnit rebuild after the `Freeform Shape` follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 48 tests, adding polygon-outline raster coverage plus freeform-shape tool-order coverage on top of the earlier viewport-anchor, unified-open-filter, XCF, rounded-rectangle, gamma-curve, resize, levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same `Freeform Shape` follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new polygon primitive, tool metadata expansion, and GUI freeform-shape interaction path compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log still only showed the same macOS-side `LaunchServices` / connection-invalid warnings, not a FlatPaint crash in the new freeform-shape path
+- FPCUnit rebuild after the viewport-anchor / wheel-zoom follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 46 tests, adding viewport-anchor math plus modifier-wheel zoom policy coverage on top of the earlier unified-open-filter, XCF, rounded-rectangle, gamma-curve, resize, levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same viewport follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new viewport helper functions, status-bar zoom synchronization, mouse-wheel zoom handler, and cursor-anchored zoom-tool path compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log still only showed the same macOS-side `LaunchServices` / connection-invalid warnings, not a FlatPaint crash in the new viewport interaction path
+- FPCUnit rebuild after the unified open-filter / XCF-import follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 40 tests, adding a minimal XCF project-load regression plus unified open-filter coverage on top of the earlier rounded-rectangle, gamma-curve, bilinear resize, resize-dialog helper, levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same unified open-filter / XCF-import follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new XCF loader, unified dialog filters, and `.fpd`-as-layer flatten import path compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new compatibility-IO path
+- FPCUnit rebuild after the rounded-rectangle tool follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 38 tests, adding a rounded-rectangle raster regression on top of the earlier gamma-curve, bilinear resize, resize-dialog helper, levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same rounded-rectangle tool follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new rounded-rectangle raster primitive, tool metadata, preview overlay path, and GUI shape commit route compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new rounded-rectangle path
+- FPCUnit rebuild after the `Curves...` and resize-flow follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 37 tests, adding shared-core gamma-curve coverage, bilinear resize blending coverage, and resize-dialog helper coverage on top of the earlier levels, hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and raster checks
+- Lazarus project compile pass after the same `Curves...` and resize-flow follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new shared gamma-curve path, bilinear resize path, dedicated `Resize Image...` modal, and zoom-tool ladder unification compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new curves / resize path
+- FPCUnit rebuild after the `Levels...` follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 32 tests, adding shared-core levels-remap coverage on top of the earlier hue/saturation, pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and raster checks
+- Lazarus project compile pass after the same `Levels...` follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new shared levels method plus the GUI `Adjustments -> Levels...` route compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new levels path
+- FPCUnit rebuild after the `Hue / Saturation` follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 31 tests, adding shared-core hue-shift / desaturation coverage on top of the earlier pixel-grid, zoom, ruler, utility-strip, new-image, file-IO, palette, history, and raster checks
+- Lazarus project compile pass after the same `Hue / Saturation` follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new shared adjustment method plus the GUI `Adjustments -> Hue / Saturation...` route compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new adjustment path
+- FPCUnit rebuild after the pixel-grid / toolbar view-toggle follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 30 tests, adding pixel-grid visibility-threshold coverage on top of the earlier zoom, ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same pixel-grid / toolbar view-toggle follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new view helper unit plus the menu/toolbar pixel-grid routes compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new pixel-grid path
+- FPCUnit rebuild after the zoom-preset / toolbar zoom-chooser follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 27 tests, adding zoom-preset ladder / caption coverage on top of the earlier ruler, utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same zoom-preset / toolbar zoom-chooser follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new zoom helper unit plus the top-toolbar percentage chooser compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed the same macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new zoom-control path
+- FPCUnit rebuild after the rulers / segmented-status-strip follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 24 tests, adding scale-step coverage for the new ruler helper unit on top of the earlier utility-strip, new-image, file-IO, palette, history, and core raster checks
+- Lazarus project compile pass after the same rulers / segmented-status-strip follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new ruler helper unit, fixed ruler controls, `View -> Rulers` route, and segmented status-strip controls compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log only showed macOS-side LaunchServices notification warnings, not a FlatPaint crash in the new ruler / status-strip path
+- FPCUnit rebuild after the utility-strip / settings follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 21 tests, adding utility-strip metadata coverage plus a narrower tools-palette layout check on top of the earlier new-image, file-IO, palette, and history checks
+- Lazarus project compile pass after the same utility-strip / settings follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new utility helper unit, settings dialog, top-right utility strip, and narrower tools palette compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- FPCUnit rebuild after the paint.net `New`-dialog follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 17 tests, adding `New`-dialog size-estimate and print-size conversion coverage on top of the earlier file-IO, palette, and history checks
+- Lazarus project compile pass after the same `New`-dialog follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new modal `New` dialog unit and its main-form integration compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- FPCUnit rebuild after the file-IO coverage follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr`
+- Result: passed and refreshed `dist/tests/flatpaint_tests`; the local suite now runs 14 tests, adding file-format sniffing coverage and a `TGA` round-trip regression on top of the earlier palette, toolbar, and adjustment checks
+- Automated unit result after the same file-IO follow-up: `./dist/tests/flatpaint_tests --all`
+- Result: passed with 14 tests; the new checks are `LoaderCanSniffPngWithUnknownExtension` and `TargaRoundTripPreservesPixels`
+- Lazarus project compile pass after the same file-IO follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the expanded loader units, broader open/import filters, and UI-side IO error dialogs compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- FPCUnit rebuild after the visual-parity chrome follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr`
+- Result: passed and refreshed `dist/tests/flatpaint_tests`; the local suite now runs 12 tests, adding compact palette-chrome metrics and drag-tint coverage on top of the earlier history-label and palette-layout checks
+- Automated unit result after the same follow-up: `./dist/tests/flatpaint_tests --all`
+- Result: passed with 12 tests; the new checks are `PaletteChromeMetricsStayCompact` and `PaletteDragTintDiffersFromRestTint`
+- Lazarus project compile pass after the same visual-parity chrome follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the slimmer toolbar, palette title bars, darker chrome palette, and drag-state tint feedback compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- FPCUnit rebuild after the palette-visibility / labeled-history follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr`
+- Result: passed and refreshed `dist/tests/flatpaint_tests`; the local suite now runs 10 tests, adding coverage for history labels plus palette shortcut and edge-snap metadata on top of the earlier toolbar, auto-level, and floating-palette checks
+- Automated unit result after the same follow-up: `./dist/tests/flatpaint_tests --all`
+- Result: passed with 10 tests; the new checks are `HistoryLabelsTrackUndoAndRedo`, `PaletteShortcutsFollowUtilityOrder`, and `SnapPaletteRectAlignsToNearbyWorkspaceEdges`
+- Lazarus project compile pass after the same palette-visibility / labeled-history follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new `View` palette toggles, per-palette close buttons, reset-layout route, snap-on-drop behavior, and labeled history panel compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- FPCUnit rebuild after the floating-palette follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local FPCUnit suite now runs 7 tests, adding coverage for document history depth and default floating-palette layout metadata on top of the existing `Auto-Level` and tool-surface checks
+- Lazarus project compile pass after the same floating-palette follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- First result: failed because the first palette-layout helper used a local variable named `BoundsRect`, which collides in this LCL context
+- Fix applied: renamed the local variable to `PaletteRect` in `mainform.pas`
+- Final result: passed end-to-end and relinked `flatpaint`; the new workspace panel, floating palettes, drag handlers, and history/count surfaces compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- FPCUnit rebuild after the `Zoom`-tool and menu-structure follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr`
+- Result: passed and refreshed `dist/tests/flatpaint_tests` after adding explicit zoom-tool ordering coverage
+- Automated unit result after the same follow-up: `./dist/tests/flatpaint_tests --all`
+- Result: passed with 4 tests, adding `ZoomToolAppearsBeforePaintTools` on top of the earlier `Auto-Level` and tool-metadata checks
+- Lazarus project compile pass after the same `Zoom`-tool and menu-structure follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new `Zoom` tool enum path, compact tool strip, and `Edit`-menu restructuring compile cleanly under the current Cocoa target
+- FPCUnit harness bootstrap after the tool-strip and `Auto-Level` follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr`
+- First result: failed because the initial test units used Pascal unit names that did not match their filenames, so the runner could not resolve `FPSurfaceTests`
+- Fix applied: renamed the unit declarations to match `fpsurface_tests.pas` and `fpuihelpers_tests.pas`, and corrected the runner setup to use the global `DefaultFormat` / `DefaultRunAllTests` settings exposed by `consoletestrunner`
+- Final result: passed and produced `dist/tests/flatpaint_tests`
+- Automated unit result: `./dist/tests/flatpaint_tests --all`
+- Result: passed with 3 tests (`AutoLevelStretchesVisiblePixelsOnly`, `ToolDisplayOrderStartsWithSelectionTools`, and `ToolMetadataIsCompleteForDisplayOrder`)
+- Lazarus project compile pass after the compact tool-strip / print-route follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- First result: failed when the first print-dialog attempt assumed `TPrintDialog` was available from the currently imported LCL units
+- Fix applied: kept the visible `Print` routes but switched the handler to a direct default-printer render path plus explicit error reporting instead of depending on the missing dialog type
+- Final result: passed end-to-end and relinked `flatpaint`; the new tool metadata unit, compact tool strip, status-bar additions, tests, and print route all compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- CLI rebuild after the `File -> Close` route follow-up: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`; this file-menu UI pass kept the shared build green without touching CLI behavior
+- Lazarus project compile pass after the same `File -> Close` route follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the added `Close` handler and `Command+W` menu route in `mainform.pas` compile cleanly under the current Cocoa target
+- CLI rebuild after the explicit clipboard-route follow-up: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`; this GUI-route pass kept the shared build green without changing CLI behavior
+- Lazarus project compile pass after the same explicit clipboard-route follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the added `Edit` handlers in `mainform.pas` compile cleanly under the current Cocoa target
+- CLI rebuild after the `View` / status-bar UI follow-up: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`; this UI-only pass kept the CLI build green without adding new core notes
+- Lazarus project compile pass after the same `View` / status-bar UI follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the new `View` handlers and unit-aware status-bar path in `mainform.pas` compile cleanly under the current Cocoa target
+- GUI smoke path: `./flatpaint` launched successfully from the workspace, the process stayed alive long enough to confirm startup via `ps`, and it was then terminated cleanly
+- CLI rebuild after the `Auto-Level` adjustment expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`; the new `autolevel` and `autoleveldoc` command routes compile cleanly, and the build-note baseline remains at the existing `IndexOf` / `Move` notes
+- Lazarus project compile pass after the same `Auto-Level` expansion: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: passed end-to-end and relinked `flatpaint`; the current project now completes the Cocoa build path under the repository's pinned flags, with the pre-existing hint/note set still present
+- Manual CLI smoke path: `new`, `brush`, `autolevel`, `wrapdoc`, and `autoleveldoc` all completed and produced output files during the current adjustment follow-up pass
+- CLI rebuild after the recent-file and effects expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FU./lib/cli ./src/cli/flatpaint_cli.lpr`
+- First result: passed, but the initial effects pass showed repeated non-inlined helper-call notes in the new blur/convolution hot path
+- Fix applied: folded the clamp helper into `PixelAtClamped` in `fpsurface.pas`
+- Final result: passed again; the new CLI commands (`blur`, `sharpen`, `noise`, `outline`, plus native-document variants) compiled cleanly, and the effects-core build notes dropped back to the pre-existing `IndexOf` / `Move` baseline
+- Lazarus project compile pass after the same recent-file, effects, and hot-path follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the new `Open Recent` persistence flow and `Effects` menu routes in `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after the `rot180` and `rot180doc` expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FU./lib/cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed the CLI after adding the 180-degree rotation commands
+- Lazarus project compile pass after the same image/toolbar follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the new `Rotate 180` and color-toolbar actions in `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after the `MagicRead` cleanup check: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FU./lib/cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed, and the previous `MagicRead` initialization hint is gone from the CLI build path
+- Lazarus project compile pass after the same `MagicRead` cleanup check: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: the application still compiles through project units, but Lazarus/FPC continues to emit the same `MagicRead` hint in this build path before stopping at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after the document-level invert/grayscale expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FU./lib/cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed the CLI after adding `invertdoc` and `grayscaledoc`
+- Lazarus project compile pass after the same adjustments/tooling expansion: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the new gradient-tool and `Adjustments` routes in `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after the ellipse-shape core expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FU./lib/cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed the CLI after adding the shared `DrawEllipse` path and `ellipse` command
+- Lazarus project compile pass after the same ellipse/tool-catalog expansion: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the expanded shape-tool path in `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- Lazarus project compile pass after the color-picker target fix: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units compiled again after the color-picker routing fix; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- Lazarus project compile pass after the canvas prepared-bitmap performance pass: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the updated cached paint path in `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- Lazarus project compile pass after the selection-aware clipboard / tool-option / `View` pass: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- First result: failed because `VK_EQUAL` and `VK_MINUS` are not defined in the current Lazarus/LCL target
+- Fix applied: changed the zoom shortcuts to `Ord('=')` and `Ord('-')`
+- Final result: application units, including the new shared-core merged-copy path and the latest `mainform.pas` updates, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- Lazarus project compile pass after the bound-path save follow-up: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the latest `Save` / `Save As` updates in `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after the GUI lasso/clipboard/transform pass: setup `mkdir -p lib/cli`, then `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FU./lib/cli ./src/cli/flatpaint_cli.lpr`
+- First result: failed until the `-FU` output directory existed
+- Final result: passed after creating `lib/cli`
+- Lazarus project compile pass after the same GUI source expansion: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units, including the updated `mainform.pas`, compiled again; the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after clipboard/adjustment expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- First result: failed because a grouped default-parameter declaration in `fpdocument.pas` used an FPC-incompatible default-value form
+- Fix applied: split the defaulted parameters into separate declarations
+- Final result: passed and refreshed `dist/flatpaint_cli`
+- Lazarus project compile pass after the GUI import/adjustment-source changes: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: project units, including the updated `mainform.pas`, compiled; the build still stops at the existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- Manual CLI smoke path: `brightness`, `extractrect`, `extractwand`, `posterize`, `wrapdoc`, and `pastedoc` all completed and produced output files during the current FPC rewrite pass
+- Manual CLI smoke path: `brightnessdoc` and `exportlayerdoc` also completed and produced native-document and raster outputs during the same pass
+- CLI rebuild after GUI-selection and native-project-flow source expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`
+- Lazarus project compile pass after adding GUI selection tools and native `.fpd` open/save source: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units compiled again, and the build still stops only at the pre-existing Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after GUI magic-wand and layer-opacity-source expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`
+- Lazarus project compile pass after the same source expansion: `/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild flatpaint.lpi`
+- Result: application units compiled again, and the build still stops only at the same Cocoa widgetset linker fault in `cocoawsextctrls.o`
+- CLI rebuild after lasso/wand and native-layer-management expansion: `/usr/local/bin/fpc -Fu./src/core -Fu./src/cli -FE./dist -FU./dist src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`
+- Manual CLI smoke path: `new`, `filllasso`, `fillwand`, `wrapdoc`, `addlayerdoc`, `movelayerdoc`, `renamelayerdoc`, `setvisibledoc`, and `deletelayerdoc` all completed and produced output files during the current FPC rewrite pass
+- Core compile check after adding selection and native-document support: `fpc -Fu./src/core -FU./lib/corecheck -Cn ./src/core/fpdocument.pas`
+- Result: completed after the selection/native-document changes
+- CLI rebuild after adding selection and native-document commands: `fpc -Fu./src/core -FE./dist -o./dist/flatpaint_cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`
+- Manual CLI smoke path: `wrapdoc` converted a raster file into a native `.fpd` document, and `exportdoc` converted that native document back to a raster export
+- Core compile check for the expanded document transforms: `fpc -Fu./src/core -FU./lib/corecheck -Cn ./src/core/fpdocument.pas`
+- First result: failed because `-FU` output directory did not exist
+- Fix applied: created `lib/corecheck`
+- Second result: failed because `Exchange` was not available in `fpdocument.pas`
+- Fix applied: replaced the swap with an explicit temporary variable
+- Final result: the direct `fpdocument.pas` compile completed
+- CLI rebuild after the transform/adjustment expansion: `fpc -Fu./src/core -FE./dist -o./dist/flatpaint_cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed and refreshed `dist/flatpaint_cli`
+- Free Pascal rewrite baseline: `fpc -Fu./src/core -FE./dist -o./dist/flatpaint_cli ./src/cli/flatpaint_cli.lpr`
+- Result: passed and produced `dist/flatpaint_cli`
+- Lazarus GUI build status: application units compile, but the final Cocoa app link currently fails inside `cocoawsextctrls.o` with a widgetset-level linker error (`malformed method list atom`)
+- First attempt: `swift test` failed inside the workspace sandbox because SwiftPM sandbox/caches could not initialize correctly.
+- Second attempt: `swift test` rerun outside the workspace sandbox after approval.
+- Result: passed.
+- Command: `swift test`
+- Coverage in the second successful run: 4 `Testing` tests passed for the core document/layer/history/tool logic.
+- Follow-up: added one foundation workflow smoke test that chains new document, layer edit, tool selection, merge, undo, and redo.
+- Regression rerun: `swift test` passed again.
+- Final coverage in this session: 5 `Testing` tests passed, including the current slice's foundation integration smoke path.
+- Expanded regression suite: added core pixel workflow coverage for selection masks, move selection, move selected pixels, flood fill, gradient, color sampling, adjustments, effects, resize/crop/rotate, file round-trip, text stamping, recolor, and clone stamp.
+- Added dedicated integration tests for disk-backed save/load/import/export and broader end-to-end regression workflows.
+- Added clipboard integration coverage for copy/paste image workflows.
+- Latest result: `swift test` passed with 17 tests across core and integration targets.
+- Added interactive canvas support for direct drag-based editing with the selected tool; latest regression remains green.
+- Startup smoke check: launched `./.build/debug/FlatPaintApp`, confirmed the process stayed alive until manually interrupted.
+- Current latest automated result: `swift test` passed with 18 tests across core and integration targets.
+- Added tool-option behavior coverage and layer property coverage.
+- Latest automated result: `swift test` passed with 19 tests across core and integration targets.
+- Added export-option coverage (PNG interlace, JPEG quality path, TIFF export, flatten-required guard) and compatibility import coverage for Krita package fallback import.
+- Latest automated result: `swift test` passed with 21 tests across core and integration targets.
+- Launch smoke re-run after file-dialog and settings changes: `./.build/debug/FlatPaintApp` stayed alive until explicitly terminated.
+- Added coverage for contrast adjustment and selection-aware clipboard workflows (`Copy`/`Cut` bounded to the active selection).
+- Latest automated result: `swift test` passed with 21 tests across core and integration targets after the clipboard and contrast changes.
+- Launch smoke re-run after the latest menu/clipboard changes: `./.build/debug/FlatPaintApp` stayed alive and was interrupted cleanly from a TTY session.
+- Added a shortcut-policy pass and corrected `Save` / `Save As` semantics and `Deselect` shortcut semantics in the app menu layer.
+- Added unit coverage for document-title updates so the new native Save/Save As flow remains traceable in core behavior.
+- Added integration coverage that `Open` on a raster file replaces the current workspace as a new document instead of silently importing as a layer.
+- Latest automated result: `swift test` passed with 23 tests across core and integration targets after the shortcut/save/open-flow audit fixes.
+- Added viewport-state coverage for rulers/pixel-grid/transparency toggles and core color-state coverage for swap/reset.
+- Latest automated result: `swift test` passed with 24 tests across core and integration targets after the view-layer and color-panel work.
+- UI-shell follow-up: added floating companion windows for tools/layers/history and replaced the text-only tool palette with icon-backed controls; latest automated regression remained green.
+- Latest maintenance rerun: `swift test` passed with 24 tests, and `dist/FlatPaint.app` was refreshed as the current last-known-good bundle.
+- Added viewport-fit coverage for large canvases and large-image open behavior; latest automated result is `swift test` passed with 26 tests.
+- Post-audit regression rerun: `swift test` passed again with 26 tests after adding the UI parity audit docs and fixing an `@MainActor` cleanup compile error in the floating-palette coordinator.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` as the current last-known-good bundle after the successful regression pass.
+- UI-parity follow-up rerun: `swift test` passed again with 26 tests after adding the dedicated floating `Colors` window and tightening the default workspace panel and toolbar composition.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the UI-parity follow-up changes.
+- UI-parity refinement rerun: `swift test` passed again with 26 tests after replacing the embedded history block with a compact history dock card and adding cursor/sampled-color status-bar feedback.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the workspace refinement pass.
+- Floating-palette persistence rerun: `swift test` passed again with 26 tests after adding per-palette frame autosave and reducing the docked color section to a summary/launcher.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the floating-palette persistence pass.
+- Default-palette-launch rerun: `swift test` passed again with 26 tests after auto-opening the core palette set on first workspace appearance.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the default-palette-launch pass.
+- Palette-proportion refinement rerun: `swift test` passed again with 26 tests after tightening floating palette sizes/default placement, moving zoom emphasis toward the status bar, adding `View` palette commands, and shrinking the docked layer surface to a summary/launcher.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the palette-proportion refinement pass.
+- Single-instance-palette rerun: `swift test` passed again with 26 tests after converting the four utility palettes to single-instance `Window` scenes and adding `Command+1...4` shortcuts for them.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the single-instance-palette pass.
+- Viewport-smoothness rerun: `swift test` passed with 27 tests after adding interactive no-history zoom, pinch-to-zoom wiring, and unit coverage that interactive zoom does not pollute history.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the viewport-smoothness pass.
+- Workspace-overlap and render-cache rerun: `swift test` passed again with 27 tests after removing the docked tools/inspector overlays and caching both the composited raster and `NSImage` bridge for viewport-only changes.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the overlap and render-cache pass.
+- Native-viewport rerun: `swift test` passed again with 27 tests after replacing the SwiftUI magnification path with an AppKit-backed trackpad viewport and tightening floating palette window ordering.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the native-viewport pass.
+- Runtime smoke and diagnostics: launched `./.build/debug/FlatPaintApp`, confirmed the process stayed alive, captured a one-shot `sample` stack report, and queried system logs for the last minute; the stack sample showed the main thread idle in AppKit's event loop and the log query showed no app-specific crash/error lines in that window.
+- Final verification rerun: `swift test` passed again with 27 tests after the viewport initialization follow-up.
+- Final bundle refresh: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again as the latest known-good bundle.
+- Final bundle smoke and sample: `open dist/FlatPaint.app` launched the packaged app, `sample` captured a live stack from the bundle process, and the main thread again sampled idle inside the normal AppKit event loop.
+- UI-baseline-and-coverage rerun: `swift test` passed again with 34 tests after moving utility surfaces back into the main window, fixing launch-time default panel placement, and adding granular menu/tool-equivalent coverage.
+- Current breakdown: 28 unit tests in `FlatPaintCoreTests` and 6 integration tests in `FlatPaintIntegrationTests`.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the default-layout and coverage pass.
+- Menu-completeness rerun: `swift test` passed again with 75 tests after adding per-menu-item command coverage and explicit file-command integration coverage.
+- Current breakdown: 66 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Coverage note: `View`, `Layers`, `Image`, `Edit`, `Adjustments`, and `Effects` commands now have individually named tests, while clipboard commands remain covered in a consolidated integration path to avoid global pasteboard concurrency hazards.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the menu-completeness pass.
+- Tool-coverage rerun: `swift test` passed again with 83 tests after adding dedicated tool-equivalent tests for tool-catalog completeness, pan, crop, freeform lasso selection, and single-tap brush/pencil/eraser behavior.
+- Current breakdown: 74 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Bundle refresh rerun: `./scripts/build_app_bundle.sh` rebuilt `dist/FlatPaint.app` again after the tool-coverage pass.
+- Bundle smoke rerun: `open dist/FlatPaint.app` launched the packaged app successfully, the process was confirmed live via `ps`, and then it was terminated cleanly.
+- Documentation baseline tightened: category-level command tests are now explicitly insufficient for UAT; remaining work must expand toward one visible command-surface item at a time as defined in `docs/COMMAND_SURFACE_BASELINE.md`.
+- Command-surface follow-up rerun: `swift test` passed again with 87 tests after adding command-level coverage for `Select All`, `Invert Selection`, `Fill Selection`, `Zoom To Selection`, and extending the serialized clipboard integration path to cover `Paste into New Image`.
+- Current breakdown: 78 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Command-surface follow-up rerun: `swift test` passed again with 93 tests after adding baseline zoom-tool coverage plus command-level coverage for `Rotate 90° Left`, `Rotate 180°`, `Flatten` (Image), `Black and White`, and `Sepia`.
+- Current breakdown: 84 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Toolbar-route follow-up rerun: `swift test` passed again with 93 tests after wiring `New`, `Open`, `Save`, `Cut`, `Copy`, and `Paste` into the top toolbar; this pass did not add new tests, but it kept the shell changes inside the current regression envelope.
+- Tabbed-shell rerun: `swift test` passed again with 98 tests after adding a multi-document workspace controller, tab-management coverage, and save-baseline tracking tests.
+- Current breakdown: 89 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Bundle smoke rerun: `open dist/FlatPaint.app` launched the packaged app after the tabbed-shell pass; a delayed `ps` check confirmed the process was live, and it was then terminated cleanly.
+- Tab-navigation rerun: `swift test` passed again with 99 tests after adding next/previous image-session navigation coverage in the workspace controller.
+- Current breakdown: 90 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Shell follow-up rerun: `swift test` passed again with 99 tests after wiring `Open Recent`, `Save All Images`, `Print`, and a baseline tab context menu; this pass kept the UI-shell changes inside the current regression envelope without adding new tests.
+- Bundle smoke rerun: `open dist/FlatPaint.app` launched the packaged app after the latest shell pass; a delayed `ps` check confirmed the process was live, and it was then terminated cleanly.
+- Geometry-and-units rerun: `swift test` passed again with 101 tests after adding command-level coverage for image resampling and unit conversion behavior.
+- Current breakdown: 92 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.

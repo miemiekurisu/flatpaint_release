@@ -1,0 +1,220 @@
+# Product Requirements Document
+
+## Product name
+FlatPaint
+
+## Product mission
+Build a native macOS desktop recreation of paint.net: preserve the practical workflow, command discoverability, interface expectations, and day-to-day editing power of paint.net, while re-implementing the stack in a maintainable macOS-native form.
+
+## Product positioning
+FlatPaint sits between preview-style tools and heavyweight professional suites.
+It must be fast enough for screenshots, UI assets, casual photo correction, memes, small composites, and annotation work.
+It is not trying to compete with Photoshop on depth, but it must feel complete and dependable for common editing tasks.
+
+## Reference hierarchy
+1. UX and product reference: paint.net
+- Primary and authoritative reference for mental model, command naming, workspace layout, menu grouping, tool expectations, and editing flow.
+- If a GIMP/Krita pattern conflicts with paint.net user expectations, paint.net wins.
+- The detailed workspace-layout parity checklist is maintained in `docs/UI_PARITY_AUDIT.md` and is part of the product baseline.
+- The detailed visible-command checklist is maintained in `docs/COMMAND_SURFACE_BASELINE.md` and is part of the product baseline.
+
+2. Backend implementation reference: GIMP and Krita
+- Secondary reference for engine decomposition, raster-operation boundaries, effect/adjustment organization, file compatibility fallbacks, and defensive memory/runtime behavior.
+- Backend borrowing must not make the user-facing behavior drift away from paint.net.
+
+3. Local implementation rule
+- When paint.net behavior is clear, follow paint.net.
+- When paint.net source is unavailable or behavior is ambiguous, use the simplest GIMP/Krita-style backend pattern that still preserves paint.net-style user expectations.
+
+## Problem statement
+macOS lacks a lightweight layer-based image editor with paint.net-level practicality.
+Existing tools are often either too simple for real retouching/compositing or too heavy for fast everyday work.
+The gap is specifically in a responsive, familiar, low-friction editor that still has layers, selections, adjustments, effects, and real export/import workflows.
+
+## Target users
+- Developers editing screenshots, icons, UI assets, and release imagery
+- Designers who need quick edits without opening a heavy suite
+- Casual users doing fast retouching, annotation, composition, and export work
+- Users migrating from paint.net who want similar behavior on macOS
+
+## Product principles
+- Native macOS desktop behavior first
+- paint.net recreation fidelity first on UX-facing decisions
+- Simple, deterministic, testable editing core
+- Fast common actions, low friction, low ceremony
+- Complete command surfaces: menus, shortcuts, quick actions, sheet options, and tool options are all first-class
+- Visible controls are requirements, not decoration
+- Explicit compatibility behavior is better than silent failure
+- Memory discipline matters: avoid avoidable raster duplication and UI-side re-encoding churn
+
+## In-scope feature surface
+### Workspace and interaction
+- Single-window workspace
+- Tabbed document strip for multiple open images, with a new-document size prompt before creating a fresh tab
+- Tool palette
+- Dedicated colors palette
+- Top toolbar for common actions and view toggles in the main workspace
+- Canvas viewport with checkerboard transparency
+- Trackpad-friendly viewport interaction, including pinch-to-zoom driven through a macOS-native AppKit viewport path rather than a SwiftUI-only gesture path
+- Layers panel
+- History panel
+- Color controls
+- Tool options / command-adjacent option surfaces
+- Main-window child utility panels for tools, layers, history, colors, and similar workspace controls, with fixed paint.net-style default placement on launch
+- Cohesive tool and panel iconography instead of text-only control surfaces
+- Palette movement behavior should avoid heavy canvas obstruction; semi-transparent drag-state behavior is part of the target desktop feel, but launch-time positions should reset to the product-default layout instead of restoring prior sessions
+- Native menu bar commands
+- Keyboard shortcuts for primary workflows
+- Every visible menu item, toolbar icon, tool icon, utility icon, and status-bar control tracked in `docs/COMMAND_SURFACE_BASELINE.md`
+- Quick action surfaces for discoverability
+- Native macOS settings/preferences entry for persistent defaults
+- Status bar with practical live document/context information
+
+### Editing core
+- Raster document model independent of UI state
+- Deterministic undo/redo history for all mutations
+- Multi-layer editing
+- Visibility, opacity, blend modes, reorder, duplicate, rename, merge down, flatten
+- Zoom and pan
+- Large-image open behavior should default to a fitted proportional zoom instead of forcing a 1:1 view that destabilizes the workspace
+- Canvas resize, crop, rotate, flip
+
+### Selection tools
+- Rectangle select
+- Ellipse select
+- Lasso select
+- Magic wand
+- Move selection
+- Move selected pixels
+- Additive and subtractive selection composition
+
+### Paint and utility tools
+- Pan canvas tool
+- Crop tool
+- Pencil
+- Paintbrush
+- Eraser
+- Paint bucket
+- Gradient
+- Color picker
+- Recolor
+- Clone stamp
+- Text
+- Line / curve baseline
+- Basic shapes baseline
+
+### Adjustments and effects
+- Auto-level
+- Brightness / contrast baseline
+- Hue / saturation
+- Posterize
+- Grayscale
+- Black and white
+- Sepia
+- Invert
+- Core blur
+- Sharpen
+- Noise
+- Outline / edge-style baseline
+- Additional effect families may be added incrementally if they map clearly to the matrix
+
+### File and compatibility workflows
+- New / open / save native document
+- Save As native document
+- Export PNG / JPEG / TIFF
+- Format-specific export options in save sheets
+- JPEG compression quality control
+- PNG interlace control where supported
+- Flattening behavior control for single-layer export formats
+- Clipboard copy/paste image workflows
+- Raster image import for common image formats
+- PSD import as flattened raster if layered fidelity is not yet implemented
+- paint.net `.pdn`, GIMP `.xcf`, and Krita `.kra` import as compatibility paths, at least as flattened layers when full fidelity is unavailable
+- Unified open flow that routes native docs, raster images, and compatibility opens predictably: `Open` replaces the current workspace, while `Import` adds a layer
+
+## Explicitly out of scope for current baseline
+- Third-party plugin execution
+- Full PSD round-trip fidelity
+- Full `.pdn`, `.xcf`, `.kra` layered fidelity
+- RAW pipeline
+- Cloud collaboration
+- Mobile builds
+
+## Functional requirements
+1. The app must launch into a usable editing workspace, not a placeholder shell.
+2. The app must be operable for real image edits through the current UI, not only through tests.
+3. Every mutating document action must create an undoable history entry, while non-destructive view-state changes (such as zoom/pan/grid toggles) must stay out of document history.
+4. Core editing behavior must remain testable without UI involvement.
+5. The menu bar, shortcut layer, quick actions, and tool-option surfaces must expose the primary workflows.
+6. Shortcut behavior must preserve paint.net command intent while translating modifier usage to native macOS conventions.
+7. Save and export sheets must expose output-affecting options instead of hiding them behind hardcoded defaults.
+8. If a format is only partially supported, the app must use an explicit fallback path and keep the result usable.
+9. File open behavior must be deterministic across native documents, raster imports, and compatibility imports.
+10. Opening a very large image must fit the initial viewport proportionally so the workspace remains usable and does not collapse around the canvas.
+11. Layer, selection, transform, adjustment, and effect actions must operate on real pixel data.
+12. The user experience must remain recognizably aligned with paint.net in command grouping, interface expectations, and expected flow.
+13. Backend implementation decisions may borrow from GIMP/Krita patterns, but user-facing command semantics must remain paint.net-aligned.
+14. Major workspace panels must behave as main-window child surfaces with paint.net-style default placement, constrained movement, and practical dock-like behavior.
+15. Core workspace controls should use a coherent icon system so tools and panel actions are visually scannable.
+16. Floating utility palettes should reduce visual obstruction while being repositioned, including a drag-time translucency behavior target.
+17. The workspace must expose both a top toolbar-like control strip and a meaningful status bar, in line with paint.net’s main-window information layout.
+18. No visible menu item, toolbar icon, tool icon, utility icon, image-list control, or status-bar control may remain as a non-functional placeholder.
+19. A visible command surface is only complete when both its backend behavior and its visible route are implemented and tested.
+
+## Non-functional requirements
+- Cold launch target: under 2 seconds on an Apple Silicon development machine after stabilization work
+- Common non-render-heavy actions should feel immediate (<100 ms perceived delay)
+- Crash-free target: 99%+ in internal sessions before wider release
+- Memory discipline: avoid duplicate full-frame buffers unless required by undo/history or a deliberate render stage
+- UI rendering should avoid unnecessary format round-trips during preview generation
+- Viewport interaction should avoid obvious stutter from history churn or other avoidable UI-side work during continuous input
+- Safety: track regressions, warnings, and runtime hazards (including likely leak-prone patterns) in the engineering experience log
+
+## UX requirements
+- The default workspace must remain single-window and practical.
+- Tool placement, layer flow, menu naming, and command grouping should feel familiar to paint.net users.
+- Keyboard shortcuts should feel like macOS-native translations of paint.net, not arbitrary remaps.
+- Floating utility palettes should feel like natural extensions of the docked workspace, not disconnected secondary UIs.
+- Floating utility palettes should communicate movement with lightweight translucency or similar anti-obstruction feedback while being repositioned.
+- The canvas must remain the visual center, while major control strips and palettes read as overlays or utility surfaces above it rather than competing layouts that squeeze it.
+- The default visible arrangement of controls must resemble paint.net's compact palette-and-canvas composition, not a generic sidebar-based SwiftUI utility layout.
+- Native macOS adaptation is allowed where platform conventions materially improve usability.
+- Hidden workflow surfaces inside modal sheets must be treated as part of the UX, not optional polish.
+- The app should be usable with both mouse and trackpad.
+- Trackpad interaction should feel native, including AppKit-backed pinch zoom support, non-sticky continuous zoom, and reasonably smooth scrolling behavior.
+- The visual/layout parity audit in `docs/UI_PARITY_AUDIT.md` must be reviewed before claiming UI readiness.
+
+## Architecture direction
+- App shell: SwiftUI with AppKit bridging where macOS-native controls or performance require it
+- Editing core: pure Swift domain model and raster operations in `FlatPaintCore`
+- Rendering path: CPU raster first; keep a clean seam for future acceleration
+- Compatibility adapters: isolated file-format import/export helpers, separate from core document mutation logic
+- Reference architecture influence:
+  - paint.net defines the UX target
+  - Krita-style separation informs image core vs plugin/format boundaries
+  - GIMP-style separation informs image core vs file/processing pipeline boundaries
+
+## Release phases
+1. Foundation
+- Workspace shell, document model, layer stack, history, tests, traceability docs
+
+2. Core editing
+- Selections, drawing, fill, transform, viewport interaction, core tool options
+
+3. Adjustments and effects
+- Practical baseline adjustments/effects with testable raster behavior
+
+4. File and compatibility hardening
+- Native document flow, export options, clipboard, compatibility import, menu/shortcut coverage, integration and regression testing
+
+5. UAT readiness
+- Launchable, usable desktop app with stable end-to-end editing flow, exhaustive visible-command coverage, and documented remaining gaps
+
+## UAT gate
+FlatPaint reaches UAT readiness only when all of the following are true:
+- The app launches and remains stable in a manual smoke run.
+- A user can open/import, edit, and export a real image through the UI.
+- Primary workflows are accessible from menus and/or visible controls.
+- Unit, integration, and regression suites pass.
+- The feature matrix explicitly marks any remaining gaps.
+- The docs, code, and logs agree on the current product state.
