@@ -13,6 +13,14 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the `Hue / Saturation...` command technically existed, but the UI still split one adjustment task across two generic prompt boxes
+- Core error: users had to answer two unrelated `InputQuery` prompts in sequence, which is not a credible desktop adjustment flow on macOS and made the command feel less complete than the underlying shared-core implementation
+- Investigation: re-read the `Adjustments` handlers against the development rules and compared the existing route with the already-upgraded `New` and `Resize Image` dialog paths to isolate where this adjustment surface was still lagging behind
+- Root cause: earlier parity work prioritized making the command real end-to-end, but the route stopped at the first minimally functional prompt-based input path and never got upgraded into a task-specific modal
+- Fix: added a dedicated `Hue / Saturation` dialog plus a shared helper unit for signed adjustment parsing/clamping, then routed the menu command through that dialog instead of chaining `InputQuery` calls inline in `mainform.pas`
+- Reuse note: once an adjustment command needs more than one user input, stop using serial prompt boxes; move the parameters into one dedicated dialog and push the parsing/clamping rules into a pure helper so the bounds stay testable
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the current Lazarus shell still allowed several normal document-replacement actions to destroy unsaved work with no confirmation at all
 - Core error: `New`, `Open`, `Open Recent`, `Close`, and `Quit` all replaced or discarded the live document immediately even when `FDirty` was true, which is a direct desktop-UX safety failure and especially jarring on macOS
 - Investigation: re-read the real `mainform.pas` handlers instead of the optimistic progress notes, then treated the issue as one document-lifecycle policy gap rather than five isolated button/menu bugs

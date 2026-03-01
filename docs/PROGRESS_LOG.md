@@ -1,6 +1,8 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Hue / Saturation...` route is less placeholder-like now: it no longer chains two generic prompt boxes, and it now uses a dedicated dual-parameter modal that keeps the hue and saturation controls in one task-specific dialog.
+- That dialog flow is now backed by a shared helper unit for parsing and clamping signed adjustment values, so the parameter bounds are explicit, testable, and reusable instead of being re-declared inline in the main form.
 - The current macOS desktop workflow is safer now: replacing or closing the current document no longer silently discards edits, because `New`, `Open`, `Open Recent`, `Close`, and `Quit` now all prompt before abandoning dirty state.
 - That safety fix now also covers the real macOS window-close path instead of only menu commands: the form's close-query route uses the same dirty-document guard, so the titlebar close button no longer bypasses the unsaved-change prompt.
 - The `Save` command is also slightly closer to normal macOS command semantics: the menu caption now uses an ellipsis only when the current document has no bound file path and the action will actually fall through to a save-location prompt.

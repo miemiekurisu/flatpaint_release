@@ -274,7 +274,7 @@ implementation
 uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
-  FPViewHelpers, FPViewportHelpers, FPStatusHelpers;
+  FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog;
 
 const
   DisplayDPI = 96.0;
@@ -2653,20 +2653,15 @@ end;
 
 procedure TMainForm.HueSaturationClick(Sender: TObject);
 var
-  HueText: string;
-  SaturationText: string;
+  HueDelta: Integer;
+  SaturationDelta: Integer;
 begin
-  HueText := '0';
-  SaturationText := '0';
-  if not InputQuery('Hue / Saturation', 'Hue shift (-180 to 180)', HueText) then
-    Exit;
-  if not InputQuery('Hue / Saturation', 'Saturation delta (-100 to 100)', SaturationText) then
+  HueDelta := 0;
+  SaturationDelta := 0;
+  if not RunHueSaturationDialog(Self, HueDelta, SaturationDelta) then
     Exit;
   FDocument.PushHistory('Hue / Saturation');
-  FDocument.AdjustHueSaturation(
-    EnsureRange(StrToIntDef(HueText, 0), -180, 180),
-    EnsureRange(StrToIntDef(SaturationText, 0), -100, 100)
-  );
+  FDocument.AdjustHueSaturation(HueDelta, SaturationDelta);
   SetDirty(True);
   RefreshCanvas;
 end;
