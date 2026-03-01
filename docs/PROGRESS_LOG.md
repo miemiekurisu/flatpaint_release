@@ -1,6 +1,9 @@
 # Development Progress Log
 
 ## 2026-03-02
+- The `Curves...` route is less placeholder-like now: it no longer uses a one-shot prompt box, and it now uses a dedicated gamma-curve modal with a numeric field plus a slider that matches the current shared-core baseline.
+- That `Curves` path is now backed by a shared helper unit for gamma parsing, clamping, slider mapping, and stable numeric formatting, so the current 0.10 to 5.00 policy is explicit and testable outside the main form.
+- This still does not claim full paint.net curve-editor parity: the current macOS flow is now a credible dialog around the existing one-value RGB gamma engine, but per-channel and multi-point curve editing are still open and remain below the final 1:1 target.
 - The `Brightness / Contrast...` route is materially closer to paint.net now: the wrong split `Brightness...` and `Contrast...` menu items have been collapsed back into one combined adjustment command with a dedicated two-field modal.
 - That command is now backed by a shared helper unit for parsing and clamping both parameters, so the current signed ranges are explicit and testable instead of being buried in separate prompt handlers.
 - This is a command-surface parity fix first: the current implementation still applies brightness and then contrast as two sequential shared-core operations rather than a richer previewable combined adjustment engine, but the visible macOS workflow now matches the expected single-task shape much more closely.

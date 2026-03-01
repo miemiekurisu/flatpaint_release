@@ -13,6 +13,22 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: refreshing `dist/FlatPaint.app` exposed that the current local Cocoa build path is still less stable than the compile-only GUI check used for source validation
+- Core error: a real linked GUI build failed first on unresolved `UserNotifications` symbols and then on a `cocoawsextctrls.o` malformed method-list linker error even after adding the missing framework
+- Investigation: after the `Curves...` UI follow-up passed unit tests and the existing `-Cn` Cocoa compile check, attempted a direct linked build into `dist/FlatPaint.app` and then retried with an explicit `UserNotifications` framework link flag
+- Root cause: the current local Lazarus/FPC Cocoa widgetset path in this environment still has a linker-level issue beyond the project source itself, so compile-only success does not yet guarantee a runnable linked app bundle
+- Fix: no source change in this pass; kept the source-validation path on the existing compile-only Cocoa check and left full bundle refresh as a tracked local toolchain blocker
+- Reuse note: do not treat `-Cn` Cocoa compile success as equivalent to a verified macOS app bundle on this toolchain; validate at least one real linked GUI build separately before assuming `dist/FlatPaint.app` is current
+- Repeat count: `This issue has occurred 1 time(s)`
+
+- Problem: the `Curves...` command existed, but the macOS flow still reduced it to a single raw prompt despite the project already having a documented adjustment-dialog baseline
+- Core error: users had to type one gamma number into `InputQuery`, which made the command feel unfinished and hid the actual supported range/midtone behavior behind a placeholder interaction
+- Investigation: re-read the `Adjustments` handlers after the recent modal upgrades and compared the remaining prompt-based `Curves...` route against the current shared-core reality, which is a one-value RGB gamma curve rather than a full point-curve editor
+- Root cause: the earlier implementation correctly limited backend scope to a simple gamma curve, but the UI never moved past the first minimal prompt collector, so the visible interaction undersold the real supported behavior
+- Fix: added a dedicated `Curves` dialog with a gamma slider plus numeric field, moved gamma parsing/clamping/slider mapping into a shared helper unit, and routed the menu command through that dialog while explicitly keeping the backend as the existing one-value RGB gamma path
+- Reuse note: even when backend scope is intentionally narrower than the target product, build a task-specific dialog that honestly reflects the real supported subset; do not leave long-lived core commands on raw prompt boxes once the behavior is stable
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the code claimed to support the paint.net brightness/contrast baseline, but the visible command surface had drifted into two separate menu commands that do not match the expected workflow
 - Core error: users saw `Brightness...` and `Contrast...` as unrelated actions instead of one `Brightness / Contrast...` adjustment task, which broke 1:1 command-surface parity even though the underlying raster operations already existed
 - Investigation: re-read the `Adjustments` menu against the command-surface baseline after the recent modal work and compared the current split handlers with the PRD's explicit `Brightness / contrast baseline`

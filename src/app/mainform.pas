@@ -274,7 +274,7 @@ uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
-  FPLevelsDialog, FPBrightnessContrastDialog;
+  FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog;
 
 const
   DisplayDPI = 96.0;
@@ -2639,13 +2639,13 @@ end;
 
 procedure TMainForm.CurvesClick(Sender: TObject);
 var
-  GammaText: string;
+  GammaValue: Double;
 begin
-  GammaText := '1.00';
-  if not InputQuery('Curves', 'Gamma (0.10 to 5.00, 1.00 = neutral)', GammaText) then
+  GammaValue := 1.0;
+  if not RunCurvesDialog(Self, GammaValue) then
     Exit;
   FDocument.PushHistory('Curves');
-  FDocument.AdjustGammaCurve(StrToFloatDef(GammaText, 1.0));
+  FDocument.AdjustGammaCurve(GammaValue);
   SetDirty(True);
   RefreshCanvas;
 end;
