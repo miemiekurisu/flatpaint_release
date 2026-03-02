@@ -1,6 +1,30 @@
 # Test Log
 
 ## 2026-03-02
+- FPCUnit rebuild after the selection-intersect follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 92 tests, adding direct `TSelectionMask` intersect coverage plus a document-level magic-wand intersect regression
+- Lazarus project compile pass after the same follow-up: `./scripts/build.sh`
+- Result: passed end-to-end and refreshed `flatpaint`, `flatpaint.app`, and `dist/FlatPaint.app`; the new selection-combine mode and `Shift+Option` routing compile cleanly under the current Cocoa target
+- GUI smoke path after the same follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log still only showed the same macOS-side `LaunchServices` / connection-invalid warnings, not a FlatPaint crash in the new selection path
+- FPCUnit rebuild after the tool-surface audit plus `Pan` / `Pencil` follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 89 tests, adding zero-radius pencil-stroke coverage, a shared `Pan` scroll helper regression, and updated tool-order coverage while keeping the palette-layout regressions green after the taller `Tools` window baseline
+- Lazarus project compile pass after the same tool follow-up: `./scripts/build.sh`
+- Result: passed end-to-end and refreshed `flatpaint`, `flatpaint.app`, and `dist/FlatPaint.app`; the new `Pan` / `Pencil` tool routes plus the updated palette metrics compile cleanly under the current Cocoa target
+- GUI smoke path after the same tool follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log still only showed the same macOS-side `LaunchServices` / connection-invalid warnings, not a FlatPaint crash in the new tool path
+- FPCUnit rebuild after the menu/layout follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
+- Result: passed; the local suite now runs 86 tests, adding file-menu helper coverage plus the new workspace-aware palette and status-bar layout regressions
+- Lazarus project compile pass after the same menu/layout follow-up: `./scripts/build.sh`
+- Result: passed end-to-end and refreshed `flatpaint`, `flatpaint.app`, and `dist/FlatPaint.app`; the new `Acquire` route, `Save All Images` route, deferred palette layout pass, and right-edge zoom-cluster layout compile cleanly under the current Cocoa target
+- GUI smoke path after the same menu/layout follow-up: `./flatpaint >/tmp/flatpaint-smoke.log 2>&1 & pid=$!; sleep 2; kill $pid; wait $pid || true`
+- Result: process launched and stayed up long enough for a timed smoke run; the captured log still only showed the same macOS-side `LaunchServices` / connection-invalid warnings, not a FlatPaint crash in the new menu/layout path
+- Build-script syntax check after the local-maintenance follow-up: `bash -n ./scripts/common.sh ./scripts/clean.sh ./scripts/build.sh ./scripts/build-release.sh ./scripts/build_app_bundle.sh`
+- Result: passed; the new clean/build/release entry points are syntactically valid shell scripts
+- Manual clean/build path check after the same follow-up: `./scripts/clean.sh && ./scripts/build.sh`
+- Result: passed; the scripts removed generated outputs, rebuilt `flatpaint`, and refreshed both `flatpaint.app` and `dist/FlatPaint.app`
+- Manual release path check after the same follow-up: `./scripts/build-release.sh`
+- Result: passed; the scripts performed a clean rebuild, refreshed `dist/FlatPaint.app`, and emitted the stripped release binary at `dist/release/flatpaint`
 - FPCUnit rebuild after the `Add Noise...` dialog follow-up: `mkdir -p lib/tests dist/tests && /opt/homebrew/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
 - Result: passed; the local suite now runs 79 tests, adding noise helper coverage on top of the earlier blur, posterize, curves, brightness/contrast, levels, hue/saturation, save-state, palette, viewport, and raster regressions
 - GUI compile check after the same follow-up: `mkdir -p ./lib/gui-check ./dist/gui-check && /opt/homebrew/bin/fpc -Fu./src/core -Fu./src/app -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/widgetset -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/nonwin32 -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa -Fu/Users/chrischan/Documents/workspace.nosync/lazarus/components/lazutils -Fi/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/include -Fi/Users/chrischan/Documents/workspace.nosync/lazarus/lcl/interfaces/cocoa -dCOCOA -FU./lib/gui-check -FE./dist/gui-check -Cn ./flatpaint.lpr`

@@ -10,8 +10,12 @@ uses
 function UIToRGBA(AColor: TColor; Alpha: Byte = 255): TRGBA32;
 procedure CopySurfaceToBitmap(ASurface: TRasterSurface; ABitmap: TBitmap);
 function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;
+function BitmapToSurface(ABitmap: TBitmap): TRasterSurface;
 
 implementation
+
+uses
+  Math;
 
 function UIToRGBA(AColor: TColor; Alpha: Byte): TRGBA32;
 begin
@@ -49,6 +53,20 @@ function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;
 begin
   Result := TBitmap.Create;
   CopySurfaceToBitmap(ASurface, Result);
+end;
+
+function BitmapToSurface(ABitmap: TBitmap): TRasterSurface;
+var
+  X: Integer;
+  Y: Integer;
+begin
+  if (ABitmap = nil) or (ABitmap.Width <= 0) or (ABitmap.Height <= 0) then
+    Exit(TRasterSurface.Create(1, 1));
+
+  Result := TRasterSurface.Create(Max(1, ABitmap.Width), Max(1, ABitmap.Height));
+  for Y := 0 to ABitmap.Height - 1 do
+    for X := 0 to ABitmap.Width - 1 do
+      Result[X, Y] := IntColorToRGBA(ColorToRGB(ABitmap.Canvas.Pixels[X, Y]), 255);
 end;
 
 end.

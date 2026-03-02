@@ -7,14 +7,15 @@ uses
   cwstring,
 {$endif}
   fpcunit, testregistry, consoletestrunner,
-  fpsurface_tests, fpuihelpers_tests, fpdocument_tests, fppalettehelpers_tests,
+  fpsurface_tests, fpuihelpers_tests, fpdocument_tests, fpselection_tests, fppalettehelpers_tests,
   fpio_tests, fpnewimagehelpers_tests, fputilityhelpers_tests,
   fprulerhelpers_tests, fpzoomhelpers_tests, fpviewhelpers_tests,
   fpcurveshelpers_tests, fpposterizehelpers_tests, fpblurhelpers_tests,
   fpnoisehelpers_tests,
   fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpbrightnesscontrasthelpers_tests,
-  fpresizehelpers_tests, fpviewporthelpers_tests, fpstatushelpers_tests;
+  fpresizehelpers_tests, fpviewporthelpers_tests, fpstatushelpers_tests,
+  fpfilemenuhelpers_tests;
 
 var
   Application: TTestRunner;

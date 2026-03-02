@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  ComCtrls, Menus, Spin, Types, FPColor, FPSurface, FPDocument, FPSelection,
+  ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
   FPPaletteHelpers, FPRulerHelpers;
 
 type
@@ -60,6 +60,7 @@ type
     FPointerDown: Boolean;
     FDragStart: TPoint;
     FLastImagePoint: TPoint;
+    FLastPointerPoint: TPoint;
     FLassoPoints: array of TPoint;
     FClipboardSurface: TRasterSurface;
     FClipboardOffset: TPoint;
@@ -104,6 +105,7 @@ type
     FPaletteViewItems: array[TPaletteKind] of TMenuItem;
     FShowPixelGrid: Boolean;
     FShowRulers: Boolean;
+    FDeferredLayoutPass: Boolean;
     FLastScrollPosition: TPoint;
     FUpdatingZoomControl: Boolean;
     function ActivePaintColor: TRGBA32;
@@ -173,7 +175,9 @@ type
     procedure ExitApplicationClick(Sender: TObject);
     procedure SaveDocumentClick(Sender: TObject);
     procedure SaveAsDocumentClick(Sender: TObject);
+    procedure SaveAllDocumentsClick(Sender: TObject);
     procedure PrintDocumentClick(Sender: TObject);
+    procedure AcquireClick(Sender: TObject);
     procedure ImportLayerClick(Sender: TObject);
     procedure UndoClick(Sender: TObject);
     procedure RedoClick(Sender: TObject);
@@ -275,7 +279,7 @@ uses
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
-  FPBlurDialog, FPNoiseDialog;
+  FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers;
 
 const
   DisplayDPI = 96.0;
@@ -344,6 +348,7 @@ begin
   FNewImageResolutionDPI := 96.0;
   FShowPixelGrid := False;
   FShowRulers := True;
+  FDeferredLayoutPass := True;
   FLastScrollPosition := Point(0, 0);
 
   BuildMenus;
@@ -464,6 +469,8 @@ begin
   FStatusZoomLabel.ShowHint := True;
   FStatusZoomLabel.OnClick := @StatusZoomToggleClick;
   LayoutStatusBarControls(nil);
+  RestorePaletteLayout;
+  RefreshPaletteMenuChecks;
 
   UpdateCanvasSize;
   RefreshLayers;
@@ -650,7 +657,9 @@ end;
 
 function TMainForm.SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
 begin
-  if ssAlt in Shift then
+  if (ssShift in Shift) and (ssAlt in Shift) then
+    Result := scIntersect
+  else if ssAlt in Shift then
     Result := scSubtract
   else if ssShift in Shift then
     Result := scAdd
@@ -684,7 +693,7 @@ begin
   FUpdatingToolOption := True;
   try
     case FCurrentTool of
-      tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
+      tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
         begin
           FOptionLabel.Caption := 'Size:';
           FBrushSpin.Enabled := True;
@@ -749,6 +758,7 @@ begin
   FRecentMenu.Caption := 'Open &Recent';
   FileMenu.Add(FRecentMenu);
   RebuildRecentFilesMenu;
+  CreateMenuItem(FileMenu, '&Acquire...', @AcquireClick);
   CreateMenuItem(FileMenu, 'Import as &Layer...', @ImportLayerClick, ShortCut(VK_I, [ssMeta, ssShift]));
   FileMenu.AddSeparator;
   CreateMenuItem(FileMenu, '&Close', @CloseDocumentClick, ShortCut(VK_W, [ssMeta]));
@@ -758,6 +768,7 @@ begin
   FSaveMenuItem.ShortCut := ShortCut(VK_S, [ssMeta]);
   FileMenu.Add(FSaveMenuItem);
   CreateMenuItem(FileMenu, 'Save &As...', @SaveAsDocumentClick, ShortCut(VK_S, [ssMeta, ssShift]));
+  CreateMenuItem(FileMenu, 'Save A&ll Images', @SaveAllDocumentsClick, ShortCut(VK_S, [ssMeta, ssAlt]));
   CreateMenuItem(FileMenu, '&Print...', @PrintDocumentClick, ShortCut(VK_P, [ssMeta]));
   FileMenu.AddSeparator;
   CreateMenuItem(FileMenu, 'E&xit', @ExitApplicationClick, ShortCut(VK_Q, [ssMeta]));
@@ -1517,6 +1528,7 @@ var
   PanelIndex: Integer;
   ZoomAreaLeft: Integer;
   ZoomAreaWidth: Integer;
+  LabelWidth: Integer;
   TrackWidth: Integer;
 begin
   if not Assigned(FStatusBar) or
@@ -1530,19 +1542,20 @@ begin
     FStatusBar.Panels[PanelIndex].Width := PanelWidths[PanelIndex];
 
   ZoomAreaWidth := PanelWidths[6];
-  ZoomAreaLeft := ZoomStatusPanelLeft(PanelWidths) + 2;
+  ZoomAreaLeft := Max(0, FStatusBar.ClientWidth - ZoomAreaWidth - 2);
+  LabelWidth := ZoomLabelWidth(ZoomAreaWidth);
   TrackWidth := ZoomTrackWidth(ZoomAreaWidth);
 
   FStatusZoomTrack.SetBounds(
-    ZoomAreaLeft + 4,
+    Max(ZoomAreaLeft + 4, ZoomAreaLeft + ZoomAreaWidth - LabelWidth - TrackWidth - 8),
     1,
     TrackWidth,
     Max(20, FStatusBar.Height - 2)
   );
   FStatusZoomLabel.SetBounds(
-    ZoomAreaLeft + TrackWidth + 8,
+    Max(ZoomAreaLeft + 4, ZoomAreaLeft + ZoomAreaWidth - LabelWidth - 4),
     2,
-    Max(34, ZoomAreaWidth - TrackWidth - 12),
+    LabelWidth,
     Max(18, FStatusBar.Height - 6)
   );
 end;
@@ -1755,7 +1768,13 @@ begin
     PaletteHost := PaletteControl(PaletteKind);
     if not Assigned(PaletteHost) then
       Continue;
-    PaletteRect := PaletteDefaultRect(PaletteKind);
+    if Assigned(FWorkspacePanel) and (FWorkspacePanel.ClientWidth > 0) and (FWorkspacePanel.ClientHeight > 0) then
+      PaletteRect := PaletteDefaultRectForWorkspace(
+        PaletteKind,
+        Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight)
+      )
+    else
+      PaletteRect := PaletteDefaultRect(PaletteKind);
     PaletteHost.SetBounds(
       PaletteRect.Left,
       PaletteRect.Top,
@@ -1827,7 +1846,13 @@ procedure TMainForm.CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
 var
   PaletteRect: TRect;
 begin
-  PaletteRect := PaletteDefaultRect(AKind);
+  if Assigned(FWorkspacePanel) and (FWorkspacePanel.ClientWidth > 0) and (FWorkspacePanel.ClientHeight > 0) then
+    PaletteRect := PaletteDefaultRectForWorkspace(
+      AKind,
+      Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight)
+    )
+  else
+    PaletteRect := PaletteDefaultRect(AKind);
   ATarget.Parent := FWorkspacePanel;
   ATarget.Caption := '';
   ATarget.BevelOuter := bvRaised;
@@ -1839,7 +1864,8 @@ begin
   ATarget.Height := PaletteRect.Bottom - PaletteRect.Top;
   CreatePaletteHeader(ATarget, AKind);
   ApplyPaletteVisualState(ATarget, False);
-  ClampPaletteToWorkspace(ATarget);
+  if Assigned(FWorkspacePanel) and (FWorkspacePanel.ClientWidth > 0) and (FWorkspacePanel.ClientHeight > 0) then
+    ClampPaletteToWorkspace(ATarget);
 end;
 
 function TMainForm.ConfirmDocumentReplacement(const AAction: string): Boolean;
@@ -2030,6 +2056,15 @@ var
   CompositeSurface: TRasterSurface;
 begin
   case FCurrentTool of
+    tkPencil:
+      FDocument.ActiveLayer.Surface.DrawLine(
+        FLastImagePoint.X,
+        FLastImagePoint.Y,
+        APoint.X,
+        APoint.Y,
+        Max(0, (FBrushSize - 1) div 2),
+        ActivePaintColor
+      );
     tkBrush, tkEraser:
       FDocument.ActiveLayer.Surface.DrawLine(
         FLastImagePoint.X,
@@ -2250,6 +2285,14 @@ begin
   end;
 end;
 
+procedure TMainForm.SaveAllDocumentsClick(Sender: TObject);
+begin
+  if SaveAllFallsBackToSaveAs(FCurrentFileName) then
+    SaveAsDocumentClick(Sender)
+  else
+    SaveToPath(FCurrentFileName);
+end;
+
 procedure TMainForm.PrintDocumentClick(Sender: TObject);
 var
   Surface: TRasterSurface;
@@ -2285,6 +2328,50 @@ begin
   except
     on E: Exception do
       MessageDlg('Print', 'Printing failed: ' + E.Message, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TMainForm.AcquireClick(Sender: TObject);
+var
+  ClipboardPicture: TPicture;
+  ClipboardBitmap: TBitmap;
+  ImportedSurface: TRasterSurface;
+begin
+  case ResolveAcquireMode(Clipboard.HasPictureFormat) of
+    amClipboard:
+      begin
+        if not ConfirmDocumentReplacement('replace the current document from the clipboard') then
+          Exit;
+        ClipboardPicture := TPicture.Create;
+        try
+          Clipboard.AssignTo(ClipboardPicture);
+          if (ClipboardPicture.Graphic = nil) or ClipboardPicture.Graphic.Empty then
+            Exit;
+          ClipboardBitmap := TBitmap.Create;
+          try
+            ClipboardBitmap.Assign(ClipboardPicture.Graphic);
+            ImportedSurface := BitmapToSurface(ClipboardBitmap);
+            try
+              FDocument.ReplaceWithSingleLayer(ImportedSurface, 'Acquired Image');
+            finally
+              ImportedSurface.Free;
+            end;
+          finally
+            ClipboardBitmap.Free;
+          end;
+        finally
+          ClipboardPicture.Free;
+        end;
+        FCurrentFileName := '';
+        FitDocumentToViewport(True);
+        InvalidatePreparedBitmap;
+        FLastImagePoint := Point(-1, -1);
+        SetDirty(True);
+        RefreshLayers;
+        RefreshCanvas;
+      end;
+    amOpenFile:
+      OpenDocumentClick(Sender);
   end;
 end;
 
@@ -3052,6 +3139,14 @@ begin
   if not Assigned(FCanvasHost) then
     Exit;
 
+  if FDeferredLayoutPass and Assigned(FWorkspacePanel) and
+     (FWorkspacePanel.ClientWidth > 0) and (FWorkspacePanel.ClientHeight > 0) then
+  begin
+    RestorePaletteLayout;
+    LayoutStatusBarControls(nil);
+    FDeferredLayoutPass := False;
+  end;
+
   ScrollPosition := Point(
     FCanvasHost.HorzScrollBar.Position,
     FCanvasHost.VertScrollBar.Position
@@ -3174,7 +3269,7 @@ begin
   case FCurrentTool of
     tkMagicWand:
       FWandTolerance := EnsureRange(FBrushSpin.Value, 0, 255);
-    tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
+    tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
       FBrushSize := Max(1, FBrushSpin.Value);
   end;
 end;
@@ -3280,13 +3375,14 @@ begin
     FStrokeColor := FPrimaryColor;
 
   ImagePoint := CanvasToImage(X, Y);
+  FLastPointerPoint := Point(X, Y);
   FLastImagePoint := ImagePoint;
   FDragStart := ImagePoint;
   FPendingSelectionMode := SelectionModeFromShift(Shift);
   FPointerDown := True;
 
   case FCurrentTool of
-    tkBrush, tkEraser:
+    tkPencil, tkBrush, tkEraser:
       begin
         FDocument.PushHistory(PaintToolName(FCurrentTool));
         ApplyImmediateTool(ImagePoint);
@@ -3335,6 +3431,10 @@ begin
           );
         FPointerDown := False;
       end;
+    tkPan:
+      begin
+        FPickSecondaryTarget := False;
+      end;
     tkColorPicker:
       begin
         ApplyImmediateTool(ImagePoint);
@@ -3362,10 +3462,32 @@ begin
   DeltaY := ImagePoint.Y - FLastImagePoint.Y;
   if FPointerDown then
     case FCurrentTool of
-      tkBrush, tkEraser:
+      tkPencil, tkBrush, tkEraser:
         begin
           ApplyImmediateTool(ImagePoint);
           RefreshCanvas;
+        end;
+      tkPan:
+        begin
+          if Assigned(FCanvasHost) then
+          begin
+            FCanvasHost.HorzScrollBar.Position := PannedScrollPosition(
+              FCanvasHost.HorzScrollBar.Position,
+              X,
+              FLastPointerPoint.X
+            );
+            FCanvasHost.VertScrollBar.Position := PannedScrollPosition(
+              FCanvasHost.VertScrollBar.Position,
+              Y,
+              FLastPointerPoint.Y
+            );
+            FLastScrollPosition := Point(
+              FCanvasHost.HorzScrollBar.Position,
+              FCanvasHost.VertScrollBar.Position
+            );
+            RefreshRulers;
+          end;
+          FLastPointerPoint := Point(X, Y);
         end;
       tkMoveSelection:
         if (DeltaX <> 0) or (DeltaY <> 0) then
@@ -3395,7 +3517,7 @@ begin
           RefreshCanvas;
         end;
     end;
-  if not FPointerDown or not (FCurrentTool in [tkBrush, tkEraser, tkMoveSelection, tkMovePixels]) then
+  if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels]) then
     FLastImagePoint := ImagePoint;
   RefreshStatus(ImagePoint);
 end;

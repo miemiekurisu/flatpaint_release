@@ -15,6 +15,7 @@ type
     procedure ZoomSliderMappingUsesZoomPresets;
     procedure ViewportImageCoordinateRespectsCanvasOffset;
     procedure ScrollPositionForAnchorKeepsAnchorStable;
+    procedure PannedScrollPositionMovesOppositeToDrag;
     procedure ZoomWheelUsesCrossEditorModifierRule;
   end;
 
@@ -70,6 +71,25 @@ begin
     'zoomed anchor maps to positive scroll position',
     101,
     ScrollPositionForAnchor(100.0, 2.0, 0, 100)
+  );
+end;
+
+procedure TFPViewportHelpersTests.PannedScrollPositionMovesOppositeToDrag;
+begin
+  AssertEquals(
+    'dragging right reduces horizontal scroll',
+    84,
+    PannedScrollPosition(96, 22, 10)
+  );
+  AssertEquals(
+    'dragging left increases horizontal scroll',
+    108,
+    PannedScrollPosition(96, 4, 16)
+  );
+  AssertEquals(
+    'scroll clamps at origin',
+    0,
+    PannedScrollPosition(6, 30, 10)
   );
 end;
 

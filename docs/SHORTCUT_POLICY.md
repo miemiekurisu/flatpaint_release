@@ -41,6 +41,7 @@ The goal is paint.net workflow parity, not literal Windows key-for-key duplicati
 | Import Project | `Command+Option+I` | Compatibility import path |
 | Save | `Command+S` | Saves to the bound native document path when available |
 | Save As | `Command+Shift+S` | Prompts for the output path and format |
+| Save All Images | `Command+Option+S` | Current single-document shell saves the active document through the same path policy |
 | Export PNG | `Command+E` | Primary export path |
 | Export JPEG | `Command+Shift+E` | Secondary export variant |
 | Export TIFF | `Command+Option+E` | Tertiary export variant |
@@ -69,7 +70,7 @@ The goal is paint.net workflow parity, not literal Windows key-for-key duplicati
 ## Known deviations still open
 - Shortcut coverage is not yet exhaustive relative to paint.net.
 - Exact parity for some layer, image, and effect commands still needs a dedicated audit against the paint.net command surface.
-- Native document save state is only tracked for current `.json` document workflows; richer document-state management can expand later.
+- Native document save state is only tracked for current `.fpd` document workflows; richer document-state management can expand later.
 - View coverage is still partial beyond zoom/actual-size; richer view and tool-toggle shortcuts still need expansion.
 - Palette visibility shortcuts now exist for the four core utility windows, but broader parity still needs a fuller command-surface audit.
 

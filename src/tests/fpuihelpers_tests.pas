@@ -12,6 +12,7 @@ type
   published
     procedure ToolDisplayOrderStartsWithSelectionTools;
     procedure ZoomToolAppearsBeforePaintTools;
+    procedure PanAndPencilAppearInExpectedBands;
     procedure FreeformShapeAppearsAfterBasicShapes;
     procedure ToolMetadataIsCompleteForDisplayOrder;
   end;
@@ -31,6 +32,22 @@ begin
   AssertTrue(
     'zoom should appear before fill in the display order',
     PaintToolDisplayIndex(tkZoom) < PaintToolDisplayIndex(tkFill)
+  );
+end;
+
+procedure TFPUIHelpersTests.PanAndPencilAppearInExpectedBands;
+begin
+  AssertTrue(
+    'pan should sit after zoom',
+    PaintToolDisplayIndex(tkPan) > PaintToolDisplayIndex(tkZoom)
+  );
+  AssertTrue(
+    'pan should stay before fill',
+    PaintToolDisplayIndex(tkPan) < PaintToolDisplayIndex(tkFill)
+  );
+  AssertTrue(
+    'pencil should appear before brush',
+    PaintToolDisplayIndex(tkPencil) < PaintToolDisplayIndex(tkBrush)
   );
 end;
 

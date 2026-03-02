@@ -17,7 +17,7 @@ function PaintToolDisplayIndex(ATool: TToolKind): Integer;
 implementation
 
 const
-  ToolDisplayOrder: array[0..16] of TToolKind = (
+  ToolDisplayOrder: array[0..18] of TToolKind = (
     tkSelectRect,
     tkSelectEllipse,
     tkSelectLasso,
@@ -25,8 +25,10 @@ const
     tkMoveSelection,
     tkMovePixels,
     tkZoom,
+    tkPan,
     tkFill,
     tkGradient,
+    tkPencil,
     tkBrush,
     tkEraser,
     tkColorPicker,
@@ -40,6 +42,8 @@ const
 function PaintToolName(ATool: TToolKind): string;
 begin
   case ATool of
+    tkPencil:
+      Result := 'Pencil';
     tkBrush:
       Result := 'Brush';
     tkEraser:
@@ -72,6 +76,8 @@ begin
       Result := 'Move Selected Pixels';
     tkZoom:
       Result := 'Zoom';
+    tkPan:
+      Result := 'Pan';
     tkColorPicker:
       Result := 'Color Picker';
   else
@@ -82,6 +88,8 @@ end;
 function PaintToolHint(ATool: TToolKind): string;
 begin
   case ATool of
+    tkPencil:
+      Result := 'Pencil paints hard-edged strokes';
     tkBrush:
       Result := 'Brush paints with the primary or secondary color';
     tkEraser:
@@ -114,6 +122,8 @@ begin
       Result := 'Move Selected Pixels repositions selected pixels';
     tkZoom:
       Result := 'Zoom clicks in or out of the canvas view';
+    tkPan:
+      Result := 'Pan drags the viewport without changing pixels';
     tkColorPicker:
       Result := 'Color Picker samples the composite image';
   else
@@ -124,6 +134,8 @@ end;
 function PaintToolGlyph(ATool: TToolKind): string;
 begin
   case ATool of
+    tkPencil:
+      Result := '✐';
     tkSelectRect:
       Result := '▭';
     tkSelectEllipse:
@@ -138,6 +150,8 @@ begin
       Result := '✥';
     tkZoom:
       Result := '⊕';
+    tkPan:
+      Result := '✋';
     tkFill:
       Result := '▨';
     tkGradient:

@@ -13,6 +13,46 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred N time(s)`
 
 ## 2026-03-02
+- Problem: the codebase claimed broad selection-tool coverage, but one of the most practical combine behaviors was still missing
+- Core error: geometric selection tools and magic-wand selection only supported replace/add/subtract, so there was no core or input-path support for `Intersect`
+- Investigation: after the tool-options audit explicitly listed `Intersect` as a required selection mode, re-read `TSelectionCombineMode`, the selection-mask primitives, and the document-level magic-wand path to confirm the omission existed in both the mask layer and the wand special case
+- Root cause: the early selection implementation stopped at the minimum add/subtract baseline and then duplicated combine handling in the magic-wand path instead of centralizing the full combine family
+- Fix: added `scIntersect`, introduced a reusable selection-mask intersection helper, routed rectangle/ellipse/polygon selection through it for intersect mode, updated magic-wand composition to honor the same mode, and mapped `Shift+Option` to intersect in the current GUI input path
+- Reuse note: if a tool family already supports multiple combine modes, finish the full set in the shared enum and shared helpers first; do not let one route (like magic wand) carry a partial hand-rolled combine implementation that drifts from the rest of the selection stack
+- Repeat count: `This issue has occurred 1 time(s)`
+
+- Problem: adding more real tools made the left-side palette layout regress even though the adaptive workspace layout helper already existed
+- Core error: the `Tools` palette became taller after adding `Pan` and `Pencil`, but the legacy hard-coded fallback `Colors` rectangle still started too high, so the static default rectangles overlapped again in tests
+- Investigation: ran the existing palette regression suite immediately after the tool-catalog expansion and used the failing non-overlap test to compare the new `Tools` height against the old absolute `Colors` top coordinate
+- Root cause: the workspace-aware layout path had been corrected earlier, but the code still kept an older absolute fallback rectangle for `Colors`, so changing tool-count-driven palette height re-broke the pre-workspace baseline
+- Fix: increased the `Tools` palette baseline height and replaced the stale absolute `Colors` Y position with one derived from `ToolsPaletteHeight + PaletteGap`, so both the static default rects and the workspace-aware layout stay consistent
+- Reuse note: when a tool catalog grows, treat palette geometry as data that must derive from tool-count-sensitive constants instead of preserving stale absolute fallback rectangles
+- Repeat count: `This issue has occurred 1 time(s)`
+
+- Problem: the child utility palettes could still launch stacked together even after their nominal default rectangles had been defined
+- Core error: startup positioning still depended on an early workspace clamp, so a zero or not-yet-final client size could collapse multiple palettes to the same corner before the first real paint cycle
+- Investigation: re-read the palette creation path, checked when `CreatePalette` and `ClampPaletteToWorkspace` run relative to aligned-control sizing, and compared that sequence against the user's report that the default launch layout still looked piled up
+- Root cause: the code applied hard clamping before the workspace bounds were guaranteed to be stable, so the "default" rectangles were being corrected against placeholder dimensions instead of the final usable workspace
+- Fix: added a deferred first-idle layout pass plus a workspace-aware default-rectangle helper, and changed startup palette placement to skip premature clamping until the real workspace bounds are available
+- Reuse note: for desktop layouts that depend on aligned host dimensions, do not treat constructor-time client sizes as authoritative; defer any bounds-dependent placement until the container has a real layout
+- Repeat count: `This issue has occurred 1 time(s)`
+
+- Problem: the status-bar zoom control could visually drift into neighboring status text even though a zoom panel already existed conceptually
+- Core error: the zoom slider and percentage readout still behaved like loosely placed child controls inside the status bar instead of a reserved right-edge cluster, so the percentage label could overlap adjacent content
+- Investigation: re-read the status-bar panel partition helper and the child-control bounds math, then compared it against the user's report that the zoom strip was not reliably pinned to the far right
+- Root cause: the layout logic derived the zoom controls from the last panel width but still positioned the label relative to the track width instead of anchoring the whole cluster from the right edge inward
+- Fix: changed the helper to reserve a bounded right-side zoom panel, added an explicit zoom-label width helper, and laid out the label and slider from the right edge of the status bar inward
+- Reuse note: if a status bar has mixed text panels plus an interactive zoom control, reserve the zoom cluster explicitly at the trailing edge instead of treating it as just another flowing text segment
+- Repeat count: `This issue has occurred 1 time(s)`
+
+- Problem: manual local rebuilds still depended on the user noticing and closing a running FlatPaint process before the output binary or app-bundle executable could be replaced
+- Core error: rebuild steps could fail on open executable replacement or leave the local process-management burden on the user instead of the repository's own maintenance tooling
+- Investigation: re-read the current build notes, checked the missing `scripts/` directory against the older doc references, and confirmed the workspace still had no canonical clean/build/release scripts even though the docs already treated repeatable bundle refresh as a requirement
+- Root cause: the repository had accumulated one-off build commands in logs and memory, but it never consolidated them into checked-in scripts with explicit process-kill behavior for replacement-sensitive outputs
+- Fix: added checked-in `clean`, `build`, `build-release`, and compatibility bundle wrapper scripts, centralized the lazbuild lookup plus app-bundle staging logic, and made the scripts kill running `flatpaint` / `FlatPaint` processes before rebuilds and retry copy steps if replacement is blocked
+- Reuse note: if a desktop app writes its primary executable into the workspace, treat process shutdown as part of the checked-in build workflow instead of expecting developers to manually close the app before every rebuild
+- Repeat count: `This issue has occurred 1 time(s)`
+
 - Problem: the `Add Noise...` command still used a raw prompt even after the adjacent effect routes had started moving onto bounded slider dialogs
 - Core error: users had to type a noise amount into `InputQuery`, which made the effect feel inconsistent with the newer modal pattern and less controllable for common trial-and-adjust use
 - Investigation: after upgrading `Blur...`, re-read the remaining effect handlers and isolated `Add Noise...` as the last obvious single-value prompt holdout in `Effects`

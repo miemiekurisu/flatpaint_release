@@ -9,6 +9,7 @@ uses
 
 type
   TToolKind = (
+    tkPencil,
     tkBrush,
     tkEraser,
     tkFill,
@@ -25,6 +26,7 @@ type
     tkMoveSelection,
     tkMovePixels,
     tkZoom,
+    tkPan,
     tkColorPicker
   );
 
@@ -645,10 +647,17 @@ var
 begin
   SelectionFromWand := ActiveLayer.Surface.CreateContiguousSelection(X, Y, Tolerance);
   try
-    if AMode = scReplace then
-    begin
-      FSelection.Assign(SelectionFromWand);
-      Exit;
+    case AMode of
+      scReplace:
+        begin
+          FSelection.Assign(SelectionFromWand);
+          Exit;
+        end;
+      scIntersect:
+        begin
+          FSelection.IntersectWith(SelectionFromWand);
+          Exit;
+        end;
     end;
 
     for SelectY := 0 to Min(FSelection.Height, SelectionFromWand.Height) - 1 do

@@ -13,6 +13,7 @@ type
     procedure PaletteTitlesAreNonEmpty;
     procedure DefaultPaletteRectsMatchCornerClusters;
     procedure DefaultPaletteRectsDoNotOverlap;
+    procedure WorkspaceAwareDefaultRectsStaySeparated;
     procedure PaletteShortcutsFollowShortcutPolicy;
     procedure PaletteChromeMetricsStayCompact;
     procedure PaletteDragTintDiffersFromRestTint;
@@ -72,6 +73,26 @@ begin
     (HistoryRect.Bottom <= LayersRect.Top) or
     (LayersRect.Bottom <= HistoryRect.Top)
   );
+end;
+
+procedure TFPPaletteHelpersTests.WorkspaceAwareDefaultRectsStaySeparated;
+var
+  ToolsRect: TRect;
+  ColorsRect: TRect;
+  HistoryRect: TRect;
+  LayersRect: TRect;
+begin
+  ToolsRect := PaletteDefaultRectForWorkspace(pkTools, Rect(0, 0, 1320, 780));
+  ColorsRect := PaletteDefaultRectForWorkspace(pkColors, Rect(0, 0, 1320, 780));
+  HistoryRect := PaletteDefaultRectForWorkspace(pkHistory, Rect(0, 0, 1320, 780));
+  LayersRect := PaletteDefaultRectForWorkspace(pkLayers, Rect(0, 0, 1320, 780));
+
+  AssertTrue(
+    'colors should not cover tools',
+    (ColorsRect.Top >= ToolsRect.Bottom) or (ColorsRect.Left >= ToolsRect.Right)
+  );
+  AssertTrue('layers should sit below history', LayersRect.Top >= HistoryRect.Bottom);
+  AssertTrue('right stack should stay inside workspace', LayersRect.Right <= 1320);
 end;
 
 procedure TFPPaletteHelpersTests.PaletteShortcutsFollowShortcutPolicy;

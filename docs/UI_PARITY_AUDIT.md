@@ -51,7 +51,7 @@ The broader cross-editor layout and interaction rules now live in `docs/UI_REQUI
 - The large docked `Tools` and `Inspector` overlays have now been removed from the main workspace to avoid overlap and obstruction; compact child utility panels are now the primary detailed surfaces.
 
 3. Utility-window fidelity
-- Separate child panels now exist for `Tools`, `History`, `Layers`, and `Colors`, and they are now the primary detailed control model; the remaining gap is compactness, exact placement, and richer docking behavior.
+- Separate child panels now exist for `Tools`, `History`, `Layers`, and `Colors`, and they are now the primary detailed control model; the remaining gap is compactness, exact placement, and richer docking behavior, but the launch layout now at least waits for the real workspace size before placing those palettes so they do not all collapse into the same corner on startup.
 - `Colors` now exists as a first-class utility panel, but its default placement still needs to feel more like a paint.net palette cluster and less like an inspector extension.
 - Launch-time placement now resets to a non-overlapping product-default layout each run instead of restoring prior panel positions, but the exact pixel parity still needs more tuning.
 

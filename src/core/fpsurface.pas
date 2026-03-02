@@ -353,7 +353,7 @@ var
   DeltaX: Integer;
   DeltaY: Integer;
 begin
-  Radius := Max(1, Radius);
+  Radius := Max(0, Radius);
   RadiusSquared := Radius * Radius;
   for DrawY := Y - Radius to Y + Radius do
   begin

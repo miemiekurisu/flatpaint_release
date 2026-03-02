@@ -18,6 +18,7 @@ type
 function PaletteTitle(APalette: TPaletteKind): string;
 function PaletteShortcutDigit(APalette: TPaletteKind): Char;
 function PaletteDefaultRect(APalette: TPaletteKind): TRect;
+function PaletteDefaultRectForWorkspace(APalette: TPaletteKind; const AWorkspaceRect: TRect): TRect;
 function ToolsPaletteColumnCount: Integer;
 function PaletteHeaderHeight: Integer;
 function WorkspaceBackgroundColor: LongInt;
@@ -28,6 +29,21 @@ function PaletteHeaderColor(APalette: TPaletteKind; ADragging: Boolean = False):
 function SnapPaletteRect(const ARect, AWorkspaceRect: TRect; AThreshold: Integer = 18): TRect;
 
 implementation
+
+uses
+  Math;
+
+const
+  PaletteMargin = 12;
+  PaletteGap = 14;
+  ToolsPaletteWidth = 100;
+  ToolsPaletteHeight = 324;
+  ColorsPaletteWidth = 224;
+  ColorsPaletteHeight = 216;
+  HistoryPaletteWidth = 236;
+  HistoryPaletteHeight = 156;
+  LayersPaletteWidth = 236;
+  LayersPaletteHeight = 242;
 
 function PaletteTitle(APalette: TPaletteKind): string;
 begin
@@ -65,16 +81,104 @@ function PaletteDefaultRect(APalette: TPaletteKind): TRect;
 begin
   case APalette of
     pkTools:
-      Result := Rect(12, 12, 112, 298);
+      Result := Rect(PaletteMargin, PaletteMargin, PaletteMargin + ToolsPaletteWidth, PaletteMargin + ToolsPaletteHeight);
     pkColors:
-      Result := Rect(12, 316, 236, 532);
+      Result := Rect(
+        PaletteMargin,
+        PaletteMargin + ToolsPaletteHeight + PaletteGap,
+        PaletteMargin + ColorsPaletteWidth,
+        PaletteMargin + ToolsPaletteHeight + PaletteGap + ColorsPaletteHeight
+      );
     pkHistory:
-      Result := Rect(1088, 12, 1324, 168);
+      Result := Rect(1088, PaletteMargin, 1088 + HistoryPaletteWidth, PaletteMargin + HistoryPaletteHeight);
     pkLayers:
-      Result := Rect(1088, 184, 1324, 426);
+      Result := Rect(1088, 184, 1088 + LayersPaletteWidth, 184 + LayersPaletteHeight);
   else
     Result := Rect(12, 12, 220, 180);
   end;
+end;
+
+function PaletteDefaultRectForWorkspace(APalette: TPaletteKind; const AWorkspaceRect: TRect): TRect;
+var
+  WorkspaceWidth: Integer;
+  WorkspaceHeight: Integer;
+  LeftEdge: Integer;
+  RightEdge: Integer;
+  TopEdge: Integer;
+  BottomEdge: Integer;
+  PaletteWidth: Integer;
+  PaletteHeight: Integer;
+  LeftPos: Integer;
+  TopPos: Integer;
+begin
+  WorkspaceWidth := Max(0, AWorkspaceRect.Right - AWorkspaceRect.Left);
+  WorkspaceHeight := Max(0, AWorkspaceRect.Bottom - AWorkspaceRect.Top);
+  if (WorkspaceWidth = 0) or (WorkspaceHeight = 0) then
+    Exit(PaletteDefaultRect(APalette));
+
+  LeftEdge := AWorkspaceRect.Left + PaletteMargin;
+  RightEdge := AWorkspaceRect.Right - PaletteMargin;
+  TopEdge := AWorkspaceRect.Top + PaletteMargin;
+  BottomEdge := AWorkspaceRect.Bottom - PaletteMargin;
+
+  case APalette of
+    pkTools:
+      begin
+        PaletteWidth := ToolsPaletteWidth;
+        PaletteHeight := ToolsPaletteHeight;
+        LeftPos := LeftEdge;
+        TopPos := TopEdge;
+      end;
+    pkColors:
+      begin
+        PaletteWidth := ColorsPaletteWidth;
+        PaletteHeight := ColorsPaletteHeight;
+        LeftPos := LeftEdge;
+        TopPos := BottomEdge - PaletteHeight;
+        if TopPos < TopEdge + ToolsPaletteHeight + PaletteGap then
+        begin
+          if WorkspaceWidth >= (PaletteMargin * 3) + ToolsPaletteWidth + ColorsPaletteWidth then
+            LeftPos := LeftEdge + ToolsPaletteWidth + PaletteGap
+          else
+            TopPos := TopEdge + ToolsPaletteHeight + PaletteGap;
+        end;
+      end;
+    pkHistory:
+      begin
+        PaletteWidth := HistoryPaletteWidth;
+        PaletteHeight := HistoryPaletteHeight;
+        LeftPos := RightEdge - PaletteWidth;
+        TopPos := TopEdge;
+      end;
+    pkLayers:
+      begin
+        PaletteWidth := LayersPaletteWidth;
+        PaletteHeight := LayersPaletteHeight;
+        LeftPos := RightEdge - PaletteWidth;
+        TopPos := BottomEdge - PaletteHeight;
+        if TopPos < TopEdge + HistoryPaletteHeight + PaletteGap then
+          TopPos := TopEdge + HistoryPaletteHeight + PaletteGap;
+      end;
+  else
+    begin
+      PaletteWidth := 220;
+      PaletteHeight := 180;
+      LeftPos := LeftEdge;
+      TopPos := TopEdge;
+    end;
+  end;
+
+  LeftPos := EnsureRange(
+    LeftPos,
+    AWorkspaceRect.Left,
+    Max(AWorkspaceRect.Left, AWorkspaceRect.Right - PaletteWidth)
+  );
+  TopPos := EnsureRange(
+    TopPos,
+    AWorkspaceRect.Top,
+    Max(AWorkspaceRect.Top, AWorkspaceRect.Bottom - PaletteHeight)
+  );
+  Result := Rect(LeftPos, TopPos, LeftPos + PaletteWidth, TopPos + PaletteHeight);
 end;
 
 function ToolsPaletteColumnCount: Integer;

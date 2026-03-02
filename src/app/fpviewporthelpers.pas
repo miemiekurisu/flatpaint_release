@@ -25,6 +25,11 @@ function ScrollPositionForAnchor(
   ACanvasOffset: Integer;
   AViewportCoordinate: Integer
 ): Integer;
+function PannedScrollPosition(
+  ACurrentScrollPosition,
+  ACurrentPointerCoordinate,
+  APreviousPointerCoordinate: Integer
+): Integer;
 function ZoomWheelUsesViewportZoom(const AShift: TShiftState): Boolean;
 
 implementation
@@ -84,6 +89,18 @@ begin
   Result := Max(
     0,
     ACanvasOffset + Round((AAnchorImageCoordinate + 0.5) * Max(0.01, AScale)) - AViewportCoordinate
+  );
+end;
+
+function PannedScrollPosition(
+  ACurrentScrollPosition,
+  ACurrentPointerCoordinate,
+  APreviousPointerCoordinate: Integer
+): Integer;
+begin
+  Result := Max(
+    0,
+    ACurrentScrollPosition - (ACurrentPointerCoordinate - APreviousPointerCoordinate)
   );
 end;
 

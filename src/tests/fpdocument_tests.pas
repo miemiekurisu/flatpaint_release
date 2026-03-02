@@ -5,13 +5,14 @@ unit fpdocument_tests;
 interface
 
 uses
-  fpcunit, testregistry, FPDocument;
+  fpcunit, testregistry, FPColor, FPDocument, FPSelection;
 
 type
   TFPDocumentTests = class(TTestCase)
   published
     procedure HistoryDepthTracksUndoAndRedo;
     procedure HistoryLabelsTrackUndoAndRedo;
+    procedure MagicWandIntersectKeepsOnlySharedRegion;
   end;
 
 implementation
@@ -60,6 +61,28 @@ begin
     Document.Redo;
     AssertEquals('undo label restored after redo', 'Add Layer', Document.UndoActionLabel);
     AssertEquals('redo label clears after redo', '', Document.RedoActionLabel);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.MagicWandIntersectKeepsOnlySharedRegion;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(4, 2);
+  try
+    Document.ActiveLayer.Surface.Clear(RGBA(0, 0, 0, 255));
+    Document.ActiveLayer.Surface[2, 0] := RGBA(255, 0, 0, 255);
+    Document.ActiveLayer.Surface[2, 1] := RGBA(255, 0, 0, 255);
+
+    Document.SelectRectangle(1, 0, 3, 0, scReplace);
+    Document.SelectMagicWand(0, 0, 0, scIntersect);
+
+    AssertFalse('non-overlap clears right edge', Document.Selection[3, 0]);
+    AssertFalse('different color clears', Document.Selection[2, 0]);
+    AssertTrue('shared black region remains', Document.Selection[1, 0]);
+    AssertFalse('row outside original selection stays clear', Document.Selection[1, 1]);
   finally
     Document.Free;
   end;

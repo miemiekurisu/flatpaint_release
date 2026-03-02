@@ -11,7 +11,8 @@ type
   TSelectionCombineMode = (
     scReplace,
     scAdd,
-    scSubtract
+    scSubtract,
+    scIntersect
   );
 
   TSelectionMask = class
@@ -30,6 +31,7 @@ type
     procedure Invert;
     procedure Assign(ASource: TSelectionMask);
     function Clone: TSelectionMask;
+    procedure IntersectWith(AMask: TSelectionMask);
     function InBounds(X, Y: Integer): Boolean; inline;
     function HasSelection: Boolean;
     procedure SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
@@ -139,6 +141,22 @@ begin
   Result.Assign(Self);
 end;
 
+procedure TSelectionMask.IntersectWith(AMask: TSelectionMask);
+var
+  X: Integer;
+  Y: Integer;
+begin
+  if AMask = nil then
+  begin
+    Clear;
+    Exit;
+  end;
+
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+      Selected[X, Y] := Selected[X, Y] and AMask[X, Y];
+end;
+
 function TSelectionMask.InBounds(X, Y: Integer): Boolean;
 begin
   Result := (X >= 0) and (Y >= 0) and (X < FWidth) and (Y < FHeight);
@@ -173,6 +191,7 @@ end;
 
 procedure TSelectionMask.SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
 var
+  IntersectMask: TSelectionMask;
   LeftX: Integer;
   RightX: Integer;
   TopY: Integer;
@@ -180,6 +199,18 @@ var
   X: Integer;
   Y: Integer;
 begin
+  if AMode = scIntersect then
+  begin
+    IntersectMask := TSelectionMask.Create(FWidth, FHeight);
+    try
+      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace);
+      IntersectWith(IntersectMask);
+    finally
+      IntersectMask.Free;
+    end;
+    Exit;
+  end;
+
   LeftX := Max(0, Min(X1, X2));
   RightX := Min(FWidth - 1, Max(X1, X2));
   TopY := Max(0, Min(Y1, Y2));
@@ -198,6 +229,7 @@ end;
 
 procedure TSelectionMask.SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
 var
+  IntersectMask: TSelectionMask;
   LeftX: Integer;
   RightX: Integer;
   TopY: Integer;
@@ -211,6 +243,18 @@ var
   X: Integer;
   Y: Integer;
 begin
+  if AMode = scIntersect then
+  begin
+    IntersectMask := TSelectionMask.Create(FWidth, FHeight);
+    try
+      IntersectMask.SelectEllipse(X1, Y1, X2, Y2, scReplace);
+      IntersectWith(IntersectMask);
+    finally
+      IntersectMask.Free;
+    end;
+    Exit;
+  end;
+
   LeftX := Max(0, Min(X1, X2));
   RightX := Min(FWidth - 1, Max(X1, X2));
   TopY := Max(0, Min(Y1, Y2));
@@ -239,6 +283,7 @@ end;
 
 procedure TSelectionMask.SelectPolygon(const APoints: array of TPoint; AMode: TSelectionCombineMode);
 var
+  IntersectMask: TSelectionMask;
   LeftX: Integer;
   RightX: Integer;
   TopY: Integer;
@@ -302,6 +347,18 @@ var
   end;
 
 begin
+  if AMode = scIntersect then
+  begin
+    IntersectMask := TSelectionMask.Create(FWidth, FHeight);
+    try
+      IntersectMask.SelectPolygon(APoints, scReplace);
+      IntersectWith(IntersectMask);
+    finally
+      IntersectMask.Free;
+    end;
+    Exit;
+  end;
+
   if AMode = scReplace then
     Clear;
 

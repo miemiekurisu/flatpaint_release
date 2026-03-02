@@ -10,6 +10,7 @@ uses
 type
   TFPSurfaceTests = class(TTestCase)
   published
+    procedure ZeroRadiusLinePaintsSinglePixelSteps;
     procedure AutoLevelStretchesVisiblePixelsOnly;
     procedure HueSaturationShiftsHueAndPreservesAlpha;
     procedure GammaCurveDarkensMidtonesAndSkipsTransparentPixels;
@@ -20,6 +21,24 @@ type
   end;
 
 implementation
+
+procedure TFPSurfaceTests.ZeroRadiusLinePaintsSinglePixelSteps;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawLine(1, 1, 3, 3, 0, RGBA(255, 0, 0, 255));
+
+    AssertEquals('start pixel painted', 255, Surface[1, 1].A);
+    AssertEquals('middle pixel painted', 255, Surface[2, 2].A);
+    AssertEquals('end pixel painted', 255, Surface[3, 3].A);
+    AssertEquals('adjacent pixel stays clear', 0, Surface[2, 1].A);
+  finally
+    Surface.Free;
+  end;
+end;
 
 procedure TFPSurfaceTests.AutoLevelStretchesVisiblePixelsOnly;
 var
