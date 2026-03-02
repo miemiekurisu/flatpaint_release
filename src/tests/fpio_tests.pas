@@ -20,6 +20,8 @@ type
     procedure TargaRoundTripPreservesPixels;
     procedure LoaderCanReadMinimalXCFProject;
     procedure UnifiedOpenFilterIncludesProjectsAndPSD;
+    procedure KraLoadRaisesDescriptiveError;
+    procedure PdnLoadRaisesDescriptiveError;
   end;
 
 implementation
@@ -236,7 +238,58 @@ begin
   AssertTrue('filter includes native project', Pos('*.fpd', FilterText) > 0);
   AssertTrue('filter includes xcf', Pos('*.xcf', FilterText) > 0);
   AssertTrue('filter includes psd', Pos('*.psd', FilterText) > 0);
+  AssertTrue('filter includes kra', Pos('*.kra', FilterText) > 0);
+  AssertTrue('filter includes pdn', Pos('*.pdn', FilterText) > 0);
   AssertTrue('filter starts with unified label', Pos('All Supported Files|', FilterText) = 1);
+end;
+
+procedure TFPIOTests.KraLoadRaisesDescriptiveError;
+var
+  KraPath: string;
+  GotException: Boolean;
+  ExceptionMsg: string;
+begin
+  KraPath := UniqueTempFile('.kra');
+  { Write a fake kra file (empty content) so the loader tries to read it }
+  with TFileStream.Create(KraPath, fmCreate) do Free;
+  GotException := False;
+  ExceptionMsg := '';
+  try
+    LoadSurfaceFromFile(KraPath);
+  except
+    on E: Exception do
+    begin
+      GotException := True;
+      ExceptionMsg := E.Message;
+    end;
+  end;
+  DeleteFile(KraPath);
+  AssertTrue('kra load must raise', GotException);
+  AssertTrue('kra error mentions kra', Pos('.kra', ExceptionMsg) > 0);
+end;
+
+procedure TFPIOTests.PdnLoadRaisesDescriptiveError;
+var
+  PdnPath: string;
+  GotException: Boolean;
+  ExceptionMsg: string;
+begin
+  PdnPath := UniqueTempFile('.pdn');
+  with TFileStream.Create(PdnPath, fmCreate) do Free;
+  GotException := False;
+  ExceptionMsg := '';
+  try
+    LoadSurfaceFromFile(PdnPath);
+  except
+    on E: Exception do
+    begin
+      GotException := True;
+      ExceptionMsg := E.Message;
+    end;
+  end;
+  DeleteFile(PdnPath);
+  AssertTrue('pdn load must raise', GotException);
+  AssertTrue('pdn error mentions pdn', Pos('.pdn', ExceptionMsg) > 0);
 end;
 
 initialization

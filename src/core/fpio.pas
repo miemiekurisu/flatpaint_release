@@ -24,7 +24,7 @@ uses
 
 const
   SurfaceOpenPattern =
-    '*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.gif;*.psd;*.pcx;*.pnm;*.pbm;*.pgm;*.ppm;*.tga;*.xpm;*.xwd;*.xcf';
+    '*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.gif;*.psd;*.pcx;*.pnm;*.pbm;*.pgm;*.ppm;*.tga;*.xpm;*.xwd;*.xcf;*.kra;*.pdn';
 
 function CreateReader(const AExtension: string): TFPCustomImageReader;
 begin
@@ -115,6 +115,20 @@ var
   ReaderIndex: Integer;
   PreferredReader: TFPCustomImageReader;
 begin
+  { Krita .kra files are ZIP archives; a full layer-preserving import is not yet
+    implemented. Raise a descriptive error instead of a confusing binary failure. }
+  if SameText(APreferredExtension, '.kra') then
+    raise Exception.Create(
+      'Krita (.kra) files are not yet fully supported.' + LineEnding +
+      'To open Krita artwork in FlatPaint, export a flattened PNG or PSD from Krita first.');
+
+  { Paint.NET .pdn files use a proprietary compressed format; a full import is not
+    yet implemented. Raise a descriptive error instead of a confusing binary failure. }
+  if SameText(APreferredExtension, '.pdn') then
+    raise Exception.Create(
+      'Paint.NET (.pdn) files are not yet fully supported.' + LineEnding +
+      'To open Paint.NET artwork in FlatPaint, export a flattened PNG from Paint.NET first.');
+
   if SameText(APreferredExtension, '.xcf') and TryLoadFlattenedXCFSurface(AFileName, Result) then
     Exit;
 
@@ -172,7 +186,9 @@ begin
   Result :=
     'All Supported Files|*.fpd;' + SurfaceOpenPattern + '|' +
     'FlatPaint and Compatible Projects|*.fpd;*.xcf|' +
-    'Supported Images and Imported Projects|' + SurfaceOpenPattern;
+    'Supported Images and Imported Projects|' + SurfaceOpenPattern + '|' +
+    'Krita Files (partial)|*.kra|' +
+    'Paint.NET Files (partial)|*.pdn';
 end;
 
 function SupportedImportDialogFilter: string;

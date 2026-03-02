@@ -119,6 +119,26 @@ type
     FLayerBlendCombo: TComboBox;
     FLayerPropsButton: TButton;
     FCloneStampSnapshot: TRasterSurface;
+    { Document tab management }
+    FTabDocuments: array of TImageDocument;
+    FTabFileNames: array of string;
+    FTabDirtyFlags: array of Boolean;
+    FActiveTabIndex: Integer;
+    FTabStrip: TPanel;
+    FUpdatingTabs: Boolean;
+    { Colors panel RGBA }
+    FColorRSpin: TSpinEdit;
+    FColorGSpin: TSpinEdit;
+    FColorBSpin: TSpinEdit;
+    FColorASpin: TSpinEdit;
+    FColorHexEdit: TEdit;
+    FUpdatingColorSpins: Boolean;
+    { Tool options — opacity and selection mode }
+    FOpacitySpin: TSpinEdit;
+    FOpacityLabel: TLabel;
+    FBrushOpacity: Integer;
+    FSelModeCombo: TComboBox;
+    FSelModeLabel: TLabel;
     function ActivePaintColor: TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
@@ -240,6 +260,25 @@ type
     procedure PasteSelectionClick(Sender: TObject);
     procedure LayerBlendModeChanged(Sender: TObject);
     procedure PlaceTextAtPoint(const AResult: TTextDialogResult; APoint: TPoint; AColor: TRGBA32);
+    { Document tab management }
+    procedure TabButtonClick(Sender: TObject);
+    procedure TabCloseButtonClick(Sender: TObject);
+    procedure AddDocumentTab(ADoc: TImageDocument; const AFileName: string;
+      ADirty: Boolean = False);
+    procedure CloseDocumentTab(AIndex: Integer);
+    procedure SwitchToTab(AIndex: Integer);
+    procedure RefreshTabStrip;
+    function TabDocumentDisplayName(AIndex: Integer): string;
+    procedure OpenFileInNewTab(const AFileName: string);
+    { Colors panel RGBA controls }
+    procedure UpdateColorSpins;
+    procedure ColorSpinChanged(Sender: TObject);
+    procedure ColorHexChanged(Sender: TObject);
+    { Tool option handlers }
+    procedure OpacitySpinChanged(Sender: TObject);
+    procedure SelModeComboChanged(Sender: TObject);
+    { Layer operations }
+    procedure LayerRotateZoomClick(Sender: TObject);
     procedure DeselectClick(Sender: TObject);
     procedure SelectAllClick(Sender: TObject);
     procedure InvertSelectionClick(Sender: TObject);
@@ -356,12 +395,21 @@ begin
   FCurrentTool := tkBrush;
   FBrushSize := 8;
   FWandTolerance := 32;
+  FBrushOpacity := 100;
   FClipboardOffset := Point(0, 0);
   FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
   FPreparedRevision := 0;
 
   FDocument := TImageDocument.Create(1024, 768);
+  { Initialize tab arrays with the first document }
+  SetLength(FTabDocuments, 1);
+  SetLength(FTabFileNames, 1);
+  SetLength(FTabDirtyFlags, 1);
+  FTabDocuments[0] := FDocument;
+  FTabFileNames[0] := '';
+  FTabDirtyFlags[0] := False;
+  FActiveTabIndex := 0;
   FCurrentFileName := '';
   FRecentFiles := TStringList.Create;
   FRecentFiles.CaseSensitive := False;
@@ -375,6 +423,16 @@ begin
 
   BuildMenus;
   BuildToolbar;
+
+  { Tab strip — inserted between toolbar and workspace }
+  FTabStrip := TPanel.Create(Self);
+  FTabStrip.Parent := Self;
+  FTabStrip.Align := alTop;
+  FTabStrip.Height := 28;
+  FTabStrip.BevelOuter := bvNone;
+  FTabStrip.Caption := '';
+  FTabStrip.Color := $00252C35;
+  FTabStrip.ParentColor := False;
 
   FWorkspacePanel := TPanel.Create(Self);
   FWorkspacePanel.Parent := Self;
@@ -500,17 +558,23 @@ begin
   RefreshStatus(Point(-1, -1));
   UpdateCaption;
   RefreshRulers;
+  RefreshTabStrip;
   Application.AddOnIdleHandler(@AppIdle);
 end;
 
 destructor TMainForm.Destroy;
+var
+  I: Integer;
 begin
   Application.RemoveOnIdleHandler(@AppIdle);
   FRecentFiles.Free;
   FPreparedBitmap.Free;
   FClipboardSurface.Free;
   FCloneStampSnapshot.Free;
-  FDocument.Free;
+  { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
+  for I := 0 to Length(FTabDocuments) - 1 do
+    FTabDocuments[I].Free;
+  SetLength(FTabDocuments, 0);
   inherited Destroy;
 end;
 
@@ -711,15 +775,31 @@ begin
 end;
 
 procedure TMainForm.UpdateToolOptionControl;
+var
+  IsSelTool: Boolean;
+  IsSizeTool: Boolean;
+  IsOpacityTool: Boolean;
 begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
 
+  IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
+  IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
+  IsSizeTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkLine,
+    tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape,
+    tkCloneStamp, tkRecolor, tkMagicWand];
+
+  if Assigned(FSelModeLabel) then FSelModeLabel.Visible := IsSelTool;
+  if Assigned(FSelModeCombo) then FSelModeCombo.Visible := IsSelTool;
+  if Assigned(FOpacityLabel) then FOpacityLabel.Visible := IsOpacityTool;
+  if Assigned(FOpacitySpin) then FOpacitySpin.Visible := IsOpacityTool;
+  if Assigned(FOpacitySpin) then FOpacitySpin.Value := FBrushOpacity;
+
   FUpdatingToolOption := True;
   try
     case FCurrentTool of
-      tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape,
-      tkCloneStamp, tkRecolor:
+      tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
+      tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
         begin
           FOptionLabel.Caption := 'Size:';
           FBrushSpin.Enabled := True;
@@ -735,12 +815,19 @@ begin
           FBrushSpin.MaxValue := 255;
           FBrushSpin.Value := FWandTolerance;
         end;
+      tkSelectRect, tkSelectEllipse, tkSelectLasso:
+        begin
+          FOptionLabel.Caption := '';
+          FBrushSpin.Enabled := False;
+          FBrushSpin.Value := 0;
+          { Sync selection mode combo }
+          if Assigned(FSelModeCombo) then
+            FSelModeCombo.ItemIndex := Ord(FPendingSelectionMode);
+        end;
     else
       begin
-        FOptionLabel.Caption := 'Option:';
+        FOptionLabel.Caption := '';
         FBrushSpin.Enabled := False;
-        FBrushSpin.MinValue := 1;
-        FBrushSpin.MaxValue := 255;
         FBrushSpin.Value := FBrushSize;
       end;
     end;
@@ -811,6 +898,7 @@ begin
   CreateMenuItem(EditMenu, '&Paste', @PasteClick, ShortCut(VK_V, [ssMeta]));
   CreateMenuItem(EditMenu, 'Paste into New Layer', @PasteIntoNewLayerClick);
   CreateMenuItem(EditMenu, 'Paste into New Image', @PasteIntoNewImageClick);
+  CreateMenuItem(EditMenu, 'Paste &Selection', @PasteSelectionClick);
   CreateMenuItem(EditMenu, 'Select &All', @SelectAllClick, ShortCut(VK_A, [ssMeta]));
   CreateMenuItem(EditMenu, '&Deselect', @DeselectClick, ShortCut(VK_D, [ssMeta]));
   CreateMenuItem(EditMenu, '&Invert Selection', @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssShift]));
@@ -830,6 +918,11 @@ begin
   CreateMenuItem(LayerMenu, '&Merge Down', @MergeDownClick, ShortCut(VK_M, [ssMeta, ssShift]));
   CreateMenuItem(LayerMenu, 'Toggle &Visibility', @ToggleLayerVisibilityClick);
   CreateMenuItem(LayerMenu, 'Layer &Opacity...', @LayerOpacityClick);
+  LayerMenu.AddSeparator;
+  CreateMenuItem(LayerMenu, 'Import From &File...', @ImportLayerClick);
+  CreateMenuItem(LayerMenu, 'Layer &Properties...', @LayerPropertiesClick);
+  LayerMenu.AddSeparator;
+  CreateMenuItem(LayerMenu, 'Rotate / &Zoom...', @LayerRotateZoomClick);
 
   ImageMenu := TMenuItem.Create(FMainMenu);
   ImageMenu.Caption := '&Image';
@@ -938,6 +1031,7 @@ var
   UtilityIndex: Integer;
   UtilityCommand: TUtilityCommandKind;
   ZoomIndex: Integer;
+  Btn: TButton;
 begin
   FTopPanel := TPanel.Create(Self);
   FTopPanel.Parent := Self;
@@ -948,18 +1042,18 @@ begin
   FTopPanel.Color := ToolbarBackgroundColor;
   FTopPanel.ParentColor := False;
 
-  CreateButton('New', 10, 8, 52, @NewDocumentClick, FTopPanel);
-  CreateButton('Open', 66, 8, 52, @OpenDocumentClick, FTopPanel);
-  CreateButton('Save', 122, 8, 52, @SaveDocumentClick, FTopPanel);
-  CreateButton('Print', 178, 8, 56, @PrintDocumentClick, FTopPanel);
-  CreateButton('Cut', 238, 8, 48, @CutClick, FTopPanel);
-  CreateButton('Copy', 290, 8, 52, @CopyClick, FTopPanel);
-  CreateButton('Paste', 346, 8, 52, @PasteClick, FTopPanel);
-  CreateButton('Crop', 402, 8, 50, @CropToSelectionClick, FTopPanel);
-  CreateButton('Desel', 456, 8, 56, @DeselectClick, FTopPanel);
-  CreateButton('Undo', 516, 8, 52, @UndoClick, FTopPanel);
-  CreateButton('Redo', 572, 8, 52, @RedoClick, FTopPanel);
-  CreateButton('Z-', 628, 8, 34, @ZoomOutClick, FTopPanel);
+  Btn := CreateButton('New', 10, 8, 52, @NewDocumentClick, FTopPanel);   Btn.Hint := 'New document (Ctrl+N)';
+  Btn := CreateButton('Open', 66, 8, 52, @OpenDocumentClick, FTopPanel);  Btn.Hint := 'Open document (Ctrl+O)';
+  Btn := CreateButton('Save', 122, 8, 52, @SaveDocumentClick, FTopPanel); Btn.Hint := 'Save document (Ctrl+S)';
+  Btn := CreateButton('Print', 178, 8, 56, @PrintDocumentClick, FTopPanel); Btn.Hint := 'Print (Ctrl+P)';
+  Btn := CreateButton('Cut', 238, 8, 48, @CutClick, FTopPanel);   Btn.Hint := 'Cut selection (Ctrl+X)';
+  Btn := CreateButton('Copy', 290, 8, 52, @CopyClick, FTopPanel);  Btn.Hint := 'Copy selection (Ctrl+C)';
+  Btn := CreateButton('Paste', 346, 8, 52, @PasteClick, FTopPanel); Btn.Hint := 'Paste (Ctrl+V)';
+  Btn := CreateButton('Crop', 402, 8, 50, @CropToSelectionClick, FTopPanel); Btn.Hint := 'Crop canvas to selection';
+  Btn := CreateButton('Desel', 456, 8, 56, @DeselectClick, FTopPanel); Btn.Hint := 'Deselect all (Ctrl+D)';
+  Btn := CreateButton('Undo', 516, 8, 52, @UndoClick, FTopPanel);  Btn.Hint := 'Undo last action (Ctrl+Z)';
+  Btn := CreateButton('Redo', 572, 8, 52, @RedoClick, FTopPanel);  Btn.Hint := 'Redo (Ctrl+Y)';
+  Btn := CreateButton('Z-', 628, 8, 34, @ZoomOutClick, FTopPanel); Btn.Hint := 'Zoom out ([)';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
@@ -971,14 +1065,14 @@ begin
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
 
-  CreateButton('Z+', 744, 8, 34, @ZoomInClick, FTopPanel);
-  CreateButton('Import', 782, 8, 60, @ImportLayerClick, FTopPanel);
-  CreateButton('Pri', 846, 8, 42, @PrimaryColorClick, FTopPanel);
-  CreateButton('Sec', 892, 8, 42, @SecondaryColorClick, FTopPanel);
-  CreateButton('Swap', 938, 8, 50, @SwapColorsClick, FTopPanel);
-  CreateButton('B/W', 992, 8, 50, @ResetColorsClick, FTopPanel);
-  CreateButton('Grid', 1046, 8, 42, @TogglePixelGridClick, FTopPanel);
-  CreateButton('Rulr', 1092, 8, 44, @ToggleRulersClick, FTopPanel);
+  Btn := CreateButton('Z+', 744, 8, 34, @ZoomInClick, FTopPanel);     Btn.Hint := 'Zoom in (])';
+  Btn := CreateButton('Import', 782, 8, 60, @ImportLayerClick, FTopPanel); Btn.Hint := 'Import layer from file';
+  Btn := CreateButton('Fore', 846, 8, 46, @PrimaryColorClick, FTopPanel);   Btn.Hint := 'Set foreground (primary) color';
+  Btn := CreateButton('Back', 896, 8, 46, @SecondaryColorClick, FTopPanel); Btn.Hint := 'Set background (secondary) color';
+  Btn := CreateButton('Swap', 946, 8, 50, @SwapColorsClick, FTopPanel);     Btn.Hint := 'Swap foreground and background colors (X)';
+  Btn := CreateButton('B/W', 1000, 8, 50, @ResetColorsClick, FTopPanel);    Btn.Hint := 'Reset to black foreground and white background (D)';
+  Btn := CreateButton('Grid', 1054, 8, 42, @TogglePixelGridClick, FTopPanel); Btn.Hint := 'Toggle pixel grid';
+  Btn := CreateButton('Ruler', 1100, 8, 50, @ToggleRulersClick, FTopPanel);  Btn.Hint := 'Toggle rulers';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
@@ -1048,6 +1142,52 @@ begin
   FBrushSpin.MaxValue := 255;
   FBrushSpin.Value := FBrushSize;
   FBrushSpin.OnChange := @BrushSizeChanged;
+
+  FOpacityLabel := TLabel.Create(FTopPanel);
+  FOpacityLabel.Parent := FTopPanel;
+  FOpacityLabel.Caption := 'Opacity:';
+  FOpacityLabel.Font.Color := clWhite;
+  FOpacityLabel.Left := 348;
+  FOpacityLabel.Top := 41;
+  FOpacityLabel.Visible := False;
+
+  FOpacitySpin := TSpinEdit.Create(FTopPanel);
+  FOpacitySpin.Parent := FTopPanel;
+  FOpacitySpin.Left := 408;
+  FOpacitySpin.Top := 36;
+  FOpacitySpin.Width := 60;
+  FOpacitySpin.MinValue := 1;
+  FOpacitySpin.MaxValue := 100;
+  FOpacitySpin.Value := 100;
+  FOpacitySpin.Visible := False;
+  FOpacitySpin.OnChange := @OpacitySpinChanged;
+  FOpacitySpin.Hint := 'Brush opacity (1-100)';
+  FOpacitySpin.ShowHint := True;
+
+  FSelModeLabel := TLabel.Create(FTopPanel);
+  FSelModeLabel.Parent := FTopPanel;
+  FSelModeLabel.Caption := 'Mode:';
+  FSelModeLabel.Font.Color := clWhite;
+  FSelModeLabel.Left := 348;
+  FSelModeLabel.Top := 41;
+  FSelModeLabel.Visible := False;
+
+  FSelModeCombo := TComboBox.Create(FTopPanel);
+  FSelModeCombo.Parent := FTopPanel;
+  FSelModeCombo.Left := 394;
+  FSelModeCombo.Top := 36;
+  FSelModeCombo.Width := 96;
+  FSelModeCombo.Style := csDropDownList;
+  FSelModeCombo.Items.Add('Replace');
+  FSelModeCombo.Items.Add('Add');
+  FSelModeCombo.Items.Add('Subtract');
+  FSelModeCombo.Items.Add('Intersect');
+  FSelModeCombo.ItemIndex := 0;
+  FSelModeCombo.Visible := False;
+  FSelModeCombo.OnChange := @SelModeComboChanged;
+  FSelModeCombo.Hint := 'Selection combination mode';
+  FSelModeCombo.ShowHint := True;
+
   UpdateToolOptionControl;
   UpdateZoomControls;
 end;
@@ -1084,25 +1224,76 @@ begin
 
   FColorsPanel := TPanel.Create(Self);
   CreatePalette(FColorsPanel, pkColors);
-  CreateButton('Primary', 12, ContentTop, 90, @PrimaryColorClick, FColorsPanel);
-  CreateButton('Secondary', 108, ContentTop, 90, @SecondaryColorClick, FColorsPanel);
-  CreateButton('Swap', 12, ContentTop + 30, 90, @SwapColorsClick, FColorsPanel);
-  CreateButton('B/W', 108, ContentTop + 30, 90, @ResetColorsClick, FColorsPanel);
+  CreateButton('Primary', 12, ContentTop, 110, @PrimaryColorClick, FColorsPanel);
+  CreateButton('Secondary', 128, ContentTop, 110, @SecondaryColorClick, FColorsPanel);
+  CreateButton('↔ Swap', 12, ContentTop + 28, 110, @SwapColorsClick, FColorsPanel);
+  CreateButton('B/W', 128, ContentTop + 28, 110, @ResetColorsClick, FColorsPanel);
+
+  { R/G/B row }
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'R:'; Font.Color := clWhite; Left := 12; Top := ContentTop + 62; end;
+  FColorRSpin := TSpinEdit.Create(FColorsPanel);
+  FColorRSpin.Parent := FColorsPanel;
+  FColorRSpin.Left := 28; FColorRSpin.Top := ContentTop + 59;
+  FColorRSpin.Width := 56; FColorRSpin.MinValue := 0; FColorRSpin.MaxValue := 255;
+  FColorRSpin.OnChange := @ColorSpinChanged;
+
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'G:'; Font.Color := clWhite; Left := 90; Top := ContentTop + 62; end;
+  FColorGSpin := TSpinEdit.Create(FColorsPanel);
+  FColorGSpin.Parent := FColorsPanel;
+  FColorGSpin.Left := 106; FColorGSpin.Top := ContentTop + 59;
+  FColorGSpin.Width := 56; FColorGSpin.MinValue := 0; FColorGSpin.MaxValue := 255;
+  FColorGSpin.OnChange := @ColorSpinChanged;
+
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'B:'; Font.Color := clWhite; Left := 168; Top := ContentTop + 62; end;
+  FColorBSpin := TSpinEdit.Create(FColorsPanel);
+  FColorBSpin.Parent := FColorsPanel;
+  FColorBSpin.Left := 184; FColorBSpin.Top := ContentTop + 59;
+  FColorBSpin.Width := 56; FColorBSpin.MinValue := 0; FColorBSpin.MaxValue := 255;
+  FColorBSpin.OnChange := @ColorSpinChanged;
+
+  { Alpha row }
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'A:'; Font.Color := clWhite; Left := 12; Top := ContentTop + 90; end;
+  FColorASpin := TSpinEdit.Create(FColorsPanel);
+  FColorASpin.Parent := FColorsPanel;
+  FColorASpin.Left := 28; FColorASpin.Top := ContentTop + 87;
+  FColorASpin.Width := 56; FColorASpin.MinValue := 0; FColorASpin.MaxValue := 255;
+  FColorASpin.OnChange := @ColorSpinChanged;
+
+  { Hex field }
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := '#:'; Font.Color := clWhite; Left := 90; Top := ContentTop + 90; end;
+  FColorHexEdit := TEdit.Create(FColorsPanel);
+  FColorHexEdit.Parent := FColorsPanel;
+  FColorHexEdit.Left := 108; FColorHexEdit.Top := ContentTop + 87;
+  FColorHexEdit.Width := 130; FColorHexEdit.MaxLength := 8;
+  FColorHexEdit.Font.Color := clBlack;
+  FColorHexEdit.OnChange := @ColorHexChanged;
+  FColorHexEdit.Hint := 'Primary color as RRGGBBAA hex';
+  FColorHexEdit.ShowHint := True;
+
+  { Secondary color indicator label }
   FColorsValueLabel := TLabel.Create(FColorsPanel);
   FColorsValueLabel.Parent := FColorsPanel;
   FColorsValueLabel.Left := 12;
-  FColorsValueLabel.Top := ContentTop + 62;
-  FColorsValueLabel.Width := 180;
-  FColorsValueLabel.Height := 44;
-  FColorsValueLabel.Font.Color := clWhite;
+  FColorsValueLabel.Top := ContentTop + 118;
+  FColorsValueLabel.Width := 226;
+  FColorsValueLabel.Height := 14;
+  FColorsValueLabel.Font.Color := clSilver;
+  FColorsValueLabel.Font.Size := 8;
+
   RefreshColorsPanel;
 
+  { Color swatch box }
   FColorsBox := TPaintBox.Create(FColorsPanel);
   FColorsBox.Parent := FColorsPanel;
   FColorsBox.Left := 12;
-  FColorsBox.Top := ContentTop + 110;
+  FColorsBox.Top := ContentTop + 136;
   FColorsBox.Width := FColorsPanel.Width - 24;
-  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 120);
+  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 148);
   FColorsBox.Anchors := [akLeft, akRight, akTop, akBottom];
   FColorsBox.OnPaint := @ColorsBoxPaint;
   FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
@@ -1507,17 +1698,15 @@ begin
   if Assigned(FColorsValueLabel) then
   begin
     FColorsValueLabel.Caption := Format(
-      'Primary: #%2.2x%2.2x%2.2x'#13#10'Secondary: #%2.2x%2.2x%2.2x',
+      'Secondary: #%2.2x%2.2x%2.2x',
       [
-        FPrimaryColor.R,
-        FPrimaryColor.G,
-        FPrimaryColor.B,
         FSecondaryColor.R,
         FSecondaryColor.G,
         FSecondaryColor.B
       ]
     );
   end;
+  UpdateColorSpins;
   if Assigned(FColorsBox) then
     FColorsBox.Invalidate;
 end;
@@ -2083,7 +2272,10 @@ begin
   if AValue then
     InvalidatePreparedBitmap;
   FDirty := AValue;
+  if (Length(FTabDirtyFlags) > FActiveTabIndex) then
+    FTabDirtyFlags[FActiveTabIndex] := AValue;
   UpdateCaption;
+  RefreshTabStrip;
 end;
 
 procedure TMainForm.SaveToPath(const AFileName: string);
@@ -2097,6 +2289,8 @@ begin
   begin
     SaveNativeDocumentToFile(ResolvedFileName, FDocument);
     FCurrentFileName := ResolvedFileName;
+    if Length(FTabFileNames) > FActiveTabIndex then
+      FTabFileNames[FActiveTabIndex] := FCurrentFileName;
     RegisterRecentFile(FCurrentFileName);
     SetDirty(False);
     Exit;
@@ -2106,6 +2300,8 @@ begin
   try
     SaveSurfaceToFile(ResolvedFileName, Surface);
     FCurrentFileName := ResolvedFileName;
+    if Length(FTabFileNames) > FActiveTabIndex then
+      FTabFileNames[FActiveTabIndex] := FCurrentFileName;
     RegisterRecentFile(FCurrentFileName);
     SetDirty(False);
   finally
@@ -2123,7 +2319,9 @@ begin
   if SameText(ExtractFileExt(ResolvedFileName), '.fpd') then
   begin
     LoadedDocument := LoadNativeDocumentFromFile(ResolvedFileName);
-    FDocument.Free;
+    { Replace active tab's document }
+    FTabDocuments[FActiveTabIndex].Free;
+    FTabDocuments[FActiveTabIndex] := LoadedDocument;
     FDocument := LoadedDocument;
   end
   else
@@ -2137,6 +2335,8 @@ begin
   end;
 
   FCurrentFileName := ResolvedFileName;
+  if Length(FTabFileNames) > FActiveTabIndex then
+    FTabFileNames[FActiveTabIndex] := FCurrentFileName;
   FPointerDown := False;
   SetLength(FLassoPoints, 0);
   FPendingSelectionMode := scReplace;
@@ -2147,6 +2347,7 @@ begin
   RegisterRecentFile(FCurrentFileName);
   RefreshLayers;
   RefreshCanvas;
+  RefreshTabStrip;
 end;
 
 function TMainForm.LoadSurfaceForImportPath(const AFileName: string): TRasterSurface;
@@ -2256,7 +2457,8 @@ begin
         APoint.X,
         APoint.Y,
         Max(0, (FBrushSize - 1) div 2),
-        ActivePaintColor
+        ActivePaintColor,
+        FBrushOpacity * 255 div 100
       );
     tkBrush, tkEraser:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -2265,7 +2467,8 @@ begin
         APoint.X,
         APoint.Y,
         Max(1, FBrushSize div 2),
-        ActivePaintColor
+        ActivePaintColor,
+        FBrushOpacity * 255 div 100
       );
     tkFill:
       FDocument.ActiveLayer.Surface.FloodFill(
@@ -2387,14 +2590,22 @@ procedure TMainForm.NewDocumentClick(Sender: TObject);
 var
   TargetWidth: Integer;
   TargetHeight: Integer;
+  NewDoc: TImageDocument;
 begin
-  if not ConfirmDocumentReplacement('create a new document') then
-    Exit;
   TargetWidth := FDocument.Width;
   TargetHeight := FDocument.Height;
   if not RunNewImageDialog(Self, TargetWidth, TargetHeight, FNewImageResolutionDPI) then
     Exit;
-  ResetDocument(TargetWidth, TargetHeight);
+  NewDoc := TImageDocument.Create(TargetWidth, TargetHeight);
+  AddDocumentTab(NewDoc, '', False);
+  FPointerDown := False;
+  SetLength(FLassoPoints, 0);
+  FPendingSelectionMode := scReplace;
+  FitDocumentToViewport(True);
+  InvalidatePreparedBitmap;
+  FLastImagePoint := Point(-1, -1);
+  RefreshLayers;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.OpenDocumentClick(Sender: TObject);
@@ -2406,14 +2617,7 @@ begin
     Dialog.Filter := SupportedOpenDialogFilter;
     if not Dialog.Execute then
       Exit;
-    if not ConfirmDocumentReplacement('open another file') then
-      Exit;
-    try
-      LoadDocumentFromPath(Dialog.FileName);
-    except
-      on E: Exception do
-        MessageDlg('Open', 'Open failed: ' + E.Message, mtError, [mbOK], 0);
-    end;
+    OpenFileInNewTab(Dialog.FileName);
   finally
     Dialog.Free;
   end;
@@ -2449,16 +2653,19 @@ begin
     Exit;
   end;
 
-  if not ConfirmDocumentReplacement('open another file') then
-    Exit;
-  LoadDocumentFromPath(FileName);
+  OpenFileInNewTab(FileName);
 end;
 
 procedure TMainForm.CloseDocumentClick(Sender: TObject);
 begin
-  if not ConfirmDocumentReplacement('close this document') then
-    Exit;
-  ResetDocument(FDocument.Width, FDocument.Height);
+  if FDirty then
+  begin
+    if MessageDlg('Close Document',
+      Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(FActiveTabIndex)]),
+      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+      Exit;
+  end;
+  CloseDocumentTab(FActiveTabIndex);
 end;
 
 procedure TMainForm.ExitApplicationClick(Sender: TObject);
@@ -3422,8 +3629,27 @@ begin
 end;
 
 procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
+var
+  I: Integer;
+  DirtyCount: Integer;
 begin
-  CanClose := ConfirmDocumentReplacement('quit FlatPaint');
+  { Sync current tab dirty flag }
+  if Length(FTabDirtyFlags) > FActiveTabIndex then
+    FTabDirtyFlags[FActiveTabIndex] := FDirty;
+  DirtyCount := 0;
+  for I := 0 to Length(FTabDirtyFlags) - 1 do
+    if FTabDirtyFlags[I] then
+      Inc(DirtyCount);
+  if DirtyCount = 0 then
+    CanClose := True
+  else
+    CanClose := MessageDlg(
+      'Quit FlatPaint',
+      Format('You have %d document(s) with unsaved changes. Quit anyway?', [DirtyCount]),
+      mtConfirmation,
+      [mbYes, mbNo],
+      0
+    ) = mrYes;
 end;
 
 procedure TMainForm.TogglePaletteViewClick(Sender: TObject);
@@ -4016,6 +4242,390 @@ begin
     Exit;
   NewMode := TBlendMode(FLayerBlendCombo.ItemIndex);
   FDocument.ActiveLayer.BlendMode := NewMode;
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+end;
+
+{ ── Document Tab Management ─────────────────────────────────────────────── }
+
+function TMainForm.TabDocumentDisplayName(AIndex: Integer): string;
+var
+  N: string;
+begin
+  if (AIndex < 0) or (AIndex >= Length(FTabFileNames)) then
+    Exit('Untitled');
+  if FTabFileNames[AIndex] = '' then
+    N := 'Untitled'
+  else
+    N := ExtractFileName(FTabFileNames[AIndex]);
+  if Length(N) > 14 then
+    N := Copy(N, 1, 13) + Chr($E2) + Chr($80) + Chr($A6);  { UTF-8 ellipsis }
+  Result := N;
+end;
+
+procedure TMainForm.AddDocumentTab(ADoc: TImageDocument; const AFileName: string;
+  ADirty: Boolean = False);
+var
+  N: Integer;
+begin
+  { Flush current state to arrays }
+  if Length(FTabDocuments) > 0 then
+  begin
+    FTabFileNames[FActiveTabIndex] := FCurrentFileName;
+    FTabDirtyFlags[FActiveTabIndex] := FDirty;
+  end;
+
+  N := Length(FTabDocuments);
+  SetLength(FTabDocuments, N + 1);
+  SetLength(FTabFileNames, N + 1);
+  SetLength(FTabDirtyFlags, N + 1);
+  FTabDocuments[N] := ADoc;
+  FTabFileNames[N] := AFileName;
+  FTabDirtyFlags[N] := ADirty;
+
+  FActiveTabIndex := N;
+  FDocument := ADoc;
+  FCurrentFileName := AFileName;
+  FDirty := ADirty;
+
+  InvalidatePreparedBitmap;
+  RefreshTabStrip;
+  UpdateCaption;
+end;
+
+procedure TMainForm.SwitchToTab(AIndex: Integer);
+begin
+  if AIndex = FActiveTabIndex then Exit;
+  if (AIndex < 0) or (AIndex >= Length(FTabDocuments)) then Exit;
+
+  { Save current state }
+  FTabFileNames[FActiveTabIndex] := FCurrentFileName;
+  FTabDirtyFlags[FActiveTabIndex] := FDirty;
+
+  FActiveTabIndex := AIndex;
+  FDocument := FTabDocuments[FActiveTabIndex];
+  FCurrentFileName := FTabFileNames[FActiveTabIndex];
+  FDirty := FTabDirtyFlags[FActiveTabIndex];
+
+  InvalidatePreparedBitmap;
+  FLastImagePoint := Point(-1, -1);
+  FPointerDown := False;
+  FitDocumentToViewport(False);
+  RefreshTabStrip;
+  RefreshLayers;
+  RefreshCanvas;
+  UpdateCaption;
+end;
+
+procedure TMainForm.CloseDocumentTab(AIndex: Integer);
+var
+  I, N: Integer;
+begin
+  N := Length(FTabDocuments);
+  if N <= 1 then
+  begin
+    { Cannot close the last tab — reset to blank instead }
+    FDocument.NewBlank(800, 600);
+    FCurrentFileName := '';
+    FTabFileNames[0] := '';
+    FTabDirtyFlags[0] := False;
+    SetDirty(False);
+    FPointerDown := False;
+    SetLength(FLassoPoints, 0);
+    FitDocumentToViewport(True);
+    RefreshLayers;
+    RefreshCanvas;
+    RefreshTabStrip;
+    Exit;
+  end;
+
+  FTabDocuments[AIndex].Free;
+
+  { Shift arrays down }
+  for I := AIndex to N - 2 do
+  begin
+    FTabDocuments[I] := FTabDocuments[I + 1];
+    FTabFileNames[I] := FTabFileNames[I + 1];
+    FTabDirtyFlags[I] := FTabDirtyFlags[I + 1];
+  end;
+  SetLength(FTabDocuments, N - 1);
+  SetLength(FTabFileNames, N - 1);
+  SetLength(FTabDirtyFlags, N - 1);
+
+  if FActiveTabIndex >= Length(FTabDocuments) then
+    FActiveTabIndex := Length(FTabDocuments) - 1;
+
+  FDocument := FTabDocuments[FActiveTabIndex];
+  FCurrentFileName := FTabFileNames[FActiveTabIndex];
+  FDirty := FTabDirtyFlags[FActiveTabIndex];
+
+  InvalidatePreparedBitmap;
+  FLastImagePoint := Point(-1, -1);
+  FPointerDown := False;
+  FitDocumentToViewport(False);
+  RefreshTabStrip;
+  RefreshLayers;
+  RefreshCanvas;
+  UpdateCaption;
+end;
+
+procedure TMainForm.RefreshTabStrip;
+var
+  I: Integer;
+  Btn: TButton;
+  CloseBtn: TButton;
+  BtnLeft: Integer;
+  TabW: Integer;
+  TabCaption: string;
+begin
+  if not Assigned(FTabStrip) then Exit;
+  if FUpdatingTabs then Exit;
+  FUpdatingTabs := True;
+  try
+    { Remove all existing tab buttons }
+    while FTabStrip.ControlCount > 0 do
+      FTabStrip.Controls[0].Free;
+
+    BtnLeft := 4;
+    TabW := 130;
+
+    for I := 0 to Length(FTabDocuments) - 1 do
+    begin
+      TabCaption := TabDocumentDisplayName(I);
+      if FTabDirtyFlags[I] then
+        TabCaption := TabCaption + ' *';
+
+      Btn := TButton.Create(FTabStrip);
+      Btn.Parent := FTabStrip;
+      Btn.Left := BtnLeft;
+      Btn.Top := 3;
+      Btn.Width := TabW - 24;
+      Btn.Height := 22;
+      Btn.Caption := TabCaption;
+      Btn.Tag := I;
+      Btn.OnClick := @TabButtonClick;
+      Btn.Hint := FTabFileNames[I];
+      Btn.ShowHint := True;
+      if I = FActiveTabIndex then
+        Btn.Font.Style := [fsBold]
+      else
+        Btn.Font.Style := [];
+
+      CloseBtn := TButton.Create(FTabStrip);
+      CloseBtn.Parent := FTabStrip;
+      CloseBtn.Left := BtnLeft + TabW - 22;
+      CloseBtn.Top := 3;
+      CloseBtn.Width := 20;
+      CloseBtn.Height := 22;
+      CloseBtn.Caption := 'x';
+      CloseBtn.Tag := I;
+      CloseBtn.OnClick := @TabCloseButtonClick;
+      CloseBtn.Hint := 'Close document';
+      CloseBtn.ShowHint := True;
+
+      BtnLeft := BtnLeft + TabW + 2;
+    end;
+
+    { "+" button to create a new document }
+    Btn := TButton.Create(FTabStrip);
+    Btn.Parent := FTabStrip;
+    Btn.Left := BtnLeft;
+    Btn.Top := 3;
+    Btn.Width := 26;
+    Btn.Height := 22;
+    Btn.Caption := '+';
+    Btn.Hint := 'New document';
+    Btn.ShowHint := True;
+    Btn.OnClick := @NewDocumentClick;
+  finally
+    FUpdatingTabs := False;
+  end;
+end;
+
+procedure TMainForm.TabButtonClick(Sender: TObject);
+begin
+  if not (Sender is TButton) then Exit;
+  SwitchToTab(TButton(Sender).Tag);
+end;
+
+procedure TMainForm.TabCloseButtonClick(Sender: TObject);
+var
+  Idx: Integer;
+begin
+  if not (Sender is TButton) then Exit;
+  Idx := TButton(Sender).Tag;
+  if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
+  if FTabDirtyFlags[Idx] then
+  begin
+    if MessageDlg('Close Document',
+      Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(Idx)]),
+      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+      Exit;
+  end;
+  CloseDocumentTab(Idx);
+end;
+
+procedure TMainForm.OpenFileInNewTab(const AFileName: string);
+var
+  Surface: TRasterSurface;
+  LoadedDocument: TImageDocument;
+  ResolvedFileName: string;
+begin
+  ResolvedFileName := ExpandFileName(AFileName);
+  try
+    if SameText(ExtractFileExt(ResolvedFileName), '.fpd') then
+    begin
+      LoadedDocument := LoadNativeDocumentFromFile(ResolvedFileName);
+      AddDocumentTab(LoadedDocument, ResolvedFileName, False);
+    end
+    else
+    begin
+      LoadedDocument := TImageDocument.Create(1, 1);
+      Surface := LoadSurfaceFromFile(ResolvedFileName);
+      try
+        LoadedDocument.ReplaceWithSingleLayer(Surface, ExtractFileName(ResolvedFileName));
+      finally
+        Surface.Free;
+      end;
+      AddDocumentTab(LoadedDocument, ResolvedFileName, False);
+    end;
+    RegisterRecentFile(ResolvedFileName);
+    FPointerDown := False;
+    SetLength(FLassoPoints, 0);
+    FPendingSelectionMode := scReplace;
+    FitDocumentToViewport(True);
+    InvalidatePreparedBitmap;
+    FLastImagePoint := Point(-1, -1);
+    RefreshLayers;
+    RefreshCanvas;
+  except
+    on E: Exception do
+      MessageDlg('Open', 'Open failed: ' + E.Message, mtError, [mbOK], 0);
+  end;
+end;
+
+{ ── Colors Panel RGBA Controls ───────────────────────────────────────────── }
+
+procedure TMainForm.UpdateColorSpins;
+begin
+  if FUpdatingColorSpins then Exit;
+  FUpdatingColorSpins := True;
+  try
+    if Assigned(FColorRSpin) then FColorRSpin.Value := FPrimaryColor.R;
+    if Assigned(FColorGSpin) then FColorGSpin.Value := FPrimaryColor.G;
+    if Assigned(FColorBSpin) then FColorBSpin.Value := FPrimaryColor.B;
+    if Assigned(FColorASpin) then FColorASpin.Value := FPrimaryColor.A;
+    if Assigned(FColorHexEdit) then
+      FColorHexEdit.Text := Format('%2.2x%2.2x%2.2x%2.2x',
+        [FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, FPrimaryColor.A]);
+  finally
+    FUpdatingColorSpins := False;
+  end;
+end;
+
+procedure TMainForm.ColorSpinChanged(Sender: TObject);
+begin
+  if FUpdatingColorSpins then Exit;
+  if not Assigned(FColorRSpin) then Exit;
+  FPrimaryColor := RGBA(
+    FColorRSpin.Value,
+    FColorGSpin.Value,
+    FColorBSpin.Value,
+    FColorASpin.Value
+  );
+  FUpdatingColorSpins := True;
+  try
+    if Assigned(FColorHexEdit) then
+      FColorHexEdit.Text := Format('%2.2x%2.2x%2.2x%2.2x',
+        [FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, FPrimaryColor.A]);
+  finally
+    FUpdatingColorSpins := False;
+  end;
+  if Assigned(FColorsBox) then FColorsBox.Invalidate;
+end;
+
+procedure TMainForm.ColorHexChanged(Sender: TObject);
+var
+  HexStr: string;
+  R, G, B, A: Integer;
+begin
+  if FUpdatingColorSpins then Exit;
+  if not Assigned(FColorHexEdit) then Exit;
+  HexStr := Trim(FColorHexEdit.Text);
+  if Length(HexStr) > 0 then
+    if HexStr[1] = '#' then
+      HexStr := Copy(HexStr, 2, 8);
+  if Length(HexStr) < 6 then Exit;
+  if Length(HexStr) = 6 then HexStr := HexStr + 'ff';
+  try
+    R := StrToInt('$' + Copy(HexStr, 1, 2));
+    G := StrToInt('$' + Copy(HexStr, 3, 2));
+    B := StrToInt('$' + Copy(HexStr, 5, 2));
+    A := StrToInt('$' + Copy(HexStr, 7, 2));
+    FPrimaryColor := RGBA(
+      EnsureRange(R, 0, 255),
+      EnsureRange(G, 0, 255),
+      EnsureRange(B, 0, 255),
+      EnsureRange(A, 0, 255)
+    );
+    FUpdatingColorSpins := True;
+    try
+      if Assigned(FColorRSpin) then FColorRSpin.Value := FPrimaryColor.R;
+      if Assigned(FColorGSpin) then FColorGSpin.Value := FPrimaryColor.G;
+      if Assigned(FColorBSpin) then FColorBSpin.Value := FPrimaryColor.B;
+      if Assigned(FColorASpin) then FColorASpin.Value := FPrimaryColor.A;
+    finally
+      FUpdatingColorSpins := False;
+    end;
+    if Assigned(FColorsBox) then FColorsBox.Invalidate;
+  except
+    { Invalid hex input — silently ignore }
+  end;
+end;
+
+{ ── Tool Option Handlers ─────────────────────────────────────────────────── }
+
+procedure TMainForm.OpacitySpinChanged(Sender: TObject);
+begin
+  if not Assigned(FOpacitySpin) then Exit;
+  FBrushOpacity := EnsureRange(FOpacitySpin.Value, 1, 100);
+end;
+
+procedure TMainForm.SelModeComboChanged(Sender: TObject);
+begin
+  if not Assigned(FSelModeCombo) then Exit;
+  FPendingSelectionMode := TSelectionCombineMode(FSelModeCombo.ItemIndex);
+end;
+
+{ ── Layer Rotate / Zoom ──────────────────────────────────────────────────── }
+
+procedure TMainForm.LayerRotateZoomClick(Sender: TObject);
+var
+  Choice: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  Choice := MessageDlg(
+    'Layer Rotate / Zoom',
+    'Choose rotation:'#13#10#13#10 +
+    '  Yes  = Rotate 90' + Chr($C2) + Chr($B0) + ' Clockwise'#13#10 +
+    '  No   = Rotate 90' + Chr($C2) + Chr($B0) + ' Counter-Clockwise'#13#10 +
+    '  OK   = Rotate 180' + Chr($C2) + Chr($B0),
+    mtInformation,
+    [mbYes, mbNo, mbOK, mbCancel],
+    0
+  );
+  case Choice of
+    mrYes:
+      FDocument.ActiveLayer.Surface.Rotate90Clockwise;
+    mrNo:
+      FDocument.ActiveLayer.Surface.Rotate90CounterClockwise;
+    mrOK:
+      FDocument.ActiveLayer.Surface.Rotate180;
+    mrCancel:
+      Exit;
+  end;
+  FDocument.PushHistory('Rotate Layer');
   InvalidatePreparedBitmap;
   SetDirty(True);
   RefreshCanvas;

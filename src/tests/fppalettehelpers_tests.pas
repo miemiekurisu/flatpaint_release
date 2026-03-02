@@ -19,6 +19,7 @@ type
     procedure PaletteDragTintDiffersFromRestTint;
     procedure ToolsPaletteUsesNarrowTwoColumnLayout;
     procedure SnapPaletteRectAlignsToNearbyWorkspaceEdges;
+    procedure ColorsPanelFitsRGBASpinsAndHexField;
   end;
 
 implementation
@@ -144,6 +145,17 @@ begin
   Snapped := SnapPaletteRect(Rect(206, 150, 306, 230), Rect(0, 0, 300, 220));
   AssertEquals('snap right', 300, Snapped.Right);
   AssertEquals('snap bottom', 220, Snapped.Bottom);
+end;
+
+procedure TFPPaletteHelpersTests.ColorsPanelFitsRGBASpinsAndHexField;
+var
+  R: TRect;
+begin
+  { Colors panel was expanded to fit R/G/B/A spin edits + hex input field.
+    Minimum width required for 4 spin columns ≈ 240px; height for all rows ≥ 280px. }
+  R := PaletteDefaultRect(pkColors);
+  AssertTrue('colors panel wide enough for RGBA spins', (R.Right - R.Left) >= 240);
+  AssertTrue('colors panel tall enough for RGBA rows', (R.Bottom - R.Top) >= 280);
 end;
 
 initialization

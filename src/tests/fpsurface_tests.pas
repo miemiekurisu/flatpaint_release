@@ -22,6 +22,8 @@ type
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
     procedure RenderCloudsWritesNonTransparentPixels;
+    procedure DrawLineOpacityScalesAlphaChannel;
+    procedure DrawLineFullOpacityMatchesDirectPaint;
   end;
 
 implementation
@@ -275,6 +277,37 @@ begin
         if Surface[X, Y].A < 255 then
           AllOpaque := False;
     AssertTrue('all pixels written by RenderClouds', AllOpaque);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DrawLineOpacityScalesAlphaChannel;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(10, 1);
+  try
+    Surface.Clear(TransparentColor);
+    { Half opacity (128): DrawLine over transparent background }
+    Surface.DrawLine(0, 0, 9, 0, 0, RGBA(255, 0, 0, 255), 128);
+    AssertTrue('half opacity alpha above zero', Surface[5, 0].A > 0);
+    AssertTrue('half opacity alpha less than full', Surface[5, 0].A < 255);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DrawLineFullOpacityMatchesDirectPaint;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(5, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawLine(0, 0, 4, 0, 0, RGBA(200, 100, 50, 255), 255);
+    AssertEquals('full opacity red', 200, Surface[2, 0].R);
+    AssertEquals('full opacity alpha', 255, Surface[2, 0].A);
   finally
     Surface.Free;
   end;

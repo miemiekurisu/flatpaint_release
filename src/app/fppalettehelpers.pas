@@ -38,8 +38,8 @@ const
   PaletteGap = 14;
   ToolsPaletteWidth = 100;
   ToolsPaletteHeight = 324;
-  ColorsPaletteWidth = 224;
-  ColorsPaletteHeight = 216;
+  ColorsPaletteWidth = 254;
+  ColorsPaletteHeight = 306;
   HistoryPaletteWidth = 236;
   HistoryPaletteHeight = 156;
   LayersPaletteWidth = 236;
