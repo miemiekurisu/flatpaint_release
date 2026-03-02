@@ -134,7 +134,7 @@ type
     procedure SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
     procedure SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
     procedure SelectLasso(const APoints: array of TPoint; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectMagicWand(X, Y: Integer; Tolerance: Byte = 0; AMode: TSelectionCombineMode = scReplace);
+    procedure SelectMagicWand(X, Y: Integer; Tolerance: Byte = 0; AMode: TSelectionCombineMode = scReplace; UseAllLayers: Boolean = False; Contiguous: Boolean = True);
     function CopySelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface;
     function CopyMergedToSurface(ACropToBounds: Boolean = False): TRasterSurface;
     function CutSelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface;
@@ -164,6 +164,13 @@ type
     procedure RenderClouds(Seed: Cardinal = 1);
     procedure Pixelate(BlockSize: Integer);
     procedure Vignette(Strength: Double);
+    procedure MotionBlur(Angle: Integer; Distance: Integer);
+    procedure MedianFilter(Radius: Integer);
+    procedure OutlineEffect(const AOutlineColor: TRGBA32; Threshold: Byte = 10);
+    procedure GlowEffect(Radius: Integer = 3; Intensity: Integer = 80);
+    procedure OilPaint(Radius: Integer = 4);
+    procedure FrostedGlass(Amount: Integer = 4);
+    procedure ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer = 8);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     function HasSelection: Boolean;
     function HasStoredSelection: Boolean;
@@ -669,13 +676,30 @@ begin
   FSelection.SelectPolygon(APoints, AMode);
 end;
 
-procedure TImageDocument.SelectMagicWand(X, Y: Integer; Tolerance: Byte; AMode: TSelectionCombineMode);
+procedure TImageDocument.SelectMagicWand(X, Y: Integer; Tolerance: Byte; AMode: TSelectionCombineMode; UseAllLayers: Boolean; Contiguous: Boolean);
 var
   SelectionFromWand: TSelectionMask;
   SelectX: Integer;
   SelectY: Integer;
+  SampleSurface: TRasterSurface;
+  OwnsSampleSurface: Boolean;
 begin
-  SelectionFromWand := ActiveLayer.Surface.CreateContiguousSelection(X, Y, Tolerance);
+  if UseAllLayers then
+  begin
+    SampleSurface := Composite;
+    OwnsSampleSurface := True;
+  end
+  else
+  begin
+    SampleSurface := ActiveLayer.Surface;
+    OwnsSampleSurface := False;
+  end;
+  if Contiguous then
+    SelectionFromWand := SampleSurface.CreateContiguousSelection(X, Y, Tolerance)
+  else
+    SelectionFromWand := SampleSurface.CreateGlobalColorSelection(X, Y, Tolerance);
+  if OwnsSampleSurface then
+    SampleSurface.Free;
   try
     case AMode of
       scReplace:
@@ -904,6 +928,41 @@ end;
 procedure TImageDocument.Vignette(Strength: Double);
 begin
   ActiveLayer.Surface.Vignette(Strength);
+end;
+
+procedure TImageDocument.MotionBlur(Angle: Integer; Distance: Integer);
+begin
+  ActiveLayer.Surface.MotionBlur(Angle, Distance);
+end;
+
+procedure TImageDocument.MedianFilter(Radius: Integer);
+begin
+  ActiveLayer.Surface.MedianFilter(Radius);
+end;
+
+procedure TImageDocument.OutlineEffect(const AOutlineColor: TRGBA32; Threshold: Byte);
+begin
+  ActiveLayer.Surface.OutlineEffect(AOutlineColor, Threshold);
+end;
+
+procedure TImageDocument.GlowEffect(Radius: Integer; Intensity: Integer);
+begin
+  ActiveLayer.Surface.GlowEffect(Radius, Intensity);
+end;
+
+procedure TImageDocument.OilPaint(Radius: Integer);
+begin
+  ActiveLayer.Surface.OilPaint(Radius);
+end;
+
+procedure TImageDocument.FrostedGlass(Amount: Integer);
+begin
+  ActiveLayer.Surface.FrostedGlass(Amount);
+end;
+
+procedure TImageDocument.ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer);
+begin
+  ActiveLayer.Surface.ZoomBlur(CenterX, CenterY, Amount);
 end;
 
 procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);

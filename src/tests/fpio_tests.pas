@@ -5,7 +5,7 @@ unit fpio_tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPIO;
+  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPIO, FPPDNIO;
 
 type
   TFPIOTests = class(TTestCase)
@@ -22,6 +22,7 @@ type
     procedure UnifiedOpenFilterIncludesProjectsAndPSD;
     procedure KraLoadRaisesDescriptiveError;
     procedure PdnLoadRaisesDescriptiveError;
+    procedure PdnZipLoadExtractsPNG;
   end;
 
 implementation
@@ -290,6 +291,53 @@ begin
   DeleteFile(PdnPath);
   AssertTrue('pdn load must raise', GotException);
   AssertTrue('pdn error mentions pdn', Pos('.pdn', ExceptionMsg) > 0);
+end;
+
+procedure TFPIOTests.PdnZipLoadExtractsPNG;
+{ Writes a ZIP that contains a 1×1 PNG named 'merged.png' (matching the
+  preferred-entry heuristic) and verifies that TryLoadFlattenedPDNSurface
+  successfully extracts it into a valid TRasterSurface. }
+const
+  { Minimal ZIP containing a 1×1 RGB PNG named 'merged.png' }
+  MiniPdnZip: array[0..186] of Byte = (
+    80,75,3,4,20,0,0,0,0,0,226,161,98,92,81,15,
+    218,2,69,0,0,0,69,0,0,0,10,0,0,0,109,101,
+    114,103,101,100,46,112,110,103,137,80,78,71,13,10,26,10,
+    0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,
+    8,2,0,0,0,144,119,83,222,0,0,0,12,73,68,65,
+    84,120,156,99,248,207,192,0,0,3,1,1,0,201,254,146,
+    239,0,0,0,0,73,69,78,68,174,66,96,130,80,75,1,
+    2,20,3,20,0,0,0,0,0,226,161,98,92,81,15,218,
+    2,69,0,0,0,69,0,0,0,10,0,0,0,0,0,0,
+    0,0,0,0,0,128,1,0,0,0,0,109,101,114,103,101,
+    100,46,112,110,103,80,75,5,6,0,0,0,0,1,0,1,
+    0,56,0,0,0,109,0,0,0,0,0
+  );
+var
+  PdnPath: string;
+  FS: TFileStream;
+  Surface: TRasterSurface;
+  Ok: Boolean;
+begin
+  PdnPath := UniqueTempFile('.pdn');
+  FS := TFileStream.Create(PdnPath, fmCreate);
+  try
+    FS.WriteBuffer(MiniPdnZip[0], SizeOf(MiniPdnZip));
+  finally
+    FS.Free;
+  end;
+  Surface := nil;
+  Ok := False;
+  try
+    Ok := TryLoadFlattenedPDNSurface(PdnPath, Surface);
+    AssertTrue('pdn zip should load successfully', Ok);
+    AssertNotNull('surface should not be nil', Surface);
+    AssertEquals('width should be 1', 1, Surface.Width);
+    AssertEquals('height should be 1', 1, Surface.Height);
+  finally
+    Surface.Free;
+    DeleteFile(PdnPath);
+  end;
 end;
 
 initialization

@@ -67,6 +67,11 @@
         <IsPartOfProject Value="True"/>
         <UnitName Value="FPNativeIO"/>
       </Unit8>
+      <Unit9>
+        <Filename Value="src/core/fppdnio.pas"/>
+        <IsPartOfProject Value="True"/>
+        <UnitName Value="FPPDNIO"/>
+      </Unit9>
     </Units>
   </ProjectOptions>
   <CompilerOptions>

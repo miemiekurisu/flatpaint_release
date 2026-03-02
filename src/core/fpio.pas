@@ -7,8 +7,19 @@ interface
 uses
   Classes, SysUtils, FPImage, FPColor, FPSurface;
 
+type
+  { Options passed to SaveSurfaceToFileWithOpts.
+    JpegQuality: 1..100 (default 90 if 0).
+    PngCompressionLevel: reserved for future use; ignored in this release. }
+  TSaveSurfaceOptions = record
+    JpegQuality: Integer;
+    PngCompressionLevel: Integer;
+  end;
+
+function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
 function LoadSurfaceFromFile(const AFileName: string): TRasterSurface;
 procedure SaveSurfaceToFile(const AFileName: string; ASurface: TRasterSurface);
+procedure SaveSurfaceToFileWithOpts(const AFileName: string; ASurface: TRasterSurface; const AOpts: TSaveSurfaceOptions);
 function SupportedSurfaceOpenPattern: string;
 function SupportedOpenDialogFilter: string;
 function SupportedImportDialogFilter: string;
@@ -17,6 +28,7 @@ implementation
 
 uses
   FPXCFIO,
+  FPPDNIO,
   FPReadBMP, FPReadGIF, FPReadJPEG, FPReadPCX, FPReadPNG, FPReadPNM, FPReadPSD,
   FPReadTGA, FPReadTiff, FPReadXPM, FPReadXWD,
   FPWriteBMP, FPWriteJPEG, FPWritePCX, FPWritePNG, FPWritePNM, FPWriteTGA,
@@ -122,12 +134,16 @@ begin
       'Krita (.kra) files are not yet fully supported.' + LineEnding +
       'To open Krita artwork in FlatPaint, export a flattened PNG or PSD from Krita first.');
 
-  { Paint.NET .pdn files use a proprietary compressed format; a full import is not
-    yet implemented. Raise a descriptive error instead of a confusing binary failure. }
+  { Paint.NET .pdn files: attempt ZIP-based flattened PNG extraction first }
   if SameText(APreferredExtension, '.pdn') then
+  begin
+    if TryLoadFlattenedPDNSurface(AFileName, Result) then
+      Exit;
     raise Exception.Create(
-      'Paint.NET (.pdn) files are not yet fully supported.' + LineEnding +
+      'Paint.NET (.pdn) file could not be imported.' + LineEnding +
+      'This file may use an older non-ZIP format.' + LineEnding +
       'To open Paint.NET artwork in FlatPaint, export a flattened PNG from Paint.NET first.');
+  end;
 
   if SameText(APreferredExtension, '.xcf') and TryLoadFlattenedXCFSurface(AFileName, Result) then
     Exit;
@@ -201,6 +217,14 @@ end;
 
 procedure SaveSurfaceToFile(const AFileName: string; ASurface: TRasterSurface);
 var
+  Opts: TSaveSurfaceOptions;
+begin
+  Opts := DefaultSaveSurfaceOptions;
+  SaveSurfaceToFileWithOpts(AFileName, ASurface, Opts);
+end;
+
+procedure SaveSurfaceToFileWithOpts(const AFileName: string; ASurface: TRasterSurface; const AOpts: TSaveSurfaceOptions);
+var
   Writer: TFPCustomImageWriter;
   Image: TFPMemoryImage;
   Stream: TFileStream;
@@ -208,12 +232,21 @@ var
   Y: Integer;
   Pixel: TRGBA32;
   Extension: string;
+  JpegQuality: Integer;
 begin
   Extension := LowerCase(ExtractFileExt(AFileName));
   Writer := CreateWriter(Extension);
   Image := TFPMemoryImage.Create(ASurface.Width, ASurface.Height);
   Stream := TFileStream.Create(AFileName, fmCreate);
   try
+    { Configure writer options }
+    if Writer is TFPWriterJPEG then
+    begin
+      JpegQuality := AOpts.JpegQuality;
+      if JpegQuality <= 0 then JpegQuality := 90;
+      TFPWriterJPEG(Writer).CompressionQuality := JpegQuality;
+    end;
+
     for Y := 0 to ASurface.Height - 1 do
       for X := 0 to ASurface.Width - 1 do
       begin
@@ -226,6 +259,12 @@ begin
     Image.Free;
     Writer.Free;
   end;
+end;
+
+function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
+begin
+  Result.JpegQuality := 90;
+  Result.PngCompressionLevel := 6;
 end;
 
 end.

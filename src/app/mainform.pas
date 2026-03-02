@@ -52,6 +52,14 @@ type
     FBrushSize: Integer;
     FWandTolerance: Integer;
     FPendingSelectionMode: TSelectionCombineMode;
+    { 0=Outline, 1=Fill, 2=Outline+Fill }
+    FShapeStyle: Integer;
+    { 0=Contiguous, 1=Global }
+    FBucketFloodMode: Integer;
+    { 0=Current Layer, 1=All Layers }
+    FWandSampleSource: Integer;
+    { JPEG export quality 1-100; persisted per session }
+    FJpegQuality: Integer;
     FPrimaryColor: TRGBA32;
     FSecondaryColor: TRGBA32;
     FStrokeColor: TRGBA32;
@@ -126,6 +134,8 @@ type
     FTabDirtyFlags: array of Boolean;
     FActiveTabIndex: Integer;
     FTabStrip: TPanel;
+    FTabPopupMenu: TPopupMenu;
+    FPopupTabIndex: Integer;
     FUpdatingTabs: Boolean;
     { Colors panel RGBA }
     FColorRSpin: TSpinEdit;
@@ -138,8 +148,24 @@ type
     FOpacitySpin: TSpinEdit;
     FOpacityLabel: TLabel;
     FBrushOpacity: Integer;
+    FHardnessSpin: TSpinEdit;
+    FHardnessLabel: TLabel;
+    FBrushHardness: Integer;
     FSelModeCombo: TComboBox;
     FSelModeLabel: TLabel;
+    FShapeStyleCombo: TComboBox;
+    FShapeStyleLabel: TLabel;
+    FBucketModeCombo: TComboBox;
+    FBucketModeLabel: TLabel;
+    FWandSampleCombo: TComboBox;
+    FWandSampleLabel: TLabel;
+    { Wand contiguous toggle }
+    FWandContiguous: Boolean;
+    FWandContiguousCheck: TCheckBox;
+    { Fill tolerance }
+    FFillTolerance: Integer;
+    FFillTolSpin: TSpinEdit;
+    FFillTolLabel: TLabel;
     function ActivePaintColor: TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
@@ -160,6 +186,7 @@ type
     procedure UpdateToolOptionControl;
     procedure RefreshUnitsMenu;
     procedure BuildMenus;
+    procedure BuildTabPopupMenu;
     procedure BuildToolbar;
     procedure BuildSidePanel;
     function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0): TButton;
@@ -258,6 +285,12 @@ type
     procedure RenderCloudsClick(Sender: TObject);
     procedure PixelateClick(Sender: TObject);
     procedure VignetteClick(Sender: TObject);
+    procedure MotionBlurClick(Sender: TObject);
+    procedure MedianFilterClick(Sender: TObject);
+    procedure GlowClick(Sender: TObject);
+    procedure OilPaintClick(Sender: TObject);
+    procedure FrostedGlassClick(Sender: TObject);
+    procedure ZoomBlurClick(Sender: TObject);
     procedure RepeatLastEffectClick(Sender: TObject);
     procedure LayerPropertiesClick(Sender: TObject);
     procedure PasteSelectionClick(Sender: TObject);
@@ -266,6 +299,10 @@ type
     { Document tab management }
     procedure TabButtonClick(Sender: TObject);
     procedure TabCloseButtonClick(Sender: TObject);
+    procedure TabMenuCloseClick(Sender: TObject);
+    procedure TabMenuCloseOthersClick(Sender: TObject);
+    procedure TabMenuCloseRightClick(Sender: TObject);
+    procedure TabMenuNewClick(Sender: TObject);
     procedure AddDocumentTab(ADoc: TImageDocument; const AFileName: string;
       ADirty: Boolean = False);
     procedure CloseDocumentTab(AIndex: Integer);
@@ -281,7 +318,13 @@ type
     procedure ColorHexChanged(Sender: TObject);
     { Tool option handlers }
     procedure OpacitySpinChanged(Sender: TObject);
+    procedure HardnessSpinChanged(Sender: TObject);
     procedure SelModeComboChanged(Sender: TObject);
+    procedure ShapeStyleComboChanged(Sender: TObject);
+    procedure BucketModeComboChanged(Sender: TObject);
+    procedure WandSampleComboChanged(Sender: TObject);
+    procedure WandContiguousChanged(Sender: TObject);
+    procedure FillTolSpinChanged(Sender: TObject);
     { Layer operations }
     procedure LayerRotateZoomClick(Sender: TObject);
     procedure DeselectClick(Sender: TObject);
@@ -401,6 +444,13 @@ begin
   FBrushSize := 8;
   FWandTolerance := 32;
   FBrushOpacity := 100;
+  FBrushHardness := 100;
+  FShapeStyle := 0;
+  FBucketFloodMode := 0;
+  FWandSampleSource := 0;
+  FWandContiguous := True;
+  FJpegQuality := 90;
+  FFillTolerance := 8;
   FClipboardOffset := Point(0, 0);
   FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
@@ -426,6 +476,7 @@ begin
   FDeferredLayoutPass := True;
   FLastScrollPosition := Point(0, 0);
 
+  BuildTabPopupMenu;
   BuildMenus;
   BuildToolbar;
 
@@ -811,12 +862,18 @@ var
   IsSelTool: Boolean;
   IsSizeTool: Boolean;
   IsOpacityTool: Boolean;
+  IsHardnessTool: Boolean;
+  IsShapeTool: Boolean;
+  IsBucketTool: Boolean;
 begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
 
   IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
   IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
+  IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
+  IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
+  IsBucketTool := FCurrentTool = tkFill;
   IsSizeTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkLine,
     tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape,
     tkCloneStamp, tkRecolor, tkMagicWand];
@@ -826,6 +883,23 @@ begin
   if Assigned(FOpacityLabel) then FOpacityLabel.Visible := IsOpacityTool;
   if Assigned(FOpacitySpin) then FOpacitySpin.Visible := IsOpacityTool;
   if Assigned(FOpacitySpin) then FOpacitySpin.Value := FBrushOpacity;
+  if Assigned(FHardnessLabel) then FHardnessLabel.Visible := IsHardnessTool;
+  if Assigned(FHardnessSpin) then FHardnessSpin.Visible := IsHardnessTool;
+  if Assigned(FHardnessSpin) then FHardnessSpin.Value := FBrushHardness;
+  if Assigned(FShapeStyleLabel) then FShapeStyleLabel.Visible := IsShapeTool;
+  if Assigned(FShapeStyleCombo) then FShapeStyleCombo.Visible := IsShapeTool;
+  if Assigned(FShapeStyleCombo) then FShapeStyleCombo.ItemIndex := FShapeStyle;
+  if Assigned(FBucketModeLabel) then FBucketModeLabel.Visible := IsBucketTool;
+  if Assigned(FBucketModeCombo) then FBucketModeCombo.Visible := IsBucketTool;
+  if Assigned(FBucketModeCombo) then FBucketModeCombo.ItemIndex := FBucketFloodMode;
+  if Assigned(FWandSampleLabel) then FWandSampleLabel.Visible := FCurrentTool = tkMagicWand;
+  if Assigned(FWandSampleCombo) then FWandSampleCombo.Visible := FCurrentTool = tkMagicWand;
+  if Assigned(FWandSampleCombo) then FWandSampleCombo.ItemIndex := FWandSampleSource;
+  if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Visible := FCurrentTool = tkMagicWand;
+  if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Checked := FWandContiguous;
+  if Assigned(FFillTolLabel) then FFillTolLabel.Visible := IsBucketTool;
+  if Assigned(FFillTolSpin) then FFillTolSpin.Visible := IsBucketTool;
+  if Assigned(FFillTolSpin) then FFillTolSpin.Value := FFillTolerance;
 
   FUpdatingToolOption := True;
   try
@@ -878,6 +952,37 @@ begin
     FUnitCentimetersItem.Checked := FDisplayUnit = duCentimeters;
   if Assigned(FStatusBar) then
     RefreshStatus(FLastImagePoint);
+end;
+
+procedure TMainForm.BuildTabPopupMenu;
+var
+  Item: TMenuItem;
+begin
+  FTabPopupMenu := TPopupMenu.Create(Self);
+  
+  Item := TMenuItem.Create(FTabPopupMenu);
+  Item.Caption := '&New Tab';
+  Item.OnClick := @TabMenuNewClick;
+  FTabPopupMenu.Items.Add(Item);
+
+  Item := TMenuItem.Create(FTabPopupMenu);
+  Item.Caption := '-';
+  FTabPopupMenu.Items.Add(Item);
+  
+  Item := TMenuItem.Create(FTabPopupMenu);
+  Item.Caption := '&Close';
+  Item.OnClick := @TabMenuCloseClick;
+  FTabPopupMenu.Items.Add(Item);
+
+  Item := TMenuItem.Create(FTabPopupMenu);
+  Item.Caption := 'Close &Other Tabs';
+  Item.OnClick := @TabMenuCloseOthersClick;
+  FTabPopupMenu.Items.Add(Item);
+
+  Item := TMenuItem.Create(FTabPopupMenu);
+  Item.Caption := 'Close Tabs to the &Right';
+  Item.OnClick := @TabMenuCloseRightClick;
+  FTabPopupMenu.Items.Add(Item);
 end;
 
 procedure TMainForm.BuildMenus;
@@ -966,7 +1071,7 @@ begin
   CreateMenuItem(ImageMenu, 'Rotate &180', @Rotate180Click);
   CreateMenuItem(ImageMenu, 'Flip &Horizontal', @FlipHorizontalClick);
   CreateMenuItem(ImageMenu, 'Flip &Vertical', @FlipVerticalClick);
-  CreateMenuItem(ImageMenu, '&Flatten', @FlattenClick);
+  CreateMenuItem(ImageMenu, '&Flatten', @FlattenClick, ShortCut(VK_F, [ssMeta, ssShift]));
 
   ViewMenu := TMenuItem.Create(FMainMenu);
   ViewMenu.Caption := '&View';
@@ -1056,6 +1161,12 @@ begin
   CreateMenuItem(EffectsMenu, '-', nil);
   CreateMenuItem(EffectsMenu, '&Pixelate...', @PixelateClick);
   CreateMenuItem(EffectsMenu, '&Vignette...', @VignetteClick);
+  CreateMenuItem(EffectsMenu, '&Motion Blur...', @MotionBlurClick);
+  CreateMenuItem(EffectsMenu, '&Median / Denoise...', @MedianFilterClick);
+  CreateMenuItem(EffectsMenu, '&Glow...', @GlowClick);
+  CreateMenuItem(EffectsMenu, '&Oil Paint...', @OilPaintClick);
+  CreateMenuItem(EffectsMenu, '&Frosted Glass...', @FrostedGlassClick);
+  CreateMenuItem(EffectsMenu, '&Zoom Blur...', @ZoomBlurClick);
 
   Menu := FMainMenu;
 end;
@@ -1203,6 +1314,27 @@ begin
   FOpacitySpin.Hint := 'Brush opacity (1-100)';
   FOpacitySpin.ShowHint := True;
 
+  FHardnessLabel := TLabel.Create(FTopPanel);
+  FHardnessLabel.Parent := FTopPanel;
+  FHardnessLabel.Caption := 'Hardness:';
+  FHardnessLabel.Font.Color := clWhite;
+  FHardnessLabel.Left := 480;
+  FHardnessLabel.Top := 41;
+  FHardnessLabel.Visible := False;
+
+  FHardnessSpin := TSpinEdit.Create(FTopPanel);
+  FHardnessSpin.Parent := FTopPanel;
+  FHardnessSpin.Left := 554;
+  FHardnessSpin.Top := 36;
+  FHardnessSpin.Width := 60;
+  FHardnessSpin.MinValue := 1;
+  FHardnessSpin.MaxValue := 100;
+  FHardnessSpin.Value := 100;
+  FHardnessSpin.Visible := False;
+  FHardnessSpin.OnChange := @HardnessSpinChanged;
+  FHardnessSpin.Hint := 'Brush hardness (1=soft, 100=hard)';
+  FHardnessSpin.ShowHint := True;
+
   FSelModeLabel := TLabel.Create(FTopPanel);
   FSelModeLabel.Parent := FTopPanel;
   FSelModeLabel.Caption := 'Mode:';
@@ -1226,6 +1358,111 @@ begin
   FSelModeCombo.OnChange := @SelModeComboChanged;
   FSelModeCombo.Hint := 'Selection combination mode';
   FSelModeCombo.ShowHint := True;
+
+  { Shape style combo: Outline / Fill / Outline+Fill }
+  FShapeStyleLabel := TLabel.Create(FTopPanel);
+  FShapeStyleLabel.Parent := FTopPanel;
+  FShapeStyleLabel.Caption := 'Draw:';
+  FShapeStyleLabel.Font.Color := clWhite;
+  FShapeStyleLabel.Left := 348;
+  FShapeStyleLabel.Top := 41;
+  FShapeStyleLabel.Visible := False;
+
+  FShapeStyleCombo := TComboBox.Create(FTopPanel);
+  FShapeStyleCombo.Parent := FTopPanel;
+  FShapeStyleCombo.Left := 394;
+  FShapeStyleCombo.Top := 36;
+  FShapeStyleCombo.Width := 116;
+  FShapeStyleCombo.Style := csDropDownList;
+  FShapeStyleCombo.Items.Add('Outline');
+  FShapeStyleCombo.Items.Add('Fill');
+  FShapeStyleCombo.Items.Add('Outline + Fill');
+  FShapeStyleCombo.ItemIndex := 0;
+  FShapeStyleCombo.Visible := False;
+  FShapeStyleCombo.OnChange := @ShapeStyleComboChanged;
+  FShapeStyleCombo.Hint := 'Shape draw style';
+  FShapeStyleCombo.ShowHint := True;
+
+  { Bucket fill mode combo: Contiguous / Global }
+  FBucketModeLabel := TLabel.Create(FTopPanel);
+  FBucketModeLabel.Parent := FTopPanel;
+  FBucketModeLabel.Caption := 'Fill:';
+  FBucketModeLabel.Font.Color := clWhite;
+  FBucketModeLabel.Left := 348;
+  FBucketModeLabel.Top := 41;
+  FBucketModeLabel.Visible := False;
+
+  FBucketModeCombo := TComboBox.Create(FTopPanel);
+  FBucketModeCombo.Parent := FTopPanel;
+  FBucketModeCombo.Left := 384;
+  FBucketModeCombo.Top := 36;
+  FBucketModeCombo.Width := 110;
+  FBucketModeCombo.Style := csDropDownList;
+  FBucketModeCombo.Items.Add('Contiguous');
+  FBucketModeCombo.Items.Add('Global');
+  FBucketModeCombo.ItemIndex := 0;
+  FBucketModeCombo.Visible := False;
+  FBucketModeCombo.OnChange := @BucketModeComboChanged;
+  FBucketModeCombo.Hint := 'Fill mode';
+  FBucketModeCombo.ShowHint := True;
+
+  { Magic wand sample source combo: Current Layer / All Layers }
+  FWandSampleLabel := TLabel.Create(FTopPanel);
+  FWandSampleLabel.Parent := FTopPanel;
+  FWandSampleLabel.Caption := 'Sample:';
+  FWandSampleLabel.Font.Color := clWhite;
+  FWandSampleLabel.Left := 348;
+  FWandSampleLabel.Top := 41;
+  FWandSampleLabel.Visible := False;
+
+  FWandSampleCombo := TComboBox.Create(FTopPanel);
+  FWandSampleCombo.Parent := FTopPanel;
+  FWandSampleCombo.Left := 400;
+  FWandSampleCombo.Top := 36;
+  FWandSampleCombo.Width := 120;
+  FWandSampleCombo.Style := csDropDownList;
+  FWandSampleCombo.Items.Add('Current Layer');
+  FWandSampleCombo.Items.Add('All Layers');
+  FWandSampleCombo.ItemIndex := 0;
+  FWandSampleCombo.Visible := False;
+  FWandSampleCombo.OnChange := @WandSampleComboChanged;
+  FWandSampleCombo.Hint := 'Wand sample source';
+  FWandSampleCombo.ShowHint := True;
+
+  { Wand contiguous checkbox }
+  FWandContiguousCheck := TCheckBox.Create(FTopPanel);
+  FWandContiguousCheck.Parent := FTopPanel;
+  FWandContiguousCheck.Left := 529;
+  FWandContiguousCheck.Top := 38;
+  FWandContiguousCheck.Width := 100;
+  FWandContiguousCheck.Caption := 'Contiguous';
+  FWandContiguousCheck.Checked := FWandContiguous;
+  FWandContiguousCheck.Visible := False;
+  FWandContiguousCheck.OnChange := @WandContiguousChanged;
+  FWandContiguousCheck.Hint := 'Contiguous: select only connected pixels';
+  FWandContiguousCheck.ShowHint := True;
+
+  { Fill tolerance spin }
+  FFillTolLabel := TLabel.Create(FTopPanel);
+  FFillTolLabel.Parent := FTopPanel;
+  FFillTolLabel.Caption := 'Tolerance:';
+  FFillTolLabel.Font.Color := clWhite;
+  FFillTolLabel.Left := 348;
+  FFillTolLabel.Top := 41;
+  FFillTolLabel.Visible := False;
+
+  FFillTolSpin := TSpinEdit.Create(FTopPanel);
+  FFillTolSpin.Parent := FTopPanel;
+  FFillTolSpin.Left := 420;
+  FFillTolSpin.Top := 36;
+  FFillTolSpin.Width := 66;
+  FFillTolSpin.MinValue := 0;
+  FFillTolSpin.MaxValue := 255;
+  FFillTolSpin.Value := FFillTolerance;
+  FFillTolSpin.Visible := False;
+  FFillTolSpin.OnChange := @FillTolSpinChanged;
+  FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
+  FFillTolSpin.ShowHint := True;
 
   UpdateToolOptionControl;
   UpdateZoomControls;
@@ -2317,6 +2554,10 @@ procedure TMainForm.SaveToPath(const AFileName: string);
 var
   Surface: TRasterSurface;
   ResolvedFileName: string;
+  SaveOpts: TSaveSurfaceOptions;
+  QualityStr: string;
+  ParsedQuality: Integer;
+  Ext: string;
 begin
   ResolvedFileName := ExpandFileName(AFileName);
 
@@ -2331,9 +2572,24 @@ begin
     Exit;
   end;
 
+  SaveOpts := DefaultSaveSurfaceOptions;
+  Ext := LowerCase(ExtractFileExt(ResolvedFileName));
+
+  { Show JPEG quality prompt }
+  if (Ext = '.jpg') or (Ext = '.jpeg') then
+  begin
+    QualityStr := IntToStr(FJpegQuality);
+    if not InputQuery('JPEG Quality', 'Quality (1–100, higher = better quality / larger file):', QualityStr) then
+      Exit;
+    ParsedQuality := StrToIntDef(Trim(QualityStr), FJpegQuality);
+    ParsedQuality := EnsureRange(ParsedQuality, 1, 100);
+    FJpegQuality := ParsedQuality;
+    SaveOpts.JpegQuality := FJpegQuality;
+  end;
+
   Surface := FDocument.Composite;
   try
-    SaveSurfaceToFile(ResolvedFileName, Surface);
+    SaveSurfaceToFileWithOpts(ResolvedFileName, Surface, SaveOpts);
     FCurrentFileName := ResolvedFileName;
     if Length(FTabFileNames) > FActiveTabIndex then
       FTabFileNames[FActiveTabIndex] := FCurrentFileName;
@@ -2493,7 +2749,8 @@ begin
         APoint.Y,
         Max(0, (FBrushSize - 1) div 2),
         ActivePaintColor,
-        FBrushOpacity * 255 div 100
+        FBrushOpacity * 255 div 100,
+        255 { pencil always hard }
       );
     tkBrush, tkEraser:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -2503,15 +2760,22 @@ begin
         APoint.Y,
         Max(1, FBrushSize div 2),
         ActivePaintColor,
-        FBrushOpacity * 255 div 100
+        FBrushOpacity * 255 div 100,
+        FBrushHardness * 255 div 100
       );
     tkFill:
-      FDocument.ActiveLayer.Surface.FloodFill(
-        APoint.X,
-        APoint.Y,
-        ActivePaintColor,
-        8
-      );
+      begin
+        if FBucketFloodMode = 1 then
+          { Global: fill entire layer with paint color }
+          FDocument.ActiveLayer.Surface.Clear(ActivePaintColor)
+        else
+          FDocument.ActiveLayer.Surface.FloodFill(
+            APoint.X,
+            APoint.Y,
+            ActivePaintColor,
+            EnsureRange(FFillTolerance, 0, 255)
+          );
+      end;
     tkColorPicker:
       begin
         CompositeSurface := FDocument.Composite;
@@ -2549,7 +2813,15 @@ begin
 end;
 
 procedure TMainForm.CommitShapeTool(const AStartPoint, AEndPoint: TPoint);
+var
+  DoFill: Boolean;
+  DoOutline: Boolean;
+  FillColor: TRGBA32;
 begin
+  { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
+  DoOutline := FShapeStyle in [0, 2];
+  DoFill := FShapeStyle in [1, 2];
+  FillColor := RGBA(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A);
   case FCurrentTool of
     tkLine:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -2570,35 +2842,38 @@ begin
         FSecondaryColor
       );
     tkRectangle:
-      FDocument.ActiveLayer.Surface.DrawRectangle(
-        AStartPoint.X,
-        AStartPoint.Y,
-        AEndPoint.X,
-        AEndPoint.Y,
-        Max(1, FBrushSize div 3),
-        ActivePaintColor,
-        False
-      );
+      begin
+        if DoFill then
+          FDocument.ActiveLayer.Surface.DrawRectangle(
+            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
+            Max(1, FBrushSize div 3), FillColor, True);
+        if DoOutline then
+          FDocument.ActiveLayer.Surface.DrawRectangle(
+            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
+            Max(1, FBrushSize div 3), ActivePaintColor, False);
+      end;
     tkRoundedRectangle:
-      FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
-        AStartPoint.X,
-        AStartPoint.Y,
-        AEndPoint.X,
-        AEndPoint.Y,
-        Max(1, FBrushSize div 3),
-        ActivePaintColor,
-        False
-      );
+      begin
+        if DoFill then
+          FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
+            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
+            Max(1, FBrushSize div 3), FillColor, True);
+        if DoOutline then
+          FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
+            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
+            Max(1, FBrushSize div 3), ActivePaintColor, False);
+      end;
     tkEllipseShape:
-      FDocument.ActiveLayer.Surface.DrawEllipse(
-        AStartPoint.X,
-        AStartPoint.Y,
-        AEndPoint.X,
-        AEndPoint.Y,
-        Max(1, FBrushSize div 3),
-        ActivePaintColor,
-        False
-      );
+      begin
+        if DoFill then
+          FDocument.ActiveLayer.Surface.DrawEllipse(
+            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
+            Max(1, FBrushSize div 3), FillColor, True);
+        if DoOutline then
+          FDocument.ActiveLayer.Surface.DrawEllipse(
+            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
+            Max(1, FBrushSize div 3), ActivePaintColor, False);
+      end;
     tkFreeformShape:
       FDocument.ActiveLayer.Surface.DrawPolygon(
         FLassoPoints,
@@ -3853,6 +4128,25 @@ end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
+  { Ctrl+Tab / Ctrl+Shift+Tab — cycle document tabs }
+  if (ssCtrl in Shift) and (Key = VK_TAB) then
+  begin
+    if ssShift in Shift then
+    begin
+      { Previous tab }
+      if Length(FTabDocuments) > 1 then
+        SwitchToTab((FActiveTabIndex - 1 + Length(FTabDocuments)) mod Length(FTabDocuments));
+    end
+    else
+    begin
+      { Next tab }
+      if Length(FTabDocuments) > 1 then
+        SwitchToTab((FActiveTabIndex + 1) mod Length(FTabDocuments));
+    end;
+    Key := 0;
+    Exit;
+  end;
+
   if Shift <> [] then
     Exit;
 
@@ -3918,7 +4212,7 @@ begin
     tkMagicWand:
       begin
         FDocument.PushHistory('Magic Wand');
-        FDocument.SelectMagicWand(ImagePoint.X, ImagePoint.Y, EnsureRange(FWandTolerance, 0, 255), FPendingSelectionMode);
+        FDocument.SelectMagicWand(ImagePoint.X, ImagePoint.Y, EnsureRange(FWandTolerance, 0, 255), FPendingSelectionMode, FWandSampleSource = 1, FWandContiguous);
         SetDirty(True);
         RefreshCanvas;
         FPointerDown := False;
@@ -4271,6 +4565,148 @@ begin
   end;
 end;
 
+procedure TMainForm.MotionBlurClick(Sender: TObject);
+var
+  AStr: string;
+  AngleVal, DistVal: Integer;
+begin
+  AStr := '0';
+  if not InputQuery('Motion Blur', 'Angle in degrees (0-359)', AStr) then Exit;
+  AngleVal := EnsureRange(StrToIntDef(AStr, 0), 0, 359);
+  AStr := '10';
+  if not InputQuery('Motion Blur', 'Distance in pixels (1-100)', AStr) then Exit;
+  DistVal := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
+  FDocument.PushHistory('Motion Blur');
+  FDocument.MotionBlur(AngleVal, DistVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Motion Blur';
+  FLastEffectProc := @MotionBlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.MedianFilterClick(Sender: TObject);
+var
+  AStr: string;
+  RadiusVal: Integer;
+begin
+  AStr := '1';
+  if not InputQuery('Median Filter (Denoise)', 'Radius (1=3x3, 2=5x5)', AStr) then Exit;
+  RadiusVal := EnsureRange(StrToIntDef(AStr, 1), 1, 2);
+  FDocument.PushHistory('Median Filter');
+  FDocument.MedianFilter(RadiusVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Median Filter';
+  FLastEffectProc := @MedianFilterClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.GlowClick(Sender: TObject);
+var
+  RadStr, IntStr: string;
+  RadVal, IntVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  RadStr := '3';
+  if not InputQuery('Glow Effect', 'Radius (1–10):', RadStr) then Exit;
+  RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 3), 1, 10);
+  IntStr := '80';
+  if not InputQuery('Glow Effect', 'Intensity (0–200):', IntStr) then Exit;
+  IntVal := EnsureRange(StrToIntDef(Trim(IntStr), 80), 0, 200);
+  FDocument.PushHistory('Glow Effect');
+  FDocument.GlowEffect(RadVal, IntVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Glow Effect';
+  FLastEffectProc := @GlowClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.OilPaintClick(Sender: TObject);
+var
+  RadStr: string;
+  RadVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  RadStr := '4';
+  if not InputQuery('Oil Paint', 'Brush radius (1–8):', RadStr) then Exit;
+  RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 4), 1, 8);
+  FDocument.PushHistory('Oil Paint');
+  FDocument.OilPaint(RadVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Oil Paint';
+  FLastEffectProc := @OilPaintClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.FrostedGlassClick(Sender: TObject);
+var
+  AmtStr: string;
+  AmtVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AmtStr := '4';
+  if not InputQuery('Frosted Glass', 'Amount (1–20):', AmtStr) then Exit;
+  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 4), 1, 20);
+  FDocument.PushHistory('Frosted Glass');
+  FDocument.FrostedGlass(AmtVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Frosted Glass';
+  FLastEffectProc := @FrostedGlassClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.ZoomBlurClick(Sender: TObject);
+var
+  AmtStr: string;
+  AmtVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AmtStr := '8';
+  if not InputQuery('Zoom Blur', 'Amount (1–30):', AmtStr) then Exit;
+  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 8), 1, 30);
+  FDocument.PushHistory('Zoom Blur');
+  FDocument.ZoomBlur(FDocument.Width div 2, FDocument.Height div 2, AmtVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Zoom Blur';
+  FLastEffectProc := @ZoomBlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
 procedure TMainForm.RepeatLastEffectClick(Sender: TObject);
 begin
   if Assigned(FLastEffectProc) then
@@ -4501,6 +4937,7 @@ begin
       Btn.Caption := TabCaption;
       Btn.Tag := I;
       Btn.OnClick := @TabButtonClick;
+      Btn.PopupMenu := FTabPopupMenu;
       Btn.Hint := FTabFileNames[I];
       Btn.ShowHint := True;
       if I = FActiveTabIndex then
@@ -4560,6 +4997,79 @@ begin
       Exit;
   end;
   CloseDocumentTab(Idx);
+end;
+
+procedure TMainForm.TabMenuNewClick(Sender: TObject);
+begin
+  NewDocumentClick(Sender);
+end;
+
+procedure TMainForm.TabMenuCloseClick(Sender: TObject);
+var
+  Popup: TPopupMenu;
+  Idx: Integer;
+begin
+  if not (Sender is TMenuItem) then Exit;
+  Popup := TMenuItem(Sender).GetParentMenu as TPopupMenu;
+  if Assigned(Popup) and Assigned(Popup.PopupComponent) then
+  begin
+    Idx := Popup.PopupComponent.Tag;
+    if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
+    if FTabDirtyFlags[Idx] then
+    begin
+      if MessageDlg('Close Document', Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(Idx)]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
+    end;
+    CloseDocumentTab(Idx);
+  end;
+end;
+
+procedure TMainForm.TabMenuCloseOthersClick(Sender: TObject);
+var
+  Popup: TPopupMenu;
+  Idx, I: Integer;
+  TargetDoc: TImageDocument;
+begin
+  if not (Sender is TMenuItem) then Exit;
+  Popup := TMenuItem(Sender).GetParentMenu as TPopupMenu;
+  if Assigned(Popup) and Assigned(Popup.PopupComponent) then
+  begin
+    Idx := Popup.PopupComponent.Tag;
+    if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
+    TargetDoc := FTabDocuments[Idx];
+    for I := High(FTabDocuments) downto 0 do
+    begin
+      if FTabDocuments[I] = TargetDoc then Continue;
+      if FTabDirtyFlags[I] then
+      begin
+        if MessageDlg('Close Document', Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(I)]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Continue;
+      end;
+      CloseDocumentTab(I);
+    end;
+  end;
+end;
+
+procedure TMainForm.TabMenuCloseRightClick(Sender: TObject);
+var
+  Popup: TPopupMenu;
+  Idx, I: Integer;
+  TargetDoc: TImageDocument;
+begin
+  if not (Sender is TMenuItem) then Exit;
+  Popup := TMenuItem(Sender).GetParentMenu as TPopupMenu;
+  if Assigned(Popup) and Assigned(Popup.PopupComponent) then
+  begin
+    Idx := Popup.PopupComponent.Tag;
+    if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
+    TargetDoc := FTabDocuments[Idx];
+    for I := High(FTabDocuments) downto Idx + 1 do
+    begin
+      if FTabDirtyFlags[I] then
+      begin
+        if MessageDlg('Close Document', Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(I)]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Continue;
+      end;
+      CloseDocumentTab(I);
+    end;
+  end;
 end;
 
 procedure TMainForm.OpenFileInNewTab(const AFileName: string);
@@ -4688,10 +5198,47 @@ begin
   FBrushOpacity := EnsureRange(FOpacitySpin.Value, 1, 100);
 end;
 
+procedure TMainForm.HardnessSpinChanged(Sender: TObject);
+begin
+  if not Assigned(FHardnessSpin) then Exit;
+  FBrushHardness := EnsureRange(FHardnessSpin.Value, 1, 100);
+end;
+
 procedure TMainForm.SelModeComboChanged(Sender: TObject);
 begin
   if not Assigned(FSelModeCombo) then Exit;
   FPendingSelectionMode := TSelectionCombineMode(FSelModeCombo.ItemIndex);
+end;
+
+procedure TMainForm.ShapeStyleComboChanged(Sender: TObject);
+begin
+  if not Assigned(FShapeStyleCombo) then Exit;
+  FShapeStyle := FShapeStyleCombo.ItemIndex;
+end;
+
+procedure TMainForm.BucketModeComboChanged(Sender: TObject);
+begin
+  if not Assigned(FBucketModeCombo) then Exit;
+  FBucketFloodMode := FBucketModeCombo.ItemIndex;
+end;
+
+procedure TMainForm.WandSampleComboChanged(Sender: TObject);
+begin
+  if not Assigned(FWandSampleCombo) then Exit;
+  FWandSampleSource := FWandSampleCombo.ItemIndex;
+end;
+
+procedure TMainForm.WandContiguousChanged(Sender: TObject);
+begin
+  if not Assigned(FWandContiguousCheck) then Exit;
+  FWandContiguous := FWandContiguousCheck.Checked;
+end;
+
+procedure TMainForm.FillTolSpinChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FFillTolSpin) then Exit;
+  FFillTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
 end;
 
 { ── Layer Rotate / Zoom ──────────────────────────────────────────────────── }

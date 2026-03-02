@@ -30,14 +30,15 @@ type
     function InBounds(X, Y: Integer): Boolean; inline;
     procedure Clear(const AColor: TRGBA32);
     procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255);
-    procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255);
-    procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255);
+    procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255);
+    procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255);
     procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
     procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
     procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
     procedure DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean = True; Opacity: Byte = 255);
     procedure FloodFill(X, Y: Integer; const AColor: TRGBA32; Tolerance: Byte = 0);
     procedure FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32);
+    procedure FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32);
     procedure PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte = 255);
     procedure FlipHorizontal;
     procedure FlipVertical;
@@ -64,11 +65,19 @@ type
     procedure RenderClouds(Seed: Cardinal = 1);
     procedure Pixelate(BlockSize: Integer);
     procedure Vignette(Strength: Double);
+    procedure MotionBlur(Angle: Integer; Distance: Integer);
+    procedure MedianFilter(Radius: Integer);
+    procedure OutlineEffect(const AOutlineColor: TRGBA32; Threshold: Byte = 10);
+    procedure GlowEffect(Radius: Integer = 3; Intensity: Integer = 80);
+    procedure OilPaint(Radius: Integer = 4);
+    procedure FrostedGlass(Amount: Integer = 4);
+    procedure ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer = 8);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
     function CopySelection(ASelection: TSelectionMask): TRasterSurface;
     function CreateContiguousSelection(X, Y: Integer; Tolerance: Byte = 0): TSelectionMask;
+    function CreateGlobalColorSelection(X, Y: Integer; Tolerance: Byte = 0): TSelectionMask;
     procedure MoveSelectedPixels(ASelection: TSelectionMask; DeltaX, DeltaY: Integer);
     function Crop(X, Y, AWidth, AHeight: Integer): TRasterSurface;
     function ResizeNearest(ANewWidth, ANewHeight: Integer): TRasterSurface;
@@ -351,29 +360,44 @@ begin
   FPixels[PixelIndex] := BlendNormal(AColor, FPixels[PixelIndex], Opacity);
 end;
 
-procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte);
+procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte);
 var
   DrawX: Integer;
   DrawY: Integer;
   RadiusSquared: Integer;
   DeltaX: Integer;
   DeltaY: Integer;
+  DistSquared: Integer;
+  EdgeRadius: Integer;
+  EdgeSquared: Integer;
+  EffectiveOpacity: Integer;
 begin
   Radius := Max(0, Radius);
   RadiusSquared := Radius * Radius;
+  EdgeRadius := Radius * Hardness div 255;
+  EdgeSquared := EdgeRadius * EdgeRadius;
   for DrawY := Y - Radius to Y + Radius do
   begin
     for DrawX := X - Radius to X + Radius do
     begin
       DeltaX := DrawX - X;
       DeltaY := DrawY - Y;
-      if (DeltaX * DeltaX) + (DeltaY * DeltaY) <= RadiusSquared then
-        BlendPixel(DrawX, DrawY, AColor, Opacity);
+      DistSquared := (DeltaX * DeltaX) + (DeltaY * DeltaY);
+      if DistSquared > RadiusSquared then
+        Continue;
+      if (Hardness >= 255) or (DistSquared <= EdgeSquared) then
+        EffectiveOpacity := Opacity
+      else if RadiusSquared > EdgeSquared then
+        EffectiveOpacity := Opacity * (RadiusSquared - DistSquared) div (RadiusSquared - EdgeSquared)
+      else
+        EffectiveOpacity := 0;
+      if EffectiveOpacity > 0 then
+        BlendPixel(DrawX, DrawY, AColor, Min(255, EffectiveOpacity));
     end;
   end;
 end;
 
-procedure TRasterSurface.DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte);
+procedure TRasterSurface.DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte);
 var
   DX: Integer;
   DY: Integer;
@@ -396,7 +420,7 @@ begin
   ErrorValue := DX - DY;
   while True do
   begin
-    DrawBrush(X1, Y1, Radius, AColor, Opacity);
+    DrawBrush(X1, Y1, Radius, AColor, Opacity, Hardness);
     if (X1 = X2) and (Y1 = Y2) then
       Break;
     DoubleError := ErrorValue * 2;
@@ -1475,6 +1499,301 @@ begin
     end;
 end;
 
+procedure TRasterSurface.MotionBlur(Angle: Integer; Distance: Integer);
+var
+  OffX, OffY: Double;
+  AngleRad: Double;
+  Src: array of TRGBA32;
+  X, Y, Step: Integer;
+  SumR, SumG, SumB, SumA, Count: Integer;
+  SX, SY: Integer;
+begin
+  if Distance <= 0 then Exit;
+  AngleRad := Angle * Pi / 180.0;
+  OffX := Cos(AngleRad);
+  OffY := Sin(AngleRad);
+  SetLength(Src, FWidth * FHeight);
+  Move(FPixels[0], Src[0], FWidth * FHeight * SizeOf(TRGBA32));
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      SumR := 0; SumG := 0; SumB := 0; SumA := 0; Count := 0;
+      for Step := -Distance to Distance do
+      begin
+        SX := X + Round(OffX * Step);
+        SY := Y + Round(OffY * Step);
+        if (SX >= 0) and (SX < FWidth) and (SY >= 0) and (SY < FHeight) then
+        begin
+          Inc(SumR, Src[SY * FWidth + SX].R);
+          Inc(SumG, Src[SY * FWidth + SX].G);
+          Inc(SumB, Src[SY * FWidth + SX].B);
+          Inc(SumA, Src[SY * FWidth + SX].A);
+          Inc(Count);
+        end;
+      end;
+      if Count > 0 then
+      begin
+        FPixels[Y * FWidth + X].R := SumR div Count;
+        FPixels[Y * FWidth + X].G := SumG div Count;
+        FPixels[Y * FWidth + X].B := SumB div Count;
+        FPixels[Y * FWidth + X].A := SumA div Count;
+      end;
+    end;
+end;
+
+procedure TRasterSurface.MedianFilter(Radius: Integer);
+{ 3x3 or 5x5 fast approximate median: uses sorting with a small fixed-size window }
+var
+  Src: array of TRGBA32;
+  X, Y, KX, KY: Integer;
+  RVals, GVals, BVals: array[0..24] of Byte;
+  Count, Mid: Integer;
+  Tmp: Byte;
+  I, J: Integer;
+begin
+  if Radius <= 0 then Exit;
+  Radius := Min(Radius, 2); { cap at 2 (5x5 kernel) }
+  SetLength(Src, FWidth * FHeight);
+  Move(FPixels[0], Src[0], FWidth * FHeight * SizeOf(TRGBA32));
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      Count := 0;
+      for KY := -Radius to Radius do
+        for KX := -Radius to Radius do
+        begin
+          if (X + KX >= 0) and (X + KX < FWidth) and (Y + KY >= 0) and (Y + KY < FHeight) then
+          begin
+            RVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].R;
+            GVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].G;
+            BVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].B;
+            Inc(Count);
+          end;
+        end;
+      if Count = 0 then Continue;
+      { Insertion sort each channel }
+      for I := 1 to Count - 1 do
+      begin
+        Tmp := RVals[I]; J := I - 1;
+        while (J >= 0) and (RVals[J] > Tmp) do begin RVals[J + 1] := RVals[J]; Dec(J); end;
+        RVals[J + 1] := Tmp;
+        Tmp := GVals[I]; J := I - 1;
+        while (J >= 0) and (GVals[J] > Tmp) do begin GVals[J + 1] := GVals[J]; Dec(J); end;
+        GVals[J + 1] := Tmp;
+        Tmp := BVals[I]; J := I - 1;
+        while (J >= 0) and (BVals[J] > Tmp) do begin BVals[J + 1] := BVals[J]; Dec(J); end;
+        BVals[J + 1] := Tmp;
+      end;
+      Mid := Count div 2;
+      FPixels[Y * FWidth + X].R := RVals[Mid];
+      FPixels[Y * FWidth + X].G := GVals[Mid];
+      FPixels[Y * FWidth + X].B := BVals[Mid];
+    end;
+end;
+
+procedure TRasterSurface.OutlineEffect(const AOutlineColor: TRGBA32; Threshold: Byte);
+{ Finds edges using Sobel-style approach: pixels adjacent to a pixel with alpha
+  difference >= Threshold get painted with AOutlineColor on a transparent canvas. }
+var
+  Src: array of TRGBA32;
+  X, Y: Integer;
+  MaxDiff: Integer;
+  DX, DY: Integer;
+  Neighbor: TRGBA32;
+  Center: TRGBA32;
+  Diff: Integer;
+begin
+  SetLength(Src, FWidth * FHeight);
+  Move(FPixels[0], Src[0], FWidth * FHeight * SizeOf(TRGBA32));
+  Clear(TransparentColor);
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      Center := Src[Y * FWidth + X];
+      MaxDiff := 0;
+      for DY := -1 to 1 do
+        for DX := -1 to 1 do
+        begin
+          if (DX = 0) and (DY = 0) then Continue;
+          if (X + DX < 0) or (X + DX >= FWidth) then Continue;
+          if (Y + DY < 0) or (Y + DY >= FHeight) then Continue;
+          Neighbor := Src[(Y + DY) * FWidth + (X + DX)];
+          Diff := Abs(Integer(Center.A) - Integer(Neighbor.A)) +
+                  Abs(Integer(Center.R) - Integer(Neighbor.R)) div 3 +
+                  Abs(Integer(Center.G) - Integer(Neighbor.G)) div 3 +
+                  Abs(Integer(Center.B) - Integer(Neighbor.B)) div 3;
+          if Diff > MaxDiff then MaxDiff := Diff;
+        end;
+      if MaxDiff >= Threshold then
+        FPixels[Y * FWidth + X] := AOutlineColor;
+    end;
+end;
+
+procedure TRasterSurface.GlowEffect(Radius: Integer; Intensity: Integer);
+{ Adds a soft diffuse glow by blending a blurred copy onto the original using
+  additive-style clamped blending. }
+var
+  Blurred: TRasterSurface;
+  SrcCopy: array of TRGBA32;
+  X, Y: Integer;
+  Orig, Blur: TRGBA32;
+  GlowR, GlowG, GlowB: Integer;
+  IntensityFrac: Integer;
+begin
+  if Radius <= 0 then Exit;
+  IntensityFrac := EnsureRange(Intensity, 0, 100);
+  { snapshot original pixels before blurring }
+  SetLength(SrcCopy, FWidth * FHeight);
+  Move(FPixels[0], SrcCopy[0], FWidth * FHeight * SizeOf(TRGBA32));
+  Blurred := TRasterSurface.Create(FWidth, FHeight);
+  try
+    Move(SrcCopy[0], Blurred.FPixels[0], FWidth * FHeight * SizeOf(TRGBA32));
+    Blurred.BoxBlur(Radius);
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        Orig := SrcCopy[Y * FWidth + X];
+        Blur := Blurred.FPixels[Y * FWidth + X];
+        GlowR := EnsureRange(Integer(Orig.R) + Integer(Blur.R) * IntensityFrac div 100, 0, 255);
+        GlowG := EnsureRange(Integer(Orig.G) + Integer(Blur.G) * IntensityFrac div 100, 0, 255);
+        GlowB := EnsureRange(Integer(Orig.B) + Integer(Blur.B) * IntensityFrac div 100, 0, 255);
+        FPixels[Y * FWidth + X] := RGBA(GlowR, GlowG, GlowB, Orig.A);
+      end;
+  finally
+    Blurred.Free;
+  end;
+end;
+
+procedure TRasterSurface.OilPaint(Radius: Integer);
+{ Stylize effect: for each output pixel, find the most-commonly-occurring
+  luminosity bucket among neighbours and output the average color of that bucket. }
+const
+  BucketCount = 8;
+var
+  SnapW, SnapH: Integer;
+  Snap: array of TRGBA32;
+  X, Y, DX, DY: Integer;
+  BX, BY: Integer;
+  Bucket: array[0..BucketCount - 1] of record
+    SumR, SumG, SumB: Integer;
+    Count: Integer;
+  end;
+  Pix: TRGBA32;
+  Luma, BucketIdx, BestBucket, B: Integer;
+begin
+  if Radius < 1 then Radius := 1;
+  SnapW := FWidth;
+  SnapH := FHeight;
+  SetLength(Snap, SnapW * SnapH);
+  Move(FPixels[0], Snap[0], SnapW * SnapH * SizeOf(TRGBA32));
+  for Y := 0 to SnapH - 1 do
+    for X := 0 to SnapW - 1 do
+    begin
+      FillChar(Bucket, SizeOf(Bucket), 0);
+      for DY := -Radius to Radius do
+      begin
+        BY := Y + DY;
+        if (BY < 0) or (BY >= SnapH) then Continue;
+        for DX := -Radius to Radius do
+        begin
+          BX := X + DX;
+          if (BX < 0) or (BX >= SnapW) then Continue;
+          Pix := Snap[BY * SnapW + BX];
+          Luma := (Pix.R * 77 + Pix.G * 150 + Pix.B * 29) div 256;
+          BucketIdx := (Luma * BucketCount) div 256;
+          if BucketIdx >= BucketCount then BucketIdx := BucketCount - 1;
+          Inc(Bucket[BucketIdx].SumR, Pix.R);
+          Inc(Bucket[BucketIdx].SumG, Pix.G);
+          Inc(Bucket[BucketIdx].SumB, Pix.B);
+          Inc(Bucket[BucketIdx].Count);
+        end;
+      end;
+      BestBucket := 0;
+      for B := 1 to BucketCount - 1 do
+        if Bucket[B].Count > Bucket[BestBucket].Count then
+          BestBucket := B;
+      if Bucket[BestBucket].Count > 0 then
+      begin
+        Pix := Snap[Y * SnapW + X];
+        Pix.R := Bucket[BestBucket].SumR div Bucket[BestBucket].Count;
+        Pix.G := Bucket[BestBucket].SumG div Bucket[BestBucket].Count;
+        Pix.B := Bucket[BestBucket].SumB div Bucket[BestBucket].Count;
+        FPixels[Y * SnapW + X] := Pix;
+      end;
+    end;
+end;
+
+procedure TRasterSurface.FrostedGlass(Amount: Integer);
+{ Distort: displace each sample by a random offset within [-Amount..Amount]
+  on both axes using a per-pixel deterministic noise state. }
+var
+  Snap: array of TRGBA32;
+  X, Y: Integer;
+  OffX, OffY: Integer;
+  SX, SY: Integer;
+  NoiseState: Cardinal;
+begin
+  if Amount < 1 then Amount := 1;
+  SetLength(Snap, FWidth * FHeight);
+  Move(FPixels[0], Snap[0], FWidth * FHeight * SizeOf(TRGBA32));
+  NoiseState := Cardinal(1317);
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      { deterministic per-pixel noise from NextNoiseValue }
+      OffX := (NextNoiseValue(NoiseState) mod (Amount * 2 + 1)) - Amount;
+      OffY := (NextNoiseValue(NoiseState) mod (Amount * 2 + 1)) - Amount;
+      SX := EnsureRange(X + OffX, 0, FWidth - 1);
+      SY := EnsureRange(Y + OffY, 0, FHeight - 1);
+      FPixels[Y * FWidth + X] := Snap[SY * FWidth + SX];
+    end;
+end;
+
+procedure TRasterSurface.ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer);
+{ Radial zoom blur: for each pixel, average Samples samples taken along
+  the direction from the center outward at increasing zoom fractions. }
+const
+  Samples = 8;
+var
+  Snap: array of TRGBA32;
+  X, Y, S: Integer;
+  DX, DY: Double;
+  Dist, Scale: Double;
+  SX, SY: Integer;
+  SumR, SumG, SumB, SumA, Count: Integer;
+  Pix: TRGBA32;
+begin
+  if Amount <= 0 then Exit;
+  SetLength(Snap, FWidth * FHeight);
+  Move(FPixels[0], Snap[0], FWidth * FHeight * SizeOf(TRGBA32));
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      DX := X - CenterX;
+      DY := Y - CenterY;
+      Dist := Sqrt(DX * DX + DY * DY);
+      SumR := 0; SumG := 0; SumB := 0; SumA := 0; Count := 0;
+      for S := 0 to Samples - 1 do
+      begin
+        if Dist < 0.5 then Scale := 1.0
+        else Scale := 1.0 + (Amount * S / (Samples * Max(1, Round(Dist))));
+        SX := EnsureRange(CenterX + Round(DX * Scale), 0, FWidth - 1);
+        SY := EnsureRange(CenterY + Round(DY * Scale), 0, FHeight - 1);
+        Pix := Snap[SY * FWidth + SX];
+        Inc(SumR, Pix.R);
+        Inc(SumG, Pix.G);
+        Inc(SumB, Pix.B);
+        Inc(SumA, Pix.A);
+        Inc(Count);
+      end;
+      Pix := Snap[Y * FWidth + X];
+      if Count > 0 then
+        FPixels[Y * FWidth + X] := RGBA(SumR div Count, SumG div Count, SumB div Count, SumA div Count)
+      else
+        FPixels[Y * FWidth + X] := Pix;
+    end;
+end;
+
 procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
 var
   BX, BY: Integer;
@@ -1598,6 +1917,23 @@ begin
     EnqueueIfMatch(CurrentX, CurrentY - 1);
     EnqueueIfMatch(CurrentX, CurrentY + 1);
   end;
+end;
+
+function TRasterSurface.CreateGlobalColorSelection(X, Y: Integer; Tolerance: Byte): TSelectionMask;
+{ Non-contiguous magic wand: selects every pixel in the surface whose color
+  is within Tolerance of the sampled pixel, regardless of adjacency. }
+var
+  TargetColor: TRGBA32;
+  IX, IY: Integer;
+begin
+  Result := TSelectionMask.Create(FWidth, FHeight);
+  if not InBounds(X, Y) then
+    Exit;
+  TargetColor := Pixels[X, Y];
+  for IY := 0 to FHeight - 1 do
+    for IX := 0 to FWidth - 1 do
+      if ColorsCloseEnough(FPixels[IndexOf(IX, IY)], TargetColor, Tolerance) then
+        Result[IX, IY] := True;
 end;
 
 procedure TRasterSurface.MoveSelectedPixels(ASelection: TSelectionMask; DeltaX, DeltaY: Integer);
