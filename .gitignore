@@ -15,3 +15,32 @@ DerivedData/
 /flatpaint
 /flatpaint.app
 /src/cli/flatpaint_cli
+
+# Free Pascal / Lazarus build artifacts
+*.ppu
+*.o
+*.a
+*.compiled
+*.or
+*.res
+*.dpk
+
+# Lazarus / IDE user/project local files
+*.lpi.user
+*.lazproj
+*.lpi~
+
+# Test-generated intermediate files (common patterns)
+/src/tests/*.out
+/src/tests/*.log
+/src/tests/*.tmp
+/src/tests/*~
+
+# Editor/IDE
+.vscode/
+.idea/
+*~
+.DS_Store
+
+# macOS debug symbols
+*.dSYM
