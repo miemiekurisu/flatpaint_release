@@ -1,5 +1,34 @@
 # Development Progress Log
 
+## 2026-03-02 (feature completion audit)
+Code-level pass against `src/app/mainform.pas`, `src/core/fpdocument.pas` (`TToolKind` enum), `COMMAND_SURFACE_BASELINE.md`, `TOOL_OPTIONS_BASELINE.md`, and `UI_PARITY_AUDIT.md`.
+
+| Area | Completion | Key open gaps |
+| --- | --- | --- |
+| Workspace shell | ~75% | Document tabs absent; toolbar density still below paint.net baseline; palette chrome too loose |
+| Document tabs | 0% | Not started; `TMainForm` still owns a single `TImageDocument`; no tab strip or image-list control in code |
+| Command surface parity | ~70% | Missing: image-list strip, `Paste Selection (Replace)`, Layer Properties, `Layers › Import From File`, Effects `Repeat Last` |
+| Workspace visual parity | ~50% | Toolbar too sparse; palettes too large; text-symbol icons not paint.net-style; status bar visual treatment still too loose |
+| File workflow | ~85% | Missing: `.pdn` and `.kra` import; `Save All Images` has no real multi-document semantic yet |
+| Undo/redo | ~90% | Robust; action labels live; History palette shows depth + labels; only minor polish remaining |
+| Layers | ~75% | Missing: Layer Properties dialog, Rotate/Zoom layer command, blend-mode GUI picker, `Layers › Import From File` menu item |
+| Selection tools | ~75% | All 4 tools + replace/add/subtract/intersect in core; missing visible combine-mode control UI and anti-alias edge option |
+| Paint tools | ~60% | Missing: Clone Stamp, Recolor, Text (none in `TToolKind`); existing tools have very limited option surfaces |
+| Draw tools | ~60% | Missing: Text tool, true curve mode on Line, fill/outline toggle for shape tools |
+| View controls | ~80% | Native trackpad pinch-to-zoom not implemented in the current Lazarus path |
+| Colors panel | ~45% | Only Primary/Secondary buttons + hex label; no color wheel, no RGB/alpha sliders, no palette swatches |
+| Adjustments | ~90% | All 10 adjustments routed + dedicated modals; missing only per-channel curve editing |
+| Effects | ~40% | Only Blur/Sharpen/Noise/Outline; missing Distort, Photo, Render, Stylize families and repeat-last-effect command |
+| Resize/canvas ops | ~85% | All transforms done; missing dedicated interactive Crop tool (only Crop to Selection via menu) |
+| Text/rendering | 0% | Not started; no Text entry in `TToolKind`, no font/size surface in GUI |
+| Clipboard | ~80% | Core flows done; missing `Paste Selection (Replace)` command |
+| Menus/Shortcuts | ~75% | Most primary shortcuts in place; some shortcut policy gaps remain per `SHORTCUT_POLICY.md` |
+| Iconography | ~35% | Text-symbol placeholders only; no paint.net-style icon set |
+| Tool/Config Options | ~40% | Only brush size + wand tolerance visible; hardness, shape, sample source, fill mode, anti-alias missing |
+| Hidden sheet options | ~70% | JPEG quality and PNG interlace present; some export-option gaps remain |
+| Compatibility IO | ~40% | `.fpd`, flat `.psd`, flat `.xcf` done; `.pdn` and `.kra` not implemented |
+| **Overall** | **~72%** | Three 0% areas (Document tabs, Text tool, Iconography) plus shallow Colors panel and Effects breadth are the largest gap clusters |
+
 ## 2026-03-02 (test infrastructure fix)
 - `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.
 - `perf_snapshot_tests` and `ui_prototype_tests` were orphaned test units that defined registered test cases but were absent from `flatpaint_tests.lpr`; both are now listed in the `uses` clause and run cleanly.
