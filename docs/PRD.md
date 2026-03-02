@@ -185,21 +185,64 @@ Based on thorough analysis of https://www.getpaint.net/doc/latest/, the followin
 - Layer Properties: name, visibility, blend mode, opacity
 
 ### Identified Gaps vs Paint.NET Reference
+
+#### Implementation Completion Summary
+| Area | Completion | Notes |
+|------|-----------|-------|
+| Tools | ~100% | 21/21 Paint.NET tools present + 2 extras; Line/Curve partial (no curve node editing) |
+| Toolbar Row 1 | ~100% | 13/13 command buttons present + extras |
+| Toolbar Row 2 | ~82% | 14/17 tool option categories; missing Finish button, per-tool blend mode, recolor tolerance |
+| File Menu | 100% | 10/10 items |
+| Edit Menu | 100% | 16/16 items |
+| Image Menu | 100% | 9/9 items |
+| Layers Menu | 100% | 11/11 items + extras |
+| View Menu | 100% | 8/8 items + extras |
+| Adjustments | 100% | 9/9 core adjustments + extra Grayscale |
+| Effects | ~52% | 17/33+ effects; missing ~16 effects; no sub-menu categorization |
+| Tool Shortcuts | ~11% | 2/18; only X (swap) and D (reset); all 14 single-key tool-switch keys missing; no Spacebar pan |
+| Menu Shortcuts | 100% | 33/33 modifier shortcuts present |
+| Viewport | ~71% | 5/7 techniques; missing Spacebar+drag pan, middle-mouse pan |
+| Status Bar | ~75% | 6/8 cells; missing progress bar, inline units selector; zoom label not editable |
+| Colors Panel | ~50% | Wheel + value bar + hex + RGBA spins; missing HSV sliders, palette grid, overlapping squares with notch, C shortcut, wheel modifiers, right-click |
+| History Panel | ~70% | Click-to-rewind works; missing redo-entry display, grey-out styling, toggle trick |
+| Layers Panel | ~80% | All buttons present; missing thumbnails, drag-to-reorder, Ctrl+Click top/bottom |
+| Iconography | ~45% | Text-heavy buttons, limited icon usage |
+
+#### Detailed Gap Inventory
 | Area | Gap | Priority |
 |------|-----|----------|
-| Colors | Missing HSV sliders (only wheel + value bar) | Medium |
-| Colors | Missing palette grid (96 color swatches) | Medium |
-| Colors | Missing right-click for inactive slot | Low |
-| Colors | Missing Ctrl/Alt/Shift wheel modifiers | Low |
-| History | Grey-out of undone entries not yet styled | Low |
-| Status Bar | Missing editable zoom text box (click-to-edit) | Low |
-| Status Bar | Missing progress bar for effects | Medium |
-| Status Bar | Missing help tips / tool status text in leftmost cell | Low |
-| Layers | Missing drag-to-reorder | Medium |
-| Layers | Missing Ctrl+Click send-to-top/bottom | Low |
-| Image List | Missing drag-to-reorder tabs | Low |
-| Tool Bar | Missing tool-specific second row options density | Medium |
-| Iconography | Text-only buttons vs icon-based controls | Medium |
+| **Colors** | Missing overlapping squares with active-slot notch (currently side-by-side) | Medium |
+| **Colors** | Missing C shortcut to switch active color slot | High |
+| **Colors** | Missing HSV sliders / numeric fields (only wheel + value bar) | Medium |
+| **Colors** | Missing palette grid (32 minimized / 96 expanded swatches) | Medium |
+| **Colors** | Missing "More »/Less" toggle for palette expansion | Medium |
+| **Colors** | Missing right-click on wheel/palette = set inactive slot | Low |
+| **Colors** | Missing Ctrl/Alt/Shift wheel modifiers (hue-lock, saturation-lock, snap) | Low |
+| **Colors** | RGB controls are spin edits, not gradient sliders (functional but visually different) | Low |
+| **History** | Redo entries not displayed in list (only undo stack visible) | Medium |
+| **History** | No grey-out styling for undone/redo-able entries | Low |
+| **History** | No toggle trick (click same entry for before/after comparison) | Low |
+| **Status Bar** | Missing progress bar for effects/adjustments rendering | Medium |
+| **Status Bar** | Units label is read-only, not a clickable dropdown selector | Low |
+| **Status Bar** | Zoom label is not editable (click-to-type percentage) | Low |
+| **Status Bar** | Quick-size toggle overloaded on zoom label instead of separate icon | Low |
+| **Status Bar** | FStatusLabels[6] unused (empty) | Low |
+| **Layers** | Missing layer thumbnails (text-only list) | Medium |
+| **Layers** | Missing drag-to-reorder | Medium |
+| **Layers** | Missing Ctrl+Click on Move Up/Down = send to top/bottom | Low |
+| **Layers** | Visibility not in Properties dialog (only as separate toggle button) | Low |
+| **Tools** | Line/Curve tool has no interactive curve/Bézier node editing | Medium |
+| **Tool Shortcuts** | All 14 single-key tool-switch keys missing (S,M,Z,H,F,G,B,E,P,K,L,R,T,O) | High |
+| **Tool Shortcuts** | Missing Spacebar temporary pan mode | High |
+| **Viewport** | Missing Spacebar+drag pan | High |
+| **Viewport** | Missing middle-mouse-button drag pan | Medium |
+| **Toolbar** | Missing Finish/Commit button for multi-step tools | Low |
+| **Toolbar** | Missing per-tool blend mode selector | Low |
+| **Toolbar** | Missing recolor tolerance control | Low |
+| **Effects** | ~16 effects missing (Gaussian, Surface/Radial Blur, Fragment, Unfocus, Red Eye, Relief, Tile Reflection, Twist, Bulge, Dents, Crystallize, Ink Sketch, Julia/Mandelbrot Fractal, etc.) | Medium |
+| **Effects** | No sub-menu categorization (Blurs, Distort, Noise, Photo, Render, Stylize) | Low |
+| **Image List** | Missing drag-to-reorder tabs | Low |
+| **Iconography** | Text-heavy buttons vs icon-based controls throughout | Medium |
 
 ## Explicitly out of scope for current baseline
 - Third-party plugin execution
