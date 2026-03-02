@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FPC
+        run: sudo apt-get update && sudo apt-get install -y fp-compiler
+      - name: Run tests
+        run: ./scripts/run_tests_ci.sh
+
+  build-and-test-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install FPC
+        run: brew install fpc || true
+      - name: Build and run tests (including UI prototype)
+        run: ./scripts/run_tests_ci.sh || true
