@@ -8,6 +8,17 @@ uses
   Classes, SysUtils, Contnrs, Types, FPColor, FPSurface, FPSelection;
 
 type
+  TBlendMode = (
+    bmNormal,
+    bmMultiply,
+    bmScreen,
+    bmOverlay,
+    bmDarken,
+    bmLighten,
+    bmDifference,
+    bmSoftLight
+  );
+
   TToolKind = (
     tkPencil,
     tkBrush,
@@ -27,7 +38,11 @@ type
     tkMovePixels,
     tkZoom,
     tkPan,
-    tkColorPicker
+    tkColorPicker,
+    tkCrop,
+    tkText,
+    tkCloneStamp,
+    tkRecolor
   );
 
   TRasterLayer = class
@@ -35,6 +50,7 @@ type
     FName: string;
     FVisible: Boolean;
     FOpacity: Byte;
+    FBlendMode: TBlendMode;
     FSurface: TRasterSurface;
   public
     constructor Create(const AName: string; AWidth, AHeight: Integer);
@@ -43,6 +59,7 @@ type
     property Name: string read FName write FName;
     property Visible: Boolean read FVisible write FVisible;
     property Opacity: Byte read FOpacity write FOpacity;
+    property BlendMode: TBlendMode read FBlendMode write FBlendMode;
     property Surface: TRasterSurface read FSurface;
   end;
 
@@ -75,6 +92,8 @@ type
     FMaxHistory: Integer;
     FActiveLayerIndex: Integer;
     FSelection: TSelectionMask;
+    FStoredSelection: TSelectionMask;
+    FHasStoredSelection: Boolean;
     function GetActiveLayer: TRasterLayer;
     function GetLayer(AIndex: Integer): TRasterLayer;
     function PopSnapshot(AStack: TObjectList): TDocumentSnapshot;
@@ -140,7 +159,14 @@ type
     procedure Sharpen;
     procedure AddNoise(Amount: Byte; Seed: Cardinal = 1);
     procedure DetectEdges;
+    procedure Emboss;
+    procedure Soften;
+    procedure RenderClouds(Seed: Cardinal = 1);
+    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     function HasSelection: Boolean;
+    function HasStoredSelection: Boolean;
+    procedure StoreSelectionForPaste;
+    procedure PasteStoredSelection;
     function Composite: TRasterSurface;
     function LayerCount: Integer;
     function UndoDepth: Integer;
@@ -181,6 +207,7 @@ begin
   Result := TRasterLayer.Create(FName, FSurface.Width, FSurface.Height);
   Result.FVisible := FVisible;
   Result.FOpacity := FOpacity;
+  Result.FBlendMode := FBlendMode;
   Result.Surface.Assign(FSurface);
 end;
 
@@ -222,6 +249,7 @@ end;
 
 destructor TImageDocument.Destroy;
 begin
+  FStoredSelection.Free;
   FSelection.Free;
   FRedoLabels.Free;
   FHistoryLabels.Free;
@@ -851,6 +879,46 @@ begin
   ActiveLayer.Surface.DetectEdges;
 end;
 
+procedure TImageDocument.Emboss;
+begin
+  ActiveLayer.Surface.Emboss;
+end;
+
+procedure TImageDocument.Soften;
+begin
+  ActiveLayer.Surface.Soften;
+end;
+
+procedure TImageDocument.RenderClouds(Seed: Cardinal);
+begin
+  ActiveLayer.Surface.RenderClouds(Seed);
+end;
+
+procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
+begin
+  ActiveLayer.Surface.RecolorBrush(X, Y, Radius, SourceColor, NewColor, Tolerance);
+end;
+
+function TImageDocument.HasStoredSelection: Boolean;
+begin
+  Result := FHasStoredSelection and (FStoredSelection <> nil);
+end;
+
+procedure TImageDocument.StoreSelectionForPaste;
+begin
+  FStoredSelection.Free;
+  FStoredSelection := FSelection.Clone;
+  FHasStoredSelection := True;
+end;
+
+procedure TImageDocument.PasteStoredSelection;
+begin
+  if not HasStoredSelection then
+    Exit;
+  PushHistory('Paste Selection');
+  FSelection.Assign(FStoredSelection);
+end;
+
 function TImageDocument.HasSelection: Boolean;
 begin
   Result := FSelection.HasSelection;
@@ -863,6 +931,10 @@ var
   X: Integer;
   Y: Integer;
   Layer: TRasterLayer;
+  Dst, Src: TRGBA32;
+  A, InvA, Opacity: Integer;
+  Dr, Dg, Db: Integer;
+  Sr, Sg, Sb: Integer;
 begin
   ResultSurface := TRasterSurface.Create(FWidth, FHeight);
   ResultSurface.Clear(TransparentColor);
@@ -872,9 +944,83 @@ begin
     Layer := Layers[LayerIndex];
     if not Layer.Visible then
       Continue;
-    for Y := 0 to FHeight - 1 do
-      for X := 0 to FWidth - 1 do
-        ResultSurface.BlendPixel(X, Y, Layer.Surface[X, Y], Layer.Opacity);
+    Opacity := Layer.Opacity;
+    if Layer.BlendMode = bmNormal then
+    begin
+      for Y := 0 to FHeight - 1 do
+        for X := 0 to FWidth - 1 do
+          ResultSurface.BlendPixel(X, Y, Layer.Surface[X, Y], Opacity);
+    end
+    else
+    begin
+      for Y := 0 to FHeight - 1 do
+        for X := 0 to FWidth - 1 do
+        begin
+          Dst := ResultSurface[X, Y];
+          Src := Layer.Surface[X, Y];
+          if Src.A = 0 then
+            Continue;
+          A := (Src.A * Opacity) div 255;
+          InvA := 255 - A;
+          Dr := Dst.R; Dg := Dst.G; Db := Dst.B;
+          Sr := Src.R; Sg := Src.G; Sb := Src.B;
+          case Layer.BlendMode of
+            bmMultiply:
+            begin
+              Sr := (Dr * Sr) div 255;
+              Sg := (Dg * Sg) div 255;
+              Sb := (Db * Sb) div 255;
+            end;
+            bmScreen:
+            begin
+              Sr := Dr + Sr - (Dr * Sr) div 255;
+              Sg := Dg + Sg - (Dg * Sg) div 255;
+              Sb := Db + Sb - (Db * Sb) div 255;
+            end;
+            bmOverlay:
+            begin
+              if Dr < 128 then Sr := (2 * Dr * Sr) div 255
+              else Sr := 255 - 2 * ((255 - Dr) * (255 - Sr)) div 255;
+              if Dg < 128 then Sg := (2 * Dg * Sg) div 255
+              else Sg := 255 - 2 * ((255 - Dg) * (255 - Sg)) div 255;
+              if Db < 128 then Sb := (2 * Db * Sb) div 255
+              else Sb := 255 - 2 * ((255 - Db) * (255 - Sb)) div 255;
+            end;
+            bmDarken:
+            begin
+              if Dr < Sr then Sr := Dr;
+              if Dg < Sg then Sg := Dg;
+              if Db < Sb then Sb := Db;
+            end;
+            bmLighten:
+            begin
+              if Dr > Sr then Sr := Dr;
+              if Dg > Sg then Sg := Dg;
+              if Db > Sb then Sb := Db;
+            end;
+            bmDifference:
+            begin
+              Sr := Abs(Dr - Sr);
+              Sg := Abs(Dg - Sg);
+              Sb := Abs(Db - Sb);
+            end;
+            bmSoftLight:
+            begin
+              { Pegtop Soft Light, integer approximation }
+              Sr := (2 * Dr * Sr div 255) +
+                    (Dr * Dr div 255 * (255 - 2 * Sr) div 255);
+              Sg := (2 * Dg * Sg div 255) +
+                    (Dg * Dg div 255 * (255 - 2 * Sg) div 255);
+              Sb := (2 * Db * Sb div 255) +
+                    (Db * Db div 255 * (255 - 2 * Sb) div 255);
+            end;
+          end;
+          Src.R := EnsureRange(Sr, 0, 255);
+          Src.G := EnsureRange(Sg, 0, 255);
+          Src.B := EnsureRange(Sb, 0, 255);
+          ResultSurface.BlendPixel(X, Y, Src, Opacity);
+        end;
+    end;
   end;
 
   Result := ResultSurface;

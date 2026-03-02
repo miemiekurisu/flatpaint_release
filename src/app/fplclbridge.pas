@@ -11,6 +11,8 @@ function UIToRGBA(AColor: TColor; Alpha: Byte = 255): TRGBA32;
 procedure CopySurfaceToBitmap(ASurface: TRasterSurface; ABitmap: TBitmap);
 function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;
 function BitmapToSurface(ABitmap: TBitmap): TRasterSurface;
+{ Sets pixels whose RGB is within Tolerance of ABackgroundColor to transparent. }
+procedure TransparentizeSurface(ASurface: TRasterSurface; ABackgroundColor: TRGBA32; Tolerance: Byte = 0);
 
 implementation
 
@@ -67,6 +69,29 @@ begin
   for Y := 0 to ABitmap.Height - 1 do
     for X := 0 to ABitmap.Width - 1 do
       Result[X, Y] := IntColorToRGBA(ColorToRGB(ABitmap.Canvas.Pixels[X, Y]), 255);
+end;
+
+procedure TransparentizeSurface(ASurface: TRasterSurface; ABackgroundColor: TRGBA32; Tolerance: Byte);
+var
+  X, Y: Integer;
+  Pix: TRGBA32;
+  DR, DG, DB, Dist: Integer;
+begin
+  if ASurface = nil then Exit;
+  for Y := 0 to ASurface.Height - 1 do
+    for X := 0 to ASurface.Width - 1 do
+    begin
+      Pix := ASurface[X, Y];
+      DR := Abs(Pix.R - ABackgroundColor.R);
+      DG := Abs(Pix.G - ABackgroundColor.G);
+      DB := Abs(Pix.B - ABackgroundColor.B);
+      Dist := (DR + DG + DB) div 3;
+      if Dist <= Tolerance then
+      begin
+        Pix.A := 0;
+        ASurface[X, Y] := Pix;
+      end;
+    end;
 end;
 
 end.

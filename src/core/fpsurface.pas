@@ -59,6 +59,10 @@ type
     procedure Sharpen;
     procedure AddNoise(Amount: Byte; Seed: Cardinal = 1);
     procedure DetectEdges;
+    procedure Emboss;
+    procedure Soften;
+    procedure RenderClouds(Seed: Cardinal = 1);
+    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
     function CopySelection(ASelection: TSelectionMask): TRasterSurface;
@@ -1275,6 +1279,148 @@ begin
   finally
     Source.Free;
   end;
+end;
+
+procedure TRasterSurface.Emboss;
+const
+  Kernel: array[0..8] of Integer = (
+    -2, -1, 0,
+    -1,  0, 1,
+     0,  1, 2
+  );
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  SampleX, SampleY: Integer;
+  KernelIndex: Integer;
+  SumR, SumG, SumB: Integer;
+  Src: TRGBA32;
+begin
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        SumR := 128; SumG := 128; SumB := 128;
+        KernelIndex := 0;
+        for SampleY := -1 to 1 do
+          for SampleX := -1 to 1 do
+          begin
+            Src := PixelAtClamped(Source, X + SampleX, Y + SampleY);
+            Inc(SumR, Src.R * Kernel[KernelIndex]);
+            Inc(SumG, Src.G * Kernel[KernelIndex]);
+            Inc(SumB, Src.B * Kernel[KernelIndex]);
+            Inc(KernelIndex);
+          end;
+        Src := Source.FPixels[Source.IndexOf(X, Y)];
+        Src.R := ClampChannel(SumR);
+        Src.G := ClampChannel(SumG);
+        Src.B := ClampChannel(SumB);
+        FPixels[IndexOf(X, Y)] := Src;
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.Soften;
+const
+  Kernel: array[0..8] of Integer = (
+    1, 2, 1,
+    2, 4, 2,
+    1, 2, 1
+  );
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  SampleX, SampleY: Integer;
+  KernelIndex: Integer;
+  SumR, SumG, SumB, SumA: Integer;
+  Src: TRGBA32;
+begin
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        SumR := 0; SumG := 0; SumB := 0; SumA := 0;
+        KernelIndex := 0;
+        for SampleY := -1 to 1 do
+          for SampleX := -1 to 1 do
+          begin
+            Src := PixelAtClamped(Source, X + SampleX, Y + SampleY);
+            Inc(SumR, Src.R * Kernel[KernelIndex]);
+            Inc(SumG, Src.G * Kernel[KernelIndex]);
+            Inc(SumB, Src.B * Kernel[KernelIndex]);
+            Inc(SumA, Src.A * Kernel[KernelIndex]);
+            Inc(KernelIndex);
+          end;
+        Src := Source.FPixels[Source.IndexOf(X, Y)];
+        Src.R := ClampChannel(SumR div 16);
+        Src.G := ClampChannel(SumG div 16);
+        Src.B := ClampChannel(SumB div 16);
+        Src.A := ClampChannel(SumA div 16);
+        FPixels[IndexOf(X, Y)] := Src;
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.RenderClouds(Seed: Cardinal);
+var
+  X, Y: Integer;
+  V: Double;
+  Scale: Double;
+  C: TRGBA32;
+  Phase: Double;
+begin
+  Phase := Seed mod 1000 * 0.001 * 6.283;
+  Scale := 0.03 + (Seed mod 17) * 0.002;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      V := Sin(X * Scale + Phase) +
+           Sin(Y * Scale + Phase * 1.3) +
+           Sin((X + Y) * Scale * 0.7 + Phase * 0.7) +
+           Sin(Sqrt((X - FWidth / 2) * (X - FWidth / 2) +
+                    (Y - FHeight / 2) * (Y - FHeight / 2)) * Scale + Phase);
+      V := (V * 0.25 + 1.0) * 0.5;
+      C.R := ClampChannel(Round(V * 80 + 120));
+      C.G := ClampChannel(Round(V * 120 + 80));
+      C.B := ClampChannel(Round(V * 160 + 40));
+      C.A := 255;
+      FPixels[IndexOf(X, Y)] := C;
+    end;
+end;
+
+procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
+var
+  BX, BY: Integer;
+  Dist: Integer;
+  Pix: TRGBA32;
+  DR, DG, DB: Integer;
+  ColorDist: Integer;
+begin
+  for BY := Max(0, Y - Radius) to Min(FHeight - 1, Y + Radius) do
+    for BX := Max(0, X - Radius) to Min(FWidth - 1, X + Radius) do
+    begin
+      Dist := Round(Sqrt((BX - X) * (BX - X) + (BY - Y) * (BY - Y)));
+      if Dist > Radius then
+        Continue;
+      Pix := FPixels[IndexOf(BX, BY)];
+      DR := Pix.R - SourceColor.R;
+      DG := Pix.G - SourceColor.G;
+      DB := Pix.B - SourceColor.B;
+      ColorDist := (Abs(DR) + Abs(DG) + Abs(DB)) div 3;
+      if ColorDist <= Tolerance then
+      begin
+        Pix.R := NewColor.R;
+        Pix.G := NewColor.G;
+        Pix.B := NewColor.B;
+        FPixels[IndexOf(BX, BY)] := Pix;
+      end;
+    end;
 end;
 
 procedure TRasterSurface.FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte);

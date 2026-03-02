@@ -18,6 +18,10 @@ type
     procedure ResizeBilinearBlendsNeighborPixels;
     procedure RoundedRectangleLeavesHardCornersOpen;
     procedure PolygonOutlineClosesLastSegmentAndKeepsInteriorOpen;
+    procedure EmbossShiftsPixelsRelativeToNeighbors;
+    procedure SoftenBlursHighContrastEdge;
+    procedure RecolorBrushReplacesMatchingPixels;
+    procedure RenderCloudsWritesNonTransparentPixels;
   end;
 
 implementation
@@ -193,6 +197,84 @@ begin
     AssertEquals('bottom edge is painted', 255, Surface[7, 12].A);
     AssertEquals('closing diagonal is painted', 255, Surface[6, 6].A);
     AssertEquals('interior stays open', 0, Surface[6, 9].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.EmbossShiftsPixelsRelativeToNeighbors;
+var
+  Surface: TRasterSurface;
+  CenterBefore, CenterAfter: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(128, 128, 128, 255));
+    Surface[2, 2] := RGBA(255, 255, 255, 255);
+    CenterBefore := Surface[2, 2];
+    Surface.Emboss;
+    CenterAfter := Surface[2, 2];
+    AssertTrue('emboss changes center pixel', (CenterBefore.R <> CenterAfter.R) or
+      (CenterBefore.G <> CenterAfter.G) or (CenterBefore.B <> CenterAfter.B));
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.SoftenBlursHighContrastEdge;
+var
+  Surface: TRasterSurface;
+  I: Integer;
+begin
+  Surface := TRasterSurface.Create(6, 1);
+  try
+    for I := 0 to 2 do
+      Surface[I, 0] := RGBA(0, 0, 0, 255);
+    for I := 3 to 5 do
+      Surface[I, 0] := RGBA(255, 255, 255, 255);
+    Surface.Soften;
+    { The boundary pixel should be blended, not pure black or white }
+    AssertTrue('soften blends edge pixel R', Surface[2, 0].R < 255);
+    AssertTrue('soften blends edge pixel R above 0', Surface[3, 0].R > 0);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushReplacesMatchingPixels;
+var
+  Surface: TRasterSurface;
+  Source, Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(10, 10);
+  try
+    Surface.Clear(RGBA(200, 50, 50, 255));
+    Source := RGBA(200, 50, 50, 255);
+    Target := RGBA(50, 200, 50, 255);
+    Surface.RecolorBrush(5, 5, 4, Source, Target, 10);
+    AssertEquals('center pixel recolored R', 50, Surface[5, 5].R);
+    AssertEquals('center pixel recolored G', 200, Surface[5, 5].G);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RenderCloudsWritesNonTransparentPixels;
+var
+  Surface: TRasterSurface;
+  X, Y: Integer;
+  AllOpaque: Boolean;
+begin
+  Surface := TRasterSurface.Create(16, 16);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.RenderClouds(42);
+    AllOpaque := True;
+    for Y := 0 to 15 do
+      for X := 0 to 15 do
+        if Surface[X, Y].A < 255 then
+          AllOpaque := False;
+    AssertTrue('all pixels written by RenderClouds', AllOpaque);
   finally
     Surface.Free;
   end;

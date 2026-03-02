@@ -17,13 +17,14 @@ function PaintToolDisplayIndex(ATool: TToolKind): Integer;
 implementation
 
 const
-  ToolDisplayOrder: array[0..18] of TToolKind = (
+  ToolDisplayOrder: array[0..22] of TToolKind = (
     tkSelectRect,
     tkSelectEllipse,
     tkSelectLasso,
     tkMagicWand,
     tkMoveSelection,
     tkMovePixels,
+    tkCrop,
     tkZoom,
     tkPan,
     tkFill,
@@ -32,11 +33,14 @@ const
     tkBrush,
     tkEraser,
     tkColorPicker,
+    tkCloneStamp,
+    tkRecolor,
     tkLine,
     tkRectangle,
     tkRoundedRectangle,
     tkEllipseShape,
-    tkFreeformShape
+    tkFreeformShape,
+    tkText
   );
 
 function PaintToolName(ATool: TToolKind): string;
@@ -80,6 +84,14 @@ begin
       Result := 'Pan';
     tkColorPicker:
       Result := 'Color Picker';
+    tkCrop:
+      Result := 'Crop';
+    tkText:
+      Result := 'Text';
+    tkCloneStamp:
+      Result := 'Clone Stamp';
+    tkRecolor:
+      Result := 'Recolor';
   else
     Result := 'Tool';
   end;
@@ -126,6 +138,14 @@ begin
       Result := 'Pan drags the viewport without changing pixels';
     tkColorPicker:
       Result := 'Color Picker samples the composite image';
+    tkCrop:
+      Result := 'Crop trims the canvas to a dragged rectangle';
+    tkText:
+      Result := 'Text places a text string onto the active layer';
+    tkCloneStamp:
+      Result := 'Clone Stamp copies pixels from a sampled source point';
+    tkRecolor:
+      Result := 'Recolor replaces the source color under the brush with the target color';
   else
     Result := 'Ready';
   end;
@@ -172,6 +192,14 @@ begin
       Result := '○';
     tkFreeformShape:
       Result := '⬠';
+    tkCrop:
+      Result := '⊹';
+    tkText:
+      Result := 'T';
+    tkCloneStamp:
+      Result := '✦';
+    tkRecolor:
+      Result := '☁';
   else
     Result := '?';
   end;

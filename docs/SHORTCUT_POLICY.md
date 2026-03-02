@@ -21,6 +21,15 @@ The goal is paint.net workflow parity, not literal Windows key-for-key duplicati
 | `Delete` | `Delete` for pixel removal, `Command+D` for deselect | macOS delete key and desktop app conventions diverge from Windows selection-clear habits |
 | `Enter` | `Return` | Native keyboard labeling difference |
 
+## Selection combine modifier mapping
+For selection combine behavior (add/subtract/intersect), follow Adobe Photoshop user expectations adapted to macOS modifier keys:
+
+- Add to selection: `Shift` (hold Shift while selecting)
+- Subtract from selection: `Option` (Alt) (hold Option while selecting)
+- Intersect selection: `Shift + Option` (hold both Shift and Option)
+
+These map the Windows/Photoshop `Shift/Alt` model into the macOS modifier set (Option is the macOS name for Alt). This mapping must be used for any selection-related tool (rectangle, ellipse, lasso, magic wand) unless a platform-specific conflict requires explicit documentation and approval.
+
 ## Command intent rules
 - `Undo` / `Redo` use standard macOS `Command+Z` and `Command+Shift+Z`.
 - `Cut`, `Copy`, and `Paste` use standard macOS `Command+X/C/V`.

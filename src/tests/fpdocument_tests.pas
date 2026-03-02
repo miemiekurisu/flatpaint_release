@@ -13,6 +13,10 @@ type
     procedure HistoryDepthTracksUndoAndRedo;
     procedure HistoryLabelsTrackUndoAndRedo;
     procedure MagicWandIntersectKeepsOnlySharedRegion;
+    procedure LayerBlendModeDefaultsToNormal;
+    procedure LayerBlendModePreservedInClone;
+    procedure StoredSelectionRoundtrips;
+    procedure NewToolKindCountIsCorrect;
   end;
 
 implementation
@@ -86,6 +90,65 @@ begin
   finally
     Document.Free;
   end;
+end;
+
+procedure TFPDocumentTests.LayerBlendModeDefaultsToNormal;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(4, 4);
+  try
+    AssertEquals('default blend mode', Ord(bmNormal), Ord(Document.ActiveLayer.BlendMode));
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.LayerBlendModePreservedInClone;
+var
+  Document: TImageDocument;
+  Layer2: TRasterLayer;
+begin
+  Document := TImageDocument.Create(4, 4);
+  try
+    Document.ActiveLayer.BlendMode := bmMultiply;
+    Layer2 := Document.ActiveLayer.Clone;
+    try
+      AssertEquals('clone preserves blend mode', Ord(bmMultiply), Ord(Layer2.BlendMode));
+    finally
+      Layer2.Free;
+    end;
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.StoredSelectionRoundtrips;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(8, 8);
+  try
+    Document.SelectRectangle(1, 1, 5, 5);
+    AssertFalse('no stored selection initially', Document.HasStoredSelection);
+    Document.StoreSelectionForPaste;
+    AssertTrue('has stored selection after store', Document.HasStoredSelection);
+    Document.Deselect;
+    AssertFalse('selection cleared', Document.HasSelection);
+    Document.PasteStoredSelection;
+    AssertTrue('selection restored after paste', Document.Selection[2, 2]);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.NewToolKindCountIsCorrect;
+begin
+  { TToolKind should now have 23 values: 0..22 }
+  AssertEquals('tkRecolor ordinal', 22, Ord(tkRecolor));
+  AssertEquals('tkCrop ordinal', 19, Ord(tkCrop));
+  AssertEquals('tkText ordinal', 20, Ord(tkText));
+  AssertEquals('tkCloneStamp ordinal', 21, Ord(tkCloneStamp));
 end;
 
 initialization

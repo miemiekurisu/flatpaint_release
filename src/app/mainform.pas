@@ -100,6 +100,7 @@ type
     FToolCombo: TComboBox;
     FZoomCombo: TComboBox;
     FOptionLabel: TLabel;
+    FColorsBox: TPaintBox;
     FDraggingPalette: TControl;
     FPaletteDragOffset: TPoint;
     FPaletteViewItems: array[TPaletteKind] of TMenuItem;
@@ -108,6 +109,16 @@ type
     FDeferredLayoutPass: Boolean;
     FLastScrollPosition: TPoint;
     FUpdatingZoomControl: Boolean;
+    { New tool and effect state }
+    FLastEffectCaption: string;
+    FLastEffectProc: TNotifyEvent;
+    FRepeatLastEffectItem: TMenuItem;
+    FCloneStampSource: TPoint;
+    FCloneStampSampled: Boolean;
+    FTextLastResult: TTextDialogResult;
+    FLayerBlendCombo: TComboBox;
+    FLayerPropsButton: TButton;
+    FCloneStampSnapshot: TRasterSurface;
     function ActivePaintColor: TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
@@ -118,6 +129,8 @@ type
     function PixelsToDisplayValue(APixels: Integer): Double;
     function DisplayValueToPixels(AValue: Double): Double;
     function FormatMeasurement(APixels: Integer): string;
+    procedure ColorsBoxPaint(Sender: TObject);
+    procedure ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     function ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
     function PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
     function SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
@@ -219,6 +232,14 @@ type
     procedure SharpenClick(Sender: TObject);
     procedure AddNoiseClick(Sender: TObject);
     procedure OutlineClick(Sender: TObject);
+    procedure EmbossClick(Sender: TObject);
+    procedure SoftenClick(Sender: TObject);
+    procedure RenderCloudsClick(Sender: TObject);
+    procedure RepeatLastEffectClick(Sender: TObject);
+    procedure LayerPropertiesClick(Sender: TObject);
+    procedure PasteSelectionClick(Sender: TObject);
+    procedure LayerBlendModeChanged(Sender: TObject);
+    procedure PlaceTextAtPoint(const AResult: TTextDialogResult; APoint: TPoint; AColor: TRGBA32);
     procedure DeselectClick(Sender: TObject);
     procedure SelectAllClick(Sender: TObject);
     procedure InvertSelectionClick(Sender: TObject);
@@ -279,7 +300,8 @@ uses
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
-  FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers;
+  FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers,
+  FPTextDialog, FPTextRenderer, FPLayerPropertiesDialog;
 
 const
   DisplayDPI = 96.0;
@@ -487,6 +509,7 @@ begin
   FRecentFiles.Free;
   FPreparedBitmap.Free;
   FClipboardSurface.Free;
+  FCloneStampSnapshot.Free;
   FDocument.Free;
   inherited Destroy;
 end;
@@ -657,6 +680,8 @@ end;
 
 function TMainForm.SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
 begin
+  // Map modifiers similar to GIMP: Shift = Add, Ctrl = Subtract, Shift+Ctrl = Intersect
+  // Map modifiers to Photoshop habit: Shift = Add, Alt/Option = Subtract, Shift+Alt = Intersect
   if (ssShift in Shift) and (ssAlt in Shift) then
     Result := scIntersect
   else if ssAlt in Shift then
@@ -693,7 +718,8 @@ begin
   FUpdatingToolOption := True;
   try
     case FCurrentTool of
-      tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
+      tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape,
+      tkCloneStamp, tkRecolor:
         begin
           FOptionLabel.Caption := 'Size:';
           FBrushSpin.Enabled := True;
@@ -883,10 +909,21 @@ begin
   EffectsMenu := TMenuItem.Create(FMainMenu);
   EffectsMenu.Caption := 'Effe&cts';
   FMainMenu.Items.Add(EffectsMenu);
+  FRepeatLastEffectItem := TMenuItem.Create(FMainMenu);
+  FRepeatLastEffectItem.Caption := 'Repeat Last Effect';
+  FRepeatLastEffectItem.OnClick := @RepeatLastEffectClick;
+  FRepeatLastEffectItem.ShortCut := ShortCut(Ord('F'), [ssMeta]);
+  FRepeatLastEffectItem.Enabled := False;
+  EffectsMenu.Add(FRepeatLastEffectItem);
+  CreateMenuItem(EffectsMenu, '-', nil);
   CreateMenuItem(EffectsMenu, '&Blur...', @BlurClick);
   CreateMenuItem(EffectsMenu, '&Sharpen', @SharpenClick);
   CreateMenuItem(EffectsMenu, 'Add &Noise...', @AddNoiseClick);
   CreateMenuItem(EffectsMenu, '&Outline', @OutlineClick);
+  CreateMenuItem(EffectsMenu, '-', nil);
+  CreateMenuItem(EffectsMenu, '&Emboss', @EmbossClick);
+  CreateMenuItem(EffectsMenu, 'S&often', @SoftenClick);
+  CreateMenuItem(EffectsMenu, 'Render &Clouds', @RenderCloudsClick);
 
   Menu := FMainMenu;
 end;
@@ -1060,6 +1097,16 @@ begin
   FColorsValueLabel.Font.Color := clWhite;
   RefreshColorsPanel;
 
+  FColorsBox := TPaintBox.Create(FColorsPanel);
+  FColorsBox.Parent := FColorsPanel;
+  FColorsBox.Left := 12;
+  FColorsBox.Top := ContentTop + 110;
+  FColorsBox.Width := FColorsPanel.Width - 24;
+  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 120);
+  FColorsBox.Anchors := [akLeft, akRight, akTop, akBottom];
+  FColorsBox.OnPaint := @ColorsBoxPaint;
+  FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
+
   FHistoryPanel := TPanel.Create(Self);
   CreatePalette(FHistoryPanel, pkHistory);
   CreateButton('Undo', 12, ContentTop, 100, @UndoClick, FHistoryPanel);
@@ -1087,13 +1134,31 @@ begin
   CreateButton('Flat', 180, ContentTop + 30, 52, @FlattenClick, FRightPanel);
   CreateButton('Up', 12, ContentTop + 60, 52, @MoveLayerUpClick, FRightPanel);
   CreateButton('Down', 68, ContentTop + 60, 52, @MoveLayerDownClick, FRightPanel);
+  FLayerPropsButton := CreateButton('Props', 124, ContentTop + 60, 114, @LayerPropertiesClick, FRightPanel);
+
+  FLayerBlendCombo := TComboBox.Create(FRightPanel);
+  FLayerBlendCombo.Parent := FRightPanel;
+  FLayerBlendCombo.Left := 12;
+  FLayerBlendCombo.Top := ContentTop + 90;
+  FLayerBlendCombo.Width := 220;
+  FLayerBlendCombo.Style := csDropDownList;
+  FLayerBlendCombo.Items.Add('Normal');
+  FLayerBlendCombo.Items.Add('Multiply');
+  FLayerBlendCombo.Items.Add('Screen');
+  FLayerBlendCombo.Items.Add('Overlay');
+  FLayerBlendCombo.Items.Add('Darken');
+  FLayerBlendCombo.Items.Add('Lighten');
+  FLayerBlendCombo.Items.Add('Difference');
+  FLayerBlendCombo.Items.Add('Soft Light');
+  FLayerBlendCombo.ItemIndex := 0;
+  FLayerBlendCombo.OnChange := @LayerBlendModeChanged;
 
   FLayerList := TListBox.Create(FRightPanel);
   FLayerList.Parent := FRightPanel;
   FLayerList.Left := 12;
-  FLayerList.Top := ContentTop + 96;
+  FLayerList.Top := ContentTop + 120;
   FLayerList.Width := 220;
-  FLayerList.Height := FRightPanel.Height - (ContentTop + 108);
+  FLayerList.Height := FRightPanel.Height - (ContentTop + 132);
   FLayerList.Anchors := [akTop, akLeft, akRight, akBottom];
   FLayerList.OnClick := @LayerListClick;
   FLayerList.OnDblClick := @LayerListDblClick;
@@ -1428,6 +1493,11 @@ begin
   finally
     FLayerList.Items.EndUpdate;
   end;
+  { Sync blend mode combo to active layer }
+  if Assigned(FLayerBlendCombo) and (FDocument.LayerCount > 0) then
+  begin
+    FLayerBlendCombo.ItemIndex := Ord(FDocument.ActiveLayer.BlendMode);
+  end;
   RefreshHistoryPanel;
   RefreshStatus(FLastImagePoint);
 end;
@@ -1435,6 +1505,7 @@ end;
 procedure TMainForm.RefreshColorsPanel;
 begin
   if Assigned(FColorsValueLabel) then
+  begin
     FColorsValueLabel.Caption := Format(
       'Primary: #%2.2x%2.2x%2.2x'#13#10'Secondary: #%2.2x%2.2x%2.2x',
       [
@@ -1446,6 +1517,128 @@ begin
         FSecondaryColor.B
       ]
     );
+  end;
+  if Assigned(FColorsBox) then
+    FColorsBox.Invalidate;
+end;
+
+procedure TMainForm.ColorsBoxPaint(Sender: TObject);
+var
+  PB: TPaintBox;
+  C: TCanvas;
+  W, H: Integer;
+  Cols, Rows: Integer;
+  Pad: Integer;
+  Sw, Sh: Integer;
+  R, G, B: Integer;
+  I, X, Y: Integer;
+  Colors: array of TRGBA32;
+  Idx: Integer;
+  CellRect: TRect;
+begin
+  if not Assigned(Sender) then Exit;
+  PB := TPaintBox(Sender);
+  C := PB.Canvas;
+  W := PB.Width;
+  H := PB.Height;
+  C.Brush.Style := bsSolid;
+  C.Brush.Color := PaletteSurfaceColor(pkColors, False);
+  C.FillRect(Rect(0,0,W,H));
+
+  // simple generated palette (3x3 RGB levels)
+  SetLength(Colors, 0);
+  for R := 0 to 2 do
+    for G := 0 to 2 do
+      for B := 0 to 2 do
+      begin
+        Idx := Length(Colors);
+        SetLength(Colors, Idx + 1);
+        Colors[Idx] := RGBA(R * 128, G * 128, B * 128, 255);
+      end;
+
+  Cols := 6;
+  Rows := ((Length(Colors) + Cols - 1) div Cols);
+  Pad := 6;
+  Sw := Max(8, (W - (Pad * (Cols + 1))) div Cols);
+  Sh := Max(8, (H - (Pad * (Rows + 1))) div Rows);
+
+  Idx := 0;
+  for Y := 0 to Rows - 1 do
+  begin
+    for X := 0 to Cols - 1 do
+    begin
+      if Idx >= Length(Colors) then Break;
+      CellRect.Left := Pad + X * (Sw + Pad);
+      CellRect.Top := Pad + Y * (Sh + Pad);
+      CellRect.Right := CellRect.Left + Sw;
+      CellRect.Bottom := CellRect.Top + Sh;
+      C.Brush.Color := RGBToColor(Colors[Idx].R, Colors[Idx].G, Colors[Idx].B);
+      C.FillRect(CellRect);
+      C.Pen.Color := clBlack;
+      C.Rectangle(CellRect.Left, CellRect.Top, CellRect.Right, CellRect.Bottom);
+      Inc(Idx);
+    end;
+  end;
+
+  // draw primary/secondary indicators
+  C.Brush.Style := bsClear;
+  C.Pen.Color := clWhite;
+  C.Rectangle(2, 2, 28, 20);
+  C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
+  C.FillRect(Rect(4,4,18,18));
+  C.Brush.Color := RGBToColor(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B);
+  C.FillRect(Rect(12,8,26,16));
+end;
+
+procedure TMainForm.ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  PB: TPaintBox;
+  W, H: Integer;
+  Cols, Rows: Integer;
+  Pad: Integer;
+  Sw, Sh: Integer;
+  R, G, B: Integer;
+  Colors: array of TRGBA32;
+  ColIdx, RowIdx, Idx: Integer;
+  ClickIndex: Integer;
+begin
+  if not Assigned(Sender) then Exit;
+  PB := TPaintBox(Sender);
+  W := PB.Width;
+  H := PB.Height;
+
+  // build same palette as paint
+  SetLength(Colors, 0);
+  for R := 0 to 2 do
+    for G := 0 to 2 do
+      for B := 0 to 2 do
+      begin
+        Idx := Length(Colors);
+        SetLength(Colors, Idx + 1);
+        Colors[Idx] := RGBA(R * 128, G * 128, B * 128, 255);
+      end;
+
+  Cols := 6;
+  Rows := ((Length(Colors) + Cols - 1) div Cols);
+  Pad := 6;
+  Sw := Max(8, (W - (Pad * (Cols + 1))) div Cols);
+  Sh := Max(8, (H - (Pad * (Rows + 1))) div Rows);
+
+  ColIdx := X div (Sw + Pad);
+  RowIdx := Y div (Sh + Pad);
+  if (ColIdx < 0) or (ColIdx >= Cols) or (RowIdx < 0) or (RowIdx >= Rows) then Exit;
+  Idx := RowIdx * Cols + ColIdx;
+  if Idx < 0 then Exit;
+  if Idx >= Length(Colors) then Exit;
+
+  ClickIndex := Idx;
+
+  if Button = mbLeft then
+    FPrimaryColor := Colors[ClickIndex]
+  else
+    FSecondaryColor := Colors[ClickIndex];
+  RefreshColorsPanel;
+  PB.Invalidate;
 end;
 
 procedure TMainForm.RefreshHistoryPanel;
@@ -2092,6 +2285,26 @@ begin
         finally
           CompositeSurface.Free;
         end;
+      end;
+    tkRecolor:
+      FDocument.ActiveLayer.Surface.RecolorBrush(
+        APoint.X,
+        APoint.Y,
+        Max(1, FBrushSize div 2),
+        FPrimaryColor,
+        FSecondaryColor,
+        EnsureRange(FWandTolerance, 0, 255)
+      );
+    tkCloneStamp:
+      if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
+      begin
+        { Paint from snapshot at the offset relative to source point }
+        FDocument.ActiveLayer.Surface.PasteSurface(
+          FCloneStampSnapshot,
+          FCloneStampSource.X + (APoint.X - FDragStart.X) - Max(1, FBrushSize div 2),
+          FCloneStampSource.Y + (APoint.Y - FDragStart.Y) - Max(1, FBrushSize div 2),
+          255
+        );
       end;
   end;
   FLastImagePoint := APoint;
@@ -2836,16 +3049,32 @@ begin
     Exit;
   FDocument.PushHistory('Blur');
   FDocument.BoxBlur(Radius);
+  InvalidatePreparedBitmap;
   SetDirty(True);
   RefreshCanvas;
+  FLastEffectCaption := 'Blur';
+  FLastEffectProc := @BlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
 end;
 
 procedure TMainForm.SharpenClick(Sender: TObject);
 begin
   FDocument.PushHistory('Sharpen');
   FDocument.Sharpen;
+  InvalidatePreparedBitmap;
   SetDirty(True);
   RefreshCanvas;
+  FLastEffectCaption := 'Sharpen';
+  FLastEffectProc := @SharpenClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
 end;
 
 procedure TMainForm.AddNoiseClick(Sender: TObject);
@@ -2857,16 +3086,32 @@ begin
     Exit;
   FDocument.PushHistory('Add Noise');
   FDocument.AddNoise(Amount);
+  InvalidatePreparedBitmap;
   SetDirty(True);
   RefreshCanvas;
+  FLastEffectCaption := 'Add Noise';
+  FLastEffectProc := @AddNoiseClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
 end;
 
 procedure TMainForm.OutlineClick(Sender: TObject);
 begin
   FDocument.PushHistory('Outline');
   FDocument.DetectEdges;
+  InvalidatePreparedBitmap;
   SetDirty(True);
   RefreshCanvas;
+  FLastEffectCaption := 'Outline';
+  FLastEffectProc := @OutlineClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
 end;
 
 procedure TMainForm.DeselectClick(Sender: TObject);
@@ -3417,6 +3662,52 @@ begin
         RefreshCanvas;
         FPointerDown := False;
       end;
+    tkText:
+      begin
+        { Text tool: show dialog on click }
+        if RunTextDialog(Self, FTextLastResult) then
+        begin
+          FDocument.PushHistory('Text');
+          PlaceTextAtPoint(FTextLastResult, ImagePoint, FPrimaryColor);
+          SetDirty(True);
+          InvalidatePreparedBitmap;
+          RefreshCanvas;
+        end;
+        FPointerDown := False;
+      end;
+    tkCloneStamp:
+      begin
+        if FPickSecondaryTarget then
+        begin
+          { Right-click = set clone source }
+          FCloneStampSource := ImagePoint;
+          FCloneStampSampled := True;
+          FCloneStampSnapshot.Free;
+          FCloneStampSnapshot := FDocument.ActiveLayer.Surface.Clone;
+          FPointerDown := False;
+        end
+        else if FCloneStampSampled then
+        begin
+          FDocument.PushHistory('Clone Stamp');
+          ApplyImmediateTool(ImagePoint);
+          SetDirty(True);
+          RefreshCanvas;
+        end
+        else
+          FPointerDown := False;
+      end;
+    tkRecolor:
+      begin
+        FDocument.PushHistory('Recolor');
+        ApplyImmediateTool(ImagePoint);
+        SetDirty(True);
+        RefreshCanvas;
+      end;
+    tkCrop:
+      begin
+        { Crop: drag rectangle on mouse up }
+        RefreshCanvas;
+      end;
     tkZoom:
       begin
         if FPickSecondaryTarget then
@@ -3511,9 +3802,22 @@ begin
           FLastImagePoint := ImagePoint;
           RefreshCanvas;
         end;
-      tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse:
+      tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop:
         begin
           FLastImagePoint := ImagePoint;
+          RefreshCanvas;
+        end;
+      tkRecolor:
+        begin
+          ApplyImmediateTool(ImagePoint);
+          SetDirty(True);
+          RefreshCanvas;
+        end;
+      tkCloneStamp:
+        if FCloneStampSampled then
+        begin
+          ApplyImmediateTool(ImagePoint);
+          SetDirty(True);
           RefreshCanvas;
         end;
     end;
@@ -3538,6 +3842,25 @@ begin
     CommitShapeTool(FDragStart, ImagePoint);
     SetDirty(True);
     RefreshCanvas;
+  end;
+  if FCurrentTool = tkCrop then
+  begin
+    { Commit crop if drag was meaningful }
+    if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
+    begin
+      FDocument.PushHistory('Crop');
+      FDocument.Crop(
+        Min(FDragStart.X, ImagePoint.X),
+        Min(FDragStart.Y, ImagePoint.Y),
+        Abs(ImagePoint.X - FDragStart.X),
+        Abs(ImagePoint.Y - FDragStart.Y)
+      );
+      SetDirty(True);
+      UpdateCanvasSize;
+      InvalidatePreparedBitmap;
+      RefreshLayers;
+      RefreshCanvas;
+    end;
   end;
   if FCurrentTool = tkFreeformShape then
   begin
@@ -3575,6 +3898,127 @@ begin
     RefreshCanvas;
   end;
   RefreshStatus(ImagePoint);
+end;
+
+procedure TMainForm.PlaceTextAtPoint(const AResult: TTextDialogResult;
+  APoint: TPoint; AColor: TRGBA32);
+var
+  TextSurface: TRasterSurface;
+begin
+  TextSurface := RenderTextToSurface(AResult, AColor);
+  if TextSurface = nil then
+    Exit;
+  try
+    FDocument.ActiveLayer.Surface.PasteSurface(TextSurface,
+      APoint.X, APoint.Y);
+  finally
+    TextSurface.Free;
+  end;
+end;
+
+procedure TMainForm.EmbossClick(Sender: TObject);
+begin
+  FDocument.PushHistory('Emboss');
+  FDocument.Emboss;
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Emboss';
+  FLastEffectProc := @EmbossClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.SoftenClick(Sender: TObject);
+begin
+  FDocument.PushHistory('Soften');
+  FDocument.Soften;
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Soften';
+  FLastEffectProc := @SoftenClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.RenderCloudsClick(Sender: TObject);
+begin
+  FDocument.PushHistory('Render Clouds');
+  FDocument.RenderClouds(1);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Render Clouds';
+  FLastEffectProc := @RenderCloudsClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.RepeatLastEffectClick(Sender: TObject);
+begin
+  if Assigned(FLastEffectProc) then
+    FLastEffectProc(Sender);
+end;
+
+procedure TMainForm.LayerPropertiesClick(Sender: TObject);
+var
+  DialogResult: TLayerPropertiesResult;
+  Layer: TRasterLayer;
+begin
+  if FDocument.LayerCount = 0 then
+    Exit;
+  Layer := FDocument.ActiveLayer;
+  DialogResult.Name := Layer.Name;
+  DialogResult.Opacity := Layer.Opacity;
+  DialogResult.BlendMode := Layer.BlendMode;
+  if not RunLayerPropertiesDialog(Self, DialogResult) then
+    Exit;
+  FDocument.PushHistory('Layer Properties');
+  Layer.Name := DialogResult.Name;
+  Layer.Opacity := DialogResult.Opacity;
+  Layer.BlendMode := DialogResult.BlendMode;
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshLayers;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.PasteSelectionClick(Sender: TObject);
+begin
+  if not FDocument.HasStoredSelection then
+    Exit;
+  FDocument.PasteStoredSelection;
+  SetDirty(True);
+  RefreshLayers;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.LayerBlendModeChanged(Sender: TObject);
+var
+  NewMode: TBlendMode;
+begin
+  if not Assigned(FLayerBlendCombo) then
+    Exit;
+  if FDocument.LayerCount = 0 then
+    Exit;
+  if (FLayerBlendCombo.ItemIndex < 0) or
+     (FLayerBlendCombo.ItemIndex > Ord(High(TBlendMode))) then
+    Exit;
+  NewMode := TBlendMode(FLayerBlendCombo.ItemIndex);
+  FDocument.ActiveLayer.BlendMode := NewMode;
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
 end;
 
 end.

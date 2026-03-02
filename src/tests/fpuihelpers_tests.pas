@@ -15,6 +15,8 @@ type
     procedure PanAndPencilAppearInExpectedBands;
     procedure FreeformShapeAppearsAfterBasicShapes;
     procedure ToolMetadataIsCompleteForDisplayOrder;
+    procedure CropTextCloneRecolorAppearInDisplayOrder;
+    procedure TotalDisplayCountIsCorrect;
   end;
 
 implementation
@@ -76,6 +78,22 @@ begin
       PaintToolDisplayIndex(ToolKind)
     );
   end;
+end;
+
+procedure TFPUIHelpersTests.CropTextCloneRecolorAppearInDisplayOrder;
+begin
+  AssertTrue('crop has display index', PaintToolDisplayIndex(tkCrop) >= 0);
+  AssertTrue('text has display index', PaintToolDisplayIndex(tkText) >= 0);
+  AssertTrue('clone stamp has display index', PaintToolDisplayIndex(tkCloneStamp) >= 0);
+  AssertTrue('recolor has display index', PaintToolDisplayIndex(tkRecolor) >= 0);
+  AssertTrue('text metadata complete', PaintToolName(tkText) <> '');
+  AssertTrue('clone glyph present', PaintToolGlyph(tkCloneStamp) <> '');
+  AssertTrue('recolor hint present', PaintToolHint(tkRecolor) <> '');
+end;
+
+procedure TFPUIHelpersTests.TotalDisplayCountIsCorrect;
+begin
+  AssertEquals('total tool display count', 23, PaintToolDisplayCount);
 end;
 
 initialization
