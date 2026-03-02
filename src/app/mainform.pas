@@ -97,9 +97,8 @@ type
     FVerticalRuler: TRulerView;
     FCanvasHost: TScrollBox;
     FPaintBox: TCanvasView;
-    FStatusBar: TStatusBar;
-    FStatusZoomOutButton: TButton;
-    FStatusZoomInButton: TButton;
+    FStatusBar: TPanel;
+    FStatusLabels: array[0..6] of TLabel;
     FStatusZoomTrack: TTrackBar;
     FStatusZoomLabel: TLabel;
     FLayerList: TListBox;
@@ -145,6 +144,8 @@ type
     FColorASpin: TSpinEdit;
     FColorHexEdit: TEdit;
     FUpdatingColorSpins: Boolean;
+    FColorEditTarget: Integer; { 0=Primary, 1=Secondary }
+    FColorTargetCombo: TComboBox;
     { Tool options — opacity and selection mode }
     FOpacitySpin: TSpinEdit;
     FOpacityLabel: TLabel;
@@ -181,6 +182,7 @@ type
     { Selection anti-alias }
     FSelAntiAlias: Boolean;
     FSelAntiAliasCheck: TCheckBox;
+    FMagnifyInstalled: Boolean;
     function ActivePaintColor: TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
@@ -332,6 +334,7 @@ type
     procedure UpdateColorSpins;
     procedure ColorSpinChanged(Sender: TObject);
     procedure ColorHexChanged(Sender: TObject);
+    procedure ColorTargetComboChanged(Sender: TObject);
     { Tool option handlers }
     procedure OpacitySpinChanged(Sender: TObject);
     procedure HardnessSpinChanged(Sender: TObject);
@@ -377,6 +380,7 @@ type
     procedure ToolComboChange(Sender: TObject);
     procedure ZoomComboChange(Sender: TObject);
     procedure StatusZoomTrackChange(Sender: TObject);
+    procedure HistoryListClick(Sender: TObject);
     procedure BrushSizeChanged(Sender: TObject);
     procedure LayerListClick(Sender: TObject);
     procedure LayerListDblClick(Sender: TObject);
@@ -408,10 +412,27 @@ uses
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers,
-  FPTextRenderer, FPLayerPropertiesDialog;
+  FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge;
 
 const
   DisplayDPI = 96.0;
+
+var
+  GMainForm: TMainForm = nil;
+
+procedure FPMagnifyCallbackProc(AMagnification: Double;
+  ALocationX, ALocationY: Double); cdecl;
+var
+  NewScale: Double;
+  VP: TPoint;
+begin
+  if not Assigned(GMainForm) then Exit;
+  if not Assigned(GMainForm.FCanvasHost) then Exit;
+  { magnification is a delta: +0.02 means 2% zoom in per event }
+  NewScale := GMainForm.FZoomScale * (1.0 + AMagnification);
+  VP := Point(Round(ALocationX), GMainForm.FCanvasHost.ClientHeight - Round(ALocationY));
+  GMainForm.ApplyZoomScaleAtViewportPoint(NewScale, VP);
+end;
 
 constructor TCanvasView.Create(AOwner: TComponent);
 begin
@@ -443,7 +464,7 @@ end;
 
 constructor TMainForm.Create(TheOwner: TComponent);
 var
-  StatusPanel: TStatusPanel;
+  I: Integer;
 begin
   inherited Create(TheOwner);
   Caption := 'FlatPaint';
@@ -574,49 +595,32 @@ begin
   BuildSidePanel;
   RefreshPaletteMenuChecks;
 
-  FStatusBar := TStatusBar.Create(Self);
+  FStatusBar := TPanel.Create(Self);
   FStatusBar.Parent := Self;
   FStatusBar.Align := alBottom;
-  FStatusBar.SimplePanel := False;
   FStatusBar.Height := 24;
   FStatusBar.Color := $00EFEFEF;
   FStatusBar.ParentColor := False;
+  FStatusBar.BevelOuter := bvNone;
   FStatusBar.OnResize := @LayoutStatusBarControls;
 
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 280;
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 210;
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 200;
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 170;
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 96;
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 80;
-  StatusPanel := FStatusBar.Panels.Add;
-  StatusPanel.Width := 190;
-
-  FStatusZoomOutButton := TButton.Create(FStatusBar);
-  FStatusZoomOutButton.Parent := FStatusBar;
-  FStatusZoomOutButton.Caption := '-';
-  FStatusZoomOutButton.OnClick := @ZoomOutClick;
-  FStatusZoomOutButton.Visible := False;
-
-  FStatusZoomInButton := TButton.Create(FStatusBar);
-  FStatusZoomInButton.Parent := FStatusBar;
-  FStatusZoomInButton.Caption := '+';
-  FStatusZoomInButton.OnClick := @ZoomInClick;
-  FStatusZoomInButton.Visible := False;
+  for I := 0 to 6 do
+  begin
+    FStatusLabels[I] := TLabel.Create(FStatusBar);
+    FStatusLabels[I].Parent := FStatusBar;
+    FStatusLabels[I].Layout := tlCenter;
+    FStatusLabels[I].Font.Size := 9;
+    FStatusLabels[I].Font.Color := clBlack;
+    FStatusLabels[I].Transparent := True;
+    FStatusLabels[I].AutoSize := False;
+  end;
 
   FStatusZoomTrack := TTrackBar.Create(FStatusBar);
   FStatusZoomTrack.Parent := FStatusBar;
   FStatusZoomTrack.Min := ZoomSliderMin;
   FStatusZoomTrack.Max := ZoomSliderMax;
+  FStatusZoomTrack.Position := ZoomSliderPositionForScale(FZoomScale);
   FStatusZoomTrack.TickStyle := tsNone;
-  FStatusZoomTrack.LineSize := 1;
-  FStatusZoomTrack.PageSize := 1;
   FStatusZoomTrack.OnChange := @StatusZoomTrackChange;
 
   FStatusZoomLabel := TLabel.Create(FStatusBar);
@@ -625,6 +629,8 @@ begin
   FStatusZoomLabel.Layout := tlCenter;
   FStatusZoomLabel.Transparent := True;
   FStatusZoomLabel.Cursor := crHandPoint;
+  FStatusZoomLabel.Font.Size := 9;
+  FStatusZoomLabel.Font.Color := clBlack;
   FStatusZoomLabel.Hint := 'Click to toggle between Fit and Actual Size';
   FStatusZoomLabel.ShowHint := True;
   FStatusZoomLabel.OnClick := @StatusZoomToggleClick;
@@ -640,6 +646,7 @@ begin
   RefreshRulers;
   RefreshTabStrip;
   Application.AddOnIdleHandler(@AppIdle);
+  GMainForm := Self;
 end;
 
 destructor TMainForm.Destroy;
@@ -1606,8 +1613,20 @@ begin
 
   FColorsPanel := TPanel.Create(Self);
   CreatePalette(FColorsPanel, pkColors);
-  CreateButton('Primary', 12, ContentTop, 110, @PrimaryColorClick, FColorsPanel);
-  CreateButton('Secondary', 128, ContentTop, 110, @SecondaryColorClick, FColorsPanel);
+
+  { Color target selector — switch between editing Primary or Secondary }
+  FColorEditTarget := 0;
+  FColorTargetCombo := TComboBox.Create(FColorsPanel);
+  FColorTargetCombo.Parent := FColorsPanel;
+  FColorTargetCombo.Style := csDropDownList;
+  FColorTargetCombo.Left := 12;
+  FColorTargetCombo.Top := ContentTop;
+  FColorTargetCombo.Width := 130;
+  FColorTargetCombo.Items.Add('Primary');
+  FColorTargetCombo.Items.Add('Secondary');
+  FColorTargetCombo.ItemIndex := 0;
+  FColorTargetCombo.OnChange := @ColorTargetComboChanged;
+  CreateButton('More…', 148, ContentTop, 90, @PrimaryColorClick, FColorsPanel);
   CreateButton('↔ Swap', 12, ContentTop + 28, 110, @SwapColorsClick, FColorsPanel);
   CreateButton('B/W', 128, ContentTop + 28, 110, @ResetColorsClick, FColorsPanel);
 
@@ -1654,7 +1673,7 @@ begin
   FColorHexEdit.Width := 130; FColorHexEdit.MaxLength := 8;
   FColorHexEdit.Font.Color := clBlack;
   FColorHexEdit.OnChange := @ColorHexChanged;
-  FColorHexEdit.Hint := 'Primary color as RRGGBBAA hex';
+  FColorHexEdit.Hint := 'Selected color as RRGGBBAA hex';
   FColorHexEdit.ShowHint := True;
 
   { Secondary color indicator label }
@@ -1702,6 +1721,7 @@ begin
   FHistoryList.Color := $00353D4A;
   FHistoryList.Font.Color := clWhite;
   FHistoryList.Font.Size := 9;
+  FHistoryList.OnClick := @HistoryListClick;
   RefreshHistoryPanel;
 
   FRightPanel := TPanel.Create(Self);
@@ -2106,15 +2126,29 @@ begin
 end;
 
 procedure TMainForm.RefreshColorsPanel;
+var
+  OtherColor: TRGBA32;
+  OtherName: string;
 begin
+  if FColorEditTarget = 0 then
+  begin
+    OtherColor := FSecondaryColor;
+    OtherName := 'Secondary';
+  end
+  else
+  begin
+    OtherColor := FPrimaryColor;
+    OtherName := 'Primary';
+  end;
   if Assigned(FColorsValueLabel) then
   begin
     FColorsValueLabel.Caption := Format(
-      'Secondary: #%2.2x%2.2x%2.2x',
+      '%s: #%2.2x%2.2x%2.2x',
       [
-        FSecondaryColor.R,
-        FSecondaryColor.G,
-        FSecondaryColor.B
+        OtherName,
+        OtherColor.R,
+        OtherColor.G,
+        OtherColor.B
       ]
     );
   end;
@@ -2139,6 +2173,7 @@ var
   CurH, CurS, CurV: Double;
   MarkerX, MarkerY: Integer;
   ValY: Integer;
+  EditColor: TRGBA32;
 begin
   if not Assigned(Sender) then Exit;
   PB := TPaintBox(Sender);
@@ -2149,13 +2184,18 @@ begin
   C.Brush.Color := PaletteSurfaceColor(pkColors, False);
   C.FillRect(Rect(0, 0, W, H));
 
-  { Draw circular HSV wheel }
+  { Draw circular HSV wheel based on the currently selected edit color }
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+
   Radius := Min(W - 24, H - 36) div 2;
   if Radius < 10 then Exit;
   CenterX := W div 2;
   CenterY := Radius + 2;
 
-  RGBToHSV(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, CurH, CurS, CurV);
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
 
   for Y := CenterY - Radius to CenterY + Radius do
     for X := CenterX - Radius to CenterX + Radius do
@@ -2226,6 +2266,7 @@ var
   NewH, NewS, NewV: Double;
   SliderLeft, SliderTop, SliderWidth, SliderHeight: Integer;
   PickedR, PickedG, PickedB: Byte;
+  EditColor: TRGBA32;
 begin
   if not Assigned(Sender) then Exit;
   PB := TPaintBox(Sender);
@@ -2237,7 +2278,12 @@ begin
   CenterX := W div 2;
   CenterY := Radius + 2;
 
-  RGBToHSV(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, CurH, CurS, CurV);
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
 
   { Check if click is on the value slider }
   SliderLeft := CenterX - Radius;
@@ -2248,10 +2294,10 @@ begin
   if (Y >= SliderTop) and (Y <= SliderTop + SliderHeight) and
      (X >= SliderLeft) and (X <= SliderLeft + SliderWidth) then
   begin
-    { Adjust value/brightness }
+    { Adjust value/brightness for whichever color is currently selected }
     NewV := EnsureRange((X - SliderLeft) / Max(1, SliderWidth - 1), 0.0, 1.0);
     HSVToRGB(CurH, CurS, NewV, PickedR, PickedG, PickedB);
-    if Button = mbLeft then
+    if FColorEditTarget = 0 then
       FPrimaryColor := RGBA(PickedR, PickedG, PickedB, FPrimaryColor.A)
     else
       FSecondaryColor := RGBA(PickedR, PickedG, PickedB, FSecondaryColor.A);
@@ -2271,12 +2317,35 @@ begin
     NewH := Angle / (2 * Pi);
     NewS := EnsureRange(Dist / Radius, 0.0, 1.0);
     HSVToRGB(NewH, NewS, CurV, PickedR, PickedG, PickedB);
-    if Button = mbLeft then
+    if FColorEditTarget = 0 then
       FPrimaryColor := RGBA(PickedR, PickedG, PickedB, FPrimaryColor.A)
     else
       FSecondaryColor := RGBA(PickedR, PickedG, PickedB, FSecondaryColor.A);
     RefreshColorsPanel;
     PB.Invalidate;
+  end;
+
+  { Check if click is on the primary preview rectangle (bottom left) }
+  SliderLeft := CenterX - Radius;
+  SliderTop := CenterY + Radius + 6;
+  SliderWidth := Radius * 2;
+  SliderHeight := 14;
+  if (X >= 6) and (X <= 30) and
+     (Y >= SliderTop + SliderHeight + 6) and (Y <= SliderTop + SliderHeight + 26) then
+  begin
+    FColorEditTarget := 0;
+    if Assigned(FColorTargetCombo) then FColorTargetCombo.ItemIndex := 0;
+    RefreshColorsPanel;
+    Exit;
+  end;
+  { Check if click is on the secondary preview rectangle (bottom right) }
+  if (X >= W - 30) and (X <= W - 6) and
+     (Y >= SliderTop + SliderHeight + 6) and (Y <= SliderTop + SliderHeight + 26) then
+  begin
+    FColorEditTarget := 1;
+    if Assigned(FColorTargetCombo) then FColorTargetCombo.ItemIndex := 1;
+    RefreshColorsPanel;
+    Exit;
   end;
 end;
 
@@ -2319,7 +2388,7 @@ var
   SelectionText: string;
   SelectionBounds: TRect;
 begin
-  if FStatusBar.Panels.Count < 7 then
+  if not Assigned(FStatusBar) then
     Exit;
 
   if FDocument.HasSelection then
@@ -2337,8 +2406,8 @@ begin
   else
     SelectionText := 'none';
 
-  FStatusBar.Panels[0].Text := Format('%s — %s', [PaintToolName(FCurrentTool), ToolHintText]);
-  FStatusBar.Panels[1].Text := Format(
+  FStatusLabels[0].Caption := Format('%s — %s', [PaintToolName(FCurrentTool), ToolHintText]);
+  FStatusLabels[1].Caption := Format(
     'Image: %s × %s %s',
     [
       FormatMeasurement(FDocument.Width),
@@ -2346,9 +2415,9 @@ begin
       DisplayUnitSuffix
     ]
   );
-  FStatusBar.Panels[2].Text := 'Selection: ' + SelectionText;
+  FStatusLabels[2].Caption := 'Selection: ' + SelectionText;
   if (ACursorPoint.X >= 0) and (ACursorPoint.Y >= 0) then
-    FStatusBar.Panels[3].Text := Format(
+    FStatusLabels[3].Caption := Format(
       'Cursor: %s, %s %s',
       [
         FormatMeasurement(ACursorPoint.X),
@@ -2357,13 +2426,13 @@ begin
       ]
     )
   else
-    FStatusBar.Panels[3].Text := 'Cursor: —';
-  FStatusBar.Panels[4].Text := Format(
+    FStatusLabels[3].Caption := 'Cursor: —';
+  FStatusLabels[4].Caption := Format(
     'Layer: %d/%d',
     [FDocument.ActiveLayerIndex + 1, FDocument.LayerCount]
   );
-  FStatusBar.Panels[5].Text := 'Units: ' + DisplayUnitSuffix;
-  FStatusBar.Panels[6].Text := '';
+  FStatusLabels[5].Caption := 'Units: ' + DisplayUnitSuffix;
+  FStatusLabels[6].Caption := '';
   UpdateZoomControls;
   LayoutStatusBarControls(nil);
 end;
@@ -2372,36 +2441,43 @@ procedure TMainForm.LayoutStatusBarControls(Sender: TObject);
 var
   PanelWidths: TStatusPanelWidthArray;
   PanelIndex: Integer;
-  TrackWidth: Integer;
-  LabelWidth: Integer;
-  RightEdge: Integer;
+  LeftPos: Integer;
+  TrackW, LblW: Integer;
 begin
   if not Assigned(FStatusBar) or
-     not Assigned(FStatusZoomTrack) or
-     not Assigned(FStatusZoomLabel) or
-     (FStatusBar.Panels.Count < 7) then
+     not Assigned(FStatusZoomLabel) then
     Exit;
 
   ComputeStatusPanelWidths(Max(0, FStatusBar.ClientWidth - 4), PanelWidths);
-  for PanelIndex := 0 to StatusPanelCount - 1 do
-    FStatusBar.Panels[PanelIndex].Width := PanelWidths[PanelIndex];
 
-  { Place zoom controls flush against the right edge of the status bar }
-  RightEdge := FStatusBar.ClientWidth - 4;
-  LabelWidth := 56;
-  TrackWidth := Max(80, PanelWidths[6] - LabelWidth - 12);
+  { Position text labels for panels 0..5 }
+  LeftPos := 4;
+  for PanelIndex := 0 to 5 do
+  begin
+    FStatusLabels[PanelIndex].SetBounds(
+      LeftPos + 4,
+      0,
+      Max(0, PanelWidths[PanelIndex] - 8),
+      FStatusBar.Height
+    );
+    Inc(LeftPos, PanelWidths[PanelIndex]);
+  end;
 
+  { Panel 6: zoom trackbar + zoom percentage label }
+  TrackW := ZoomTrackWidth(PanelWidths[6]);
+  LblW := ZoomLabelWidth(PanelWidths[6]);
+  if Assigned(FStatusZoomTrack) then
+    FStatusZoomTrack.SetBounds(
+      LeftPos + 4,
+      2,
+      TrackW,
+      FStatusBar.Height - 4
+    );
   FStatusZoomLabel.SetBounds(
-    RightEdge - LabelWidth,
-    2,
-    LabelWidth,
-    Max(18, FStatusBar.Height - 6)
-  );
-  FStatusZoomTrack.SetBounds(
-    RightEdge - LabelWidth - TrackWidth - 4,
-    1,
-    TrackWidth,
-    Max(20, FStatusBar.Height - 2)
+    LeftPos + TrackW + 8,
+    0,
+    LblW,
+    FStatusBar.Height
   );
 end;
 
@@ -2426,6 +2502,43 @@ begin
   finally
     FUpdatingZoomControl := False;
   end;
+end;
+
+procedure TMainForm.StatusZoomTrackChange(Sender: TObject);
+begin
+  if FUpdatingZoomControl then Exit;
+  ApplyZoomScale(ZoomScaleForSliderPosition(FStatusZoomTrack.Position));
+end;
+
+procedure TMainForm.HistoryListClick(Sender: TObject);
+var
+  ClickedIndex: Integer;
+  CurrentIndex: Integer;
+  StepsNeeded: Integer;
+  I: Integer;
+begin
+  if not Assigned(FDocument) then Exit;
+  if not Assigned(FHistoryList) then Exit;
+  ClickedIndex := FHistoryList.ItemIndex;
+  if ClickedIndex < 0 then Exit;
+  { Items are listed oldest-first: index 0 = oldest undo step.
+    The "current" position is always the last item (Items.Count - 1).
+    Clicking an earlier item means we need to undo (CurrentIndex - ClickedIndex) times. }
+  CurrentIndex := FHistoryList.Items.Count - 1;
+  if ClickedIndex = CurrentIndex then Exit;
+  StepsNeeded := CurrentIndex - ClickedIndex;
+  if StepsNeeded > 0 then
+  begin
+    for I := 1 to StepsNeeded do
+    begin
+      if FDocument.UndoDepth = 0 then Break;
+      FDocument.Undo;
+    end;
+  end;
+  RefreshHistoryPanel;
+  RefreshLayers;
+  RefreshCanvas;
+  RefreshStatus(FLastImagePoint);
 end;
 
 procedure TMainForm.UpdateCaption;
@@ -4010,12 +4123,22 @@ end;
 procedure TMainForm.PrimaryColorClick(Sender: TObject);
 var
   Dialog: TColorDialog;
+  SelectedColor: TRGBA32;
 begin
   Dialog := TColorDialog.Create(Self);
   try
-    Dialog.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
+    if FColorEditTarget = 0 then
+      SelectedColor := FPrimaryColor
+    else
+      SelectedColor := FSecondaryColor;
+    Dialog.Color := RGBToColor(SelectedColor.R, SelectedColor.G, SelectedColor.B);
     if Dialog.Execute then
-      FPrimaryColor := UIToRGBA(Dialog.Color);
+    begin
+      if FColorEditTarget = 0 then
+        FPrimaryColor := UIToRGBA(Dialog.Color)
+      else
+        FSecondaryColor := UIToRGBA(Dialog.Color);
+    end;
   finally
     Dialog.Free;
   end;
@@ -4023,18 +4146,13 @@ begin
 end;
 
 procedure TMainForm.SecondaryColorClick(Sender: TObject);
-var
-  Dialog: TColorDialog;
 begin
-  Dialog := TColorDialog.Create(Self);
-  try
-    Dialog.Color := RGBToColor(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B);
-    if Dialog.Execute then
-      FSecondaryColor := UIToRGBA(Dialog.Color);
-  finally
-    Dialog.Free;
+  { Legacy handler — now unused; color selection uses the combo dropdown }
+  if Assigned(FColorTargetCombo) then
+  begin
+    FColorTargetCombo.ItemIndex := 1;
+    ColorTargetComboChanged(FColorTargetCombo);
   end;
-  RefreshColorsPanel;
 end;
 
 procedure TMainForm.ZoomInClick(Sender: TObject);
@@ -4211,6 +4329,14 @@ begin
     FDeferredLayoutPass := False;
   end;
 
+  { Install native pinch-to-zoom handler once handles are ready }
+  if (not FMagnifyInstalled) and FCanvasHost.HandleAllocated then
+  begin
+    FPInstallMagnifyHandler(Pointer(FCanvasHost.Handle),
+      @FPMagnifyCallbackProc);
+    FMagnifyInstalled := True;
+  end;
+
   ScrollPosition := Point(
     FCanvasHost.HorzScrollBar.Position,
     FCanvasHost.VertScrollBar.Position
@@ -4348,15 +4474,6 @@ begin
   if not Assigned(FZoomCombo) or (FZoomCombo.ItemIndex < 0) then
     Exit;
   ApplyZoomScale(ZoomPresetScale(FZoomCombo.ItemIndex));
-end;
-
-procedure TMainForm.StatusZoomTrackChange(Sender: TObject);
-begin
-  if FUpdatingZoomControl then
-    Exit;
-  if not Assigned(FStatusZoomTrack) then
-    Exit;
-  ApplyZoomScale(ZoomScaleForSliderPosition(FStatusZoomTrack.Position));
 end;
 
 procedure TMainForm.BrushSizeChanged(Sender: TObject);
@@ -5440,37 +5557,49 @@ end;
 { ── Colors Panel RGBA Controls ───────────────────────────────────────────── }
 
 procedure TMainForm.UpdateColorSpins;
+var
+  EditColor: TRGBA32;
 begin
   if FUpdatingColorSpins then Exit;
   FUpdatingColorSpins := True;
   try
-    if Assigned(FColorRSpin) then FColorRSpin.Value := FPrimaryColor.R;
-    if Assigned(FColorGSpin) then FColorGSpin.Value := FPrimaryColor.G;
-    if Assigned(FColorBSpin) then FColorBSpin.Value := FPrimaryColor.B;
-    if Assigned(FColorASpin) then FColorASpin.Value := FPrimaryColor.A;
+    if FColorEditTarget = 0 then
+      EditColor := FPrimaryColor
+    else
+      EditColor := FSecondaryColor;
+    if Assigned(FColorRSpin) then FColorRSpin.Value := EditColor.R;
+    if Assigned(FColorGSpin) then FColorGSpin.Value := EditColor.G;
+    if Assigned(FColorBSpin) then FColorBSpin.Value := EditColor.B;
+    if Assigned(FColorASpin) then FColorASpin.Value := EditColor.A;
     if Assigned(FColorHexEdit) then
       FColorHexEdit.Text := Format('%2.2x%2.2x%2.2x%2.2x',
-        [FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, FPrimaryColor.A]);
+        [EditColor.R, EditColor.G, EditColor.B, EditColor.A]);
   finally
     FUpdatingColorSpins := False;
   end;
 end;
 
 procedure TMainForm.ColorSpinChanged(Sender: TObject);
+var
+  NewColor: TRGBA32;
 begin
   if FUpdatingColorSpins then Exit;
   if not Assigned(FColorRSpin) then Exit;
-  FPrimaryColor := RGBA(
+  NewColor := RGBA(
     FColorRSpin.Value,
     FColorGSpin.Value,
     FColorBSpin.Value,
     FColorASpin.Value
   );
+  if FColorEditTarget = 0 then
+    FPrimaryColor := NewColor
+  else
+    FSecondaryColor := NewColor;
   FUpdatingColorSpins := True;
   try
     if Assigned(FColorHexEdit) then
       FColorHexEdit.Text := Format('%2.2x%2.2x%2.2x%2.2x',
-        [FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, FPrimaryColor.A]);
+        [NewColor.R, NewColor.G, NewColor.B, NewColor.A]);
   finally
     FUpdatingColorSpins := False;
   end;
@@ -5481,6 +5610,7 @@ procedure TMainForm.ColorHexChanged(Sender: TObject);
 var
   HexStr: string;
   R, G, B, A: Integer;
+  NewColor: TRGBA32;
 begin
   if FUpdatingColorSpins then Exit;
   if not Assigned(FColorHexEdit) then Exit;
@@ -5495,18 +5625,22 @@ begin
     G := StrToInt('$' + Copy(HexStr, 3, 2));
     B := StrToInt('$' + Copy(HexStr, 5, 2));
     A := StrToInt('$' + Copy(HexStr, 7, 2));
-    FPrimaryColor := RGBA(
+    NewColor := RGBA(
       EnsureRange(R, 0, 255),
       EnsureRange(G, 0, 255),
       EnsureRange(B, 0, 255),
       EnsureRange(A, 0, 255)
     );
+    if FColorEditTarget = 0 then
+      FPrimaryColor := NewColor
+    else
+      FSecondaryColor := NewColor;
     FUpdatingColorSpins := True;
     try
-      if Assigned(FColorRSpin) then FColorRSpin.Value := FPrimaryColor.R;
-      if Assigned(FColorGSpin) then FColorGSpin.Value := FPrimaryColor.G;
-      if Assigned(FColorBSpin) then FColorBSpin.Value := FPrimaryColor.B;
-      if Assigned(FColorASpin) then FColorASpin.Value := FPrimaryColor.A;
+      if Assigned(FColorRSpin) then FColorRSpin.Value := NewColor.R;
+      if Assigned(FColorGSpin) then FColorGSpin.Value := NewColor.G;
+      if Assigned(FColorBSpin) then FColorBSpin.Value := NewColor.B;
+      if Assigned(FColorASpin) then FColorASpin.Value := NewColor.A;
     finally
       FUpdatingColorSpins := False;
     end;
@@ -5514,6 +5648,13 @@ begin
   except
     { Invalid hex input — silently ignore }
   end;
+end;
+
+procedure TMainForm.ColorTargetComboChanged(Sender: TObject);
+begin
+  if Assigned(FColorTargetCombo) then
+    FColorEditTarget := FColorTargetCombo.ItemIndex;
+  RefreshColorsPanel;
 end;
 
 { ── Tool Option Handlers ─────────────────────────────────────────────────── }

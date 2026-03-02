@@ -132,6 +132,75 @@ The gap is specifically in a responsive, familiar, low-friction editor that stil
 - paint.net `.pdn`, GIMP `.xcf`, and Krita `.kra` import as compatibility paths, at least as flattened layers when full fidelity is unavailable
 - Unified open flow that routes native docs, raster images, and compatibility opens predictably: `Open` replaces the current workspace, while `Import` adds a layer
 
+## Paint.NET Reference Analysis (from official documentation)
+
+Based on thorough analysis of https://www.getpaint.net/doc/latest/, the following details the reference UI architecture and identifies remaining gaps in FlatPaint.
+
+### Paint.NET Main Window Layout (11 areas)
+1. Title Bar — filename (asterisk if unsaved) + version
+2. Menu Bar — 7 menus (File, Edit, View, Image, Layers, Adjustments, Effects) + 6 utility icons
+3. Tool Bar — 2 rows: common actions + tool-specific options
+4. Image List — tabbed thumbnails, reorderable via drag-and-drop
+5. Canvas — center editing area
+6. Tools Window — floating/dockable
+7. History Window — floating/dockable
+8. Layers Window — floating/dockable
+9. Colors Window — floating/dockable
+10. Status Bar — bottom of window
+11. Utility Window toggle icons — in menu bar area
+
+### Paint.NET Status Bar (left to right)
+- Help Tips / Tool Status text
+- Progress bar (during effects/adjustments rendering)
+- Image size (W × H in current units)
+- Cursor location (X, Y)
+- Units selector dropdown
+- Editable zoom text box
+- Quick size toggle icon (100% ↔ fit-to-window)
+- Zoom slider
+
+### Paint.NET Colors Window
+- Primary/Secondary overlapping squares with notch indicator for active slot
+- Swap icon (shortcut X) + Default icon (reset to B/W)
+- Switch active slot shortcut: C
+- Color wheel with modifier support: Ctrl=hue only, Alt=saturation only, Shift=snap to spokes, Ctrl+Shift=15° snap
+- RGB + HSV + Opacity sliders (not just wheel)
+- Hex text box
+- Palette grid: 32 colors minimized, 96 expanded, left-click=active, right-click=inactive
+- "More »/Less" toggle
+
+### Paint.NET History Window
+- Every session action listed chronologically
+- Click any entry to rewind to that state
+- Toggle trick: click same entry to toggle before/after comparison
+- Undone actions shown with grey background
+- New action while reviewing history permanently erases future history
+- Closing image or Paint.NET clears history entirely
+
+### Paint.NET Layers Window
+- Layer thumbnails with active highlight
+- Click to activate, drag-to-reorder
+- Icons: New, Delete, Duplicate, Merge Down, Move Up, Move Down, Properties
+- Ctrl+Click Move Up/Down = send to top/bottom
+- Layer Properties: name, visibility, blend mode, opacity
+
+### Identified Gaps vs Paint.NET Reference
+| Area | Gap | Priority |
+|------|-----|----------|
+| Colors | Missing HSV sliders (only wheel + value bar) | Medium |
+| Colors | Missing palette grid (96 color swatches) | Medium |
+| Colors | Missing right-click for inactive slot | Low |
+| Colors | Missing Ctrl/Alt/Shift wheel modifiers | Low |
+| History | Grey-out of undone entries not yet styled | Low |
+| Status Bar | Missing editable zoom text box (click-to-edit) | Low |
+| Status Bar | Missing progress bar for effects | Medium |
+| Status Bar | Missing help tips / tool status text in leftmost cell | Low |
+| Layers | Missing drag-to-reorder | Medium |
+| Layers | Missing Ctrl+Click send-to-top/bottom | Low |
+| Image List | Missing drag-to-reorder tabs | Low |
+| Tool Bar | Missing tool-specific second row options density | Medium |
+| Iconography | Text-only buttons vs icon-based controls | Medium |
+
 ## Explicitly out of scope for current baseline
 - Third-party plugin execution
 - Full PSD round-trip fidelity

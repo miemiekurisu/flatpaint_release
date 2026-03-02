@@ -189,6 +189,31 @@ strip_binary_if_possible() {
   fi
 }
 
+compile_native_modules() {
+  local arch
+  local output_dir
+  local src_dir="$ROOT_DIR/src/native"
+
+  # Determine target architecture
+  arch="$(uname -m)"
+  if [[ "$arch" == "arm64" ]]; then
+    arch="aarch64"
+  fi
+  output_dir="$ROOT_DIR/lib/${arch}-darwin"
+  mkdir -p "$output_dir"
+
+  if [[ -f "$src_dir/fp_magnify.m" ]]; then
+    log "Compiling native module: fp_magnify.m"
+    clang -c -O2 \
+      -arch "$(uname -m)" \
+      -mmacosx-version-min=11.0 \
+      -fobjc-arc \
+      -framework Cocoa \
+      -o "$output_dir/fp_magnify.o" \
+      "$src_dir/fp_magnify.m"
+  fi
+}
+
 clean_generated_artifacts() {
   log "Removing generated outputs"
   rm -rf -- \
@@ -202,6 +227,7 @@ clean_generated_artifacts() {
 
 build_default_artifacts() {
   kill_running_flatpaint
+  compile_native_modules
   run_lazbuild "$PROJECT_FILE"
 
   if [[ ! -f "$DEFAULT_BINARY" ]]; then
@@ -216,6 +242,7 @@ build_default_artifacts() {
 build_release_artifacts() {
   clean_generated_artifacts
   kill_running_flatpaint
+  compile_native_modules
   # -CX: smartlink each compiled unit (FPC guide: dead-code removal at unit level)
   # -XX: smartlink the final linked program
   # -O2 is already set in the project file; listed here explicitly for release traceability
