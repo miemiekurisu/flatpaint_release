@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
-  FPPaletteHelpers, FPRulerHelpers;
+  FPPaletteHelpers, FPRulerHelpers, FPTextDialog;
 
 type
   TMainForm = class;
@@ -301,7 +301,7 @@ uses
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers,
-  FPTextDialog, FPTextRenderer, FPLayerPropertiesDialog;
+  FPTextRenderer, FPLayerPropertiesDialog;
 
 const
   DisplayDPI = 96.0;

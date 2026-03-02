@@ -37,7 +37,7 @@ type
     procedure SyncSizeFields;
     procedure SizeEditDone(Sender: TObject);
     procedure SizeTrackChanged(Sender: TObject);
-    procedure TextChanged(Sender: TObject);
+    procedure TextEditChanged(Sender: TObject);
   public
     constructor CreateDialog(AOwner: TComponent; const AResult: TTextDialogResult);
     function GetResult: TTextDialogResult;
@@ -71,7 +71,7 @@ begin
   FTextEdit.Top := 12;
   FTextEdit.Width := 296;
   FTextEdit.Text := AResult.Text;
-  FTextEdit.OnChange := @TextChanged;
+  FTextEdit.OnChange := @TextEditChanged;
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
@@ -159,7 +159,7 @@ begin
   CancelButton.ModalResult := mrCancel;
 
   SyncSizeFields;
-  TextChanged(nil);
+  TextEditChanged(nil);
 end;
 
 procedure TTextDialogForm.SyncSizeFields;
@@ -191,7 +191,7 @@ begin
   SyncSizeFields;
 end;
 
-procedure TTextDialogForm.TextChanged(Sender: TObject);
+procedure TTextDialogForm.TextEditChanged(Sender: TObject);
 begin
   if FPreviewLabel <> nil then
     FPreviewLabel.Caption := FTextEdit.Text;
