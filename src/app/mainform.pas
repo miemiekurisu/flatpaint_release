@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
-  FPPaletteHelpers, FPRulerHelpers, FPTextDialog;
+  FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers;
 
 type
   TMainForm = class;
@@ -103,6 +103,7 @@ type
     FStatusZoomTrack: TTrackBar;
     FStatusZoomLabel: TLabel;
     FLayerList: TListBox;
+    FHistoryList: TListBox;
     FColorsValueLabel: TLabel;
     FHistoryValueLabel: TLabel;
     FBrushSpin: TSpinEdit;
@@ -1225,22 +1226,22 @@ begin
   FTopPanel.Color := ToolbarBackgroundColor;
   FTopPanel.ParentColor := False;
 
-  Btn := CreateButton('New', 10, 8, 52, @NewDocumentClick, FTopPanel);   Btn.Hint := 'New document (Ctrl+N)';
-  Btn := CreateButton('Open', 66, 8, 52, @OpenDocumentClick, FTopPanel);  Btn.Hint := 'Open document (Ctrl+O)';
-  Btn := CreateButton('Save', 122, 8, 52, @SaveDocumentClick, FTopPanel); Btn.Hint := 'Save document (Ctrl+S)';
-  Btn := CreateButton('Print', 178, 8, 56, @PrintDocumentClick, FTopPanel); Btn.Hint := 'Print (Ctrl+P)';
-  Btn := CreateButton('Cut', 238, 8, 48, @CutClick, FTopPanel);   Btn.Hint := 'Cut selection (Ctrl+X)';
-  Btn := CreateButton('Copy', 290, 8, 52, @CopyClick, FTopPanel);  Btn.Hint := 'Copy selection (Ctrl+C)';
-  Btn := CreateButton('Paste', 346, 8, 52, @PasteClick, FTopPanel); Btn.Hint := 'Paste (Ctrl+V)';
-  Btn := CreateButton('Crop', 402, 8, 50, @CropToSelectionClick, FTopPanel); Btn.Hint := 'Crop canvas to selection';
-  Btn := CreateButton('Desel', 456, 8, 56, @DeselectClick, FTopPanel); Btn.Hint := 'Deselect all (Ctrl+D)';
-  Btn := CreateButton('Undo', 516, 8, 52, @UndoClick, FTopPanel);  Btn.Hint := 'Undo last action (Ctrl+Z)';
-  Btn := CreateButton('Redo', 572, 8, 52, @RedoClick, FTopPanel);  Btn.Hint := 'Redo (Ctrl+Y)';
-  Btn := CreateButton('Z-', 628, 8, 34, @ZoomOutClick, FTopPanel); Btn.Hint := 'Zoom out ([)';
+  Btn := CreateButton('📄 New', 10, 8, 62, @NewDocumentClick, FTopPanel);   Btn.Hint := 'New document (Cmd+N)';
+  Btn := CreateButton('📂 Open', 76, 8, 66, @OpenDocumentClick, FTopPanel);  Btn.Hint := 'Open document (Cmd+O)';
+  Btn := CreateButton('💾 Save', 146, 8, 62, @SaveDocumentClick, FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
+  Btn := CreateButton('🖨️ Print', 212, 8, 66, @PrintDocumentClick, FTopPanel); Btn.Hint := 'Print (Cmd+P)';
+  Btn := CreateButton('✂️ Cut', 282, 8, 56, @CutClick, FTopPanel);   Btn.Hint := 'Cut selection (Cmd+X)';
+  Btn := CreateButton('📋 Copy', 342, 8, 66, @CopyClick, FTopPanel);  Btn.Hint := 'Copy selection (Cmd+C)';
+  Btn := CreateButton('📌 Paste', 412, 8, 66, @PasteClick, FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
+  Btn := CreateButton('🔲 Crop', 482, 8, 64, @CropToSelectionClick, FTopPanel); Btn.Hint := 'Crop canvas to selection';
+  Btn := CreateButton('⊘ Desel', 550, 8, 66, @DeselectClick, FTopPanel); Btn.Hint := 'Deselect all (Cmd+D)';
+  Btn := CreateButton('↩ Undo', 620, 8, 62, @UndoClick, FTopPanel);  Btn.Hint := 'Undo last action (Cmd+Z)';
+  Btn := CreateButton('↪ Redo', 686, 8, 62, @RedoClick, FTopPanel);  Btn.Hint := 'Redo (Cmd+Shift+Z)';
+  Btn := CreateButton('🔎-', 752, 8, 42, @ZoomOutClick, FTopPanel); Btn.Hint := 'Zoom out';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
-  FZoomCombo.Left := 666;
+  FZoomCombo.Left := 798;
   FZoomCombo.Top := 8;
   FZoomCombo.Width := 74;
   FZoomCombo.Style := csDropDownList;
@@ -1248,18 +1249,18 @@ begin
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
 
-  Btn := CreateButton('Z+', 744, 8, 34, @ZoomInClick, FTopPanel);     Btn.Hint := 'Zoom in (])';
-  Btn := CreateButton('Import', 782, 8, 60, @ImportLayerClick, FTopPanel); Btn.Hint := 'Import layer from file';
-  Btn := CreateButton('Fore', 846, 8, 46, @PrimaryColorClick, FTopPanel);   Btn.Hint := 'Set foreground (primary) color';
-  Btn := CreateButton('Back', 896, 8, 46, @SecondaryColorClick, FTopPanel); Btn.Hint := 'Set background (secondary) color';
-  Btn := CreateButton('Swap', 946, 8, 50, @SwapColorsClick, FTopPanel);     Btn.Hint := 'Swap foreground and background colors (X)';
-  Btn := CreateButton('B/W', 1000, 8, 50, @ResetColorsClick, FTopPanel);    Btn.Hint := 'Reset to black foreground and white background (D)';
-  Btn := CreateButton('Grid', 1054, 8, 42, @TogglePixelGridClick, FTopPanel); Btn.Hint := 'Toggle pixel grid';
-  Btn := CreateButton('Ruler', 1100, 8, 50, @ToggleRulersClick, FTopPanel);  Btn.Hint := 'Toggle rulers';
+  Btn := CreateButton('🔎+', 876, 8, 42, @ZoomInClick, FTopPanel);     Btn.Hint := 'Zoom in';
+  Btn := CreateButton('📥 Import', 922, 8, 76, @ImportLayerClick, FTopPanel); Btn.Hint := 'Import layer from file';
+  Btn := CreateButton('🎨 Fore', 1002, 8, 62, @PrimaryColorClick, FTopPanel);   Btn.Hint := 'Set foreground (primary) color';
+  Btn := CreateButton('🎨 Back', 1068, 8, 62, @SecondaryColorClick, FTopPanel); Btn.Hint := 'Set background (secondary) color';
+  Btn := CreateButton('⇆ Swap', 1134, 8, 60, @SwapColorsClick, FTopPanel);     Btn.Hint := 'Swap foreground and background colors (X)';
+  Btn := CreateButton('⬛ B/W', 1198, 8, 58, @ResetColorsClick, FTopPanel);    Btn.Hint := 'Reset to black foreground and white background (D)';
+  Btn := CreateButton('⊞ Grid', 1260, 8, 56, @TogglePixelGridClick, FTopPanel); Btn.Hint := 'Toggle pixel grid';
+  Btn := CreateButton('📐 Ruler', 1320, 8, 62, @ToggleRulersClick, FTopPanel);  Btn.Hint := 'Toggle rulers';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
-  UtilityPanel.Left := 1140;
+  UtilityPanel.Left := 1386;
   UtilityPanel.Top := 8;
   UtilityPanel.Width := 158;
   UtilityPanel.Height := 24;
@@ -1593,9 +1594,9 @@ begin
     RowIndex := ToolIndex div ToolsPaletteColumnCount;
     ToolButton := CreateButton(
       PaintToolGlyph(ToolKind),
-      10 + ColumnIndex * 42,
+      8 + ColumnIndex * 46,
       ContentTop + RowIndex * 28,
-      36,
+      40,
       @ToolButtonClick,
       FToolsPanel,
       Ord(ToolKind)
@@ -1681,37 +1682,51 @@ begin
 
   FHistoryPanel := TPanel.Create(Self);
   CreatePalette(FHistoryPanel, pkHistory);
-  CreateButton('Undo', 12, ContentTop, 100, @UndoClick, FHistoryPanel);
-  CreateButton('Redo', 124, ContentTop, 100, @RedoClick, FHistoryPanel);
+  CreateButton('↩ Undo', 12, ContentTop, 104, @UndoClick, FHistoryPanel);
+  CreateButton('↪ Redo', 120, ContentTop, 104, @RedoClick, FHistoryPanel);
   FHistoryValueLabel := TLabel.Create(FHistoryPanel);
   FHistoryValueLabel.Parent := FHistoryPanel;
   FHistoryValueLabel.Left := 12;
-  FHistoryValueLabel.Top := ContentTop + 32;
-  FHistoryValueLabel.Width := 220;
-  FHistoryValueLabel.Height := 56;
-  FHistoryValueLabel.WordWrap := True;
-  FHistoryValueLabel.Font.Color := clWhite;
+  FHistoryValueLabel.Top := ContentTop + 30;
+  FHistoryValueLabel.Width := 212;
+  FHistoryValueLabel.Height := 14;
+  FHistoryValueLabel.Font.Color := clSilver;
+  FHistoryValueLabel.Font.Size := 8;
+  FHistoryList := TListBox.Create(FHistoryPanel);
+  FHistoryList.Parent := FHistoryPanel;
+  FHistoryList.Left := 12;
+  FHistoryList.Top := ContentTop + 48;
+  FHistoryList.Width := 212;
+  FHistoryList.Height := FHistoryPanel.Height - (ContentTop + 60);
+  FHistoryList.Anchors := [akTop, akLeft, akRight, akBottom];
+  FHistoryList.Color := $00353D4A;
+  FHistoryList.Font.Color := clWhite;
+  FHistoryList.Font.Size := 9;
   RefreshHistoryPanel;
 
   FRightPanel := TPanel.Create(Self);
   CreatePalette(FRightPanel, pkLayers);
 
-  CreateButton('Add', 12, ContentTop, 52, @AddLayerClick, FRightPanel);
-  CreateButton('Dup', 68, ContentTop, 52, @DuplicateLayerClick, FRightPanel);
-  CreateButton('Del', 124, ContentTop, 52, @DeleteLayerClick, FRightPanel);
-  CreateButton('Merge', 180, ContentTop, 52, @MergeDownClick, FRightPanel);
-  CreateButton('Vis', 12, ContentTop + 30, 52, @ToggleLayerVisibilityClick, FRightPanel);
-  CreateButton('Opac', 68, ContentTop + 30, 52, @LayerOpacityClick, FRightPanel);
-  CreateButton('Name', 124, ContentTop + 30, 52, @RenameLayerClick, FRightPanel);
-  CreateButton('Flat', 180, ContentTop + 30, 52, @FlattenClick, FRightPanel);
-  CreateButton('Up', 12, ContentTop + 60, 52, @MoveLayerUpClick, FRightPanel);
-  CreateButton('Down', 68, ContentTop + 60, 52, @MoveLayerDownClick, FRightPanel);
-  FLayerPropsButton := CreateButton('Props', 124, ContentTop + 60, 114, @LayerPropertiesClick, FRightPanel);
+  { Row 1: Add / Duplicate / Delete / Merge }
+  CreateButton('➕', 12, ContentTop, 30, @AddLayerClick, FRightPanel);
+  CreateButton('📋', 44, ContentTop, 30, @DuplicateLayerClick, FRightPanel);
+  CreateButton('🗑', 76, ContentTop, 30, @DeleteLayerClick, FRightPanel);
+  CreateButton('⤵', 108, ContentTop, 30, @MergeDownClick, FRightPanel);
+  { Row 1 right: Vis / Up / Down }
+  CreateButton('👁', 144, ContentTop, 30, @ToggleLayerVisibilityClick, FRightPanel);
+  CreateButton('⬆', 176, ContentTop, 30, @MoveLayerUpClick, FRightPanel);
+  CreateButton('⬇', 208, ContentTop, 30, @MoveLayerDownClick, FRightPanel);
+
+  { Row 2: Opacity / Flatten / Rename / Properties }
+  CreateButton('Opac', 12, ContentTop + 28, 52, @LayerOpacityClick, FRightPanel);
+  CreateButton('Flat', 68, ContentTop + 28, 52, @FlattenClick, FRightPanel);
+  CreateButton('Name', 124, ContentTop + 28, 52, @RenameLayerClick, FRightPanel);
+  FLayerPropsButton := CreateButton('Props', 180, ContentTop + 28, 56, @LayerPropertiesClick, FRightPanel);
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
   FLayerBlendCombo.Left := 12;
-  FLayerBlendCombo.Top := ContentTop + 90;
+  FLayerBlendCombo.Top := ContentTop + 56;
   FLayerBlendCombo.Width := 220;
   FLayerBlendCombo.Style := csDropDownList;
   FLayerBlendCombo.Items.Add('Normal');
@@ -1728,10 +1743,13 @@ begin
   FLayerList := TListBox.Create(FRightPanel);
   FLayerList.Parent := FRightPanel;
   FLayerList.Left := 12;
-  FLayerList.Top := ContentTop + 120;
+  FLayerList.Top := ContentTop + 84;
   FLayerList.Width := 220;
-  FLayerList.Height := FRightPanel.Height - (ContentTop + 132);
+  FLayerList.Height := FRightPanel.Height - (ContentTop + 96);
   FLayerList.Anchors := [akTop, akLeft, akRight, akBottom];
+  FLayerList.Color := $00353D4A;
+  FLayerList.Font.Color := clWhite;
+  FLayerList.Font.Size := 9;
   FLayerList.OnClick := @LayerListClick;
   FLayerList.OnDblClick := @LayerListDblClick;
 end;
@@ -1831,6 +1849,19 @@ begin
         RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
         BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
         ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+      end;
+    tkCrop:
+      begin
+        LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+        TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+        RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+        BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+        ACanvas.Pen.Style := psDash;
+        ACanvas.Pen.Color := clWhite;
+        ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+        ACanvas.Pen.Style := psSolid;
+        ACanvas.Pen.Color := clBlack;
+        ACanvas.Rectangle(LeftX - 1, TopY - 1, RightX + 1, BottomY + 1);
       end;
     tkRoundedRectangle:
       begin
@@ -2044,17 +2075,21 @@ procedure TMainForm.RefreshLayers;
 var
   Index: Integer;
   CaptionText: string;
+  Layer: TRasterLayer;
 begin
   FLayerList.Items.BeginUpdate;
   try
     FLayerList.Items.Clear;
     for Index := 0 to FDocument.LayerCount - 1 do
     begin
-      if FDocument.Layers[Index].Visible then
-        CaptionText := '[x] '
+      Layer := FDocument.Layers[Index];
+      if Layer.Visible then
+        CaptionText := '👁 '
       else
-        CaptionText := '[ ] ';
-      CaptionText := CaptionText + FDocument.Layers[Index].Name;
+        CaptionText := '   ';
+      CaptionText := CaptionText + Layer.Name;
+      if Layer.Opacity < 255 then
+        CaptionText := CaptionText + Format(' (%d%%)', [Layer.Opacity * 100 div 255]);
       FLayerList.Items.Add(CaptionText);
     end;
     FLayerList.ItemIndex := FDocument.ActiveLayerIndex;
@@ -2093,14 +2128,17 @@ var
   PB: TPaintBox;
   C: TCanvas;
   W, H: Integer;
-  Cols, Rows: Integer;
-  Pad: Integer;
-  Sw, Sh: Integer;
-  R, G, B: Integer;
-  I, X, Y: Integer;
-  Colors: array of TRGBA32;
-  Idx: Integer;
-  CellRect: TRect;
+  CenterX, CenterY: Integer;
+  Radius: Integer;
+  X, Y: Integer;
+  DX, DY: Double;
+  Dist, Angle: Double;
+  Hue, Sat: Double;
+  R, G, B: Byte;
+  SliderLeft, SliderTop, SliderWidth, SliderHeight: Integer;
+  CurH, CurS, CurV: Double;
+  MarkerX, MarkerY: Integer;
+  ValY: Integer;
 begin
   if not Assigned(Sender) then Exit;
   PB := TPaintBox(Sender);
@@ -2109,108 +2147,144 @@ begin
   H := PB.Height;
   C.Brush.Style := bsSolid;
   C.Brush.Color := PaletteSurfaceColor(pkColors, False);
-  C.FillRect(Rect(0,0,W,H));
+  C.FillRect(Rect(0, 0, W, H));
 
-  // simple generated palette (3x3 RGB levels)
-  SetLength(Colors, 0);
-  for R := 0 to 2 do
-    for G := 0 to 2 do
-      for B := 0 to 2 do
-      begin
-        Idx := Length(Colors);
-        SetLength(Colors, Idx + 1);
-        Colors[Idx] := RGBA(R * 128, G * 128, B * 128, 255);
-      end;
+  { Draw circular HSV wheel }
+  Radius := Min(W - 24, H - 36) div 2;
+  if Radius < 10 then Exit;
+  CenterX := W div 2;
+  CenterY := Radius + 2;
 
-  Cols := 6;
-  Rows := ((Length(Colors) + Cols - 1) div Cols);
-  Pad := 6;
-  Sw := Max(8, (W - (Pad * (Cols + 1))) div Cols);
-  Sh := Max(8, (H - (Pad * (Rows + 1))) div Rows);
+  RGBToHSV(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, CurH, CurS, CurV);
 
-  Idx := 0;
-  for Y := 0 to Rows - 1 do
-  begin
-    for X := 0 to Cols - 1 do
+  for Y := CenterY - Radius to CenterY + Radius do
+    for X := CenterX - Radius to CenterX + Radius do
     begin
-      if Idx >= Length(Colors) then Break;
-      CellRect.Left := Pad + X * (Sw + Pad);
-      CellRect.Top := Pad + Y * (Sh + Pad);
-      CellRect.Right := CellRect.Left + Sw;
-      CellRect.Bottom := CellRect.Top + Sh;
-      C.Brush.Color := RGBToColor(Colors[Idx].R, Colors[Idx].G, Colors[Idx].B);
-      C.FillRect(CellRect);
-      C.Pen.Color := clBlack;
-      C.Rectangle(CellRect.Left, CellRect.Top, CellRect.Right, CellRect.Bottom);
-      Inc(Idx);
+      DX := X - CenterX;
+      DY := Y - CenterY;
+      Dist := Sqrt(DX * DX + DY * DY);
+      if Dist > Radius then Continue;
+      Angle := ArcTan2(DY, DX);
+      if Angle < 0 then Angle := Angle + 2 * Pi;
+      Hue := Angle / (2 * Pi);
+      Sat := Dist / Radius;
+      HSVToRGB(Hue, Sat, CurV, R, G, B);
+      C.Pixels[X, Y] := RGBToColor(R, G, B);
     end;
-  end;
 
-  // draw primary/secondary indicators
-  C.Brush.Style := bsClear;
+  { Current color marker on wheel }
+  MarkerX := CenterX + Round(CurS * Radius * Cos(CurH * 2 * Pi));
+  MarkerY := CenterY + Round(CurS * Radius * Sin(CurH * 2 * Pi));
   C.Pen.Color := clWhite;
-  C.Rectangle(2, 2, 28, 20);
-  C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
-  C.FillRect(Rect(4,4,18,18));
+  C.Pen.Width := 2;
+  C.Brush.Style := bsClear;
+  C.Ellipse(MarkerX - 5, MarkerY - 5, MarkerX + 5, MarkerY + 5);
+  C.Pen.Color := clBlack;
+  C.Pen.Width := 1;
+  C.Ellipse(MarkerX - 6, MarkerY - 6, MarkerX + 6, MarkerY + 6);
+
+  { Draw value (brightness) slider below the wheel }
+  SliderLeft := CenterX - Radius;
+  SliderTop := CenterY + Radius + 6;
+  SliderWidth := Radius * 2;
+  SliderHeight := 14;
+  for X := SliderLeft to SliderLeft + SliderWidth - 1 do
+  begin
+    HSVToRGB(CurH, CurS, (X - SliderLeft) / Max(1, SliderWidth - 1), R, G, B);
+    C.Pen.Color := RGBToColor(R, G, B);
+    C.MoveTo(X, SliderTop);
+    C.LineTo(X, SliderTop + SliderHeight);
+  end;
+  C.Brush.Style := bsClear;
+  C.Pen.Color := clGray;
+  C.Rectangle(SliderLeft, SliderTop, SliderLeft + SliderWidth, SliderTop + SliderHeight);
+  { Value position indicator }
+  ValY := SliderLeft + Round(CurV * Max(1, SliderWidth - 1));
+  C.Pen.Color := clWhite;
+  C.Pen.Width := 2;
+  C.MoveTo(ValY, SliderTop - 1);
+  C.LineTo(ValY, SliderTop + SliderHeight + 1);
+  C.Pen.Width := 1;
+
+  { Primary/secondary color preview rectangles }
+  C.Brush.Style := bsSolid;
+  C.Pen.Color := clGray;
   C.Brush.Color := RGBToColor(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B);
-  C.FillRect(Rect(12,8,26,16));
+  C.Rectangle(W - 30, SliderTop + SliderHeight + 6, W - 6, SliderTop + SliderHeight + 26);
+  C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
+  C.Rectangle(6, SliderTop + SliderHeight + 6, 30, SliderTop + SliderHeight + 26);
 end;
 
 procedure TMainForm.ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   PB: TPaintBox;
   W, H: Integer;
-  Cols, Rows: Integer;
-  Pad: Integer;
-  Sw, Sh: Integer;
-  R, G, B: Integer;
-  Colors: array of TRGBA32;
-  ColIdx, RowIdx, Idx: Integer;
-  ClickIndex: Integer;
+  Radius: Integer;
+  CenterX, CenterY: Integer;
+  DX, DY, Dist, Angle: Double;
+  CurH, CurS, CurV: Double;
+  NewH, NewS, NewV: Double;
+  SliderLeft, SliderTop, SliderWidth, SliderHeight: Integer;
+  PickedR, PickedG, PickedB: Byte;
 begin
   if not Assigned(Sender) then Exit;
   PB := TPaintBox(Sender);
   W := PB.Width;
   H := PB.Height;
 
-  // build same palette as paint
-  SetLength(Colors, 0);
-  for R := 0 to 2 do
-    for G := 0 to 2 do
-      for B := 0 to 2 do
-      begin
-        Idx := Length(Colors);
-        SetLength(Colors, Idx + 1);
-        Colors[Idx] := RGBA(R * 128, G * 128, B * 128, 255);
-      end;
+  Radius := Min(W - 24, H - 36) div 2;
+  if Radius < 10 then Exit;
+  CenterX := W div 2;
+  CenterY := Radius + 2;
 
-  Cols := 6;
-  Rows := ((Length(Colors) + Cols - 1) div Cols);
-  Pad := 6;
-  Sw := Max(8, (W - (Pad * (Cols + 1))) div Cols);
-  Sh := Max(8, (H - (Pad * (Rows + 1))) div Rows);
+  RGBToHSV(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, CurH, CurS, CurV);
 
-  ColIdx := X div (Sw + Pad);
-  RowIdx := Y div (Sh + Pad);
-  if (ColIdx < 0) or (ColIdx >= Cols) or (RowIdx < 0) or (RowIdx >= Rows) then Exit;
-  Idx := RowIdx * Cols + ColIdx;
-  if Idx < 0 then Exit;
-  if Idx >= Length(Colors) then Exit;
+  { Check if click is on the value slider }
+  SliderLeft := CenterX - Radius;
+  SliderTop := CenterY + Radius + 6;
+  SliderWidth := Radius * 2;
+  SliderHeight := 14;
 
-  ClickIndex := Idx;
+  if (Y >= SliderTop) and (Y <= SliderTop + SliderHeight) and
+     (X >= SliderLeft) and (X <= SliderLeft + SliderWidth) then
+  begin
+    { Adjust value/brightness }
+    NewV := EnsureRange((X - SliderLeft) / Max(1, SliderWidth - 1), 0.0, 1.0);
+    HSVToRGB(CurH, CurS, NewV, PickedR, PickedG, PickedB);
+    if Button = mbLeft then
+      FPrimaryColor := RGBA(PickedR, PickedG, PickedB, FPrimaryColor.A)
+    else
+      FSecondaryColor := RGBA(PickedR, PickedG, PickedB, FSecondaryColor.A);
+    RefreshColorsPanel;
+    PB.Invalidate;
+    Exit;
+  end;
 
-  if Button = mbLeft then
-    FPrimaryColor := Colors[ClickIndex]
-  else
-    FSecondaryColor := Colors[ClickIndex];
-  RefreshColorsPanel;
-  PB.Invalidate;
+  { Check if click is in the wheel area }
+  DX := X - CenterX;
+  DY := Y - CenterY;
+  Dist := Sqrt(DX * DX + DY * DY);
+  if Dist <= Radius then
+  begin
+    Angle := ArcTan2(DY, DX);
+    if Angle < 0 then Angle := Angle + 2 * Pi;
+    NewH := Angle / (2 * Pi);
+    NewS := EnsureRange(Dist / Radius, 0.0, 1.0);
+    HSVToRGB(NewH, NewS, CurV, PickedR, PickedG, PickedB);
+    if Button = mbLeft then
+      FPrimaryColor := RGBA(PickedR, PickedG, PickedB, FPrimaryColor.A)
+    else
+      FSecondaryColor := RGBA(PickedR, PickedG, PickedB, FSecondaryColor.A);
+    RefreshColorsPanel;
+    PB.Invalidate;
+  end;
 end;
 
 procedure TMainForm.RefreshHistoryPanel;
 var
   UndoLabel: string;
   RedoLabel: string;
+  Index: Integer;
 begin
   if Assigned(FHistoryValueLabel) then
   begin
@@ -2221,9 +2295,22 @@ begin
     if RedoLabel = '' then
       RedoLabel := '—';
     FHistoryValueLabel.Caption := Format(
-      'Undo: %d (%s)'#13#10'Redo: %d (%s)',
-      [FDocument.UndoDepth, UndoLabel, FDocument.RedoDepth, RedoLabel]
+      'Undo: %s  |  Redo: %s',
+      [UndoLabel, RedoLabel]
     );
+  end;
+  if Assigned(FHistoryList) then
+  begin
+    FHistoryList.Items.BeginUpdate;
+    try
+      FHistoryList.Items.Clear;
+      for Index := 0 to FDocument.UndoDepth - 1 do
+        FHistoryList.Items.Add(Format('%d. %s', [Index + 1, FDocument.UndoActionLabel(FDocument.UndoDepth - 1 - Index)]));
+      if FDocument.UndoDepth > 0 then
+        FHistoryList.ItemIndex := FHistoryList.Items.Count - 1;
+    finally
+      FHistoryList.Items.EndUpdate;
+    end;
   end;
 end;
 
@@ -2285,10 +2372,9 @@ procedure TMainForm.LayoutStatusBarControls(Sender: TObject);
 var
   PanelWidths: TStatusPanelWidthArray;
   PanelIndex: Integer;
-  ZoomAreaLeft: Integer;
-  ZoomAreaWidth: Integer;
-  LabelWidth: Integer;
   TrackWidth: Integer;
+  LabelWidth: Integer;
+  RightEdge: Integer;
 begin
   if not Assigned(FStatusBar) or
      not Assigned(FStatusZoomTrack) or
@@ -2300,22 +2386,22 @@ begin
   for PanelIndex := 0 to StatusPanelCount - 1 do
     FStatusBar.Panels[PanelIndex].Width := PanelWidths[PanelIndex];
 
-  ZoomAreaWidth := PanelWidths[6];
-  ZoomAreaLeft := Max(0, FStatusBar.ClientWidth - ZoomAreaWidth - 2);
-  LabelWidth := ZoomLabelWidth(ZoomAreaWidth);
-  TrackWidth := ZoomTrackWidth(ZoomAreaWidth);
+  { Place zoom controls flush against the right edge of the status bar }
+  RightEdge := FStatusBar.ClientWidth - 4;
+  LabelWidth := 56;
+  TrackWidth := Max(80, PanelWidths[6] - LabelWidth - 12);
 
-  FStatusZoomTrack.SetBounds(
-    Max(ZoomAreaLeft + 4, ZoomAreaLeft + ZoomAreaWidth - LabelWidth - TrackWidth - 8),
-    1,
-    TrackWidth,
-    Max(20, FStatusBar.Height - 2)
-  );
   FStatusZoomLabel.SetBounds(
-    Max(ZoomAreaLeft + 4, ZoomAreaLeft + ZoomAreaWidth - LabelWidth - 4),
+    RightEdge - LabelWidth,
     2,
     LabelWidth,
     Max(18, FStatusBar.Height - 6)
+  );
+  FStatusZoomTrack.SetBounds(
+    RightEdge - LabelWidth - TrackWidth - 4,
+    1,
+    TrackWidth,
+    Max(20, FStatusBar.Height - 2)
   );
 end;
 
@@ -2628,20 +2714,33 @@ begin
 end;
 
 function TMainForm.ConfirmDocumentReplacement(const AAction: string): Boolean;
+var
+  Choice: Integer;
 begin
   if not NeedsDiscardConfirmation(FDirty) then
     Exit(True);
 
-  Result := MessageDlg(
-    'Unsaved Changes',
+  Choice := MessageDlg(
+    'Save Changes',
     Format(
-      'The current document has unsaved changes. Discard them and %s?',
+      'The current document has unsaved changes. Save before %s?',
       [AAction]
     ),
     mtConfirmation,
-    [mbYes, mbNo],
+    [mbYes, mbNo, mbCancel],
     0
-  ) = mrYes;
+  );
+  case Choice of
+    mrYes:
+      begin
+        SaveDocumentClick(nil);
+        Result := not FDirty; { proceed only if save succeeded }
+      end;
+    mrNo:
+      Result := True; { discard and proceed }
+  else
+    Result := False; { cancel }
+  end;
 end;
 
 procedure TMainForm.SetDirty(AValue: Boolean);
@@ -3131,13 +3230,25 @@ begin
 end;
 
 procedure TMainForm.CloseDocumentClick(Sender: TObject);
+var
+  Choice: Integer;
 begin
   if FDirty then
   begin
-    if MessageDlg('Close Document',
-      Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(FActiveTabIndex)]),
-      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
-      Exit;
+    Choice := MessageDlg('Save Changes',
+      Format('Do you want to save changes to "%s"?', [TabDocumentDisplayName(FActiveTabIndex)]),
+      mtConfirmation, [mbYes, mbNo, mbCancel], 0);
+    case Choice of
+      mrYes:
+        begin
+          SaveDocumentClick(Sender);
+          { If still dirty after save attempt (user cancelled save-as), abort close }
+          if FDirty then Exit;
+        end;
+      mrNo: ; { Proceed without saving }
+    else
+      Exit; { Cancel — don't close }
+    end;
   end;
   CloseDocumentTab(FActiveTabIndex);
 end;
@@ -4133,6 +4244,7 @@ procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
 var
   I: Integer;
   DirtyCount: Integer;
+  Choice: Integer;
 begin
   { Sync current tab dirty flag }
   if Length(FTabDirtyFlags) > FActiveTabIndex then
@@ -4144,13 +4256,26 @@ begin
   if DirtyCount = 0 then
     CanClose := True
   else
-    CanClose := MessageDlg(
-      'Quit FlatPaint',
-      Format('You have %d document(s) with unsaved changes. Quit anyway?', [DirtyCount]),
+  begin
+    Choice := MessageDlg(
+      'Save Changes',
+      Format('You have %d document(s) with unsaved changes. Save before quitting?', [DirtyCount]),
       mtConfirmation,
-      [mbYes, mbNo],
+      [mbYes, mbNo, mbCancel],
       0
-    ) = mrYes;
+    );
+    case Choice of
+      mrYes:
+        begin
+          SaveAllDocumentsClick(Sender);
+          CanClose := True;
+        end;
+      mrNo:
+        CanClose := True;
+    else
+      CanClose := False;
+    end;
+  end;
 end;
 
 procedure TMainForm.TogglePaletteViewClick(Sender: TObject);
@@ -4504,6 +4629,7 @@ begin
       tkPencil, tkBrush, tkEraser:
         begin
           ApplyImmediateTool(ImagePoint);
+          InvalidatePreparedBitmap;
           RefreshCanvas;
         end;
       tkPan:

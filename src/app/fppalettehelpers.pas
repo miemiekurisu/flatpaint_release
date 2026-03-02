@@ -37,11 +37,11 @@ const
   PaletteMargin = 12;
   PaletteGap = 14;
   ToolsPaletteWidth = 100;
-  ToolsPaletteHeight = 324;
+  ToolsPaletteHeight = 380;
   ColorsPaletteWidth = 254;
   ColorsPaletteHeight = 306;
   HistoryPaletteWidth = 236;
-  HistoryPaletteHeight = 156;
+  HistoryPaletteHeight = 220;
   LayersPaletteWidth = 236;
   LayersPaletteHeight = 242;
 
@@ -92,7 +92,7 @@ begin
     pkHistory:
       Result := Rect(1088, PaletteMargin, 1088 + HistoryPaletteWidth, PaletteMargin + HistoryPaletteHeight);
     pkLayers:
-      Result := Rect(1088, 184, 1088 + LayersPaletteWidth, 184 + LayersPaletteHeight);
+      Result := Rect(1088, 246, 1088 + LayersPaletteWidth, 246 + LayersPaletteHeight);
   else
     Result := Rect(12, 12, 220, 180);
   end;

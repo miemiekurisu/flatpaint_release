@@ -154,54 +154,54 @@ end;
 function PaintToolGlyph(ATool: TToolKind): string;
 begin
   case ATool of
-    tkPencil:
-      Result := '✐';
     tkSelectRect:
-      Result := '▭';
+      Result := '⬒';
     tkSelectEllipse:
-      Result := '◯';
+      Result := '⬮';
     tkSelectLasso:
-      Result := '⌁';
+      Result := '🔲';
     tkMagicWand:
-      Result := '✦';
+      Result := '🪄';
     tkMoveSelection:
-      Result := '⇱';
+      Result := '⤡';
     tkMovePixels:
-      Result := '✥';
+      Result := '🔀';
     tkZoom:
-      Result := '⊕';
+      Result := '🔍';
     tkPan:
       Result := '✋';
     tkFill:
-      Result := '▨';
+      Result := '🪣';
     tkGradient:
-      Result := '◢';
+      Result := '🌈';
+    tkPencil:
+      Result := '✏️';
     tkBrush:
-      Result := '✎';
+      Result := '🖌️';
     tkEraser:
-      Result := '⌫';
+      Result := '🧹';
     tkColorPicker:
-      Result := '⊙';
-    tkLine:
-      Result := '╱';
-    tkRectangle:
-      Result := '□';
-    tkRoundedRectangle:
-      Result := '▢';
-    tkEllipseShape:
-      Result := '○';
-    tkFreeformShape:
-      Result := '⬠';
-    tkCrop:
-      Result := '⊹';
-    tkText:
-      Result := 'T';
+      Result := '💉';
     tkCloneStamp:
-      Result := '✦';
+      Result := '📋';
     tkRecolor:
-      Result := '☁';
+      Result := '🎨';
+    tkLine:
+      Result := '📏';
+    tkRectangle:
+      Result := '▬';
+    tkRoundedRectangle:
+      Result := '▭';
+    tkEllipseShape:
+      Result := '⬭';
+    tkFreeformShape:
+      Result := '✍️';
+    tkCrop:
+      Result := '✂️';
+    tkText:
+      Result := '🔤';
   else
-    Result := '?';
+    Result := '❓';
   end;
 end;
 
