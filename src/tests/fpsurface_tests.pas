@@ -32,6 +32,7 @@ type
     procedure OilPaintChangesPixels;
     procedure FrostedGlassDisplacesPixels;
     procedure ZoomBlurSmearsCentreBrightness;
+    procedure RadialGradientFadesFromCenter;
   end;
 
 implementation
@@ -493,6 +494,26 @@ begin
     Surface.ZoomBlur(15, 15, 6);
     AfterEdge := Surface[20, 15].R;
     AssertTrue('zoom blur should spread brightness outward', AfterEdge >= BeforeEdge);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RadialGradientFadesFromCenter;
+{ FillRadialGradient should place the start colour at the centre and fade
+  toward the end colour as distance from centre grows. }
+var
+  Surface: TRasterSurface;
+  CentreR, EdgeR: Byte;
+begin
+  Surface := TRasterSurface.Create(40, 40);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 255));
+    { White at centre → Black at radius=18 }
+    Surface.FillRadialGradient(20, 20, 18, RGBA(255, 255, 255, 255), RGBA(0, 0, 0, 255));
+    CentreR := Surface[20, 20].R;
+    EdgeR   := Surface[20, 38].R;   { near the rim }
+    AssertTrue('centre should be brighter than near-edge', CentreR > EdgeR);
   finally
     Surface.Free;
   end;

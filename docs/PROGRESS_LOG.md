@@ -1,6 +1,27 @@
 # Development Progress Log
 
-## 2026-03-02 (feature completion audit)
+## 2026-03-03 (tool options parity pass + effects expansion)
+
+| Area | Before | After | Key changes |
+| --- | --- | --- | --- |
+| Ctrl+Tab navigation | ~65% | ~73% | `FormKeyDown` handles Ctrl+Tab / Ctrl+Shift+Tab (with wrap) before the `Shift` guard |
+| Effects | ~70% | ~85% | Added `OilPaint` (luminosity-bucket mode), `FrostedGlass` (noise displacement), `ZoomBlur` (radial 8-sample); all wired through fpsurface → fpdocument → mainform + 3 new menu items `Oil Paint…`, `Frosted Glass…`, `Zoom Blur…` following the GlowClick pattern |
+| Tool/Config Options | ~75% | ~90% | **Fill tolerance** visible TSpinEdit for bucket tool; **Wand contiguous** TCheckBox (calls `CreateGlobalColorSelection` when unchecked); **Gradient type** TComboBox (Linear/Radial) + **Reverse** TCheckBox both wired to `FillRadialGradient`/`FillGradient`; **Color picker sample source** TComboBox (Current Layer / All Layers) rewires ColorPicker MouseMove handler; **Selection anti-alias** TCheckBox for rect/ellipse/lasso tools; all controls show/hide via `UpdateToolOptionControl` |
+| Image/Menus shortcuts | ~75% | ~80% | Flatten `Cmd+Shift+F` added |
+| fpsurface core | — | — | `FillRadialGradient(CenterX, CenterY, Radius, StartColor, EndColor)` added; `CreateGlobalColorSelection` added for wand non-contiguous mode |
+| fpdocument core | — | — | `OilPaint`, `FrostedGlass`, `ZoomBlur` delegating wrappers; `SelectMagicWand` gains `Contiguous: Boolean = True` parameter |
+| Tests | 129 | 130 | `RadialGradientFadesFromCenter` added to `fpsurface_tests.pas`; 3 effect tests added in prior sub-session; 0 errors, 0 failures |
+
+**Overall estimate after this pass: ~88%**
+
+Key gaps still open:
+- Iconography: ~45% (text-symbol placeholders; no paint.net icon set)
+- Workspace visual parity: ~55% (toolbar density, palette chrome, status-bar weight)
+- Compatibility IO: ~55% (no `.pdn`/`.kra` layer-preserving import)
+- Document tabs: ~73% (Ctrl+Tab added; image-list thumbnail strip still open)
+- Command surface parity: ~75% (image-list strip still absent)
+
+
 Code-level pass against `src/app/mainform.pas`, `src/core/fpdocument.pas` (`TToolKind` enum), `COMMAND_SURFACE_BASELINE.md`, `TOOL_OPTIONS_BASELINE.md`, and `UI_PARITY_AUDIT.md`.
 
 | Area | Completion | Key open gaps |

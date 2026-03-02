@@ -46,25 +46,29 @@ These map the Windows/Photoshop `Shift/Alt` model into the macOS modifier set (O
 | --- | --- | --- |
 | New | `Command+N` | Native equivalent of Windows `Ctrl+N` |
 | Open | `Command+O` | Native equivalent of Windows `Ctrl+O` |
-| Import Image | `Command+Shift+I` | Secondary import action |
-| Import Project | `Command+Option+I` | Compatibility import path |
+| Import as Layer | `Command+Shift+I` | Secondary import action |
+| Close | `Command+W` | Native close document |
 | Save | `Command+S` | Saves to the bound native document path when available |
 | Save As | `Command+Shift+S` | Prompts for the output path and format |
 | Save All Images | `Command+Option+S` | Current single-document shell saves the active document through the same path policy |
-| Export PNG | `Command+E` | Primary export path |
-| Export JPEG | `Command+Shift+E` | Secondary export variant |
-| Export TIFF | `Command+Option+E` | Tertiary export variant |
+| Print | `Command+P` | Routes to native print panel |
+| Exit | `Command+Q` | Quit application |
 | Cut | `Command+X` | Selection-aware when a selection exists |
 | Copy | `Command+C` | Selection-aware when a selection exists |
 | Copy Merged | `Command+Shift+C` | Explicit composite copy |
 | Paste | `Command+V` | Pastes as a new layer |
 | Undo | `Command+Z` | Standard macOS |
 | Redo | `Command+Shift+Z` | Standard macOS |
+| Select All | `Command+A` | Selects entire canvas |
 | Deselect | `Command+D` | Replaces earlier incorrect delete-key mapping |
+| Invert Selection | `Command+Option+I` | Inverts the current selection mask |
 | Erase Selection Pixels | `Delete` | Destructive pixel clear, not deselect |
+| Swap Colors | `X` | Bare key swap of primary/secondary colors |
+| Reset Colors | `D` | Bare key reset to black/white defaults |
 | Zoom In | `Command+=` | Standard macOS zoom-in key path (`+` on shifted `=`) |
 | Zoom Out | `Command+-` | Standard macOS zoom-out |
 | Actual Size | `Command+0` | Reset zoom to 100% |
+| Zoom to Window | `Command+9` | Fit image to window |
 | Show Tools | `Command+1` | Opens or focuses the tools utility window |
 | Show Colors | `Command+2` | Opens or focuses the colors utility window |
 | Show Layers | `Command+3` | Opens or focuses the layers utility window |
@@ -75,6 +79,10 @@ These map the Windows/Photoshop `Shift/Alt` model into the macOS modifier set (O
 | Duplicate Layer | `Command+Shift+D` | Current parity approximation |
 | Merge Layer Down | `Command+Shift+M` | Current parity approximation |
 | Delete Layer | `Command+Delete` | Keeps plain delete free for pixel operations |
+| Flatten | `Command+Shift+F` | Flatten all layers to single raster |
+| Repeat Last Effect | `Command+F` | Re-applies the most recently used effect |
+| Next Tab | `Ctrl+Tab` | Cycle to next open document tab (wraps) |
+| Previous Tab | `Ctrl+Shift+Tab` | Cycle to previous open document tab (wraps) |
 
 ## Known deviations still open
 - Shortcut coverage is not yet exhaustive relative to paint.net.

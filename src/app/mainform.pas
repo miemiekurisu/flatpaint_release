@@ -166,6 +166,20 @@ type
     FFillTolerance: Integer;
     FFillTolSpin: TSpinEdit;
     FFillTolLabel: TLabel;
+    { Gradient type and reverse }
+    { 0=Linear, 1=Radial }
+    FGradientType: Integer;
+    FGradientReverse: Boolean;
+    FGradientTypeCombo: TComboBox;
+    FGradientTypeLabel: TLabel;
+    FGradientReverseCheck: TCheckBox;
+    { Color picker sample source: 0=Current Layer, 1=All Layers }
+    FPickerSampleSource: Integer;
+    FPickerSampleCombo: TComboBox;
+    FPickerSampleLabel: TLabel;
+    { Selection anti-alias }
+    FSelAntiAlias: Boolean;
+    FSelAntiAliasCheck: TCheckBox;
     function ActivePaintColor: TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
@@ -280,6 +294,7 @@ type
     procedure SharpenClick(Sender: TObject);
     procedure AddNoiseClick(Sender: TObject);
     procedure OutlineClick(Sender: TObject);
+    procedure OutlineEffectClick(Sender: TObject);
     procedure EmbossClick(Sender: TObject);
     procedure SoftenClick(Sender: TObject);
     procedure RenderCloudsClick(Sender: TObject);
@@ -325,6 +340,10 @@ type
     procedure WandSampleComboChanged(Sender: TObject);
     procedure WandContiguousChanged(Sender: TObject);
     procedure FillTolSpinChanged(Sender: TObject);
+    procedure GradientTypeComboChanged(Sender: TObject);
+    procedure GradientReverseChanged(Sender: TObject);
+    procedure PickerSampleComboChanged(Sender: TObject);
+    procedure SelAntiAliasChanged(Sender: TObject);
     { Layer operations }
     procedure LayerRotateZoomClick(Sender: TObject);
     procedure DeselectClick(Sender: TObject);
@@ -451,6 +470,10 @@ begin
   FWandContiguous := True;
   FJpegQuality := 90;
   FFillTolerance := 8;
+  FGradientType := 0;
+  FGradientReverse := False;
+  FPickerSampleSource := 0;
+  FSelAntiAlias := True;
   FClipboardOffset := Point(0, 0);
   FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
@@ -900,6 +923,15 @@ begin
   if Assigned(FFillTolLabel) then FFillTolLabel.Visible := IsBucketTool;
   if Assigned(FFillTolSpin) then FFillTolSpin.Visible := IsBucketTool;
   if Assigned(FFillTolSpin) then FFillTolSpin.Value := FFillTolerance;
+  if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := FCurrentTool = tkGradient;
+  if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := FCurrentTool = tkGradient;
+  if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := FGradientType;
+  if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Visible := FCurrentTool = tkGradient;
+  if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Checked := FGradientReverse;
+  if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
+  if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
+  if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
+  if Assigned(FSelAntiAliasCheck) then FSelAntiAliasCheck.Visible := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso];
 
   FUpdatingToolOption := True;
   try
@@ -1038,7 +1070,7 @@ begin
   CreateMenuItem(EditMenu, 'Paste &Selection (Replace)', @PasteSelectionClick);
   CreateMenuItem(EditMenu, 'Select &All', @SelectAllClick, ShortCut(VK_A, [ssMeta]));
   CreateMenuItem(EditMenu, '&Deselect', @DeselectClick, ShortCut(VK_D, [ssMeta]));
-  CreateMenuItem(EditMenu, '&Invert Selection', @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssShift]));
+  CreateMenuItem(EditMenu, '&Invert Selection', @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssAlt]));
   CreateMenuItem(EditMenu, 'Fill Selection', @FillSelectionClick);
   CreateMenuItem(EditMenu, 'Erase Selection', @EraseSelectionClick, VK_DELETE);
   CreateMenuItem(EditMenu, 'Crop To Selection', @CropToSelectionClick);
@@ -1153,7 +1185,8 @@ begin
   CreateMenuItem(EffectsMenu, '&Blur...', @BlurClick);
   CreateMenuItem(EffectsMenu, '&Sharpen', @SharpenClick);
   CreateMenuItem(EffectsMenu, 'Add &Noise...', @AddNoiseClick);
-  CreateMenuItem(EffectsMenu, '&Outline', @OutlineClick);
+  CreateMenuItem(EffectsMenu, 'Detect &Edges', @OutlineClick);
+  CreateMenuItem(EffectsMenu, 'Outline Effe&ct...', @OutlineEffectClick);
   CreateMenuItem(EffectsMenu, '-', nil);
   CreateMenuItem(EffectsMenu, '&Emboss', @EmbossClick);
   CreateMenuItem(EffectsMenu, 'S&often', @SoftenClick);
@@ -1463,6 +1496,78 @@ begin
   FFillTolSpin.OnChange := @FillTolSpinChanged;
   FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
   FFillTolSpin.ShowHint := True;
+
+  { Gradient type combo: Linear / Radial }
+  FGradientTypeLabel := TLabel.Create(FTopPanel);
+  FGradientTypeLabel.Parent := FTopPanel;
+  FGradientTypeLabel.Caption := 'Type:';
+  FGradientTypeLabel.Font.Color := clWhite;
+  FGradientTypeLabel.Left := 348;
+  FGradientTypeLabel.Top := 41;
+  FGradientTypeLabel.Visible := False;
+
+  FGradientTypeCombo := TComboBox.Create(FTopPanel);
+  FGradientTypeCombo.Parent := FTopPanel;
+  FGradientTypeCombo.Left := 384;
+  FGradientTypeCombo.Top := 36;
+  FGradientTypeCombo.Width := 90;
+  FGradientTypeCombo.Style := csDropDownList;
+  FGradientTypeCombo.Items.Add('Linear');
+  FGradientTypeCombo.Items.Add('Radial');
+  FGradientTypeCombo.ItemIndex := 0;
+  FGradientTypeCombo.Visible := False;
+  FGradientTypeCombo.OnChange := @GradientTypeComboChanged;
+  FGradientTypeCombo.Hint := 'Gradient type';
+  FGradientTypeCombo.ShowHint := True;
+
+  { Gradient reverse checkbox }
+  FGradientReverseCheck := TCheckBox.Create(FTopPanel);
+  FGradientReverseCheck.Parent := FTopPanel;
+  FGradientReverseCheck.Left := 480;
+  FGradientReverseCheck.Top := 38;
+  FGradientReverseCheck.Width := 80;
+  FGradientReverseCheck.Caption := 'Reverse';
+  FGradientReverseCheck.Checked := FGradientReverse;
+  FGradientReverseCheck.Visible := False;
+  FGradientReverseCheck.OnChange := @GradientReverseChanged;
+  FGradientReverseCheck.Hint := 'Reverse gradient direction';
+  FGradientReverseCheck.ShowHint := True;
+
+  { Color picker sample source combo }
+  FPickerSampleLabel := TLabel.Create(FTopPanel);
+  FPickerSampleLabel.Parent := FTopPanel;
+  FPickerSampleLabel.Caption := 'Sample:';
+  FPickerSampleLabel.Font.Color := clWhite;
+  FPickerSampleLabel.Left := 348;
+  FPickerSampleLabel.Top := 41;
+  FPickerSampleLabel.Visible := False;
+
+  FPickerSampleCombo := TComboBox.Create(FTopPanel);
+  FPickerSampleCombo.Parent := FTopPanel;
+  FPickerSampleCombo.Left := 400;
+  FPickerSampleCombo.Top := 36;
+  FPickerSampleCombo.Width := 120;
+  FPickerSampleCombo.Style := csDropDownList;
+  FPickerSampleCombo.Items.Add('Current Layer');
+  FPickerSampleCombo.Items.Add('All Layers');
+  FPickerSampleCombo.ItemIndex := 0;
+  FPickerSampleCombo.Visible := False;
+  FPickerSampleCombo.OnChange := @PickerSampleComboChanged;
+  FPickerSampleCombo.Hint := 'Pick color from layer or composite image';
+  FPickerSampleCombo.ShowHint := True;
+
+  { Selection anti-alias checkbox }
+  FSelAntiAliasCheck := TCheckBox.Create(FTopPanel);
+  FSelAntiAliasCheck.Parent := FTopPanel;
+  FSelAntiAliasCheck.Left := 500;
+  FSelAntiAliasCheck.Top := 38;
+  FSelAntiAliasCheck.Width := 90;
+  FSelAntiAliasCheck.Caption := 'Anti-alias';
+  FSelAntiAliasCheck.Checked := FSelAntiAlias;
+  FSelAntiAliasCheck.Visible := False;
+  FSelAntiAliasCheck.OnChange := @SelAntiAliasChanged;
+  FSelAntiAliasCheck.Hint := 'Smooth selection edges';
+  FSelAntiAliasCheck.ShowHint := True;
 
   UpdateToolOptionControl;
   UpdateZoomControls;
@@ -2778,14 +2883,29 @@ begin
       end;
     tkColorPicker:
       begin
-        CompositeSurface := FDocument.Composite;
-        try
-          if FPickSecondaryTarget then
-            FSecondaryColor := CompositeSurface[APoint.X, APoint.Y]
-          else
-            FPrimaryColor := CompositeSurface[APoint.X, APoint.Y];
-        finally
-          CompositeSurface.Free;
+        if FPickerSampleSource = 1 then
+        begin
+          { Sample from composite image }
+          CompositeSurface := FDocument.Composite;
+          try
+            if FPickSecondaryTarget then
+              FSecondaryColor := CompositeSurface[APoint.X, APoint.Y]
+            else
+              FPrimaryColor := CompositeSurface[APoint.X, APoint.Y];
+          finally
+            CompositeSurface.Free;
+          end;
+        end
+        else
+        begin
+          { Sample from current layer only }
+          if FDocument.ActiveLayer.Surface.InBounds(APoint.X, APoint.Y) then
+          begin
+            if FPickSecondaryTarget then
+              FSecondaryColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y]
+            else
+              FPrimaryColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y];
+          end;
         end;
       end;
     tkRecolor:
@@ -2833,14 +2953,58 @@ begin
         ActivePaintColor
       );
     tkGradient:
-      FDocument.ActiveLayer.Surface.FillGradient(
-        AStartPoint.X,
-        AStartPoint.Y,
-        AEndPoint.X,
-        AEndPoint.Y,
-        FPrimaryColor,
-        FSecondaryColor
-      );
+      begin
+        if FGradientReverse then
+        begin
+          if FGradientType = 1 then
+          begin
+            { Radial reversed: secondary in center, primary at edge }
+            FDocument.ActiveLayer.Surface.FillRadialGradient(
+              AStartPoint.X,
+              AStartPoint.Y,
+              Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
+              FSecondaryColor,
+              FPrimaryColor
+            );
+          end
+          else
+          begin
+            FDocument.ActiveLayer.Surface.FillGradient(
+              AStartPoint.X,
+              AStartPoint.Y,
+              AEndPoint.X,
+              AEndPoint.Y,
+              FSecondaryColor,
+              FPrimaryColor
+            );
+          end;
+        end
+        else
+        begin
+          if FGradientType = 1 then
+          begin
+            { Radial: primary in center, secondary at edge }
+            FDocument.ActiveLayer.Surface.FillRadialGradient(
+              AStartPoint.X,
+              AStartPoint.Y,
+              Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
+              FPrimaryColor,
+              FSecondaryColor
+            );
+          end
+          else
+          begin
+            FDocument.ActiveLayer.Surface.FillGradient(
+              AStartPoint.X,
+              AStartPoint.Y,
+              AEndPoint.X,
+              AEndPoint.Y,
+              FPrimaryColor,
+              FSecondaryColor
+            );
+          end;
+        end;
+      end;
     tkRectangle:
       begin
         if DoFill then
@@ -3561,6 +3725,7 @@ procedure TMainForm.BlurClick(Sender: TObject);
 var
   Radius: Integer;
 begin
+  if FDocument.LayerCount = 0 then Exit;
   Radius := 2;
   if not RunBlurDialog(Self, Radius) then
     Exit;
@@ -3580,6 +3745,7 @@ end;
 
 procedure TMainForm.SharpenClick(Sender: TObject);
 begin
+  if FDocument.LayerCount = 0 then Exit;
   FDocument.PushHistory('Sharpen');
   FDocument.Sharpen;
   InvalidatePreparedBitmap;
@@ -3598,6 +3764,7 @@ procedure TMainForm.AddNoiseClick(Sender: TObject);
 var
   Amount: Integer;
 begin
+  if FDocument.LayerCount = 0 then Exit;
   Amount := 24;
   if not RunNoiseDialog(Self, Amount) then
     Exit;
@@ -3617,13 +3784,37 @@ end;
 
 procedure TMainForm.OutlineClick(Sender: TObject);
 begin
-  FDocument.PushHistory('Outline');
+  if FDocument.LayerCount = 0 then Exit;
+  FDocument.PushHistory('Detect Edges');
   FDocument.DetectEdges;
   InvalidatePreparedBitmap;
   SetDirty(True);
   RefreshCanvas;
-  FLastEffectCaption := 'Outline';
+  FLastEffectCaption := 'Detect Edges';
   FLastEffectProc := @OutlineClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.OutlineEffectClick(Sender: TObject);
+var
+  AStr: string;
+  ThresholdVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AStr := '10';
+  if not InputQuery('Outline Effect', 'Alpha threshold (0–255):', AStr) then Exit;
+  ThresholdVal := EnsureRange(StrToIntDef(AStr, 10), 0, 255);
+  FDocument.PushHistory('Outline Effect');
+  FDocument.OutlineEffect(FPrimaryColor, ThresholdVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Outline Effect';
+  FLastEffectProc := @OutlineEffectClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
     FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
@@ -4178,7 +4369,9 @@ begin
   FLastPointerPoint := Point(X, Y);
   FLastImagePoint := ImagePoint;
   FDragStart := ImagePoint;
-  FPendingSelectionMode := SelectionModeFromShift(Shift);
+  { Only override combo-selected mode when modifier keys are held }
+  if (ssShift in Shift) or (ssAlt in Shift) then
+    FPendingSelectionMode := SelectionModeFromShift(Shift);
   FPointerDown := True;
 
   case FCurrentTool of
@@ -4473,6 +4666,7 @@ end;
 
 procedure TMainForm.EmbossClick(Sender: TObject);
 begin
+  if FDocument.LayerCount = 0 then Exit;
   FDocument.PushHistory('Emboss');
   FDocument.Emboss;
   InvalidatePreparedBitmap;
@@ -4489,6 +4683,7 @@ end;
 
 procedure TMainForm.SoftenClick(Sender: TObject);
 begin
+  if FDocument.LayerCount = 0 then Exit;
   FDocument.PushHistory('Soften');
   FDocument.Soften;
   InvalidatePreparedBitmap;
@@ -4505,6 +4700,7 @@ end;
 
 procedure TMainForm.RenderCloudsClick(Sender: TObject);
 begin
+  if FDocument.LayerCount = 0 then Exit;
   FDocument.PushHistory('Render Clouds');
   FDocument.RenderClouds(1);
   InvalidatePreparedBitmap;
@@ -4524,6 +4720,7 @@ var
   AStr: string;
   Val: Integer;
 begin
+  if FDocument.LayerCount = 0 then Exit;
   AStr := '10';
   if not InputQuery('Pixelate', 'Block Size (1 to 100)', AStr) then Exit;
   Val := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
@@ -4547,6 +4744,7 @@ var
   Val: Integer;
   Strength: Double;
 begin
+  if FDocument.LayerCount = 0 then Exit;
   AStr := '50';
   if not InputQuery('Vignette', 'Strength (0 to 100)', AStr) then Exit;
   Val := EnsureRange(StrToIntDef(AStr, 50), 0, 100);
@@ -4570,6 +4768,7 @@ var
   AStr: string;
   AngleVal, DistVal: Integer;
 begin
+  if FDocument.LayerCount = 0 then Exit;
   AStr := '0';
   if not InputQuery('Motion Blur', 'Angle in degrees (0-359)', AStr) then Exit;
   AngleVal := EnsureRange(StrToIntDef(AStr, 0), 0, 359);
@@ -4595,6 +4794,7 @@ var
   AStr: string;
   RadiusVal: Integer;
 begin
+  if FDocument.LayerCount = 0 then Exit;
   AStr := '1';
   if not InputQuery('Median Filter (Denoise)', 'Radius (1=3x3, 2=5x5)', AStr) then Exit;
   RadiusVal := EnsureRange(StrToIntDef(AStr, 1), 1, 2);
@@ -5239,6 +5439,30 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FFillTolSpin) then Exit;
   FFillTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
+end;
+
+procedure TMainForm.GradientTypeComboChanged(Sender: TObject);
+begin
+  if not Assigned(FGradientTypeCombo) then Exit;
+  FGradientType := FGradientTypeCombo.ItemIndex;
+end;
+
+procedure TMainForm.GradientReverseChanged(Sender: TObject);
+begin
+  if not Assigned(FGradientReverseCheck) then Exit;
+  FGradientReverse := FGradientReverseCheck.Checked;
+end;
+
+procedure TMainForm.PickerSampleComboChanged(Sender: TObject);
+begin
+  if not Assigned(FPickerSampleCombo) then Exit;
+  FPickerSampleSource := FPickerSampleCombo.ItemIndex;
+end;
+
+procedure TMainForm.SelAntiAliasChanged(Sender: TObject);
+begin
+  if not Assigned(FSelAntiAliasCheck) then Exit;
+  FSelAntiAlias := FSelAntiAliasCheck.Checked;
 end;
 
 { ── Layer Rotate / Zoom ──────────────────────────────────────────────────── }

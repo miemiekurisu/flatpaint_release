@@ -724,6 +724,27 @@ begin
     end;
 end;
 
+procedure TRasterSurface.FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32);
+var
+  X: Integer;
+  Y: Integer;
+  Dist: Double;
+  T: Double;
+begin
+  if Radius <= 0 then
+  begin
+    Clear(StartColor);
+    Exit;
+  end;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
+      T := Dist / Radius;
+      Pixels[X, Y] := LerpColor(StartColor, EndColor, T);
+    end;
+end;
+
 procedure TRasterSurface.PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte);
 var
   SourceX: Integer;
@@ -1641,7 +1662,7 @@ var
   IntensityFrac: Integer;
 begin
   if Radius <= 0 then Exit;
-  IntensityFrac := EnsureRange(Intensity, 0, 100);
+  IntensityFrac := EnsureRange(Intensity, 0, 200);
   { snapshot original pixels before blurring }
   SetLength(SrcCopy, FWidth * FHeight);
   Move(FPixels[0], SrcCopy[0], FWidth * FHeight * SizeOf(TRGBA32));
