@@ -22,6 +22,8 @@ type
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
     procedure RenderCloudsWritesNonTransparentPixels;
+    procedure PixelateBlursPixelsIntoBlocks;
+    procedure VignetteDarkensEdges;
     procedure DrawLineOpacityScalesAlphaChannel;
     procedure DrawLineFullOpacityMatchesDirectPaint;
   end;
@@ -277,6 +279,41 @@ begin
         if Surface[X, Y].A < 255 then
           AllOpaque := False;
     AssertTrue('all pixels written by RenderClouds', AllOpaque);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.PixelateBlursPixelsIntoBlocks;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(4, 4);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 255));
+    Surface[0, 0] := RGBA(100, 100, 100, 255);
+    Surface[1, 0] := RGBA(100, 100, 100, 255);
+    Surface.Pixelate(2);
+    AssertEquals('TL block is averaged', 50, Surface[0, 0].R);
+    AssertEquals('TR block stays original (0 avg)', 0, Surface[2, 0].R);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.VignetteDarkensEdges;
+var
+  Surface: TRasterSurface;
+  CenterR, EdgeR: Integer;
+begin
+  Surface := TRasterSurface.Create(10, 10);
+  try
+    Surface.Clear(RGBA(255, 255, 255, 255));
+    Surface.Vignette(1.0);
+    CenterR := Surface[5, 5].R;
+    EdgeR := Surface[0, 0].R;
+    AssertTrue('center is lighter than edge', CenterR > EdgeR);
+    AssertEquals('edge is dimmed', 0, EdgeR);
   finally
     Surface.Free;
   end;

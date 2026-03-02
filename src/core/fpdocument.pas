@@ -162,6 +162,8 @@ type
     procedure Emboss;
     procedure Soften;
     procedure RenderClouds(Seed: Cardinal = 1);
+    procedure Pixelate(BlockSize: Integer);
+    procedure Vignette(Strength: Double);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     function HasSelection: Boolean;
     function HasStoredSelection: Boolean;
@@ -892,6 +894,16 @@ end;
 procedure TImageDocument.RenderClouds(Seed: Cardinal);
 begin
   ActiveLayer.Surface.RenderClouds(Seed);
+end;
+
+procedure TImageDocument.Pixelate(BlockSize: Integer);
+begin
+  ActiveLayer.Surface.Pixelate(BlockSize);
+end;
+
+procedure TImageDocument.Vignette(Strength: Double);
+begin
+  ActiveLayer.Surface.Vignette(Strength);
 end;
 
 procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);

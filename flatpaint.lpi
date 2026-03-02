@@ -81,7 +81,7 @@
       <UnitOutputDirectory Value="lib/$(TargetCPU)-$(TargetOS)"/>
     </SearchPaths>
     <Other>
-      <CustomOptions Value="-dCOCOA -k-ld_classic"/>
+      <CustomOptions Value="-dCOCOA -k-ld_classic -O2"/>
     </Other>
     <Linking>
       <Options>

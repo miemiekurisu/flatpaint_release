@@ -794,3 +794,41 @@ Use the same compact structure every time.
 - Fix: added individually named command-equivalent tests for the menu surface and separated file-command branches into explicit integration tests
 - Reuse note: for desktop editors, keep a command inventory and force the test list to mirror it; broad smoke tests are not enough once the menu bar becomes real
 - Repeat count: This issue has occurred 1 time(s)
+
+## 2026-03-02 (FPC optimization pass — compiler flags and hot-path allocation)
+
+### Observation: project had zero explicit optimization flags
+- Problem: the `.lpi` had no `-O2` in `CustomOptions`, so every build used the FPC default optimization level (effectively -O1 or unoptimized depending on the version); this is fine for debug output but is a poor everyday default for a pixel-manipulation app
+- Core error: no `Optimization` block and no `-O2` in `CustomOptions Value`
+- Investigation: read `FPC_MACOS_PERFORMANCE_GUIDE.md` against the actual LPI content by grepping for `OptimizationLevel`, `Optimization`, and `CustomOptions`; confirmed neither the LPI nor any build script had an explicit level
+- Root cause: the project was bootstrapped without explicitly setting a level, relying on the FPC default
+- Fix: added `-O2` to `CustomOptions` in `flatpaint.lpi` so all builds (debug and release) use the documented FPC release baseline; `-O3`/`-O4` remain reserved for profiling-directed escalation per the guide
+- Reuse note: always set `-O2` in the base project file from the start; a missing optimization level is invisible but real — FPC does not warn that optimization is absent
+- Repeat count: This issue has occurred 1 time(s)`
+
+### Observation: release build had no dead-code removal (smartlinking)
+- Problem: `build_release_artifacts` in `common.sh` called `lazbuild -B` without any smartlink flags; the binary was stripped by `strip -x` but FPC-level dead code was never removed
+- Core error: no `-CX` (unit-level smartlink) or `-XX` (program-level smartlink) in the release command; binary contained all compiled code regardless of reachability
+- Investigation: cross-referenced `FPC_MACOS_PERFORMANCE_GUIDE.md` (smartlinking section) against `common.sh` and measured debug vs release binary sizes before the fix: both were the same size, confirming no dead code was being removed
+- Root cause: smartlinking requires both `-CX` at unit compilation time and `-XX` at link time; neither was passed to lazbuild
+- Fix: added `--opt="-O2 -CX -XX"` to the `run_lazbuild` call inside `build_release_artifacts`; after the fix the stripped release binary shrank from 6.8 MB to 5.1 MB (a 25% reduction)
+- Reuse note: **the correct lazbuild flag for passing extra FPC options is `--opt=`, not `--compiler-options=`**; the latter is rejected by lazbuild with "Invalid option" — always check `lazbuild --help` when adding pass-through flags on a new environment; smartlinking must be in the release build script, not in the base LPI, so day-to-day debug builds keep full symbols
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: `BuildDisplaySurface` allocated and freed a large surface on every repaint
+- Problem: `BuildDisplaySurface` created a new `TRasterSurface` (via `FDocument.Composite`) and returned it as the sole output, so `PaintCanvasTo` allocated and freed a ~3 MB buffer on every render-revision change; at 1024×768 this is 3,145,728 bytes of heap churn per stroke
+- Core error: the function had no persistent cache; `Result := CompositeSurface` transferred a freshly-allocated surface to the caller, which immediately freed it after copying to `FPreparedBitmap`
+- Investigation: read `PaintCanvasTo` and `BuildDisplaySurface` and noted the `try … finally DisplaySurface.Free` pattern; the revision guard already prevented redundant recomposites, but the allocation was still unconditional on every version change
+- Root cause: the function was designed as a pure factory — it built and returned a new object — rather than as a mutator on a cached buffer; this matches the natural writing order for correctness proofs but creates avoidable allocation pressure in paint hot paths
+- Fix: added `FDisplaySurface: TRasterSurface` as a persistent private field; changed `BuildDisplaySurface` to reallocate `FDisplaySurface` only when document dimensions change and to write composite+checkerboard results into the existing buffer otherwise; updated `PaintCanvasTo` to not call `Free` on the returned surface (it no longer owns it); added `FDisplaySurface.Free` to the destructor
+- Reuse note: for any display-pipeline function that runs on every mutation and returns a large heap object, introduce a cached field with a dimension-mismatch guard as early as possible; the allocation cost is proportional to image area and is paid silently on every brush stroke
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: inner checkerboard loop computed tile colour unconditionally for every pixel
+- Problem: the transparency-checker tile color was computed with `(X div 8 + Y div 8) mod 2` for every pixel in `BuildDisplaySurface`, even for fully-opaque pixels that are the dominant case; `div` and `mod` are integer division instructions and the branch was still taken on every pixel regardless of alpha
+- Core error: `TileColor` was computed before reading `PixelColor.A`, so the common case (opaque artwork) paid the checkerboard cost with no benefit
+- Investigation: read the inner loop in `BuildDisplaySurface` and noted that the `TileColor` assignment always preceded the `if PixelColor.A = 0 / < 255` check
+- Root cause: natural top-to-bottom writing order: "compute tile color, then read pixel, then branch" — readable but not branch-prediction friendly for the common case
+- Fix: moved the `TileColor` computation inside the `PixelColor.A < 255` branch, added an early-exit path for fully opaque pixels (`if PixelColor.A = 255 then FDisplaySurface[X, Y] := PixelColor`), and replaced `div 8 … mod 2` with a single `shr 3 … and 1` per axis (the compiler may already fold this with -O2 but making it explicit is clearer intent)
+- Reuse note: in pixel-iteration hot paths, read the discriminating field first and gate all auxiliary computations behind it; the fully-opaque case is almost always the dominant branch for paint-editor canvases and should be the shortest code path
+- Repeat count: This issue has occurred 1 time(s)

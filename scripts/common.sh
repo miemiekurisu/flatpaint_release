@@ -216,7 +216,10 @@ build_default_artifacts() {
 build_release_artifacts() {
   clean_generated_artifacts
   kill_running_flatpaint
-  run_lazbuild -B "$PROJECT_FILE"
+  # -CX: smartlink each compiled unit (FPC guide: dead-code removal at unit level)
+  # -XX: smartlink the final linked program
+  # -O2 is already set in the project file; listed here explicitly for release traceability
+  run_lazbuild -B "$PROJECT_FILE" --opt="-O2 -CX -XX"
 
   if [[ ! -f "$DEFAULT_BINARY" ]]; then
     printf 'Expected build output %s was not produced.\n' "$DEFAULT_BINARY" >&2

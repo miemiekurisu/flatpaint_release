@@ -62,6 +62,8 @@ type
     procedure Emboss;
     procedure Soften;
     procedure RenderClouds(Seed: Cardinal = 1);
+    procedure Pixelate(BlockSize: Integer);
+    procedure Vignette(Strength: Double);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
@@ -1391,6 +1393,85 @@ begin
       C.B := ClampChannel(Round(V * 160 + 40));
       C.A := 255;
       FPixels[IndexOf(X, Y)] := C;
+    end;
+end;
+
+procedure TRasterSurface.Pixelate(BlockSize: Integer);
+var
+  X, Y: Integer;
+  BX, BY: Integer;
+  BlockEndX, BlockEndY: Integer;
+  Count: Integer;
+  SumR, SumG, SumB, SumA: Integer;
+  AvgColor: TRGBA32;
+  Source: TRasterSurface;
+begin
+  if BlockSize <= 1 then Exit;
+  Source := Clone;
+  try
+    Y := 0;
+    while Y < FHeight do
+    begin
+      BlockEndY := Min(FHeight - 1, Y + BlockSize - 1);
+      X := 0;
+      while X < FWidth do
+      begin
+        BlockEndX := Min(FWidth - 1, X + BlockSize - 1);
+        SumR := 0; SumG := 0; SumB := 0; SumA := 0;
+        Count := 0;
+        for BY := Y to BlockEndY do
+          for BX := X to BlockEndX do
+          begin
+            Inc(SumR, Source.FPixels[Source.IndexOf(BX, BY)].R);
+            Inc(SumG, Source.FPixels[Source.IndexOf(BX, BY)].G);
+            Inc(SumB, Source.FPixels[Source.IndexOf(BX, BY)].B);
+            Inc(SumA, Source.FPixels[Source.IndexOf(BX, BY)].A);
+            Inc(Count);
+          end;
+        if Count > 0 then
+        begin
+          AvgColor.R := SumR div Count;
+          AvgColor.G := SumG div Count;
+          AvgColor.B := SumB div Count;
+          AvgColor.A := SumA div Count;
+          for BY := Y to BlockEndY do
+            for BX := X to BlockEndX do
+              FPixels[IndexOf(BX, BY)] := AvgColor;
+        end;
+        Inc(X, BlockSize);
+      end;
+      Inc(Y, BlockSize);
+    end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.Vignette(Strength: Double);
+var
+  X, Y: Integer;
+  CenterX, CenterY: Double;
+  Radius: Double;
+  Dist: Double;
+  Factor: Double;
+  Pix: TRGBA32;
+begin
+  CenterX := FWidth / 2.0;
+  CenterY := FHeight / 2.0;
+  Radius := Sqrt(CenterX * CenterX + CenterY * CenterY);
+  if Radius <= 0 then Exit;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      Dist := Sqrt((X - CenterX) * (X - CenterX) + (Y - CenterY) * (Y - CenterY));
+      Factor := 1.0 - (Dist / Radius) * Strength;
+      if Factor < 0.0 then Factor := 0.0;
+      if Factor > 1.0 then Factor := 1.0;
+      Pix := FPixels[IndexOf(X, Y)];
+      Pix.R := ClampChannel(Round(Pix.R * Factor));
+      Pix.G := ClampChannel(Round(Pix.G * Factor));
+      Pix.B := ClampChannel(Round(Pix.B * Factor));
+      FPixels[IndexOf(X, Y)] := Pix;
     end;
 end;
 

@@ -65,6 +65,7 @@ type
     FClipboardSurface: TRasterSurface;
     FClipboardOffset: TPoint;
     FPreparedBitmap: TBitmap;
+    FDisplaySurface: TRasterSurface;  { persistent buffer; reused across repaints to avoid per-repaint heap alloc }
     FRenderRevision: QWord;
     FPreparedRevision: QWord;
     FMainMenu: TMainMenu;
@@ -255,6 +256,8 @@ type
     procedure EmbossClick(Sender: TObject);
     procedure SoftenClick(Sender: TObject);
     procedure RenderCloudsClick(Sender: TObject);
+    procedure PixelateClick(Sender: TObject);
+    procedure VignetteClick(Sender: TObject);
     procedure RepeatLastEffectClick(Sender: TObject);
     procedure LayerPropertiesClick(Sender: TObject);
     procedure PasteSelectionClick(Sender: TObject);
@@ -267,6 +270,8 @@ type
       ADirty: Boolean = False);
     procedure CloseDocumentTab(AIndex: Integer);
     procedure SwitchToTab(AIndex: Integer);
+    procedure NextTabClick(Sender: TObject);
+    procedure PrevTabClick(Sender: TObject);
     procedure RefreshTabStrip;
     function TabDocumentDisplayName(AIndex: Integer): string;
     procedure OpenFileInNewTab(const AFileName: string);
@@ -569,6 +574,7 @@ begin
   Application.RemoveOnIdleHandler(@AppIdle);
   FRecentFiles.Free;
   FPreparedBitmap.Free;
+  FDisplaySurface.Free;
   FClipboardSurface.Free;
   FCloneStampSnapshot.Free;
   { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
@@ -608,24 +614,48 @@ var
   PixelColor: TRGBA32;
 begin
   CompositeSurface := FDocument.Composite;
-  for Y := 0 to CompositeSurface.Height - 1 do
-  begin
-    for X := 0 to CompositeSurface.Width - 1 do
+  try
+    { Reuse FDisplaySurface to avoid a heap alloc + free on every repaint trigger.
+      Only reallocate when the document dimensions change. }
+    if (FDisplaySurface = nil) or
+       (FDisplaySurface.Width <> CompositeSurface.Width) or
+       (FDisplaySurface.Height <> CompositeSurface.Height) then
     begin
-      if ((X div 8) + (Y div 8)) mod 2 = 0 then
-        TileColor := RGBA(214, 214, 214, 255)
-      else
-        TileColor := RGBA(245, 245, 245, 255);
-      PixelColor := CompositeSurface[X, Y];
-      if PixelColor.A = 0 then
-        CompositeSurface[X, Y] := TileColor
-      else if PixelColor.A < 255 then
-        CompositeSurface[X, Y] := BlendNormal(PixelColor, TileColor, 255);
+      FreeAndNil(FDisplaySurface);
+      FDisplaySurface := TRasterSurface.Create(CompositeSurface.Width, CompositeSurface.Height);
     end;
-  end;
-  if FDocument.HasSelection then
+
+    { Checkerboard + alpha blend in a single pass.
+      Early-exit for fully-opaque pixels (the common case) avoids two div+mod
+      and a branch per pixel, and defers TileColor calculation to only when
+      the pixel is actually transparent or semi-transparent. }
     for Y := 0 to CompositeSurface.Height - 1 do
       for X := 0 to CompositeSurface.Width - 1 do
+      begin
+        PixelColor := CompositeSurface[X, Y];
+        if PixelColor.A = 255 then
+          FDisplaySurface[X, Y] := PixelColor  { fully opaque — copy directly }
+        else
+        begin
+          { Compute tile colour only when the pixel is transparent or blended }
+          if ((X shr 3) + (Y shr 3)) and 1 = 0 then
+            TileColor := RGBA(214, 214, 214, 255)
+          else
+            TileColor := RGBA(245, 245, 245, 255);
+          if PixelColor.A = 0 then
+            FDisplaySurface[X, Y] := TileColor
+          else
+            FDisplaySurface[X, Y] := BlendNormal(PixelColor, TileColor, 255);
+        end;
+      end;
+  finally
+    CompositeSurface.Free;
+  end;
+
+  { Selection outline pass }
+  if FDocument.HasSelection then
+    for Y := 0 to FDisplaySurface.Height - 1 do
+      for X := 0 to FDisplaySurface.Width - 1 do
         if FDocument.Selection[X, Y] and
            (
              (not FDocument.Selection[X - 1, Y]) or
@@ -634,10 +664,12 @@ begin
              (not FDocument.Selection[X, Y + 1])
            ) then
           if ((X + Y) and 1) = 0 then
-            CompositeSurface[X, Y] := RGBA(0, 0, 0, 255)
+            FDisplaySurface[X, Y] := RGBA(0, 0, 0, 255)
           else
-            CompositeSurface[X, Y] := RGBA(255, 255, 255, 255);
-  Result := CompositeSurface;
+            FDisplaySurface[X, Y] := RGBA(255, 255, 255, 255);
+
+  { Return the cached surface — caller must NOT free it }
+  Result := FDisplaySurface;
 end;
 
 function TMainForm.ToolHintText: string;
@@ -898,7 +930,7 @@ begin
   CreateMenuItem(EditMenu, '&Paste', @PasteClick, ShortCut(VK_V, [ssMeta]));
   CreateMenuItem(EditMenu, 'Paste into New Layer', @PasteIntoNewLayerClick);
   CreateMenuItem(EditMenu, 'Paste into New Image', @PasteIntoNewImageClick);
-  CreateMenuItem(EditMenu, 'Paste &Selection', @PasteSelectionClick);
+  CreateMenuItem(EditMenu, 'Paste &Selection (Replace)', @PasteSelectionClick);
   CreateMenuItem(EditMenu, 'Select &All', @SelectAllClick, ShortCut(VK_A, [ssMeta]));
   CreateMenuItem(EditMenu, '&Deselect', @DeselectClick, ShortCut(VK_D, [ssMeta]));
   CreateMenuItem(EditMenu, '&Invert Selection', @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssShift]));
@@ -942,6 +974,10 @@ begin
   CreateMenuItem(ViewMenu, 'Zoom &In', @ZoomInClick, ShortCut(Ord('='), [ssMeta]));
   CreateMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutClick, ShortCut(Ord('-'), [ssMeta]));
   CreateMenuItem(ViewMenu, 'Zoom to &Selection', @ZoomToSelectionClick);
+  CreateMenuItem(ViewMenu, '-', nil);
+  CreateMenuItem(ViewMenu, 'Next Tab', @NextTabClick, ShortCut(VK_TAB, [ssCtrl]));
+  CreateMenuItem(ViewMenu, 'Previous Tab', @PrevTabClick, ShortCut(VK_TAB, [ssCtrl, ssShift]));
+  CreateMenuItem(ViewMenu, '-', nil);
   CreateMenuItem(ViewMenu, '&Actual Size', @ActualSizeClick, ShortCut(VK_0, [ssMeta]));
   CreateMenuItem(ViewMenu, 'Zoom to &Window', @FitToWindowClick, ShortCut(VK_9, [ssMeta]));
   FPixelGridMenuItem := TMenuItem.Create(ViewMenu);
@@ -1017,6 +1053,9 @@ begin
   CreateMenuItem(EffectsMenu, '&Emboss', @EmbossClick);
   CreateMenuItem(EffectsMenu, 'S&often', @SoftenClick);
   CreateMenuItem(EffectsMenu, 'Render &Clouds', @RenderCloudsClick);
+  CreateMenuItem(EffectsMenu, '-', nil);
+  CreateMenuItem(EffectsMenu, '&Pixelate...', @PixelateClick);
+  CreateMenuItem(EffectsMenu, '&Vignette...', @VignetteClick);
 
   Menu := FMainMenu;
 end;
@@ -1399,12 +1438,8 @@ begin
      (FPreparedBitmap.Width <> FDocument.Width) or
      (FPreparedBitmap.Height <> FDocument.Height) then
   begin
-    DisplaySurface := BuildDisplaySurface;
-    try
-      CopySurfaceToBitmap(DisplaySurface, FPreparedBitmap);
-    finally
-      DisplaySurface.Free;
-    end;
+    DisplaySurface := BuildDisplaySurface;  { returns FDisplaySurface — do NOT free }
+    CopySurfaceToBitmap(DisplaySurface, FPreparedBitmap);
     FPreparedRevision := FRenderRevision;
   end;
 
@@ -4190,6 +4225,52 @@ begin
   end;
 end;
 
+procedure TMainForm.PixelateClick(Sender: TObject);
+var
+  AStr: string;
+  Val: Integer;
+begin
+  AStr := '10';
+  if not InputQuery('Pixelate', 'Block Size (1 to 100)', AStr) then Exit;
+  Val := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
+  FDocument.PushHistory('Pixelate');
+  FDocument.Pixelate(Val);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Pixelate';
+  FLastEffectProc := @PixelateClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.VignetteClick(Sender: TObject);
+var
+  AStr: string;
+  Val: Integer;
+  Strength: Double;
+begin
+  AStr := '50';
+  if not InputQuery('Vignette', 'Strength (0 to 100)', AStr) then Exit;
+  Val := EnsureRange(StrToIntDef(AStr, 50), 0, 100);
+  Strength := Val / 100.0;
+  FDocument.PushHistory('Vignette');
+  FDocument.Vignette(Strength);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Vignette';
+  FLastEffectProc := @VignetteClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
 procedure TMainForm.RepeatLastEffectClick(Sender: TObject);
 begin
   if Assigned(FLastEffectProc) then
@@ -4316,6 +4397,21 @@ begin
   RefreshLayers;
   RefreshCanvas;
   UpdateCaption;
+end;
+
+procedure TMainForm.NextTabClick(Sender: TObject);
+begin
+  if Length(FTabDocuments) <= 1 then Exit;
+  SwitchToTab((FActiveTabIndex + 1) mod Length(FTabDocuments));
+end;
+
+procedure TMainForm.PrevTabClick(Sender: TObject);
+begin
+  if Length(FTabDocuments) <= 1 then Exit;
+  if FActiveTabIndex = 0 then
+    SwitchToTab(Length(FTabDocuments) - 1)
+  else
+    SwitchToTab(FActiveTabIndex - 1);
 end;
 
 procedure TMainForm.CloseDocumentTab(AIndex: Integer);
