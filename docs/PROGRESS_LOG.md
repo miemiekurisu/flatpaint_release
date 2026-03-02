@@ -1,5 +1,10 @@
 # Development Progress Log
 
+## 2026-03-02 (test infrastructure fix)
+- `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.
+- `perf_snapshot_tests` and `ui_prototype_tests` were orphaned test units that defined registered test cases but were absent from `flatpaint_tests.lpr`; both are now listed in the `uses` clause and run cleanly.
+- Total test count is now 105 (was 103), all passing: 0 errors, 0 failures.
+
 ## 2026-03-02
 - The selection core closes a real behavior gap now: rectangle, ellipse, lasso, and magic-wand selection composition now support `Intersect` in addition to the earlier replace/add/subtract paths.
 - That intersect path is wired through both layers that matter: the shared `TSelectionMask` now has a reusable mask-intersection operation for geometric selection tools, and the document-level magic-wand path uses the same combine mode instead of treating the wand as a special-case add/subtract-only route.

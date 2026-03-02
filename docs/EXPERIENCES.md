@@ -12,6 +12,23 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-02 (Test infrastructure)
+- Problem: two test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) failed on every clean checkout with `CLI binary exists` / `Executable not found` errors
+- Core error: `run_tests_ci.sh` compiled only the test runner and never compiled `flatpaint_cli`, so the binary was absent unless manually pre-built
+- Investigation: read the failing assertion (`AssertTrue('CLI binary exists', FileExists(CliPath))`) and traced back to the CI script — it had no step for building `src/cli/flatpaint_cli.lpr`
+- Root cause: the CLI build step was added to the manual `build.sh` path but was never integrated into `run_tests_ci.sh`, creating a hidden dependency on a manually-produced artifact
+- Fix: added CLI compilation (`fpc ... src/cli/flatpaint_cli.lpr && cp flatpaint_cli dist/flatpaint_cli`) as the first step in `run_tests_ci.sh` so the binary is always fresh before tests run
+- Reuse note: any test that requires an external binary must have that binary's build step inside the same CI script; never rely on a pre-built artifact from a separate manual flow
+- Repeat count: `This issue has occurred 1 time(s)`
+
+- Problem: two test units (`ui_prototype_tests`, `perf_snapshot_tests`) existed in `src/tests/` and registered test classes but never ran
+- Core error: neither unit was listed in the `uses` clause of `flatpaint_tests.lpr`, so both were invisible to the FPCUnit runner
+- Investigation: diffed the files under `src/tests/` against the `uses` clause in `flatpaint_tests.lpr` and found `ui_prototype_tests.pas` and `perf_snapshot_tests.pas` missing
+- Root cause: the units were added as standalone test files but the test-runner program file was not updated at the same time
+- Fix: added both `ui_prototype_tests` and `perf_snapshot_tests` to the `uses` clause in `flatpaint_tests.lpr`; test count rose from 103 to 105, all passing
+- Reuse note: whenever a new test unit is added to `src/tests/`, update `flatpaint_tests.lpr` in the same commit; the compiler will then catch any unit that is referenced but missing
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-02
 - Problem: the codebase claimed broad selection-tool coverage, but one of the most practical combine behaviors was still missing
 - Core error: geometric selection tools and magic-wand selection only supported replace/add/subtract, so there was no core or input-path support for `Intersect`
@@ -19,6 +36,15 @@ Use the same compact structure every time.
 - Root cause: the early selection implementation stopped at the minimum add/subtract baseline and then duplicated combine handling in the magic-wand path instead of centralizing the full combine family
 - Fix: added `scIntersect`, introduced a reusable selection-mask intersection helper, routed rectangle/ellipse/polygon selection through it for intersect mode, updated magic-wand composition to honor the same mode, and mapped `Shift+Option` to intersect in the current GUI input path
 - Reuse note: if a tool family already supports multiple combine modes, finish the full set in the shared enum and shared helpers first; do not let one route (like magic wand) carry a partial hand-rolled combine implementation that drifts from the rest of the selection stack
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-02 (Zoom/Pan validation)
+- Problem: need verification that viewport zoom and pan behave consistently across entry points (toolbar, zoom tool clicks, anchor-preserving zoom, and panning drags).
+- Core error: potential drift between different zoom/pan entry points can make viewport feel inconsistent (anchor vs center vs pointer focus).
+- Investigation: audited `ApplyZoomScaleAtViewportPoint`, `ApplyZoomScale`, `ViewportImageCoordinate`, `ScrollPositionForAnchor`, and the `tkZoom` / `tkPan` handlers in `src/app/mainform.pas`; verified existing helper tests in `TFPViewportHelpersTests` and `TFPZoomHelpersTests` cover the low-level math.
+- Root cause: no single issue — verification gap (missing QA entry) left this area assumed correct rather than explicitly validated against the product baseline.
+- Fix: exercised the viewport helpers and the full test suite; ensured `tkZoom` uses `ApplyZoomScaleAtViewportPoint` with pointer anchor, and `tkPan` routes to the panning helper that updates scrollbars; ran full tests and rebuilt app. No behavior changes were required; tests and build passed.
+- Reuse note: when multiple UI entry points control the same spatial transform, keep one authoritative anchor-preserving helper (as this project does) and test that helper directly rather than re-testing every UI route.
 - Repeat count: `This issue has occurred 1 time(s)`
 
 - Problem: adding more real tools made the left-side palette layout regress even though the adaptive workspace layout helper already existed
@@ -332,6 +358,15 @@ Use the same compact structure every time.
 - Root cause: the initial GUI pass treated paint events like draw commands instead of separating "document changed" from "control needs repaint"
 - Fix: enabled `DoubleBuffered` on the custom canvas control, added a prepared-bitmap cache keyed by document render revisions, and kept the expensive surface-to-bitmap conversion on the content-change path instead of the raw paint path
 - Reuse note: in Lazarus custom painting, follow the documented prepared-bitmap pattern; if repaint frequency can exceed mutation frequency, cache the rendered bitmap and invalidate it only on real content changes
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03
+- Problem: Move tools (`Move Selection` / `Move Pixels`) were not covered by tests and had subtle semantics that risked regressions (selection vs pixels movement and history integration).
+- Core error: no unit tests validated that selection-only moves leave pixels unchanged and that pixel-moves both relocate pixel data and update the selection mask.
+- Investigation: reviewed `TImageDocument` methods `MoveSelectionBy` and `MoveSelectedPixelsBy`, inspected the `PaintBox` drag handlers in `mainform.pas`, and added focused unit tests to lock the expected semantics.
+- Root cause: earlier UI wiring implemented the live drag behavior but lacked automated coverage for the two distinct semantics (mask-only vs pixel+mask move), leaving regressions to appear only during manual QA.
+- Fix: added `src/tests/tools_move_tests.pas` with tests for selection shifting and pixel movement; registered the new test in the test runner; verified the existing `PaintBox` handlers call the correct document APIs and that tests pass.
+- Reuse note: when UI implements dual semantics (modify mask vs modify pixels), add small, focused unit tests that exercise both operations and their edge cases (bounds, history push, and selection coherence) immediately.
 - Repeat count: `This issue has occurred 1 time(s)`
 
 - Problem: the first `View` menu shortcut pass assumed Windows-style virtual-key constants that are not actually available in this Lazarus/LCL context
