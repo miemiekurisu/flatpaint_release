@@ -118,6 +118,10 @@ type
     FDeferredLayoutPass: Boolean;
     FLastScrollPosition: TPoint;
     FUpdatingZoomControl: Boolean;
+    { Temporary-pan support }
+    FPreviousTool: TToolKind;
+    FTempToolActive: Boolean;
+
     { New tool and effect state }
     FLastEffectCaption: string;
     FLastEffectProc: TNotifyEvent;
@@ -218,6 +222,11 @@ type
     procedure RefreshColorsPanel;
     procedure RefreshHistoryPanel;
     procedure RefreshStatus(const ACursorPoint: TPoint);
+    procedure UpdateStatusForTool;  { call when current tool changes }
+
+    procedure ActivateTempPan;
+    procedure DeactivateTempPan;
+
     procedure LayoutStatusBarControls(Sender: TObject);
     procedure UpdateZoomControls;
     procedure UpdateCaption;
@@ -393,12 +402,23 @@ type
     procedure ViewportMouseWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
     procedure FormCloseQuery(Sender: TObject; var CanClose: Boolean);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
   public
+    { Public constructor / destructor }
     constructor Create(TheOwner: TComponent); override;
     destructor Destroy; override;
+
+    { Testing helpers - exposed so unit tests can drive the form without relying
+      on private fields or event handler visibility. These are not used by the
+      production application. }
+    property ToolCombo: TComboBox read FToolCombo;
+    procedure SimulateKeyDown(Key: Word; Shift: TShiftState);
+    procedure SimulateKeyUp(Key: Word; Shift: TShiftState);
+    procedure SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
   end;
 
 var
@@ -2435,6 +2455,38 @@ begin
   FStatusLabels[6].Caption := '';
   UpdateZoomControls;
   LayoutStatusBarControls(nil);
+end;
+
+procedure TMainForm.UpdateStatusForTool;
+begin
+  RefreshStatus(Point(-1, -1));
+end;
+
+procedure TMainForm.ActivateTempPan;
+begin
+  if not FTempToolActive then
+  begin
+    FTempToolActive := True;
+    FPreviousTool := FCurrentTool;
+    FCurrentTool := tkPan;
+    if Assigned(FToolCombo) then
+      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    UpdateToolOptionControl;
+    UpdateStatusForTool;
+  end;
+end;
+
+procedure TMainForm.DeactivateTempPan;
+begin
+  if FTempToolActive then
+  begin
+    FTempToolActive := False;
+    FCurrentTool := FPreviousTool;
+    if Assigned(FToolCombo) then
+      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    UpdateToolOptionControl;
+    UpdateStatusForTool;
+  end;
 end;
 
 procedure TMainForm.LayoutStatusBarControls(Sender: TObject);
@@ -4560,7 +4612,17 @@ begin
 end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  NewTool: TToolKind;
 begin
+  { spacebar pan begins }
+  if Key = VK_SPACE then
+  begin
+    ActivateTempPan;
+    Key := 0;
+    Exit;
+  end;
+
   { Ctrl+Tab / Ctrl+Shift+Tab — cycle document tabs }
   if (ssCtrl in Shift) and (Key = VK_TAB) then
   begin
@@ -4580,9 +4642,22 @@ begin
     Exit;
   end;
 
-  if Shift <> [] then
+  { Tool shortcuts and color swap/reset only; modifiers are allowed for
+    cycling (Shift reverses order) }  
+  NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
+  if NewTool <> FCurrentTool then
+  begin
+    FCurrentTool := NewTool;
+    if Assigned(FToolCombo) then
+      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    UpdateToolOptionControl;
+    UpdateStatusForTool; { refresh label/hint etc }
+    Key := 0;
     Exit;
+  end;
 
+  { Only handle the single-letter color shortcuts when no other tool key
+    consumed the event; modifiers are ignored above except for Shift }  
   case UpCase(Char(Key)) of
     'X':
       begin
@@ -4597,15 +4672,54 @@ begin
   end;
 end;
 
+procedure TMainForm.FormKeyUp(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if Key = VK_SPACE then
+    DeactivateTempPan;
+end;
+
+{------------------------------------------------------------------------------}
+{ Testing simulation helpers }
+
+procedure TMainForm.SimulateKeyDown(Key: Word; Shift: TShiftState);
+begin
+  { call the same handler the form uses internally; Sender can be Self }
+  FormKeyDown(Self, Key, Shift);
+end;
+
+procedure TMainForm.SimulateKeyUp(Key: Word; Shift: TShiftState);
+begin
+  FormKeyUp(Self, Key, Shift);
+end;
+
+procedure TMainForm.SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  PaintBoxMouseDown(nil, Button, Shift, X, Y);
+end;
+
+procedure TMainForm.SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  PaintBoxMouseUp(nil, Button, Shift, X, Y);
+end;
+
 procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   ImagePoint: TPoint;
 begin
-  FPickSecondaryTarget := Button = mbRight;
-  if FPickSecondaryTarget then
-    FStrokeColor := FSecondaryColor
-  else
+  if Button = mbMiddle then
+  begin
+    ActivateTempPan;
+    FPickSecondaryTarget := False;
     FStrokeColor := FPrimaryColor;
+  end
+  else
+  begin
+    FPickSecondaryTarget := Button = mbRight;
+    if FPickSecondaryTarget then
+      FStrokeColor := FSecondaryColor
+    else
+      FStrokeColor := FPrimaryColor;
+  end;
 
   ImagePoint := CanvasToImage(X, Y);
   FLastPointerPoint := Point(X, Y);
@@ -4823,6 +4937,8 @@ var
 begin
   if not FPointerDown then
     Exit;
+  if Button = mbMiddle then
+    DeactivateTempPan;
   FPointerDown := False;
   ImagePoint := CanvasToImage(X, Y);
   FLastImagePoint := ImagePoint;

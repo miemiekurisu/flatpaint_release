@@ -14,6 +14,9 @@ function PaintToolDisplayCount: Integer;
 function PaintToolAtDisplayIndex(AIndex: Integer): TToolKind;
 function PaintToolDisplayIndex(ATool: TToolKind): Integer;
 
+{ Given a key and a reverse-flag (Shift held), compute the new tool.  }
+function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
+
 implementation
 
 const
@@ -227,6 +230,66 @@ begin
     if ToolDisplayOrder[Index] = ATool then
       Exit(Index);
   Result := 0;
+end;
+
+function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
+var
+  Cycle: array of TToolKind;
+  I, Index: Integer;
+  Rev: Boolean;
+begin
+  Result := ACurrent;
+  Rev := AReverse;
+  case UpCase(AKey) of
+    'S': Cycle := [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
+    'M': Cycle := [tkMoveSelection, tkMovePixels];
+    'Z': Cycle := [tkZoom];
+    'H': Cycle := [tkPan];
+    'F': Cycle := [tkFill];
+    'G': Cycle := [tkGradient];
+    'B': Cycle := [tkBrush];
+    'E': Cycle := [tkEraser];
+    'P': Cycle := [tkPencil];
+    'K': Cycle := [tkColorPicker];
+    'L': Cycle := [tkCloneStamp];
+    'R': Cycle := [tkRecolor];
+    'T': Cycle := [tkText];
+    'O': Cycle := [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
+  else
+    Exit;
+  end;
+
+  { locate current tool in cycle }
+  Index := -1;
+  for I := 0 to High(Cycle) do
+    if Cycle[I] = ACurrent then
+    begin
+      Index := I;
+      Break;
+    end;
+
+  if Index = -1 then
+  begin
+    if Rev then
+      Result := Cycle[High(Cycle)]
+    else
+      Result := Cycle[0];
+    Exit;
+  end;
+
+  if Rev then
+  begin
+    Dec(Index);
+    if Index < 0 then
+      Index := High(Cycle);
+  end
+  else
+  begin
+    Inc(Index);
+    if Index > High(Cycle) then
+      Index := 0;
+  end;
+  Result := Cycle[Index];
 end;
 
 end.
