@@ -45,7 +45,7 @@
 
 ### Still missing from the target baseline
 - True inline text editing (modal dialog exists; inline canvas text entry deferred)
-- True line/curve dual-mode tool (line tool exists; curve editing deferred)
+- Multi-node curve / Bézier node editing (single-control-point curve bending is now live)
 - Square brush mode for eraser
 - Feather option for selection tools
 
@@ -64,7 +64,7 @@
 | Brush | Size, opacity (**live**), hardness (**live**) | Size, opacity, shape, hardness | All three primary options now visible |
 | Eraser | Size, opacity (**live**), hardness (**live**) | Size, shape (`Round` / `Square`), hardness deferred | Opacity and hardness now visible; square mode deferred |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
-| Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; line-style/dash and shape-kind chooser still deferred |
+| Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; the `Line` tool now does a two-stage endpoint-then-curve interaction with a single control-point bend; richer line-style/dash controls and deeper node editing still remain deferred |
 | Clone Stamp | Brush size + opacity + right-click / Option-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned sampling stays locked across strokes, and Option-click sampling now mirrors common editor behavior |
 | Recolor | Brush size + opacity + tolerance live + **Preserve Value TCheckBox live** | Tolerance, source hue preservation toggle | Visible tolerance is routed through the shared tolerance spin while `Recolor` is active, and `Preserve Value` now keeps original brightness while shifting hue/saturation |
 | Text | Font family, size, bold/italic (modal dialog) | Full inline text entry with alignment | Modal text flow live; inline text editing deferred |
@@ -72,5 +72,7 @@
 ## Acceptance rules
 - If a tool appears in the visible `Tools` palette, its main action must work on real pixels or viewport state and must be testable.
 - If a tool is expected to act on the canvas directly, it must also provide at least minimal visible hover, click, or drag feedback on the canvas instead of feeling inert until after a hidden state change.
+- If a visible tool option changes anything the canvas can preview, that option change must trigger an immediate repaint of the canvas preview instead of waiting for the next pointer event.
+- Programmatic control-sync paths must be guarded separately from user-edit paths before adding repaint side effects, or the UI will drift into noisy re-entrant updates.
 - If a tool has a visible option control, that option must have helper-level or core-level unit coverage.
 - Do not claim the tool-options surface complete while modifier-only hidden behavior is standing in for a required visible paint.net-style control.

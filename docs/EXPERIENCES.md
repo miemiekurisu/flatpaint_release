@@ -12,6 +12,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (single-gesture tool assumption)
+- Problem: the original line tool looked "implemented" because it painted pixels, but it still missed a major expected behavior: bending a line into a curve without switching tools or opening another mode
+- Core error: the interaction model assumed every canvas tool should finish in one drag, which made the line tool stop at the straight-line subset only
+- Investigation: re-checked the current `tkLine` mouse-down / move / up flow in `mainform.pas`, then compared it against the explicit remaining-gap notes in the feature matrix and the user's repeated reports that advanced tools still felt incomplete
+- Root cause: the tool state model tracked only immediate strokes and drag previews, but it did not preserve a second-stage "pending shape edit" state for tools that need multiple pointer gestures
+- Fix: added a dedicated pending-curve state for `tkLine`, rendered a second-stage curve preview on the canvas, and backed it with a real quadratic-curve raster path in `fpsurface.pas`
+- Reuse note: for paint-editor tools, do not assume one gesture equals one tool; some tools need explicit staged state machines, and that state must be tracked as a first-class part of the implementation instead of patched in late
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (tool option repaint lag)
+- Problem: even after adding canvas-hover feedback, several tool options still felt disconnected because changing the visible control did not immediately change the canvas preview
+- Core error: option state was being updated in memory, but the canvas repaint depended on a later mouse move or drag instead of the option change itself
+- Investigation: re-audited the tool-option handlers in `mainform.pas` after the canvas-feedback pass and compared them against the preview paths in `PaintCanvasTo(...)`
+- Root cause: the option handlers mostly changed fields only, and `UpdateToolOptionControl(...)` did not keep the programmatic sync guard active for the full control refresh, so repainting there would have been noisy without first fixing the guard boundary
+- Fix: moved the `FUpdatingToolOption` guard to cover the full control-sync path, added guard checks across the tool-option handlers, and made user-driven option changes explicitly call `RefreshCanvas` so the visible preview updates immediately
+- Reuse note: whenever a tool option changes anything the canvas can preview, treat "repaint now" as part of the feature contract, and separate programmatic control-sync from user edits before wiring repaint side effects
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (backend-only tool illusion)
 - Problem: several tool passes had real behavior in code, but they still felt broken in manual use because the canvas often gave no visible feedback until after a click, drag, or unrelated repaint
 - Core error: tool work was being counted as "implemented" when the raster path existed, even if the user could not reliably see that the active tool was attached to the canvas

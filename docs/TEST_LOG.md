@@ -1,5 +1,15 @@
 # Test Log
 
+## 2026-03-03 (line-curve interaction pass)
+- Full CI verification after adding quadratic-curve raster support and the two-stage `Line` tool interaction: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 164 tests, 0 errors, 0 failures, including the new `QuadraticBezierBendsTowardControlPoint` coverage
+
+## 2026-03-03 (tool-preview cohesion pass)
+- Full CI verification after strengthening clone/drag previews and routing immediate canvas repaints from tool-option changes: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 163 tests, 0 errors, 0 failures after the canvas-preview and option-refresh changes
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-03 (canvas-feedback tool pass)
 - Full CI verification after adding shared canvas hover feedback, clone-source markers, and tool-hover metadata coverage: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 163 tests, 0 errors, 0 failures, including the new hover-feedback and brush-overlay helper assertions

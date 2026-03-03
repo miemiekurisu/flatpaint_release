@@ -32,6 +32,7 @@ type
     procedure DrawLineOpacityScalesAlphaChannel;
     procedure DrawLineFullOpacityMatchesDirectPaint;
     procedure DrawLineSoftHardnessProducesGradientEdge;
+    procedure QuadraticBezierBendsTowardControlPoint;
     procedure MotionBlurChangesPixels;
     procedure MedianFilterReducesNoise;
     procedure OilPaintChangesPixels;
@@ -498,6 +499,24 @@ begin
   end;
 end;
 
+procedure TFPSurfaceTests.QuadraticBezierBendsTowardControlPoint;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(9, 9);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawQuadraticBezier(1, 7, 4, 1, 7, 7, 0, RGBA(255, 0, 0, 255));
+
+    AssertEquals('curve midpoint is painted above the baseline', 255, Surface[4, 4].A);
+    AssertEquals('start point is painted', 255, Surface[1, 7].A);
+    AssertEquals('end point is painted', 255, Surface[7, 7].A);
+    AssertEquals('baseline midpoint stays clear when the curve bends upward', 0, Surface[4, 7].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
 procedure TFPSurfaceTests.MotionBlurChangesPixels;
 { Motion blur on a surface that has a single bright pixel in an otherwise dark
   field should spread that brightness along the blur direction. }
@@ -545,7 +564,7 @@ procedure TFPSurfaceTests.OilPaintChangesPixels;
 var
   Surface: TRasterSurface;
   X: Integer;
-  BeforeR, AfterR: Byte;
+  BeforeR: Byte;
 begin
   Surface := TRasterSurface.Create(20, 20);
   try
@@ -554,9 +573,9 @@ begin
       Surface[X, 10] := RGBA(Byte(X * 12), Byte(255 - X * 12), 0, 255);
     BeforeR := Surface[10, 10].R;
     Surface.OilPaint(2);
-    AfterR := Surface[10, 10].R;
-    { The result may or may not change the centre stripe, but should not crash }
-    AssertTrue('OilPaint completes without error', AfterR >= 0);
+    { The result may or may not change the centre stripe, but should preserve
+      a valid opaque pixel and not crash. }
+    AssertEquals('OilPaint keeps the centre pixel opaque', 255, Surface[10, 10].A);
     { suppress unused-warning hint }
     if BeforeR = 0 then ;
   finally

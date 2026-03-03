@@ -69,6 +69,9 @@ type
     FUpdatingToolOption: Boolean;
     FPointerDown: Boolean;
     FDragStart: TPoint;
+    FLineCurvePending: Boolean;
+    FLineCurveEndPoint: TPoint;
+    FLineCurveControlPoint: TPoint;
     FLastImagePoint: TPoint;
     FLastPointerPoint: TPoint;
     FLassoPoints: array of TPoint;
@@ -248,6 +251,7 @@ type
     function PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
     function SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
     procedure AppendLassoPoint(const APoint: TPoint);
+    procedure ResetLineCurveState;
     procedure InvalidatePreparedBitmap;
     procedure UpdateToolOptionControl;
     procedure RefreshUnitsMenu;
@@ -260,6 +264,9 @@ type
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
     procedure DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
+    procedure DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
+    procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+    procedure DrawQuadraticCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
     procedure DrawHoverToolOverlay(ACanvas: TCanvas);
     function ActiveToolOverlayRadius: Integer;
     function TryGetCloneOverlaySourcePoint(out APoint: TPoint): Boolean;
@@ -611,6 +618,9 @@ begin
     FBrushHardness := 100;
     FShapeStyle := 0;
     FBucketFloodMode := 0;
+    FLineCurvePending := False;
+    FLineCurveEndPoint := Point(0, 0);
+    FLineCurveControlPoint := Point(0, 0);
     FFillSampleSource := 0;
     FWandSampleSource := 0;
     FWandContiguous := True;
@@ -676,6 +686,9 @@ begin
   FBrushHardness := 100;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
+  FLineCurvePending := False;
+  FLineCurveEndPoint := Point(0, 0);
+  FLineCurveControlPoint := Point(0, 0);
   FFillSampleSource := 0;
   FWandSampleSource := 0;
   FWandContiguous := True;
@@ -1164,6 +1177,13 @@ begin
   FLassoPoints[PointCount] := APoint;
 end;
 
+procedure TMainForm.ResetLineCurveState;
+begin
+  FLineCurvePending := False;
+  FLineCurveEndPoint := Point(0, 0);
+  FLineCurveControlPoint := Point(0, 0);
+end;
+
 procedure TMainForm.InvalidatePreparedBitmap;
 begin
   Inc(FRenderRevision);
@@ -1172,7 +1192,6 @@ end;
 procedure TMainForm.UpdateToolOptionControl;
 var
   IsSelTool: Boolean;
-  IsSizeTool: Boolean;
   IsOpacityTool: Boolean;
   IsHardnessTool: Boolean;
   IsShapeTool: Boolean;
@@ -1182,75 +1201,72 @@ begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
 
-  IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
-  IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
-  IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
-  IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
-  IsBucketTool := FCurrentTool = tkFill;
-  IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
-  IsSizeTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkLine,
-    tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape,
-    tkCloneStamp, tkRecolor, tkMagicWand];
-
-  if Assigned(FSelModeLabel) then FSelModeLabel.Visible := IsSelTool;
-  if Assigned(FSelModeCombo) then FSelModeCombo.Visible := IsSelTool;
-  if Assigned(FOpacityLabel) then FOpacityLabel.Visible := IsOpacityTool;
-  if Assigned(FOpacitySpin) then FOpacitySpin.Visible := IsOpacityTool;
-  if Assigned(FOpacitySpin) then FOpacitySpin.Value := FBrushOpacity;
-  if Assigned(FHardnessLabel) then FHardnessLabel.Visible := IsHardnessTool;
-  if Assigned(FHardnessSpin) then FHardnessSpin.Visible := IsHardnessTool;
-  if Assigned(FHardnessSpin) then FHardnessSpin.Value := FBrushHardness;
-  if Assigned(FShapeStyleLabel) then FShapeStyleLabel.Visible := IsShapeTool;
-  if Assigned(FShapeStyleCombo) then FShapeStyleCombo.Visible := IsShapeTool;
-  if Assigned(FShapeStyleCombo) then FShapeStyleCombo.ItemIndex := FShapeStyle;
-  if Assigned(FBucketModeLabel) then FBucketModeLabel.Visible := IsBucketTool;
-  if Assigned(FBucketModeCombo) then FBucketModeCombo.Visible := IsBucketTool;
-  if Assigned(FBucketModeCombo) then FBucketModeCombo.ItemIndex := FBucketFloodMode;
-  if Assigned(FFillSampleLabel) then FFillSampleLabel.Visible := IsBucketTool;
-  if Assigned(FFillSampleCombo) then FFillSampleCombo.Visible := IsBucketTool;
-  if Assigned(FFillSampleCombo) then FFillSampleCombo.ItemIndex := FFillSampleSource;
-  if Assigned(FWandSampleLabel) then FWandSampleLabel.Visible := FCurrentTool = tkMagicWand;
-  if Assigned(FWandSampleCombo) then FWandSampleCombo.Visible := FCurrentTool = tkMagicWand;
-  if Assigned(FWandSampleCombo) then FWandSampleCombo.ItemIndex := FWandSampleSource;
-  if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Visible := FCurrentTool = tkMagicWand;
-  if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Checked := FWandContiguous;
-  if Assigned(FFillTolLabel) then FFillTolLabel.Visible := IsToleranceTool;
-  if Assigned(FFillTolSpin) then FFillTolSpin.Visible := IsToleranceTool;
-  if Assigned(FFillTolSpin) then
-  begin
-    if FCurrentTool = tkRecolor then
-    begin
-      FFillTolLabel.Left := 480;
-      FFillTolSpin.Left := 552;
-      FFillTolSpin.Value := FWandTolerance
-    end
-    else
-    begin
-      FFillTolLabel.Left := 348;
-      FFillTolSpin.Left := 420;
-      FFillTolSpin.Value := FFillTolerance;
-    end;
-    if FCurrentTool = tkRecolor then
-      FFillTolSpin.Hint := 'Recolor tolerance (0=exact, 255=replace broad color range)'
-    else
-      FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
-  end;
-  if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := FCurrentTool = tkGradient;
-  if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := FCurrentTool = tkGradient;
-  if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := FGradientType;
-  if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Visible := FCurrentTool = tkGradient;
-  if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Checked := FGradientReverse;
-  if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Visible := FCurrentTool = tkCloneStamp;
-  if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
-  if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
-  if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
-  if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
-  if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
-  if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
-  if Assigned(FSelAntiAliasCheck) then FSelAntiAliasCheck.Visible := False;
-
   FUpdatingToolOption := True;
   try
+    IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
+    IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
+    IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
+    IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
+    IsBucketTool := FCurrentTool = tkFill;
+    IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
+
+    if Assigned(FSelModeLabel) then FSelModeLabel.Visible := IsSelTool;
+    if Assigned(FSelModeCombo) then FSelModeCombo.Visible := IsSelTool;
+    if Assigned(FOpacityLabel) then FOpacityLabel.Visible := IsOpacityTool;
+    if Assigned(FOpacitySpin) then FOpacitySpin.Visible := IsOpacityTool;
+    if Assigned(FOpacitySpin) then FOpacitySpin.Value := FBrushOpacity;
+    if Assigned(FHardnessLabel) then FHardnessLabel.Visible := IsHardnessTool;
+    if Assigned(FHardnessSpin) then FHardnessSpin.Visible := IsHardnessTool;
+    if Assigned(FHardnessSpin) then FHardnessSpin.Value := FBrushHardness;
+    if Assigned(FShapeStyleLabel) then FShapeStyleLabel.Visible := IsShapeTool;
+    if Assigned(FShapeStyleCombo) then FShapeStyleCombo.Visible := IsShapeTool;
+    if Assigned(FShapeStyleCombo) then FShapeStyleCombo.ItemIndex := FShapeStyle;
+    if Assigned(FBucketModeLabel) then FBucketModeLabel.Visible := IsBucketTool;
+    if Assigned(FBucketModeCombo) then FBucketModeCombo.Visible := IsBucketTool;
+    if Assigned(FBucketModeCombo) then FBucketModeCombo.ItemIndex := FBucketFloodMode;
+    if Assigned(FFillSampleLabel) then FFillSampleLabel.Visible := IsBucketTool;
+    if Assigned(FFillSampleCombo) then FFillSampleCombo.Visible := IsBucketTool;
+    if Assigned(FFillSampleCombo) then FFillSampleCombo.ItemIndex := FFillSampleSource;
+    if Assigned(FWandSampleLabel) then FWandSampleLabel.Visible := FCurrentTool = tkMagicWand;
+    if Assigned(FWandSampleCombo) then FWandSampleCombo.Visible := FCurrentTool = tkMagicWand;
+    if Assigned(FWandSampleCombo) then FWandSampleCombo.ItemIndex := FWandSampleSource;
+    if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Visible := FCurrentTool = tkMagicWand;
+    if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Checked := FWandContiguous;
+    if Assigned(FFillTolLabel) then FFillTolLabel.Visible := IsToleranceTool;
+    if Assigned(FFillTolSpin) then FFillTolSpin.Visible := IsToleranceTool;
+    if Assigned(FFillTolSpin) then
+    begin
+      if FCurrentTool = tkRecolor then
+      begin
+        FFillTolLabel.Left := 480;
+        FFillTolSpin.Left := 552;
+        FFillTolSpin.Value := FWandTolerance
+      end
+      else
+      begin
+        FFillTolLabel.Left := 348;
+        FFillTolSpin.Left := 420;
+        FFillTolSpin.Value := FFillTolerance;
+      end;
+      if FCurrentTool = tkRecolor then
+        FFillTolSpin.Hint := 'Recolor tolerance (0=exact, 255=replace broad color range)'
+      else
+        FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
+    end;
+    if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := FCurrentTool = tkGradient;
+    if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := FCurrentTool = tkGradient;
+    if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := FGradientType;
+    if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Visible := FCurrentTool = tkGradient;
+    if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Checked := FGradientReverse;
+    if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Visible := FCurrentTool = tkCloneStamp;
+    if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
+    if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
+    if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
+    if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
+    if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
+    if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
+    if Assigned(FSelAntiAliasCheck) then FSelAntiAliasCheck.Visible := False;
+
     case FCurrentTool of
       tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
       tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
@@ -2367,12 +2383,148 @@ begin
   ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
 end;
 
-procedure TMainForm.DrawHoverToolOverlay(ACanvas: TCanvas);
+procedure TMainForm.DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
 var
-  SourcePoint: TPoint;
+  SourceX: Integer;
+  SourceY: Integer;
+  DestX: Integer;
+  DestY: Integer;
+begin
+  SourceX := Round((ASourcePoint.X + 0.5) * FZoomScale);
+  SourceY := Round((ASourcePoint.Y + 0.5) * FZoomScale);
+  DestX := Round((ADestPoint.X + 0.5) * FZoomScale);
+  DestY := Round((ADestPoint.Y + 0.5) * FZoomScale);
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psDash;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clRed;
+  ACanvas.MoveTo(SourceX, SourceY);
+  ACanvas.LineTo(DestX, DestY);
+  ACanvas.Pen.Style := psSolid;
+end;
+
+procedure TMainForm.DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+var
+  LeftX: Integer;
+  TopY: Integer;
+  RightX: Integer;
+  BottomY: Integer;
   CenterX: Integer;
   CenterY: Integer;
   CrossHalf: Integer;
+begin
+  if ARadius <= 0 then
+  begin
+    LeftX := Round(APoint.X * FZoomScale);
+    TopY := Round(APoint.Y * FZoomScale);
+    RightX := Round((APoint.X + 1) * FZoomScale);
+    BottomY := Round((APoint.Y + 1) * FZoomScale);
+  end
+  else
+  begin
+    LeftX := Round((APoint.X - ARadius) * FZoomScale);
+    TopY := Round((APoint.Y - ARadius) * FZoomScale);
+    RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+    BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
+  end;
+
+  if RightX <= LeftX then
+    RightX := LeftX + 1;
+  if BottomY <= TopY then
+    BottomY := TopY + 1;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clRed;
+  if ARadius <= 0 then
+    ACanvas.Rectangle(LeftX, TopY, RightX, BottomY)
+  else
+    ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+
+  CenterX := Round((APoint.X + 0.5) * FZoomScale);
+  CenterY := Round((APoint.Y + 0.5) * FZoomScale);
+  CrossHalf := Max(3, Round(FZoomScale * 1.5));
+  ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
+  ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
+  ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
+  ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+end;
+
+procedure TMainForm.DrawQuadraticCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
+var
+  SegmentCount: Integer;
+  Step: Integer;
+  TValue: Double;
+  InverseT: Double;
+  PrevPoint: TPoint;
+  NextPoint: TPoint;
+begin
+  SegmentCount := Max(
+    8,
+    Max(
+      Abs(AControlPoint.X - AStartPoint.X) + Abs(AControlPoint.Y - AStartPoint.Y),
+      Abs(AEndPoint.X - AControlPoint.X) + Abs(AEndPoint.Y - AControlPoint.Y)
+    ) * 2
+  );
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psDot;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clSilver;
+  ACanvas.MoveTo(
+    Round((AStartPoint.X + 0.5) * FZoomScale),
+    Round((AStartPoint.Y + 0.5) * FZoomScale)
+  );
+  ACanvas.LineTo(
+    Round((AControlPoint.X + 0.5) * FZoomScale),
+    Round((AControlPoint.Y + 0.5) * FZoomScale)
+  );
+  ACanvas.MoveTo(
+    Round((AEndPoint.X + 0.5) * FZoomScale),
+    Round((AEndPoint.Y + 0.5) * FZoomScale)
+  );
+  ACanvas.LineTo(
+    Round((AControlPoint.X + 0.5) * FZoomScale),
+    Round((AControlPoint.Y + 0.5) * FZoomScale)
+  );
+
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := AStrokeWidth;
+  ACanvas.Pen.Color := AStrokeColor;
+  PrevPoint := AStartPoint;
+  for Step := 1 to SegmentCount do
+  begin
+    TValue := Step / SegmentCount;
+    InverseT := 1.0 - TValue;
+    NextPoint := Point(
+      Round(
+        (InverseT * InverseT * AStartPoint.X) +
+        (2.0 * InverseT * TValue * AControlPoint.X) +
+        (TValue * TValue * AEndPoint.X)
+      ),
+      Round(
+        (InverseT * InverseT * AStartPoint.Y) +
+        (2.0 * InverseT * TValue * AControlPoint.Y) +
+        (TValue * TValue * AEndPoint.Y)
+      )
+    );
+    ACanvas.MoveTo(
+      Round((PrevPoint.X + 0.5) * FZoomScale),
+      Round((PrevPoint.Y + 0.5) * FZoomScale)
+    );
+    ACanvas.LineTo(
+      Round((NextPoint.X + 0.5) * FZoomScale),
+      Round((NextPoint.Y + 0.5) * FZoomScale)
+    );
+    PrevPoint := NextPoint;
+  end;
+end;
+
+procedure TMainForm.DrawHoverToolOverlay(ACanvas: TCanvas);
+var
+  SourcePoint: TPoint;
 begin
   if not PaintToolHasCanvasHoverOverlay(FCurrentTool) then
     Exit;
@@ -2388,16 +2540,8 @@ begin
 
   if (FCurrentTool = tkCloneStamp) and TryGetCloneOverlaySourcePoint(SourcePoint) then
   begin
-    CenterX := Round((SourcePoint.X + 0.5) * FZoomScale);
-    CenterY := Round((SourcePoint.Y + 0.5) * FZoomScale);
-    CrossHalf := Max(3, Round(FZoomScale * 1.5));
-    ACanvas.Pen.Style := psSolid;
-    ACanvas.Pen.Width := 1;
-    ACanvas.Pen.Color := clRed;
-    ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
-    ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
-    ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
-    ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+    DrawCloneLinkOverlay(ACanvas, SourcePoint, FLastImagePoint);
+    DrawCloneSourceOverlay(ACanvas, SourcePoint, ActiveToolOverlayRadius);
   end;
 end;
 
@@ -2410,6 +2554,11 @@ var
   BottomY: Integer;
   PointIndex: Integer;
   GridIndex: Integer;
+  PreviewRadius: Integer;
+  PreviewStrokeColor: TColor;
+  PreviewStrokeWidth: Integer;
+  ShapePreviewFill: Boolean;
+  ShapePreviewOutline: Boolean;
 begin
   ACanvas.Brush.Color := CanvasBackgroundColor;
   ACanvas.FillRect(ARect);
@@ -2444,14 +2593,61 @@ begin
     end;
   end;
 
+  if FLineCurvePending and (FCurrentTool = tkLine) then
+  begin
+    PreviewStrokeColor := RGBToColor(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B);
+    PreviewStrokeWidth := Min(24, Max(1, Round(Max(1, FBrushSize div 2) * FZoomScale)));
+    DrawQuadraticCurvePreview(
+      ACanvas,
+      FDragStart,
+      FLineCurveControlPoint,
+      FLineCurveEndPoint,
+      PreviewStrokeColor,
+      PreviewStrokeWidth
+    );
+    DrawPointHoverOverlay(ACanvas, FDragStart);
+    DrawPointHoverOverlay(ACanvas, FLineCurveEndPoint);
+    DrawCloneSourceOverlay(ACanvas, FLineCurveControlPoint, 0);
+  end;
+
   if FPointerDown then
   begin
-    ACanvas.Pen.Color := clBlack;
+    PreviewStrokeColor := RGBToColor(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B);
+    ShapePreviewFill := FShapeStyle in [1, 2];
+    ShapePreviewOutline := FShapeStyle in [0, 2];
+    ACanvas.Pen.Color := PreviewStrokeColor;
     ACanvas.Pen.Width := 1;
+    ACanvas.Pen.Style := psSolid;
     ACanvas.Brush.Style := bsClear;
+    ACanvas.Brush.Color := PreviewStrokeColor;
     case FCurrentTool of
-      tkLine, tkGradient:
+      tkLine:
         begin
+          PreviewStrokeWidth := Min(24, Max(1, Round(Max(1, FBrushSize div 2) * FZoomScale)));
+          ACanvas.Pen.Width := PreviewStrokeWidth;
+          ACanvas.MoveTo(
+            Round((FDragStart.X + 0.5) * FZoomScale),
+            Round((FDragStart.Y + 0.5) * FZoomScale)
+          );
+          ACanvas.LineTo(
+            Round((FLastImagePoint.X + 0.5) * FZoomScale),
+            Round((FLastImagePoint.Y + 0.5) * FZoomScale)
+          );
+        end;
+      tkGradient:
+        begin
+          if FGradientType = 1 then
+          begin
+            PreviewRadius := Round(Sqrt(
+              Sqr(FLastImagePoint.X - FDragStart.X) +
+              Sqr(FLastImagePoint.Y - FDragStart.Y)
+            ));
+            LeftX := Round((FDragStart.X - PreviewRadius) * FZoomScale);
+            TopY := Round((FDragStart.Y - PreviewRadius) * FZoomScale);
+            RightX := Round((FDragStart.X + PreviewRadius + 1) * FZoomScale);
+            BottomY := Round((FDragStart.Y + PreviewRadius + 1) * FZoomScale);
+            ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+          end;
           ACanvas.MoveTo(
             Round((FDragStart.X + 0.5) * FZoomScale),
             Round((FDragStart.Y + 0.5) * FZoomScale)
@@ -2463,6 +2659,27 @@ begin
         end;
       tkRectangle, tkSelectRect:
         begin
+          if FCurrentTool = tkRectangle then
+          begin
+            PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
+            if ShapePreviewOutline then
+            begin
+              ACanvas.Pen.Style := psSolid;
+              ACanvas.Pen.Width := PreviewStrokeWidth;
+            end
+            else
+              ACanvas.Pen.Style := psClear;
+            if ShapePreviewFill then
+              ACanvas.Brush.Style := bsDiagCross
+            else
+              ACanvas.Brush.Style := bsClear;
+          end
+          else
+          begin
+            ACanvas.Pen.Style := psSolid;
+            ACanvas.Pen.Width := 1;
+            ACanvas.Brush.Style := bsClear;
+          end;
           LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
           TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
           RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
@@ -2484,6 +2701,18 @@ begin
         end;
       tkRoundedRectangle:
         begin
+          PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
+          if ShapePreviewOutline then
+          begin
+            ACanvas.Pen.Style := psSolid;
+            ACanvas.Pen.Width := PreviewStrokeWidth;
+          end
+          else
+            ACanvas.Pen.Style := psClear;
+          if ShapePreviewFill then
+            ACanvas.Brush.Style := bsDiagCross
+          else
+            ACanvas.Brush.Style := bsClear;
           LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
           TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
           RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
@@ -2499,6 +2728,27 @@ begin
         end;
       tkEllipseShape, tkSelectEllipse:
         begin
+          if FCurrentTool = tkEllipseShape then
+          begin
+            PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
+            if ShapePreviewOutline then
+            begin
+              ACanvas.Pen.Style := psSolid;
+              ACanvas.Pen.Width := PreviewStrokeWidth;
+            end
+            else
+              ACanvas.Pen.Style := psClear;
+            if ShapePreviewFill then
+              ACanvas.Brush.Style := bsDiagCross
+            else
+              ACanvas.Brush.Style := bsClear;
+          end
+          else
+          begin
+            ACanvas.Pen.Style := psSolid;
+            ACanvas.Pen.Width := 1;
+            ACanvas.Brush.Style := bsClear;
+          end;
           LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
           TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
           RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
@@ -2508,6 +2758,22 @@ begin
       tkSelectLasso, tkFreeformShape:
         if Length(FLassoPoints) > 1 then
         begin
+          if FCurrentTool = tkFreeformShape then
+          begin
+            PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
+            if ShapePreviewOutline then
+            begin
+              ACanvas.Pen.Style := psSolid;
+              ACanvas.Pen.Width := PreviewStrokeWidth;
+            end
+            else
+              ACanvas.Pen.Style := psClear;
+          end
+          else
+          begin
+            ACanvas.Pen.Style := psSolid;
+            ACanvas.Pen.Width := 1;
+          end;
           ACanvas.MoveTo(
             Round((FLassoPoints[0].X + 0.5) * FZoomScale),
             Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
@@ -2523,6 +2789,15 @@ begin
               Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
             );
         end;
+    end;
+
+    case FCurrentTool of
+      tkLine, tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape,
+      tkSelectRect, tkSelectEllipse, tkCrop:
+        DrawPointHoverOverlay(ACanvas, FDragStart);
+      tkSelectLasso, tkFreeformShape:
+        if Length(FLassoPoints) > 0 then
+          DrawPointHoverOverlay(ACanvas, FLassoPoints[0]);
     end;
   end;
 
@@ -4082,6 +4357,7 @@ begin
     FTabFileNames[FActiveTabIndex] := FCurrentFileName;
   FPointerDown := False;
   SetLength(FLassoPoints, 0);
+  ResetLineCurveState;
   FPendingSelectionMode := scReplace;
   FitDocumentToViewport(True);
   InvalidatePreparedBitmap;
@@ -4356,17 +4632,32 @@ begin
     PaintSelection := nil;
   case FCurrentTool of
     tkLine:
-      FDocument.ActiveLayer.Surface.DrawLine(
-        AStartPoint.X,
-        AStartPoint.Y,
-        AEndPoint.X,
-        AEndPoint.Y,
-        Max(1, FBrushSize div 2),
-        ActivePaintColor,
-        255,
-        255,
-        PaintSelection
-      );
+      if FLineCurvePending then
+        FDocument.ActiveLayer.Surface.DrawQuadraticBezier(
+          AStartPoint.X,
+          AStartPoint.Y,
+          FLineCurveControlPoint.X,
+          FLineCurveControlPoint.Y,
+          FLineCurveEndPoint.X,
+          FLineCurveEndPoint.Y,
+          Max(1, FBrushSize div 2),
+          ActivePaintColor,
+          255,
+          255,
+          PaintSelection
+        )
+      else
+        FDocument.ActiveLayer.Surface.DrawLine(
+          AStartPoint.X,
+          AStartPoint.Y,
+          AEndPoint.X,
+          AEndPoint.Y,
+          Max(1, FBrushSize div 2),
+          ActivePaintColor,
+          255,
+          255,
+          PaintSelection
+        );
     tkGradient:
       begin
         if FGradientReverse then
@@ -4477,6 +4768,7 @@ end;
 procedure TMainForm.ResetDocument(AWidth, AHeight: Integer);
 begin
   FDocument.NewBlank(AWidth, AHeight);
+  ResetLineCurveState;
   FCurrentFileName := '';
   FitDocumentToViewport(True);
   InvalidatePreparedBitmap;
@@ -4500,6 +4792,7 @@ begin
   AddDocumentTab(NewDoc, '', False);
   FPointerDown := False;
   SetLength(FLassoPoints, 0);
+  ResetLineCurveState;
   FPendingSelectionMode := scReplace;
   FitDocumentToViewport(True);
   InvalidatePreparedBitmap;
@@ -5682,6 +5975,7 @@ end;
 procedure TMainForm.ToolButtonClick(Sender: TObject);
 begin
   SetLength(FLassoPoints, 0);
+  ResetLineCurveState;
   FCurrentTool := TToolKind(TControl(Sender).Tag);
   FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
   UpdateToolOptionControl;
@@ -5692,6 +5986,7 @@ end;
 procedure TMainForm.ToolComboChange(Sender: TObject);
 begin
   SetLength(FLassoPoints, 0);
+  ResetLineCurveState;
   if FToolCombo.ItemIndex >= 0 then
     FCurrentTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
   UpdateToolOptionControl;
@@ -5719,6 +6014,7 @@ begin
     tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
       FBrushSize := Max(1, FBrushSpin.Value);
   end;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.LayerListDrawItem(Control: TWinControl; Index: Integer;
@@ -6036,6 +6332,7 @@ begin
   NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
   if NewTool <> FCurrentTool then
   begin
+    ResetLineCurveState;
     FCurrentTool := NewTool;
     if Assigned(FToolCombo) then
       FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
@@ -6184,6 +6481,17 @@ begin
   ImagePoint := CanvasToImage(X, Y);
   FLastPointerPoint := Point(X, Y);
   FLastImagePoint := ImagePoint;
+  if (FCurrentTool = tkLine) and FLineCurvePending then
+  begin
+    FLineCurveControlPoint := ImagePoint;
+    FDocument.PushHistory(PaintToolName(FCurrentTool));
+    CommitShapeTool(FDragStart, FLineCurveEndPoint);
+    ResetLineCurveState;
+    SetDirty(True);
+    RefreshCanvas;
+    RefreshStatus(ImagePoint);
+    Exit;
+  end;
   FDragStart := ImagePoint;
   { Only override combo-selected mode when modifier keys are held }
   if (ssShift in Shift) or (ssAlt in Shift) then
@@ -6406,6 +6714,8 @@ begin
           RefreshCanvas;
         end;
     end;
+  if (not FPointerDown) and (FCurrentTool = tkLine) and FLineCurvePending then
+    FLineCurveControlPoint := ImagePoint;
   if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels]) then
     FLastImagePoint := ImagePoint;
   if (not FPointerDown) and PaintToolHasCanvasHoverOverlay(FCurrentTool) and Assigned(FPaintBox) then
@@ -6428,7 +6738,29 @@ begin
   ImagePoint := CanvasToImage(X, Y);
   FLastImagePoint := ImagePoint;
 
-  if FCurrentTool in [tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape] then
+  if FCurrentTool = tkLine then
+  begin
+    if not FLineCurvePending then
+    begin
+      if (ImagePoint.X = FDragStart.X) and (ImagePoint.Y = FDragStart.Y) then
+      begin
+        FDocument.PushHistory(PaintToolName(FCurrentTool));
+        CommitShapeTool(FDragStart, ImagePoint);
+        SetDirty(True);
+      end
+      else
+      begin
+        FLineCurvePending := True;
+        FLineCurveEndPoint := ImagePoint;
+        FLineCurveControlPoint := Point(
+          (FDragStart.X + ImagePoint.X) div 2,
+          (FDragStart.Y + ImagePoint.Y) div 2
+        );
+      end;
+      RefreshCanvas;
+    end;
+  end;
+  if FCurrentTool in [tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape] then
   begin
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     CommitShapeTool(FDragStart, ImagePoint);
@@ -7499,6 +7831,7 @@ begin
     RegisterRecentFile(ResolvedFileName);
     FPointerDown := False;
     SetLength(FLassoPoints, 0);
+    ResetLineCurveState;
     FPendingSelectionMode := scReplace;
     FitDocumentToViewport(True);
     InvalidatePreparedBitmap;
@@ -7650,50 +7983,66 @@ end;
 
 procedure TMainForm.OpacitySpinChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FOpacitySpin) then Exit;
   FBrushOpacity := EnsureRange(FOpacitySpin.Value, 1, 100);
+  RefreshCanvas;
 end;
 
 procedure TMainForm.HardnessSpinChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FHardnessSpin) then Exit;
   FBrushHardness := EnsureRange(FHardnessSpin.Value, 1, 100);
+  RefreshCanvas;
 end;
 
 procedure TMainForm.SelModeComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FSelModeCombo) then Exit;
   FPendingSelectionMode := TSelectionCombineMode(FSelModeCombo.ItemIndex);
+  RefreshCanvas;
 end;
 
 procedure TMainForm.ShapeStyleComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FShapeStyleCombo) then Exit;
   FShapeStyle := FShapeStyleCombo.ItemIndex;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.BucketModeComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FBucketModeCombo) then Exit;
   FBucketFloodMode := FBucketModeCombo.ItemIndex;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.FillSampleComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FFillSampleCombo) then Exit;
   FFillSampleSource := FFillSampleCombo.ItemIndex;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.WandSampleComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FWandSampleCombo) then Exit;
   FWandSampleSource := FWandSampleCombo.ItemIndex;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.WandContiguousChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FWandContiguousCheck) then Exit;
   FWandContiguous := FWandContiguousCheck.Checked;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.FillTolSpinChanged(Sender: TObject);
@@ -7706,44 +8055,57 @@ begin
   else
     FFillTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
   end;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.GradientTypeComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FGradientTypeCombo) then Exit;
   FGradientType := FGradientTypeCombo.ItemIndex;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.GradientReverseChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FGradientReverseCheck) then Exit;
   FGradientReverse := FGradientReverseCheck.Checked;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.CloneAlignedChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FCloneAlignedCheck) then Exit;
   FCloneAligned := FCloneAlignedCheck.Checked;
   if not FCloneAligned then
     FCloneAlignedOffsetValid := False;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.RecolorPreserveValueChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FRecolorPreserveValueCheck) then Exit;
   FRecolorPreserveValue := FRecolorPreserveValueCheck.Checked;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.PickerSampleComboChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FPickerSampleCombo) then Exit;
   FPickerSampleSource := FPickerSampleCombo.ItemIndex;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.SelAntiAliasChanged(Sender: TObject);
 begin
+  if FUpdatingToolOption then Exit;
   if not Assigned(FSelAntiAliasCheck) then Exit;
   FSelAntiAlias := FSelAntiAliasCheck.Checked;
+  RefreshCanvas;
 end;
 
 { ── Layer Rotate / Zoom ──────────────────────────────────────────────────── }

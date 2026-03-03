@@ -1,5 +1,25 @@
 # Development Progress Log
 
+## 2026-03-03 (line-curve interaction pass)
+
+- This pass maps primarily to the `Draw tools` row in `docs/FEATURE_MATRIX.md`, with a smaller impact on the tool-behavior notes in `docs/TOOL_OPTIONS_BASELINE.md`.
+- The visible `Line` tool no longer stops at straight segments only. It is now a real two-stage line/curve tool in the live UI: first drag sets the endpoints, then moving the pointer previews the bend, and the second click commits the curved stroke to the active layer.
+- This is not a fake canvas-only preview. The raster core now has a real quadratic-curve path (`TRasterSurface.DrawQuadraticBezier(...)`), so the committed result follows the same curved path the user previews.
+- The canvas preview also makes the second stage readable: the line tool now shows a dotted control scaffold, a live curved stroke preview, explicit start/end anchors, and a control-point marker while the curve is being adjusted.
+- I also cleared stale multi-stage state on tool/document switches, so an unfinished curve edit does not leak across tool changes or document replacement flows.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **164 tests, 0 errors, 0 failures**, and the existing `bash ./scripts/build.sh` pass from the same code change still rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the line tool is materially closer to the expected paint-style behavior now, but the remaining gap is still richer multi-node / multi-segment curve editing rather than a missing curve mode altogether.
+
+## 2026-03-03 (tool-preview cohesion pass)
+
+- This pass maps primarily to the `Paint tools`, `Draw tools`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
+- The canvas/tool connection is stronger now for the advanced tool set: `Clone Stamp` no longer shows only a static source mark, it now renders a live red source halo plus a dashed source-to-destination link, so the sampled offset is visible before and during stamping.
+- Drag tools also present a clearer live preview instead of a generic one-pixel guide: `Line` preview now scales with the current width, shape previews now reflect `Outline` vs `Fill` vs `Outline + Fill`, radial gradients now show a live radius circle, and drag-start anchors are rendered so the user can read the gesture from the canvas itself.
+- Tool-option changes are now visibly connected to the canvas too: changing size, shape style, gradient mode/reverse, clone alignment, tolerance/sample toggles, and the rest of the routed tool options now forces an immediate canvas repaint instead of waiting for a later pointer event.
+- I also tightened the UI-state plumbing behind that: `UpdateToolOptionControl(...)` now keeps `FUpdatingToolOption` active for the full programmatic sync, so option handlers can safely ignore internal control updates and only repaint on real user changes.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **163 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the tools now read as more genuinely attached to the canvas during hover and drag, so the completion estimate moves to **~92%**; the remaining gaps are still deeper behavior parity, not basic visibility of tool intent.
+
 ## 2026-03-03 (canvas-feedback tool pass)
 
 - This pass maps primarily to the `Paint tools`, `Draw tools`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.

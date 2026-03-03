@@ -119,7 +119,7 @@ begin
     tkGradient:
       Result := 'Gradient drags from primary toward secondary color';
     tkLine:
-      Result := 'Line drags a straight stroke between two points';
+      Result := 'Line drags endpoints first, then moves and clicks again to bend a curve';
     tkRectangle:
       Result := 'Rectangle drags an outlined rectangle';
     tkRoundedRectangle:

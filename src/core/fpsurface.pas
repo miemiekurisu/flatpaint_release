@@ -32,6 +32,7 @@ type
     procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawQuadraticBezier(X1, Y1, ControlX, ControlY, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
@@ -445,6 +446,47 @@ begin
       ErrorValue := ErrorValue + DX;
       Y1 := Y1 + StepY;
     end;
+  end;
+end;
+
+procedure TRasterSurface.DrawQuadraticBezier(X1, Y1, ControlX, ControlY, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  SegmentCount: Integer;
+  Step: Integer;
+  TValue: Double;
+  InverseT: Double;
+  PrevX: Integer;
+  PrevY: Integer;
+  NextX: Integer;
+  NextY: Integer;
+begin
+  SegmentCount := Max(
+    8,
+    Max(
+      Abs(ControlX - X1) + Abs(ControlY - Y1),
+      Abs(X2 - ControlX) + Abs(Y2 - ControlY)
+    ) * 2
+  );
+
+  PrevX := X1;
+  PrevY := Y1;
+  for Step := 1 to SegmentCount do
+  begin
+    TValue := Step / SegmentCount;
+    InverseT := 1.0 - TValue;
+    NextX := Round(
+      (InverseT * InverseT * X1) +
+      (2.0 * InverseT * TValue * ControlX) +
+      (TValue * TValue * X2)
+    );
+    NextY := Round(
+      (InverseT * InverseT * Y1) +
+      (2.0 * InverseT * TValue * ControlY) +
+      (TValue * TValue * Y2)
+    );
+    DrawLine(PrevX, PrevY, NextX, NextY, Radius, AColor, Opacity, Hardness, ASelection);
+    PrevX := NextX;
+    PrevY := NextY;
   end;
 end;
 
