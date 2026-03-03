@@ -76,6 +76,10 @@ type
     procedure OilPaint(Radius: Integer = 4);
     procedure FrostedGlass(Amount: Integer = 4);
     procedure ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer = 8);
+    procedure GaussianBlur(Radius: Integer);
+    procedure RadialBlur(Amount: Integer);
+    procedure Twist(Amount: Integer);
+    procedure Fragment(Offset: Integer);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
@@ -1854,6 +1858,123 @@ begin
         FPixels[Y * FWidth + X] := RGBA(SumR div Count, SumG div Count, SumB div Count, SumA div Count)
       else
         FPixels[Y * FWidth + X] := Pix;
+    end;
+end;
+
+procedure TRasterSurface.GaussianBlur(Radius: Integer);
+{ Approximate Gaussian blur via three passes of box blur. Three passes of a
+  box blur with the same radius give a very good Gaussian approximation:
+  sigma ≈ radius * sqrt(1/3).  Works in O(3 * W * H) regardless of radius. }
+begin
+  if Radius < 1 then Radius := 1;
+  BoxBlur(Radius);
+  BoxBlur(Radius);
+  BoxBlur(Radius);
+end;
+
+procedure TRasterSurface.RadialBlur(Amount: Integer);
+{ Spin blur: samples pixels at slight angular offsets around the image centre
+  and averages them, producing a rotational motion-blur impression.
+  Amount is the total sweep angle in degrees (typical range 1-60). }
+const
+  Samples = 9;
+var
+  Snap: array of TRGBA32;
+  X, Y, S: Integer;
+  DX, DY, Dist, BaseAngle, RotAngle, ThetaStep: Double;
+  SX, SY: Integer;
+  SumR, SumG, SumB, SumA: Integer;
+  Pix: TRGBA32;
+  CX, CY: Integer;
+begin
+  if Amount <= 0 then Exit;
+  CX := FWidth div 2;
+  CY := FHeight div 2;
+  ThetaStep := Amount * Pi / (180.0 * Max(1, Samples - 1));
+  SetLength(Snap, FWidth * FHeight);
+  Move(FPixels[0], Snap[0], FWidth * FHeight * SizeOf(TRGBA32));
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      DX := X - CX;
+      DY := Y - CY;
+      Dist := Sqrt(DX * DX + DY * DY);
+      if Dist < 0.5 then Continue;
+      BaseAngle := ArcTan2(DY, DX);
+      SumR := 0; SumG := 0; SumB := 0; SumA := 0;
+      for S := 0 to Samples - 1 do
+      begin
+        RotAngle := BaseAngle + (S - Samples div 2) * ThetaStep;
+        SX := EnsureRange(CX + Round(Dist * Cos(RotAngle)), 0, FWidth - 1);
+        SY := EnsureRange(CY + Round(Dist * Sin(RotAngle)), 0, FHeight - 1);
+        Pix := Snap[SY * FWidth + SX];
+        Inc(SumR, Pix.R); Inc(SumG, Pix.G);
+        Inc(SumB, Pix.B); Inc(SumA, Pix.A);
+      end;
+      FPixels[Y * FWidth + X] := RGBA(SumR div Samples, SumG div Samples,
+                                       SumB div Samples, SumA div Samples);
+    end;
+end;
+
+procedure TRasterSurface.Twist(Amount: Integer);
+{ Twirl / twist distortion: each pixel is rotated around the image centre by
+  an angle that falls off from Amount degrees at the centre to 0 at the edge.
+  Negative Amount twists counter-clockwise. }
+var
+  Snap: array of TRGBA32;
+  X, Y: Integer;
+  DX, DY, Dist, MaxDist, TwistAngle, NewAngle, Factor: Double;
+  SX, SY: Integer;
+  CX, CY: Integer;
+begin
+  if Amount = 0 then Exit;
+  CX := FWidth div 2;
+  CY := FHeight div 2;
+  MaxDist := Sqrt(CX * CX + CY * CY);
+  if MaxDist < 1 then Exit;
+  Factor := Amount * Pi / 180.0;
+  SetLength(Snap, FWidth * FHeight);
+  Move(FPixels[0], Snap[0], FWidth * FHeight * SizeOf(TRGBA32));
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      DX := X - CX;
+      DY := Y - CY;
+      Dist := Sqrt(DX * DX + DY * DY);
+      TwistAngle := Factor * (1.0 - Min(1.0, Dist / MaxDist));
+      NewAngle := ArcTan2(DY, DX) + TwistAngle;
+      SX := EnsureRange(CX + Round(Dist * Cos(NewAngle)), 0, FWidth - 1);
+      SY := EnsureRange(CY + Round(Dist * Sin(NewAngle)), 0, FHeight - 1);
+      FPixels[Y * FWidth + X] := Snap[SY * FWidth + SX];
+    end;
+end;
+
+procedure TRasterSurface.Fragment(Offset: Integer);
+{ Fragment: averages four shifted copies of the image (offset to NW, NE, SW, SE)
+  producing a fractured / shattered glass feel similar to Paint.NET's Fragment. }
+var
+  Snap: array of TRGBA32;
+  X, Y: Integer;
+  HO: Integer;
+  X1, Y1, X2, Y2, X3, Y3, X4, Y4: Integer;
+  R, G, B, A: Integer;
+  P: TRGBA32;
+begin
+  HO := Max(1, Offset);
+  SetLength(Snap, FWidth * FHeight);
+  Move(FPixels[0], Snap[0], FWidth * FHeight * SizeOf(TRGBA32));
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      X1 := EnsureRange(X - HO, 0, FWidth - 1);  Y1 := EnsureRange(Y - HO, 0, FHeight - 1);
+      X2 := EnsureRange(X + HO, 0, FWidth - 1);  Y2 := Y1;
+      X3 := X1;                                   Y3 := EnsureRange(Y + HO, 0, FHeight - 1);
+      X4 := X2;                                   Y4 := Y3;
+      P := Snap[Y1 * FWidth + X1]; R := P.R; G := P.G; B := P.B; A := P.A;
+      P := Snap[Y2 * FWidth + X2]; Inc(R, P.R); Inc(G, P.G); Inc(B, P.B); Inc(A, P.A);
+      P := Snap[Y3 * FWidth + X3]; Inc(R, P.R); Inc(G, P.G); Inc(B, P.B); Inc(A, P.A);
+      P := Snap[Y4 * FWidth + X4]; Inc(R, P.R); Inc(G, P.G); Inc(B, P.B); Inc(A, P.A);
+      FPixels[Y * FWidth + X] := RGBA(R shr 2, G shr 2, B shr 2, A shr 2);
     end;
 end;
 

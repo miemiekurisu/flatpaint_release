@@ -189,6 +189,10 @@ type
     procedure OilPaint(Radius: Integer = 4);
     procedure FrostedGlass(Amount: Integer = 4);
     procedure ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer = 8);
+    procedure GaussianBlur(Radius: Integer);
+    procedure RadialBlur(Amount: Integer);
+    procedure Twist(Amount: Integer);
+    procedure Fragment(Offset: Integer);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
     function HasSelection: Boolean;
     function HasStoredSelection: Boolean;
@@ -1048,6 +1052,26 @@ end;
 procedure TImageDocument.ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer);
 begin
   ActiveLayer.Surface.ZoomBlur(CenterX, CenterY, Amount);
+end;
+
+procedure TImageDocument.GaussianBlur(Radius: Integer);
+begin
+  ActiveLayer.Surface.GaussianBlur(Radius);
+end;
+
+procedure TImageDocument.RadialBlur(Amount: Integer);
+begin
+  ActiveLayer.Surface.RadialBlur(Amount);
+end;
+
+procedure TImageDocument.Twist(Amount: Integer);
+begin
+  ActiveLayer.Surface.Twist(Amount);
+end;
+
+procedure TImageDocument.Fragment(Offset: Integer);
+begin
+  ActiveLayer.Surface.Fragment(Offset);
 end;
 
 procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);

@@ -110,6 +110,8 @@ type
     FZoomCombo: TComboBox;
     FOptionLabel: TLabel;
     FColorsBox: TPaintBox;
+    FSwatchBox: TPaintBox;
+    FSwatchColors: array[0..27] of TRGBA32;
     FDraggingPalette: TControl;
     FPaletteDragOffset: TPoint;
     FPaletteViewItems: array[TPaletteKind] of TMenuItem;
@@ -205,6 +207,8 @@ type
     function FormatMeasurement(APixels: Integer): string;
     procedure ColorsBoxPaint(Sender: TObject);
     procedure ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SwatchBoxPaint(Sender: TObject);
+    procedure SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     function ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
     function PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
     function SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
@@ -324,6 +328,10 @@ type
     procedure OilPaintClick(Sender: TObject);
     procedure FrostedGlassClick(Sender: TObject);
     procedure ZoomBlurClick(Sender: TObject);
+    procedure GaussianBlurClick(Sender: TObject);
+    procedure RadialBlurClick(Sender: TObject);
+    procedure TwistClick(Sender: TObject);
+    procedure FragmentClick(Sender: TObject);
     procedure RepeatLastEffectClick(Sender: TObject);
     procedure LayerPropertiesClick(Sender: TObject);
     procedure PasteSelectionClick(Sender: TObject);
@@ -616,6 +624,38 @@ begin
   FShowRulers := True;
   FDeferredLayoutPass := True;
   FLastScrollPosition := Point(0, 0);
+
+  { Default 28-colour swatch palette (2 rows × 14 columns, Paint.NET-style) }
+  { Row 1: dark / earth tones }
+  FSwatchColors[0]  := RGBA(  0,   0,   0, 255); { Black }
+  FSwatchColors[1]  := RGBA( 64,  64,  64, 255); { Dark Gray }
+  FSwatchColors[2]  := RGBA(128,   0,   0, 255); { Dark Red }
+  FSwatchColors[3]  := RGBA(160,  80,   0, 255); { Dark Orange }
+  FSwatchColors[4]  := RGBA(128, 128,   0, 255); { Olive }
+  FSwatchColors[5]  := RGBA(  0, 104,   0, 255); { Dark Green }
+  FSwatchColors[6]  := RGBA(  0, 104, 104, 255); { Dark Teal }
+  FSwatchColors[7]  := RGBA(  0,   0, 160, 255); { Dark Blue }
+  FSwatchColors[8]  := RGBA(  0,  32,  96, 255); { Navy }
+  FSwatchColors[9]  := RGBA( 64,   0, 128, 255); { Dark Violet }
+  FSwatchColors[10] := RGBA(128,   0, 128, 255); { Dark Purple }
+  FSwatchColors[11] := RGBA(160,   0,  96, 255); { Dark Magenta }
+  FSwatchColors[12] := RGBA(120,  56,  24, 255); { Brown }
+  FSwatchColors[13] := RGBA(255, 255, 255, 255); { White }
+  { Row 2: bright / saturated }
+  FSwatchColors[14] := RGBA(128, 128, 128, 255); { Gray }
+  FSwatchColors[15] := RGBA(192, 192, 192, 255); { Silver }
+  FSwatchColors[16] := RGBA(255,   0,   0, 255); { Red }
+  FSwatchColors[17] := RGBA(255, 128,   0, 255); { Orange }
+  FSwatchColors[18] := RGBA(255, 255,   0, 255); { Yellow }
+  FSwatchColors[19] := RGBA(  0, 255,   0, 255); { Lime }
+  FSwatchColors[20] := RGBA(  0, 255, 255, 255); { Aqua }
+  FSwatchColors[21] := RGBA(  0, 128, 255, 255); { Sky Blue }
+  FSwatchColors[22] := RGBA(  0,   0, 255, 255); { Blue }
+  FSwatchColors[23] := RGBA(128,   0, 255, 255); { Violet }
+  FSwatchColors[24] := RGBA(255,   0, 255, 255); { Magenta }
+  FSwatchColors[25] := RGBA(255,   0, 128, 255); { Hot Pink }
+  FSwatchColors[26] := RGBA(255, 192, 160, 255); { Peach }
+  FSwatchColors[27] := RGBA(240, 240, 240, 255); { Near White }
 
   BuildTabPopupMenu;
   BuildMenus;
@@ -1136,6 +1176,7 @@ var
   EffectsMenu: TMenuItem;
   PaletteMenuItem: TMenuItem;
   PaletteKind: TPaletteKind;
+  SubMenu: TMenuItem;
 begin
   FMainMenu := TMainMenu.Create(Self);
 
@@ -1290,24 +1331,50 @@ begin
   FRepeatLastEffectItem.Enabled := False;
   EffectsMenu.Add(FRepeatLastEffectItem);
   CreateMenuItem(EffectsMenu, '-', nil);
-  CreateMenuItem(EffectsMenu, '&Blur...', @BlurClick);
-  CreateMenuItem(EffectsMenu, '&Sharpen', @SharpenClick);
-  CreateMenuItem(EffectsMenu, 'Add &Noise...', @AddNoiseClick);
-  CreateMenuItem(EffectsMenu, 'Detect &Edges', @OutlineClick);
-  CreateMenuItem(EffectsMenu, 'Outline Effe&ct...', @OutlineEffectClick);
-  CreateMenuItem(EffectsMenu, '-', nil);
-  CreateMenuItem(EffectsMenu, '&Emboss', @EmbossClick);
-  CreateMenuItem(EffectsMenu, 'S&often', @SoftenClick);
-  CreateMenuItem(EffectsMenu, 'Render &Clouds', @RenderCloudsClick);
-  CreateMenuItem(EffectsMenu, '-', nil);
-  CreateMenuItem(EffectsMenu, '&Pixelate...', @PixelateClick);
-  CreateMenuItem(EffectsMenu, '&Vignette...', @VignetteClick);
-  CreateMenuItem(EffectsMenu, '&Motion Blur...', @MotionBlurClick);
-  CreateMenuItem(EffectsMenu, '&Median / Denoise...', @MedianFilterClick);
-  CreateMenuItem(EffectsMenu, '&Glow...', @GlowClick);
-  CreateMenuItem(EffectsMenu, '&Oil Paint...', @OilPaintClick);
-  CreateMenuItem(EffectsMenu, '&Frosted Glass...', @FrostedGlassClick);
-  CreateMenuItem(EffectsMenu, '&Zoom Blur...', @ZoomBlurClick);
+  { ---------- Blurs sub-menu ---------- }
+  SubMenu := TMenuItem.Create(FMainMenu);
+  SubMenu.Caption := '&Blurs';
+  EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, '&Box Blur...', @BlurClick);
+  CreateMenuItem(SubMenu, '&Gaussian Blur...', @GaussianBlurClick);
+  CreateMenuItem(SubMenu, '&Motion Blur...', @MotionBlurClick);
+  CreateMenuItem(SubMenu, '&Radial Blur...', @RadialBlurClick);
+  CreateMenuItem(SubMenu, '&Zoom Blur...', @ZoomBlurClick);
+  { ---------- Distort sub-menu ---------- }
+  SubMenu := TMenuItem.Create(FMainMenu);
+  SubMenu.Caption := '&Distort';
+  EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, '&Fragment...', @FragmentClick);
+  CreateMenuItem(SubMenu, '&Pixelate...', @PixelateClick);
+  CreateMenuItem(SubMenu, '&Twist...', @TwistClick);
+  { ---------- Noise sub-menu ---------- }
+  SubMenu := TMenuItem.Create(FMainMenu);
+  SubMenu.Caption := '&Noise';
+  EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, 'Add &Noise...', @AddNoiseClick);
+  CreateMenuItem(SubMenu, '&Median / Denoise...', @MedianFilterClick);
+  { ---------- Photo sub-menu ---------- }
+  SubMenu := TMenuItem.Create(FMainMenu);
+  SubMenu.Caption := '&Photo';
+  EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, '&Glow...', @GlowClick);
+  CreateMenuItem(SubMenu, '&Oil Paint...', @OilPaintClick);
+  CreateMenuItem(SubMenu, '&Sharpen', @SharpenClick);
+  CreateMenuItem(SubMenu, 'S&often', @SoftenClick);
+  CreateMenuItem(SubMenu, '&Vignette...', @VignetteClick);
+  { ---------- Render sub-menu ---------- }
+  SubMenu := TMenuItem.Create(FMainMenu);
+  SubMenu.Caption := '&Render';
+  EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, '&Clouds', @RenderCloudsClick);
+  CreateMenuItem(SubMenu, '&Frosted Glass...', @FrostedGlassClick);
+  { ---------- Stylize sub-menu ---------- }
+  SubMenu := TMenuItem.Create(FMainMenu);
+  SubMenu.Caption := '&Stylize';
+  EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, 'Detect &Edges', @OutlineClick);
+  CreateMenuItem(SubMenu, '&Emboss', @EmbossClick);
+  CreateMenuItem(SubMenu, 'Outline Effe&ct...', @OutlineEffectClick);
 
   Menu := FMainMenu;
 end;
@@ -1785,10 +1852,23 @@ begin
   FColorsBox.Left := 12;
   FColorsBox.Top := ContentTop + 136;
   FColorsBox.Width := FColorsPanel.Width - 24;
-  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 148);
+  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 148) - 40;
   FColorsBox.Anchors := [akLeft, akRight, akTop, akBottom];
   FColorsBox.OnPaint := @ColorsBoxPaint;
   FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
+
+  { Swatch palette grid — 2 rows x 14 columns of quick-pick colors }
+  FSwatchBox := TPaintBox.Create(FColorsPanel);
+  FSwatchBox.Parent := FColorsPanel;
+  FSwatchBox.Left := 12;
+  FSwatchBox.Top := FColorsBox.Top + FColorsBox.Height + 4;
+  FSwatchBox.Width := FColorsPanel.Width - 24;
+  FSwatchBox.Height := 34;
+  FSwatchBox.Anchors := [akLeft, akRight, akBottom];
+  FSwatchBox.OnPaint := @SwatchBoxPaint;
+  FSwatchBox.OnMouseDown := @SwatchBoxMouseDown;
+  FSwatchBox.Hint := 'Left-click: set primary colour  Right-click: set secondary colour';
+  FSwatchBox.ShowHint := True;
 
   FHistoryPanel := TPanel.Create(Self);
   CreatePalette(FHistoryPanel, pkHistory);
@@ -2470,6 +2550,78 @@ begin
     RefreshColorsPanel;
     Exit;
   end;
+end;
+
+procedure TMainForm.SwatchBoxPaint(Sender: TObject);
+{ Draw 2 rows × 14 columns of colour swatches; separating gaps are 1 px. }
+const
+  Cols = 14;
+  Rows = 2;
+var
+  PB: TPaintBox;
+  CellW, CellH, Gap, Row, Col, Idx: Integer;
+  SR: TRect;
+  C: TRGBA32;
+begin
+  PB := TPaintBox(Sender);
+  Gap := 1;
+  CellW := (PB.Width - Gap * (Cols - 1)) div Cols;
+  CellH := (PB.Height - Gap * (Rows - 1)) div Rows;
+  if (CellW < 1) or (CellH < 1) then Exit;
+  for Row := 0 to Rows - 1 do
+    for Col := 0 to Cols - 1 do
+    begin
+      Idx := Row * Cols + Col;
+      if (Idx < 0) or (Idx > 27) then Continue;
+      C := FSwatchColors[Idx];
+      SR.Left   := Col * (CellW + Gap);
+      SR.Top    := Row * (CellH + Gap);
+      SR.Right  := SR.Left + CellW;
+      SR.Bottom := SR.Top  + CellH;
+      PB.Canvas.Brush.Color := RGBToColor(C.R, C.G, C.B);
+      PB.Canvas.Pen.Color   := $00202020;
+      PB.Canvas.Pen.Width   := 1;
+      PB.Canvas.Rectangle(SR.Left, SR.Top, SR.Right + 1, SR.Bottom + 1);
+    end;
+end;
+
+procedure TMainForm.SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+{ Left-click sets primary; right-click sets secondary. }
+const
+  Cols = 14;
+  Rows = 2;
+var
+  PB: TPaintBox;
+  CellW, CellH, Gap, Col, Row, Idx: Integer;
+  C: TRGBA32;
+begin
+  if not (Button in [mbLeft, mbRight]) then Exit;
+  PB := TPaintBox(Sender);
+  Gap := 1;
+  CellW := (PB.Width - Gap * (Cols - 1)) div Cols;
+  CellH := (PB.Height - Gap * (Rows - 1)) div Rows;
+  if CellW < 1 then Exit;
+  Col := EnsureRange(X div Max(1, CellW + Gap), 0, Cols - 1);
+  Row := EnsureRange(Y div Max(1, CellH + Gap), 0, Rows - 1);
+  Idx := Row * Cols + Col;
+  if (Idx < 0) or (Idx > 27) then Exit;
+  C := FSwatchColors[Idx];
+  if Button = mbLeft then
+  begin
+    FPrimaryColor := C;
+    FColorEditTarget := 0;
+  end
+  else
+  begin
+    FSecondaryColor := C;
+    FColorEditTarget := 1;
+  end;
+  if Assigned(FColorTargetCombo) then
+    FColorTargetCombo.ItemIndex := FColorEditTarget;
+  RefreshColorsPanel;
+  if Assigned(FColorsBox) then
+    FColorsBox.Invalidate;
 end;
 
 procedure TMainForm.HistoryListDrawItem(Control: TWinControl; Index: Integer;
@@ -5582,6 +5734,98 @@ begin
   RefreshCanvas;
   FLastEffectCaption := 'Zoom Blur';
   FLastEffectProc := @ZoomBlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.GaussianBlurClick(Sender: TObject);
+var
+  RadStr: string;
+  RadVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  RadStr := '3';
+  if not InputQuery('Gaussian Blur', 'Radius (1–30):', RadStr) then Exit;
+  RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 3), 1, 30);
+  FDocument.PushHistory('Gaussian Blur');
+  FDocument.GaussianBlur(RadVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Gaussian Blur';
+  FLastEffectProc := @GaussianBlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.RadialBlurClick(Sender: TObject);
+var
+  AmtStr: string;
+  AmtVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AmtStr := '15';
+  if not InputQuery('Radial Blur', 'Sweep angle in degrees (1–60):', AmtStr) then Exit;
+  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 15), 1, 60);
+  FDocument.PushHistory('Radial Blur');
+  FDocument.RadialBlur(AmtVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Radial Blur';
+  FLastEffectProc := @RadialBlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.TwistClick(Sender: TObject);
+var
+  AmtStr: string;
+  AmtVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AmtStr := '90';
+  if not InputQuery('Twist', 'Angle in degrees (-360 to 360):', AmtStr) then Exit;
+  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 90), -360, 360);
+  FDocument.PushHistory('Twist');
+  FDocument.Twist(AmtVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Twist';
+  FLastEffectProc := @TwistClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.FragmentClick(Sender: TObject);
+var
+  OffStr: string;
+  OffVal: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  OffStr := '8';
+  if not InputQuery('Fragment', 'Offset in pixels (1–40):', OffStr) then Exit;
+  OffVal := EnsureRange(StrToIntDef(Trim(OffStr), 8), 1, 40);
+  FDocument.PushHistory('Fragment');
+  FDocument.Fragment(OffVal);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Fragment';
+  FLastEffectProc := @FragmentClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
     FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;

@@ -39,7 +39,7 @@ const
   ToolsPaletteWidth = 100;
   ToolsPaletteHeight = 380;
   ColorsPaletteWidth = 254;
-  ColorsPaletteHeight = 306;
+  ColorsPaletteHeight = 346;
   HistoryPaletteWidth = 236;
   HistoryPaletteHeight = 220;
   LayersPaletteWidth = 236;
