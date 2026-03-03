@@ -10,6 +10,8 @@ uses
 function PaintToolName(ATool: TToolKind): string;
 function PaintToolHint(ATool: TToolKind): string;
 function PaintToolGlyph(ATool: TToolKind): string;
+function LayerOpacityPercentFromByte(AOpacity: Byte): Integer;
+function LayerOpacityByteFromPercent(APercent: Integer): Byte;
 function PaintToolDisplayCount: Integer;
 function PaintToolAtDisplayIndex(AIndex: Integer): TToolKind;
 function PaintToolDisplayIndex(ATool: TToolKind): Integer;
@@ -158,54 +160,71 @@ function PaintToolGlyph(ATool: TToolKind): string;
 begin
   case ATool of
     tkSelectRect:
-      Result := '⬒';
+      Result := 'Rct';
     tkSelectEllipse:
-      Result := '⬮';
+      Result := 'Ell';
     tkSelectLasso:
-      Result := '🔲';
+      Result := 'Lso';
     tkMagicWand:
-      Result := '🪄';
+      Result := 'Wnd';
     tkMoveSelection:
-      Result := '⤡';
+      Result := 'Sel';
     tkMovePixels:
-      Result := '🔀';
+      Result := 'Pix';
     tkZoom:
-      Result := '🔍';
+      Result := 'Zoom';
     tkPan:
-      Result := '✋';
+      Result := 'Pan';
     tkFill:
-      Result := '🪣';
+      Result := 'Fill';
     tkGradient:
-      Result := '🌈';
+      Result := 'Grad';
     tkPencil:
-      Result := '✏️';
+      Result := 'Pen';
     tkBrush:
-      Result := '🖌️';
+      Result := 'Br';
     tkEraser:
-      Result := '🧹';
+      Result := 'Er';
     tkColorPicker:
-      Result := '💉';
+      Result := 'Pick';
     tkCloneStamp:
-      Result := '📋';
+      Result := 'Cln';
     tkRecolor:
-      Result := '🎨';
+      Result := 'Re';
     tkLine:
-      Result := '📏';
+      Result := 'Ln';
     tkRectangle:
-      Result := '▬';
+      Result := 'Rect';
     tkRoundedRectangle:
-      Result := '▭';
+      Result := 'Rnd';
     tkEllipseShape:
-      Result := '⬭';
+      Result := 'Oval';
     tkFreeformShape:
-      Result := '✍️';
+      Result := 'Free';
     tkCrop:
-      Result := '✂️';
+      Result := 'Crop';
     tkText:
-      Result := '🔤';
+      Result := 'Text';
   else
-    Result := '❓';
+    Result := 'Tool';
   end;
+end;
+
+function LayerOpacityPercentFromByte(AOpacity: Byte): Integer;
+begin
+  Result := (Integer(AOpacity) * 100 + 127) div 255;
+end;
+
+function LayerOpacityByteFromPercent(APercent: Integer): Byte;
+var
+  Clamped: Integer;
+begin
+  Clamped := APercent;
+  if Clamped < 0 then
+    Clamped := 0
+  else if Clamped > 100 then
+    Clamped := 100;
+  Result := (Clamped * 255 + 50) div 100;
 end;
 
 function PaintToolDisplayCount: Integer;

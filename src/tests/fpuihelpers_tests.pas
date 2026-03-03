@@ -17,6 +17,7 @@ type
     procedure PanAndPencilAppearInExpectedBands;
     procedure FreeformShapeAppearsAfterBasicShapes;
     procedure ToolMetadataIsCompleteForDisplayOrder;
+    procedure ToolGlyphsStayCompact;
     procedure CropTextCloneRecolorAppearInDisplayOrder;
     procedure TotalDisplayCountIsCorrect;
     procedure ShortcutCyclesSelectionTools;
@@ -24,6 +25,7 @@ type
     procedure ShortcutCyclesShapeTools;
     procedure ShortcutSingleKeyMaps;
     procedure ColorShortcutTogglesTarget;
+    procedure LayerOpacityHelpersRoundTripPercentScale;
   end;
 
   TMainFormTests = class(TTestCase)
@@ -200,6 +202,17 @@ begin
   end;
 end;
 
+procedure TFPUIHelpersTests.ToolGlyphsStayCompact;
+var
+  ToolIndex: Integer;
+begin
+  for ToolIndex := 0 to PaintToolDisplayCount - 1 do
+    AssertTrue(
+      'tool glyph should stay compact',
+      Length(PaintToolGlyph(PaintToolAtDisplayIndex(ToolIndex))) <= 4
+    );
+end;
+
 procedure TFPUIHelpersTests.CropTextCloneRecolorAppearInDisplayOrder;
 begin
   AssertTrue('crop has display index', PaintToolDisplayIndex(tkCrop) >= 0);
@@ -214,6 +227,21 @@ end;
 procedure TFPUIHelpersTests.TotalDisplayCountIsCorrect;
 begin
   AssertEquals('total tool display count', 23, PaintToolDisplayCount);
+end;
+
+procedure TFPUIHelpersTests.LayerOpacityHelpersRoundTripPercentScale;
+begin
+  AssertEquals('0% should map to 0', 0, LayerOpacityByteFromPercent(0));
+  AssertEquals('100% should map to 255', 255, LayerOpacityByteFromPercent(100));
+  AssertEquals('255 should read as 100%', 100, LayerOpacityPercentFromByte(255));
+  AssertTrue(
+    '50% should map near half opacity',
+    Abs(LayerOpacityByteFromPercent(50) - 128) <= 1
+  );
+  AssertTrue(
+    'half opacity should read near 50%',
+    Abs(LayerOpacityPercentFromByte(128) - 50) <= 1
+  );
 end;
 
 procedure TFPUIHelpersTests.ShortcutCyclesSelectionTools;

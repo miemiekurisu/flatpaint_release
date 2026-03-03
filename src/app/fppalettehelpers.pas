@@ -49,11 +49,11 @@ const
   ToolsPaletteWidth = 100;
   ToolsPaletteHeight = 380;
   ColorsPaletteWidth = 254;
-  ColorsPaletteHeight = 346;
+  ColorsPaletteHeight = 382;
   HistoryPaletteWidth = 236;
   HistoryPaletteHeight = 220;
   LayersPaletteWidth = 236;
-  LayersPaletteHeight = 242;
+  LayersPaletteHeight = 320;
 
 function RgbColor(ARed, AGreen, ABlue: Byte): LongInt; inline;
 begin

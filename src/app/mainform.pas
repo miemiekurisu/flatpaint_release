@@ -133,6 +133,10 @@ type
     FTextLastResult: TTextDialogResult;
     FLayerBlendCombo: TComboBox;
     FLayerPropsButton: TButton;
+    FLayerVisibleCheck: TCheckBox;
+    FLayerOpacitySpin: TSpinEdit;
+    FLayerOpacityLabel: TLabel;
+    FUpdatingLayerControls: Boolean;
     FCloneStampSnapshot: TRasterSurface;
     { Pre-stroke snapshot for efficient region-based undo (brush/pencil/eraser/recolor/clone).
       FPreStrokeSnapshot holds a clone of the active layer taken at stroke start.
@@ -154,6 +158,9 @@ type
     FColorGSpin: TSpinEdit;
     FColorBSpin: TSpinEdit;
     FColorASpin: TSpinEdit;
+    FColorHSpin: TSpinEdit;
+    FColorSSpin: TSpinEdit;
+    FColorVSpin: TSpinEdit;
     FColorHexEdit: TEdit;
     FUpdatingColorSpins: Boolean;
     FColorEditTarget: Integer; { 0=Primary, 1=Secondary }
@@ -295,6 +302,8 @@ type
     procedure FlattenClick(Sender: TObject);
     procedure ToggleLayerVisibilityClick(Sender: TObject);
     procedure LayerOpacityClick(Sender: TObject);
+    procedure LayerVisibleCheckChanged(Sender: TObject);
+    procedure LayerOpacitySpinChanged(Sender: TObject);
     procedure ResizeImageClick(Sender: TObject);
     procedure ResizeCanvasClick(Sender: TObject);
     procedure RotateClockwiseClick(Sender: TObject);
@@ -356,6 +365,7 @@ type
     { Colors panel RGBA controls }
     procedure UpdateColorSpins;
     procedure ColorSpinChanged(Sender: TObject);
+    procedure ColorHSVSpinChanged(Sender: TObject);
     procedure ColorHexChanged(Sender: TObject);
     procedure ColorTargetComboChanged(Sender: TObject);
     { Tool option handlers }
@@ -1789,9 +1799,9 @@ begin
   FColorTargetCombo.Items.Add('Secondary');
   FColorTargetCombo.ItemIndex := 0;
   FColorTargetCombo.OnChange := @ColorTargetComboChanged;
-  CreateButton('More…', 148, ContentTop, 90, @PrimaryColorClick, FColorsPanel);
-  CreateButton('↔ Swap', 12, ContentTop + 28, 110, @SwapColorsClick, FColorsPanel);
-  CreateButton('B/W', 128, ContentTop + 28, 110, @ResetColorsClick, FColorsPanel);
+  CreateButton('Pick...', 148, ContentTop, 90, @PrimaryColorClick, FColorsPanel);
+  CreateButton('Swap', 12, ContentTop + 28, 110, @SwapColorsClick, FColorsPanel);
+  CreateButton('Mono', 128, ContentTop + 28, 110, @ResetColorsClick, FColorsPanel);
 
   { R/G/B row }
   with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
@@ -1839,11 +1849,36 @@ begin
   FColorHexEdit.Hint := 'Selected color as RRGGBBAA hex';
   FColorHexEdit.ShowHint := True;
 
+  { H/S/V row }
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'H:'; Font.Color := ChromeTextColor; Left := 12; Top := ContentTop + 118; end;
+  FColorHSpin := TSpinEdit.Create(FColorsPanel);
+  FColorHSpin.Parent := FColorsPanel;
+  FColorHSpin.Left := 28; FColorHSpin.Top := ContentTop + 115;
+  FColorHSpin.Width := 56; FColorHSpin.MinValue := 0; FColorHSpin.MaxValue := 360;
+  FColorHSpin.OnChange := @ColorHSVSpinChanged;
+
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'S:'; Font.Color := ChromeTextColor; Left := 90; Top := ContentTop + 118; end;
+  FColorSSpin := TSpinEdit.Create(FColorsPanel);
+  FColorSSpin.Parent := FColorsPanel;
+  FColorSSpin.Left := 106; FColorSSpin.Top := ContentTop + 115;
+  FColorSSpin.Width := 56; FColorSSpin.MinValue := 0; FColorSSpin.MaxValue := 100;
+  FColorSSpin.OnChange := @ColorHSVSpinChanged;
+
+  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
+    Caption := 'V:'; Font.Color := ChromeTextColor; Left := 168; Top := ContentTop + 118; end;
+  FColorVSpin := TSpinEdit.Create(FColorsPanel);
+  FColorVSpin.Parent := FColorsPanel;
+  FColorVSpin.Left := 184; FColorVSpin.Top := ContentTop + 115;
+  FColorVSpin.Width := 56; FColorVSpin.MinValue := 0; FColorVSpin.MaxValue := 100;
+  FColorVSpin.OnChange := @ColorHSVSpinChanged;
+
   { Secondary color indicator label }
   FColorsValueLabel := TLabel.Create(FColorsPanel);
   FColorsValueLabel.Parent := FColorsPanel;
   FColorsValueLabel.Left := 12;
-  FColorsValueLabel.Top := ContentTop + 118;
+  FColorsValueLabel.Top := ContentTop + 146;
   FColorsValueLabel.Width := 226;
   FColorsValueLabel.Height := 14;
   FColorsValueLabel.Font.Color := ChromeMutedTextColor;
@@ -1855,9 +1890,9 @@ begin
   FColorsBox := TPaintBox.Create(FColorsPanel);
   FColorsBox.Parent := FColorsPanel;
   FColorsBox.Left := 12;
-  FColorsBox.Top := ContentTop + 136;
+  FColorsBox.Top := ContentTop + 164;
   FColorsBox.Width := FColorsPanel.Width - 24;
-  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 148) - 40;
+  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 176) - 40;
   FColorsBox.Anchors := [akLeft, akRight, akTop, akBottom];
   FColorsBox.OnPaint := @ColorsBoxPaint;
   FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
@@ -1907,17 +1942,17 @@ begin
   CreatePalette(FRightPanel, pkLayers);
 
   { Row 1: Add / Duplicate / Delete / Merge }
-  CreateButton('➕', 12, ContentTop, 30, @AddLayerClick, FRightPanel);
-  CreateButton('📋', 44, ContentTop, 30, @DuplicateLayerClick, FRightPanel);
-  CreateButton('🗑', 76, ContentTop, 30, @DeleteLayerClick, FRightPanel);
-  CreateButton('⤵', 108, ContentTop, 30, @MergeDownClick, FRightPanel);
+  CreateButton('+', 12, ContentTop, 30, @AddLayerClick, FRightPanel);
+  CreateButton('Dup', 44, ContentTop, 36, @DuplicateLayerClick, FRightPanel);
+  CreateButton('Del', 82, ContentTop, 36, @DeleteLayerClick, FRightPanel);
+  CreateButton('Mrg', 120, ContentTop, 36, @MergeDownClick, FRightPanel);
   { Row 1 right: Vis / Up / Down }
-  CreateButton('👁', 144, ContentTop, 30, @ToggleLayerVisibilityClick, FRightPanel);
-  CreateButton('⬆', 176, ContentTop, 30, @MoveLayerUpClick, FRightPanel);
-  CreateButton('⬇', 208, ContentTop, 30, @MoveLayerDownClick, FRightPanel);
+  CreateButton('Vis', 158, ContentTop, 34, @ToggleLayerVisibilityClick, FRightPanel);
+  CreateButton('Up', 194, ContentTop, 20, @MoveLayerUpClick, FRightPanel);
+  CreateButton('Dn', 216, ContentTop, 20, @MoveLayerDownClick, FRightPanel);
 
   { Row 2: Opacity / Flatten / Rename / Properties }
-  CreateButton('Opac', 12, ContentTop + 28, 52, @LayerOpacityClick, FRightPanel);
+  CreateButton('Fade', 12, ContentTop + 28, 52, @LayerOpacityClick, FRightPanel);
   CreateButton('Flat', 68, ContentTop + 28, 52, @FlattenClick, FRightPanel);
   CreateButton('Name', 124, ContentTop + 28, 52, @RenameLayerClick, FRightPanel);
   FLayerPropsButton := CreateButton('Props', 180, ContentTop + 28, 56, @LayerPropertiesClick, FRightPanel);
@@ -1939,12 +1974,36 @@ begin
   FLayerBlendCombo.ItemIndex := 0;
   FLayerBlendCombo.OnChange := @LayerBlendModeChanged;
 
+  FLayerVisibleCheck := TCheckBox.Create(FRightPanel);
+  FLayerVisibleCheck.Parent := FRightPanel;
+  FLayerVisibleCheck.Left := 12;
+  FLayerVisibleCheck.Top := ContentTop + 88;
+  FLayerVisibleCheck.Width := 84;
+  FLayerVisibleCheck.Caption := 'Visible';
+  FLayerVisibleCheck.OnChange := @LayerVisibleCheckChanged;
+
+  FLayerOpacityLabel := TLabel.Create(FRightPanel);
+  FLayerOpacityLabel.Parent := FRightPanel;
+  FLayerOpacityLabel.Caption := 'Opacity:';
+  FLayerOpacityLabel.Font.Color := ChromeTextColor;
+  FLayerOpacityLabel.Left := 106;
+  FLayerOpacityLabel.Top := ContentTop + 93;
+
+  FLayerOpacitySpin := TSpinEdit.Create(FRightPanel);
+  FLayerOpacitySpin.Parent := FRightPanel;
+  FLayerOpacitySpin.Left := 160;
+  FLayerOpacitySpin.Top := ContentTop + 88;
+  FLayerOpacitySpin.Width := 72;
+  FLayerOpacitySpin.MinValue := 0;
+  FLayerOpacitySpin.MaxValue := 100;
+  FLayerOpacitySpin.OnChange := @LayerOpacitySpinChanged;
+
   FLayerList := TListBox.Create(FRightPanel);
   FLayerList.Parent := FRightPanel;
   FLayerList.Left := 12;
-  FLayerList.Top := ContentTop + 84;
+  FLayerList.Top := ContentTop + 118;
   FLayerList.Width := 220;
-  FLayerList.Height := FRightPanel.Height - (ContentTop + 96);
+  FLayerList.Height := FRightPanel.Height - (ContentTop + 130);
   FLayerList.Anchors := [akTop, akLeft, akRight, akBottom];
   FLayerList.Color := PaletteListBackgroundColor;
   FLayerList.Font.Color := ChromeTextColor;
@@ -2295,22 +2354,32 @@ begin
     begin
       Layer := FDocument.Layers[Index];
       if Layer.Visible then
-        CaptionText := '👁 '
+        CaptionText := 'On  '
       else
-        CaptionText := '   ';
+        CaptionText := 'Off ';
       CaptionText := CaptionText + Layer.Name;
       if Layer.Opacity < 255 then
-        CaptionText := CaptionText + Format(' (%d%%)', [Layer.Opacity * 100 div 255]);
+        CaptionText := CaptionText + Format(' (%d%%)', [LayerOpacityPercentFromByte(Layer.Opacity)]);
       FLayerList.Items.Add(CaptionText);
     end;
     FLayerList.ItemIndex := FDocument.ActiveLayerIndex;
   finally
     FLayerList.Items.EndUpdate;
   end;
-  { Sync blend mode combo to active layer }
-  if Assigned(FLayerBlendCombo) and (FDocument.LayerCount > 0) then
+  { Sync inline layer controls to the active layer }
+  if FDocument.LayerCount > 0 then
   begin
-    FLayerBlendCombo.ItemIndex := Ord(FDocument.ActiveLayer.BlendMode);
+    FUpdatingLayerControls := True;
+    try
+      if Assigned(FLayerBlendCombo) then
+        FLayerBlendCombo.ItemIndex := Ord(FDocument.ActiveLayer.BlendMode);
+      if Assigned(FLayerVisibleCheck) then
+        FLayerVisibleCheck.Checked := FDocument.ActiveLayer.Visible;
+      if Assigned(FLayerOpacitySpin) then
+        FLayerOpacitySpin.Value := LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity);
+    finally
+      FUpdatingLayerControls := False;
+    end;
   end;
   RefreshHistoryPanel;
   RefreshStatus(FLastImagePoint);
@@ -4203,14 +4272,49 @@ procedure TMainForm.LayerOpacityClick(Sender: TObject);
 var
   ValueText: string;
 begin
-  ValueText := IntToStr(FDocument.ActiveLayer.Opacity);
-  if not InputQuery('Layer Opacity', 'Opacity (0 to 255)', ValueText) then
+  ValueText := IntToStr(LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity));
+  if not InputQuery('Layer Opacity', 'Opacity (0 to 100%)', ValueText) then
     Exit;
   FDocument.PushHistory('Layer Opacity');
   FDocument.SetLayerOpacity(
     FDocument.ActiveLayerIndex,
-    EnsureRange(StrToIntDef(ValueText, FDocument.ActiveLayer.Opacity), 0, 255)
+    LayerOpacityByteFromPercent(
+      StrToIntDef(ValueText, LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity))
+    )
   );
+  SetDirty(True);
+  RefreshLayers;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.LayerVisibleCheckChanged(Sender: TObject);
+begin
+  if FUpdatingLayerControls then
+    Exit;
+  if not Assigned(FLayerVisibleCheck) or (FDocument.LayerCount = 0) then
+    Exit;
+  if FDocument.ActiveLayer.Visible = FLayerVisibleCheck.Checked then
+    Exit;
+  FDocument.PushHistory('Toggle Layer Visibility');
+  FDocument.SetLayerVisibility(FDocument.ActiveLayerIndex, FLayerVisibleCheck.Checked);
+  SetDirty(True);
+  RefreshLayers;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.LayerOpacitySpinChanged(Sender: TObject);
+var
+  NewOpacity: Byte;
+begin
+  if FUpdatingLayerControls then
+    Exit;
+  if not Assigned(FLayerOpacitySpin) or (FDocument.LayerCount = 0) then
+    Exit;
+  NewOpacity := LayerOpacityByteFromPercent(FLayerOpacitySpin.Value);
+  if FDocument.ActiveLayer.Opacity = NewOpacity then
+    Exit;
+  FDocument.PushHistory('Layer Opacity');
+  FDocument.SetLayerOpacity(FDocument.ActiveLayerIndex, NewOpacity);
   SetDirty(True);
   RefreshLayers;
   RefreshCanvas;
@@ -5045,11 +5149,11 @@ begin
   { Layer name – bold for selected / active }
   NameText := Layer.Name;
   if Layer.Opacity < 255 then
-    NameText := NameText + Format(' %d%%', [Layer.Opacity * 100 div 255]);
+    NameText := NameText + Format(' %d%%', [LayerOpacityPercentFromByte(Layer.Opacity)]);
   if not Layer.Visible then
-    NameText := '  ' + NameText
+    NameText := 'Off ' + NameText
   else
-    NameText := '👁 ' + NameText;
+    NameText := 'On  ' + NameText;
 
   OldFont := TFont.Create;
   try
@@ -5075,6 +5179,20 @@ procedure TMainForm.LayerListClick(Sender: TObject);
 begin
   if FLayerList.ItemIndex >= 0 then
     FDocument.ActiveLayerIndex := FLayerList.ItemIndex;
+  if FDocument.LayerCount > 0 then
+  begin
+    FUpdatingLayerControls := True;
+    try
+      if Assigned(FLayerBlendCombo) then
+        FLayerBlendCombo.ItemIndex := Ord(FDocument.ActiveLayer.BlendMode);
+      if Assigned(FLayerVisibleCheck) then
+        FLayerVisibleCheck.Checked := FDocument.ActiveLayer.Visible;
+      if Assigned(FLayerOpacitySpin) then
+        FLayerOpacitySpin.Value := LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity);
+    finally
+      FUpdatingLayerControls := False;
+    end;
+  end;
   RefreshStatus(FLastImagePoint);
 end;
 
@@ -6381,6 +6499,9 @@ end;
 procedure TMainForm.UpdateColorSpins;
 var
   EditColor: TRGBA32;
+  HueValue: Double;
+  SatValue: Double;
+  ValValue: Double;
 begin
   if FUpdatingColorSpins then Exit;
   FUpdatingColorSpins := True;
@@ -6393,6 +6514,10 @@ begin
     if Assigned(FColorGSpin) then FColorGSpin.Value := EditColor.G;
     if Assigned(FColorBSpin) then FColorBSpin.Value := EditColor.B;
     if Assigned(FColorASpin) then FColorASpin.Value := EditColor.A;
+    RGBToHSV(EditColor.R, EditColor.G, EditColor.B, HueValue, SatValue, ValValue);
+    if Assigned(FColorHSpin) then FColorHSpin.Value := EnsureRange(Round(HueValue * 360.0), 0, 360);
+    if Assigned(FColorSSpin) then FColorSSpin.Value := EnsureRange(Round(SatValue * 100.0), 0, 100);
+    if Assigned(FColorVSpin) then FColorVSpin.Value := EnsureRange(Round(ValValue * 100.0), 0, 100);
     if Assigned(FColorHexEdit) then
       FColorHexEdit.Text := Format('%2.2x%2.2x%2.2x%2.2x',
         [EditColor.R, EditColor.G, EditColor.B, EditColor.A]);
@@ -6417,15 +6542,38 @@ begin
     FPrimaryColor := NewColor
   else
     FSecondaryColor := NewColor;
-  FUpdatingColorSpins := True;
-  try
-    if Assigned(FColorHexEdit) then
-      FColorHexEdit.Text := Format('%2.2x%2.2x%2.2x%2.2x',
-        [NewColor.R, NewColor.G, NewColor.B, NewColor.A]);
-  finally
-    FUpdatingColorSpins := False;
-  end;
-  if Assigned(FColorsBox) then FColorsBox.Invalidate;
+  RefreshColorsPanel;
+end;
+
+procedure TMainForm.ColorHSVSpinChanged(Sender: TObject);
+var
+  EditColor: TRGBA32;
+  NewColor: TRGBA32;
+  HueValue: Double;
+  SatValue: Double;
+  ValValue: Double;
+  NewR: Byte;
+  NewG: Byte;
+  NewB: Byte;
+begin
+  if FUpdatingColorSpins then Exit;
+  if not Assigned(FColorHSpin) then Exit;
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+
+  HueValue := EnsureRange(FColorHSpin.Value, 0, 360) / 360.0;
+  SatValue := EnsureRange(FColorSSpin.Value, 0, 100) / 100.0;
+  ValValue := EnsureRange(FColorVSpin.Value, 0, 100) / 100.0;
+  HSVToRGB(HueValue, SatValue, ValValue, NewR, NewG, NewB);
+  NewColor := RGBA(NewR, NewG, NewB, EditColor.A);
+
+  if FColorEditTarget = 0 then
+    FPrimaryColor := NewColor
+  else
+    FSecondaryColor := NewColor;
+  RefreshColorsPanel;
 end;
 
 procedure TMainForm.ColorHexChanged(Sender: TObject);
@@ -6466,7 +6614,7 @@ begin
     finally
       FUpdatingColorSpins := False;
     end;
-    if Assigned(FColorsBox) then FColorsBox.Invalidate;
+    RefreshColorsPanel;
   except
     { Invalid hex input — silently ignore }
   end;

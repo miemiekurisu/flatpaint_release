@@ -22,6 +22,7 @@ type
     procedure ToolsPaletteUsesNarrowTwoColumnLayout;
     procedure SnapPaletteRectAlignsToNearbyWorkspaceEdges;
     procedure ColorsPanelFitsRGBASpinsAndHexField;
+    procedure PaletteHeightsFitDeeperPanelControls;
   end;
 
 implementation
@@ -194,11 +195,24 @@ procedure TFPPaletteHelpersTests.ColorsPanelFitsRGBASpinsAndHexField;
 var
   R: TRect;
 begin
-  { Colors panel was expanded to fit R/G/B/A spin edits + hex input field.
-    Minimum width required for 4 spin columns ≈ 240px; height for all rows ≥ 280px. }
+  { Colors panel was expanded to fit RGB/RGBA edits plus deeper controls.
+    Minimum width required for the current control grid is about 240px. }
   R := PaletteDefaultRect(pkColors);
   AssertTrue('colors panel wide enough for RGBA spins', (R.Right - R.Left) >= 240);
-  AssertTrue('colors panel tall enough for RGBA rows', (R.Bottom - R.Top) >= 280);
+  AssertTrue('colors panel tall enough for RGB/HSV rows', (R.Bottom - R.Top) >= 360);
+end;
+
+procedure TFPPaletteHelpersTests.PaletteHeightsFitDeeperPanelControls;
+begin
+  AssertTrue(
+    'colors palette should be taller than the history panel',
+    (PaletteDefaultRect(pkColors).Bottom - PaletteDefaultRect(pkColors).Top) >
+    (PaletteDefaultRect(pkHistory).Bottom - PaletteDefaultRect(pkHistory).Top)
+  );
+  AssertTrue(
+    'layers palette should be tall enough for inline controls and list',
+    (PaletteDefaultRect(pkLayers).Bottom - PaletteDefaultRect(pkLayers).Top) >= 300
+  );
 end;
 
 initialization

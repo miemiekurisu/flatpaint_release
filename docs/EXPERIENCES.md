@@ -12,6 +12,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (Panel density pass)
+- Problem: deepening the color and layer panels risked adding more controls without keeping the panel surfaces readable or keeping the new controls synchronized with the existing state
+- Core error: if the new controls reused ad hoc conversions or only updated one representation, the UI would drift into conflicting RGB/HSV/hex values or duplicate opacity semantics across the layer panel
+- Investigation: traced the existing color-update path through `UpdateColorSpins`, `ColorSpinChanged`, and `ColorHexChanged`, then checked the active-layer refresh path and found the missing reusable opacity-percentage mapping before adding more inline controls
+- Root cause: the earlier panel implementation exposed only one branch of each control family (RGB/hex for colors, modal byte opacity for layers), so there was no shared mapping layer ready for denser controls
+- Fix: added shared layer-opacity percent/byte helpers, made the color panel use one synchronized RGB/HSV/hex update path, and only then added the extra inline controls and panel-height changes
+- Reuse note: when deepening an existing desktop panel, add the shared state-mapping helpers first and make every new control write through the same path; otherwise the panel becomes denser but less reliable
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (Theme pass)
 - Problem: moving the app from the older dark chrome to the new light Figma-derived style risked leaving a mixed dark/light UI because the old theme values were spread across several unrelated code paths
 - Core error: color and chrome decisions were duplicated across `mainform.pas` labels, list surfaces, owner-draw handlers, tab rebuilding, and palette creation, so a surface-level restyle could easily miss secondary controls

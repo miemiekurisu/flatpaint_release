@@ -1,5 +1,14 @@
 # Development Progress Log
 
+## 2026-03-03 (panel depth + compact control pass)
+
+- This pass maps primarily to the `Colors`, `Layers`, `Iconography`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
+- The visible control language is now more coherent across the app: the tool palette and layer action strip no longer rely on the older mixed emoji-heavy captions, and the current UI now uses a tighter compact-label vocabulary that reads more consistently against the lighter macOS-style chrome pass.
+- The Colors panel is deeper now in real code, not just visually: it now exposes direct H/S/V numeric fields in addition to the existing RGB/A and hex controls, and the RGB, HSV, and hex entry points now stay bi-directionally synchronized around the active color slot.
+- The Layers panel is deeper too: the active layer now has inline visibility and opacity controls directly in the floating panel, and the owner-drawn list remains thumbnail-backed while the higher-friction modal opacity flow is still preserved as a fallback command.
+- Added focused regression coverage for this pass: compact tool-label assertions plus layer-opacity percent/byte helpers in `src/tests/fpuihelpers_tests.pas`, and taller palette-capacity regressions in `src/tests/fppalettehelpers_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **149 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed the runnable app bundle successfully.
+- Honest progress update after this pass: this is another incremental but real product-usage improvement, so the overall completion estimate moves to **~86%**; the biggest remaining gaps are still image-list parity, broader effect coverage, drag-to-reorder in layers, deeper color swatch parity, and a fuller native icon system.
+
 ## 2026-03-03 (light macOS chrome pass)
 
 - This pass maps primarily to the `Workspace visual parity` row in `docs/FEATURE_MATRIX.md`.
@@ -28,26 +37,26 @@
 | Workspace shell | ~78% | Tab strip and floating palettes are live; image-list strip, denser chrome, and icon polish still lag paint.net |
 | Document tabs | ~73% | Real multi-document tab strip exists; missing image-list thumbnails, drag-to-reorder, and richer tab chrome |
 | Command surface parity | ~80% | The previously cited missing routes are now live; the biggest remaining visible gap is still the missing image-list surface |
-| Workspace visual parity | ~60% | Lighter macOS-style chrome is now live; image-list strip, fuller icon language, and denser panel parity still remain below target |
+| Workspace visual parity | ~62% | Lighter macOS-style chrome plus denser panel internals are now live; image-list strip and fuller native icon language still remain below target |
 | File workflow | ~85% | `.pdn` is only partial flattened fallback and `.kra` is still friendly-fail only; `Save All Images` still maps to the current shell |
 | Undo/redo | ~90% | Undo/redo labels and redo rows are visible; grey-out / comparison-polish remains open |
-| Layers | ~80% | Properties dialog, rotate/zoom, blend-mode picker, and import-as-layer are live; thumbnails and drag reorder are still missing |
+| Layers | ~86% | Inline visibility/opacity, blend-mode picker, and thumbnail list are live; drag reorder and send-to-top/bottom parity are still missing |
 | Selection tools | ~85% | Visible combine-mode control is live; selection anti-alias is still a UI-only toggle pending core support |
 | Paint tools | ~85% | Clone Stamp, Recolor, Gradient, Pan, Zoom, and interactive Crop are live; richer per-tool parity remains open |
 | Draw tools | ~80% | Text is live; true curve-node editing is still missing |
 | View controls | ~90% | Pinch zoom, Spacebar temp pan, and middle-mouse pan are live; resize-handle parity is still partial |
-| Colors panel | ~60% | HSV wheel, RGBA/hex editing, 28 swatches, active-slot notch, and `C` slot toggle are live; full 96-swatch / HSV-field parity remains open |
+| Colors panel | ~68% | HSV wheel, H/S/V numeric fields, RGBA/hex editing, 28 swatches, active-slot notch, and `C` slot toggle are live; full 96-swatch / slider-strip parity remains open |
 | Adjustments | ~90% | Broad baseline is routed; richer curve editing is still the main gap |
 | Effects | ~55% | 17 effects plus `Repeat Last Effect` are live; deeper families and submenu grouping are still missing |
 | Resize/canvas ops | ~90% | Interactive Crop is live; remaining work is mostly parity polish |
 | Text/rendering | ~80% | Modal text tool is implemented; richer editing still remains open |
 | Clipboard | ~85% | `Paste Selection (Replace)` is live; remaining gaps are polish and edge-case parity |
 | Menus/Shortcuts | ~85% | Single-key tool shortcuts, `C`, Spacebar pan, and Ctrl+Tab are live; remaining gaps are edge-case parity and image-list-related flows |
-| Iconography | ~45% | Still text-heavy in several surfaces |
-| Tool/Config Options | ~85% | Most visible controls now affect output; selection anti-alias remains the main UI-only option |
+| Iconography | ~52% | Compact labels are now more consistent across tools and layers, but a fuller native icon system is still missing |
+| Tool/Config Options | ~88% | Most visible controls now affect output, including inline layer controls; selection anti-alias remains the main UI-only option |
 | Hidden sheet options | ~70% | Export/save-sheet options remain partial |
 | Compatibility IO | ~55% | `.psd` / `.xcf` flattened import is live, `.pdn` has partial flattened fallback, and `.kra` remains descriptive unsupported |
-| **Overall** | **~85%** | Biggest remaining gaps are image-list parity, broader effect coverage, fuller color/layer panels, and iconography polish |
+| **Overall** | **~86%** | Biggest remaining gaps are image-list parity, broader effect coverage, drag-to-reorder in layers, deeper color swatch parity, and iconography polish |
 
 ## 2026-03-02 (test infrastructure fix)
 - `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.
