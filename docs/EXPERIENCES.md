@@ -361,6 +361,9 @@ Use the same compact structure every time.
 - Repeat count: `This issue has occurred 1 time(s)`
 
 ## 2026-03-03
+
+- CI infrastructure mismatch: `run_tests_ci.sh` hardcodes a Lazarus directory under `/Users/chrischan` which breaks test compilation on other machines. The script also lacked full set of WSRegister stubs, leading to dozens of undefined symbols during linking of the test runner. Added note to update CI script or centralize stub definitions before broadening GUI test coverage.
+
 - Problem: Move tools (`Move Selection` / `Move Pixels`) were not covered by tests and had subtle semantics that risked regressions (selection vs pixels movement and history integration).
 - Core error: no unit tests validated that selection-only moves leave pixels unchanged and that pixel-moves both relocate pixel data and update the selection mask.
 - Investigation: reviewed `TImageDocument` methods `MoveSelectionBy` and `MoveSelectedPixelsBy`, inspected the `PaintBox` drag handlers in `mainform.pas`, and added focused unit tests to lock the expected semantics.

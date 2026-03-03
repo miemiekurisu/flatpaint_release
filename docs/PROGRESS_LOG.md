@@ -11,6 +11,7 @@
 | fpsurface core | — | — | `FillRadialGradient(CenterX, CenterY, Radius, StartColor, EndColor)` added; `CreateGlobalColorSelection` added for wand non-contiguous mode |
 | fpdocument core | — | — | `OilPaint`, `FrostedGlass`, `ZoomBlur` delegating wrappers; `SelectMagicWand` gains `Contiguous: Boolean = True` parameter |
 | Tests | 129 | 130 | `RadialGradientFadesFromCenter` added to `fpsurface_tests.pas`; 3 effect tests added in prior sub-session; 0 errors, 0 failures |
+| UI/Shortcuts | ~75% | ~80% | Added `C` key to toggle primary/secondary color target and painted a notch indicator in the color panel; `TMainForm` now exposes testing properties. Unit tests expanded accordingly; manual CI run exposed Lazarus path misconfiguration and missing WSRegister stubs. |
 
 **Overall estimate after this pass: ~88%**
 

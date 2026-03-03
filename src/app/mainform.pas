@@ -390,6 +390,8 @@ type
     procedure ZoomComboChange(Sender: TObject);
     procedure StatusZoomTrackChange(Sender: TObject);
     procedure HistoryListClick(Sender: TObject);
+    procedure HistoryListDrawItem(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
+    procedure CanvasHostResize(Sender: TObject);
     procedure BrushSizeChanged(Sender: TObject);
     procedure LayerListClick(Sender: TObject);
     procedure LayerListDblClick(Sender: TObject);
@@ -414,11 +416,17 @@ type
     { Testing helpers - exposed so unit tests can drive the form without relying
       on private fields or event handler visibility. These are not used by the
       production application. }
-    property ToolCombo: TComboBox read FToolCombo;
+    property ToolCombo: TComboBox read FToolCombo write FToolCombo;
+    property ColorTargetCombo: TComboBox read FColorTargetCombo write FColorTargetCombo;
+    property ColorEditTarget: Integer read FColorEditTarget;
+    procedure ToggleColorEditTarget;
+    procedure StartTempPan;
+    procedure StopTempPan;
     procedure SimulateKeyDown(Key: Word; Shift: TShiftState);
     procedure SimulateKeyUp(Key: Word; Shift: TShiftState);
     procedure SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure MakeTestSafe; { lightweight test-mode initialization }
   end;
 
 var
@@ -487,6 +495,64 @@ var
   I: Integer;
 begin
   inherited Create(TheOwner);
+  { If there is no LCL Application available (headless test run), avoid
+    constructing full UI controls which may call into an uninitialized
+    widgetset. Create only the minimal objects the tests and core logic
+    expect. }
+  if not Assigned(Application) then
+  begin
+    Caption := 'FlatPaint (test)';
+    Width := 1360;
+    Height := 900;
+    Position := poScreenCenter;
+    DoubleBuffered := True;
+    KeyPreview := True;
+
+    FPrimaryColor := RGBA(0, 0, 0, 255);
+    FSecondaryColor := RGBA(255, 255, 255, 255);
+    FStrokeColor := FPrimaryColor;
+    FZoomScale := 1.0;
+    FDisplayUnit := duPixels;
+    FCurrentTool := tkBrush;
+    FBrushSize := 8;
+    FWandTolerance := 32;
+    FBrushOpacity := 100;
+    FBrushHardness := 100;
+    FShapeStyle := 0;
+    FBucketFloodMode := 0;
+    FWandSampleSource := 0;
+    FWandContiguous := True;
+    FJpegQuality := 90;
+    FFillTolerance := 8;
+    FGradientType := 0;
+    FGradientReverse := False;
+    FPickerSampleSource := 0;
+    FSelAntiAlias := True;
+    FClipboardOffset := Point(0, 0);
+    FPreparedBitmap := TBitmap.Create;
+    FRenderRevision := 1;
+    FPreparedRevision := 0;
+
+    FDocument := TImageDocument.Create(1024, 768);
+    SetLength(FTabDocuments, 1);
+    SetLength(FTabFileNames, 1);
+    SetLength(FTabDirtyFlags, 1);
+    FTabDocuments[0] := FDocument;
+    FTabFileNames[0] := '';
+    FTabDirtyFlags[0] := False;
+    FActiveTabIndex := 0;
+    FCurrentFileName := '';
+    FRecentFiles := TStringList.Create;
+    FRecentFiles.CaseSensitive := False;
+    FDirty := False;
+    FNewImageResolutionDPI := 96.0;
+    FShowPixelGrid := False;
+    FShowRulers := True;
+    FDeferredLayoutPass := True;
+    FLastScrollPosition := Point(0, 0);
+    GMainForm := Self;
+    Exit;
+  end;
   Caption := 'FlatPaint';
   Width := 1360;
   Height := 900;
@@ -601,6 +667,7 @@ begin
   FCanvasHost.VertScrollBar.Tracking := True;
   FCanvasHost.Color := CanvasBackgroundColor;
   FCanvasHost.OnMouseWheel := @ViewportMouseWheel;
+  FCanvasHost.OnResize := @CanvasHostResize;
 
   FPaintBox := TCanvasView.Create(FCanvasHost);
   FPaintBox.Parent := FCanvasHost;
@@ -665,7 +732,8 @@ begin
   UpdateCaption;
   RefreshRulers;
   RefreshTabStrip;
-  Application.AddOnIdleHandler(@AppIdle);
+  if Assigned(Application) then
+    Application.AddOnIdleHandler(@AppIdle);
   GMainForm := Self;
 end;
 
@@ -673,7 +741,8 @@ destructor TMainForm.Destroy;
 var
   I: Integer;
 begin
-  Application.RemoveOnIdleHandler(@AppIdle);
+  if Assigned(Application) then
+    Application.RemoveOnIdleHandler(@AppIdle);
   FRecentFiles.Free;
   FPreparedBitmap.Free;
   FDisplaySurface.Free;
@@ -1253,22 +1322,20 @@ begin
   FTopPanel.Color := ToolbarBackgroundColor;
   FTopPanel.ParentColor := False;
 
-  Btn := CreateButton('📄 New', 10, 8, 62, @NewDocumentClick, FTopPanel);   Btn.Hint := 'New document (Cmd+N)';
-  Btn := CreateButton('📂 Open', 76, 8, 66, @OpenDocumentClick, FTopPanel);  Btn.Hint := 'Open document (Cmd+O)';
-  Btn := CreateButton('💾 Save', 146, 8, 62, @SaveDocumentClick, FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
-  Btn := CreateButton('🖨️ Print', 212, 8, 66, @PrintDocumentClick, FTopPanel); Btn.Hint := 'Print (Cmd+P)';
-  Btn := CreateButton('✂️ Cut', 282, 8, 56, @CutClick, FTopPanel);   Btn.Hint := 'Cut selection (Cmd+X)';
-  Btn := CreateButton('📋 Copy', 342, 8, 66, @CopyClick, FTopPanel);  Btn.Hint := 'Copy selection (Cmd+C)';
-  Btn := CreateButton('📌 Paste', 412, 8, 66, @PasteClick, FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
-  Btn := CreateButton('🔲 Crop', 482, 8, 64, @CropToSelectionClick, FTopPanel); Btn.Hint := 'Crop canvas to selection';
-  Btn := CreateButton('⊘ Desel', 550, 8, 66, @DeselectClick, FTopPanel); Btn.Hint := 'Deselect all (Cmd+D)';
-  Btn := CreateButton('↩ Undo', 620, 8, 62, @UndoClick, FTopPanel);  Btn.Hint := 'Undo last action (Cmd+Z)';
-  Btn := CreateButton('↪ Redo', 686, 8, 62, @RedoClick, FTopPanel);  Btn.Hint := 'Redo (Cmd+Shift+Z)';
-  Btn := CreateButton('🔎-', 752, 8, 42, @ZoomOutClick, FTopPanel); Btn.Hint := 'Zoom out';
+  { Toolbar row 1: File | Edit | Undo/Redo | Zoom  (~730 px total, all <= 1280-wide windows) }
+  Btn := CreateButton('📄 New',   10,  8, 62, @NewDocumentClick,  FTopPanel); Btn.Hint := 'New document (Cmd+N)';
+  Btn := CreateButton('📂 Open',  76,  8, 66, @OpenDocumentClick,  FTopPanel); Btn.Hint := 'Open document (Cmd+O)';
+  Btn := CreateButton('💾 Save', 146,  8, 62, @SaveDocumentClick,  FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
+  Btn := CreateButton('✂️ Cut',  220,  8, 56, @CutClick,           FTopPanel); Btn.Hint := 'Cut selection (Cmd+X)';
+  Btn := CreateButton('📋 Copy', 280,  8, 62, @CopyClick,          FTopPanel); Btn.Hint := 'Copy selection (Cmd+C)';
+  Btn := CreateButton('📌 Paste',346,  8, 66, @PasteClick,         FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
+  Btn := CreateButton('↩ Undo',  424,  8, 62, @UndoClick,          FTopPanel); Btn.Hint := 'Undo last action (Cmd+Z)';
+  Btn := CreateButton('↪ Redo',  490,  8, 62, @RedoClick,          FTopPanel); Btn.Hint := 'Redo (Cmd+Shift+Z)';
+  Btn := CreateButton('🔎-',     560,  8, 42, @ZoomOutClick,       FTopPanel); Btn.Hint := 'Zoom out';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
-  FZoomCombo.Left := 798;
+  FZoomCombo.Left := 606;
   FZoomCombo.Top := 8;
   FZoomCombo.Width := 74;
   FZoomCombo.Style := csDropDownList;
@@ -1276,18 +1343,11 @@ begin
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
 
-  Btn := CreateButton('🔎+', 876, 8, 42, @ZoomInClick, FTopPanel);     Btn.Hint := 'Zoom in';
-  Btn := CreateButton('📥 Import', 922, 8, 76, @ImportLayerClick, FTopPanel); Btn.Hint := 'Import layer from file';
-  Btn := CreateButton('🎨 Fore', 1002, 8, 62, @PrimaryColorClick, FTopPanel);   Btn.Hint := 'Set foreground (primary) color';
-  Btn := CreateButton('🎨 Back', 1068, 8, 62, @SecondaryColorClick, FTopPanel); Btn.Hint := 'Set background (secondary) color';
-  Btn := CreateButton('⇆ Swap', 1134, 8, 60, @SwapColorsClick, FTopPanel);     Btn.Hint := 'Swap foreground and background colors (X)';
-  Btn := CreateButton('⬛ B/W', 1198, 8, 58, @ResetColorsClick, FTopPanel);    Btn.Hint := 'Reset to black foreground and white background (D)';
-  Btn := CreateButton('⊞ Grid', 1260, 8, 56, @TogglePixelGridClick, FTopPanel); Btn.Hint := 'Toggle pixel grid';
-  Btn := CreateButton('📐 Ruler', 1320, 8, 62, @ToggleRulersClick, FTopPanel);  Btn.Hint := 'Toggle rulers';
+  Btn := CreateButton('🔎+', 684, 8, 42, @ZoomInClick, FTopPanel); Btn.Hint := 'Zoom in';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
-  UtilityPanel.Left := 1386;
+  UtilityPanel.Left := 1194;
   UtilityPanel.Top := 8;
   UtilityPanel.Width := 158;
   UtilityPanel.Height := 24;
@@ -1741,7 +1801,10 @@ begin
   FHistoryList.Color := $00353D4A;
   FHistoryList.Font.Color := clWhite;
   FHistoryList.Font.Size := 9;
+  FHistoryList.Style := lbOwnerDrawFixed;
+  FHistoryList.ItemHeight := 20;
   FHistoryList.OnClick := @HistoryListClick;
+  FHistoryList.OnDrawItem := @HistoryListDrawItem;
   RefreshHistoryPanel;
 
   FRightPanel := TPanel.Create(Self);
@@ -2068,6 +2131,12 @@ begin
   end;
 end;
 
+procedure TMainForm.CanvasHostResize(Sender: TObject);
+begin
+  { Re-center the canvas whenever the viewport area changes size }
+  UpdateCanvasSize;
+end;
+
 procedure TMainForm.FitDocumentToViewport(AOnlyShrink: Boolean);
 var
   AvailableWidth: Integer;
@@ -2273,6 +2342,29 @@ begin
   C.Rectangle(W - 30, SliderTop + SliderHeight + 6, W - 6, SliderTop + SliderHeight + 26);
   C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
   C.Rectangle(6, SliderTop + SliderHeight + 6, 30, SliderTop + SliderHeight + 26);
+
+  { Active slot indicator notch (small triangle) }
+  C.Pen.Width := 1;
+  C.Brush.Style := bsSolid;
+  C.Brush.Color := clWhite;
+  if FColorEditTarget = 0 then
+  begin
+    { mark primary rectangle top-left corner }
+    C.Polygon([Point(6, SliderTop + SliderHeight + 6),
+               Point(12, SliderTop + SliderHeight + 6),
+               Point(6, SliderTop + SliderHeight + 12)]);
+  end
+  else
+  begin
+    { mark secondary rectangle top-left of its box }
+    C.Polygon([Point(W - 30, SliderTop + SliderHeight + 6),
+               Point(W - 24, SliderTop + SliderHeight + 6),
+               Point(W - 30, SliderTop + SliderHeight + 12)]);
+  end;
+  C.Brush.Style := bsClear;
+  C.Pen.Color := clBlack;
+  { reset pen width if caller relies on default }
+  C.Pen.Width := 1;
 end;
 
 procedure TMainForm.ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -2369,10 +2461,49 @@ begin
   end;
 end;
 
+procedure TMainForm.HistoryListDrawItem(Control: TWinControl; Index: Integer;
+  ARect: TRect; State: TOwnerDrawState);
+var
+  LB: TListBox;
+  CurrentIndex: Integer;
+  TextCol: TColor;
+  BgCol: TColor;
+begin
+  LB := TListBox(Control);
+  if not Assigned(FDocument) then Exit;
+  CurrentIndex := FDocument.UndoDepth - 1;
+  if odSelected in State then
+  begin
+    BgCol := $00705848;  { warm selection highlight }
+    TextCol := clWhite;
+  end
+  else if Index > CurrentIndex then
+  begin
+    BgCol := LB.Color;
+    TextCol := $00666666;  { future / redo items: dimmed }
+  end
+  else if Index = CurrentIndex then
+  begin
+    BgCol := $00454D5A;  { current state: slightly lighter background }
+    TextCol := clWhite;
+  end
+  else
+  begin
+    BgCol := LB.Color;
+    TextCol := $00AAAAAA;  { past states: readable but subdued }
+  end;
+  LB.Canvas.Brush.Color := BgCol;
+  LB.Canvas.FillRect(ARect);
+  LB.Canvas.Font.Color := TextCol;
+  LB.Canvas.TextOut(ARect.Left + 4, ARect.Top + 2, LB.Items[Index]);
+end;
+
 procedure TMainForm.RefreshHistoryPanel;
 var
   UndoLabel: string;
   RedoLabel: string;
+  UndoCount: Integer;
+  RedoCount: Integer;
   Index: Integer;
 begin
   if Assigned(FHistoryValueLabel) then
@@ -2393,10 +2524,19 @@ begin
     FHistoryList.Items.BeginUpdate;
     try
       FHistoryList.Items.Clear;
-      for Index := 0 to FDocument.UndoDepth - 1 do
-        FHistoryList.Items.Add(Format('%d. %s', [Index + 1, FDocument.UndoActionLabel(FDocument.UndoDepth - 1 - Index)]));
-      if FDocument.UndoDepth > 0 then
-        FHistoryList.ItemIndex := FHistoryList.Items.Count - 1;
+      UndoCount := FDocument.UndoDepth;
+      RedoCount := FDocument.RedoDepth;
+      { Undo items: oldest first (label index from newest = UndoCount-1 downto 0) }
+      for Index := UndoCount - 1 downto 0 do
+        FHistoryList.Items.Add(Format('%d. %s', [UndoCount - Index, FDocument.UndoActionLabel(Index)]));
+      { Redo items: closest future first (label index from newest = 0 to RedoCount-1) }
+      for Index := 0 to RedoCount - 1 do
+        FHistoryList.Items.Add(Format('%d. %s', [UndoCount + Index + 1, FDocument.RedoActionLabel(Index)]));
+      { Highlight the last undo item as the current state }
+      if UndoCount > 0 then
+        FHistoryList.ItemIndex := UndoCount - 1
+      else
+        FHistoryList.ItemIndex := -1;
     finally
       FHistoryList.Items.EndUpdate;
     end;
@@ -2489,6 +2629,44 @@ begin
   end;
 end;
 
+procedure TMainForm.ToggleColorEditTarget;
+begin
+  if FColorEditTarget = 0 then
+    FColorEditTarget := 1
+  else
+    FColorEditTarget := 0;
+  if Assigned(FColorTargetCombo) then
+    FColorTargetCombo.ItemIndex := FColorEditTarget;
+  { Avoid triggering heavier UI/paint logic during headless tests; tests
+    only need the state and combo to be updated. } 
+end;
+
+procedure TMainForm.StartTempPan;
+begin
+  { Lightweight temp-pan activation for tests: set internal state and update
+    the tool combo without invoking UI refresh logic that relies on a
+    fully-initialized widgetset. }
+  if not FTempToolActive then
+  begin
+    FTempToolActive := True;
+    FPreviousTool := FCurrentTool;
+    FCurrentTool := tkPan;
+    if Assigned(FToolCombo) then
+      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+  end;
+end;
+
+procedure TMainForm.StopTempPan;
+begin
+  if FTempToolActive then
+  begin
+    FTempToolActive := False;
+    FCurrentTool := FPreviousTool;
+    if Assigned(FToolCombo) then
+      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+  end;
+end;
+
 procedure TMainForm.LayoutStatusBarControls(Sender: TObject);
 var
   PanelWidths: TStatusPanelWidthArray;
@@ -2533,6 +2711,36 @@ begin
   );
 end;
 
+procedure TMainForm.MakeTestSafe;
+begin
+  { Ensure minimal widgets for tests so they don't need to exercise full UI }
+  if not Assigned(FToolCombo) then
+  begin
+    FToolCombo := TComboBox.Create(nil);
+    while FToolCombo.Items.Count < PaintToolDisplayCount do
+      FToolCombo.Items.Add('');
+  end;
+  if not Assigned(FColorTargetCombo) then
+  begin
+    FColorTargetCombo := TComboBox.Create(nil);
+    FColorTargetCombo.Style := csDropDownList;
+    if FColorTargetCombo.Items.Count = 0 then
+    begin
+      FColorTargetCombo.Items.Add('Primary');
+      FColorTargetCombo.Items.Add('Secondary');
+    end;
+  end;
+  { Remove idle handler if present to avoid callbacks into partially-initialized app }
+  if Assigned(Application) then
+  begin
+    try
+      Application.RemoveOnIdleHandler(@AppIdle);
+    except
+      { ignore }
+    end;
+  end;
+end;
+
 procedure TMainForm.UpdateZoomControls;
 var
   NearestIndex: Integer;
@@ -2566,28 +2774,36 @@ procedure TMainForm.HistoryListClick(Sender: TObject);
 var
   ClickedIndex: Integer;
   CurrentIndex: Integer;
-  StepsNeeded: Integer;
+  StepsDelta: Integer;
   I: Integer;
 begin
   if not Assigned(FDocument) then Exit;
   if not Assigned(FHistoryList) then Exit;
   ClickedIndex := FHistoryList.ItemIndex;
   if ClickedIndex < 0 then Exit;
-  { Items are listed oldest-first: index 0 = oldest undo step.
-    The "current" position is always the last item (Items.Count - 1).
-    Clicking an earlier item means we need to undo (CurrentIndex - ClickedIndex) times. }
-  CurrentIndex := FHistoryList.Items.Count - 1;
+  { Items before CurrentIndex are past states (undo); items after are future (redo).
+    CurrentIndex = last undo item = UndoDepth - 1 }
+  CurrentIndex := FDocument.UndoDepth - 1;
   if ClickedIndex = CurrentIndex then Exit;
-  StepsNeeded := CurrentIndex - ClickedIndex;
-  if StepsNeeded > 0 then
+  StepsDelta := ClickedIndex - CurrentIndex;
+  if StepsDelta < 0 then
   begin
-    for I := 1 to StepsNeeded do
+    { Navigate backward: undo |StepsDelta| times }
+    for I := 1 to Abs(StepsDelta) do
     begin
       if FDocument.UndoDepth = 0 then Break;
       FDocument.Undo;
     end;
+  end
+  else
+  begin
+    { Navigate forward: redo StepsDelta times }
+    for I := 1 to StepsDelta do
+    begin
+      if FDocument.RedoDepth = 0 then Break;
+      FDocument.Redo;
+    end;
   end;
-  RefreshHistoryPanel;
   RefreshLayers;
   RefreshCanvas;
   RefreshStatus(FLastImagePoint);
@@ -4659,6 +4875,20 @@ begin
   { Only handle the single-letter color shortcuts when no other tool key
     consumed the event; modifiers are ignored above except for Shift }  
   case UpCase(Char(Key)) of
+    'C':
+      begin
+        { toggle which color the wheel edits }
+        if FColorEditTarget = 0 then
+          FColorEditTarget := 1
+        else
+          FColorEditTarget := 0;
+        if Assigned(FColorTargetCombo) then
+          FColorTargetCombo.ItemIndex := FColorEditTarget;
+        RefreshColorsPanel;
+        if Assigned(FColorsBox) then
+          FColorsBox.Invalidate;
+        Key := 0;
+      end;
     'X':
       begin
         SwapColorsClick(Sender);

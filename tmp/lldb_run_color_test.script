@@ -1,0 +1,4 @@
+settings set -- target.run-args "--suite=TFPUIHelpersTests" "--test=ColorShortcutTogglesTarget"
+run
+bt all
+quit
