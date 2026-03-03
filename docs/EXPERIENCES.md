@@ -891,3 +891,84 @@ Use the same compact structure every time.
 - Fix: added `FSwatchBox: TPaintBox` with `FSwatchColors: array[0..27] of TRGBA32` initialized in the constructor (2 rows of 14: a dark/earth row and a bright/saturated row); `OnPaint` renders 2×14 cells; `OnMouseDown` routes left-click → primary color and right-click → secondary color, then forces a hue-wheel repaint to sync the indicator; `ColorsPaletteHeight` raised from 306 to 346 to accommodate the new 40 px strip
 - Reuse note: a `TPaintBox` with fixed-array color data is the lowest-overhead swatch surface in LCL; owner-draw gives full style control without a custom control class; always widen the palette height constant when adding a new strip to the Colors panel so the strip is not cropped on first display
 - Repeat count: This issue has occurred 1 time(s)
+
+### Observation: WSRegister stubs are the key to compiling LCL-dependent units in headless FPCUnit tests
+- Problem: every new test file that transitively imported an LCL unit (Forms, Controls, etc.) triggered linker errors — `Undefined symbols: _WSRegisterCustomButton`, `_WSRegisterCustomForm`, etc. — even though those symbols are only meaningful at runtime on Cocoa
+- Core error: the FPCUnit runner links against compiled LCL units but does not link the Cocoa widgetset objects that define the `WSRegister*` symbols; the linker expects those entry points to exist in the final binary
+- Investigation: saw the symbol flood immediately after adding `Forms` to the test runner `uses` clause; read `WSRegisterStubs.pas` and found ~80 stub declarations that each just return `False`; cross-referenced with `-dTESTING` define used throughout the project and the `-k-undefined -kdynamic_lookup` linker flags in `run_tests_ci.sh`
+- Root cause: the LCL registers every control type at program startup by calling a widgetset-specific `WSRegisterXxx` function; for headless test builds those functions must exist as no-op stubs or the linker fails
+- Fix: `WSRegisterStubs.pas` provides the complete stub set, included in the test runner `uses` clause; `-k-undefined -kdynamic_lookup` defers any residual undefined symbols to runtime where they are never called in a headless run; `-Fl"$WIDGETDIR"` + `-Fl"$OBJDIR"` pull in the widgetset precompiled objects for the symbols that are resolved
+- Reuse note: whenever a new LCL unit is added to the test compilation path, check whether it introduces new `WSRegister*` symbols; if so, add their stubs to `WSRegisterStubs.pas`; the stub body is always `begin Result := False; end;` — adding one takes under a minute; missing even one stub stops the link cold with a wall of `Undefined symbols` messages
+- Repeat count: This issue has occurred 3 time(s)
+
+### Observation: one helper unit → one dedicated test unit; keeps FPCUnit compile-rebuild cascades small and failures instantly attributable
+- Problem: early tests grouped unrelated helper coverage into shared files; any change to one helper forced recompilation of unrelated tests, and test failures were harder to isolate because a single test class covered multiple feature areas
+- Core error: no rule existed for mapping helper units to test units; tests grew organically into large files (`fpsurface_tests.pas` reached 525 lines, `fpuihelpers_tests.pas` reached 385 lines)
+- Investigation: reviewed the suite layout when the test count first exceeded 50; the recently-added per-helper files (`fpblurhelpers_tests.pas`, `fpnoisehelpers_tests.pas`, `fpzoomhelpers_tests.pas`, etc.) were all under 50 lines and trivially readable; failures in them were instantly attributable
+- Root cause: the initial structure followed "add to the nearest open test file" instead of enforcing a one-to-one ownership rule
+- Fix: adopted a strict convention: one `fp<topic>helpers.pas` helper unit → one `fp<topic>helpers_tests.pas` test unit; each test unit imports only the helper it validates; `flatpaint_tests.lpr` adds both in the same commit; aim for 3–5 boundary-condition tests per helper covering clamp-low, clamp-high, and one midpoint
+- Reuse note: when adding a pure helper unit (blur radius clamping, zoom step mapping, status-bar width partition), create its test file in the same commit; this keeps every test file under 100 lines and adds less than 5 minutes to the session; never add new tests to the large legacy files unless the test belongs specifically to `TRasterSurface` or `TImageDocument`
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: `-dTESTING` compile flag is the correct binary switch for all test-vs-production divergence
+- Problem: multiple files needed to behave differently during unit tests — native Objective-C bridges must not dereference real NSView handles; GUI-touching code must not call `Application.ProcessMessages` — without polluting production paths with mutable global state
+- Core error: early attempts used runtime `if <some-global-flag>` guards which left dead test code in the production binary and introduced a mutable global that tests could accidentally pollute
+- Investigation: reviewed `fpalphabridge.pas` and `fpmagnifybridge.pas`; both already used `{$IFDEF TESTING}` to substitute a no-op body; confirmed `{$DEFINE TESTING}` is injected only via `-dTESTING` in `run_tests_ci.sh` and is never set in the Lazarus project file
+- Root cause: no documented rule existed; some new code used runtime flags instead of compile-time defines
+- Fix: established the rule — all test-vs-production divergence uses `{$IFDEF TESTING} … {$ELSE} … {$ENDIF}`; the production Lazarus project never sets `TESTING`; this guarantees test stubs are compiled out entirely from the shipped binary
+- Reuse note: for any new code path that must behave differently in tests (native handles, modal dialogs, clipboard access), wrap the production implementation in `{$IFNDEF TESTING}` and provide a no-op `{$ELSE}` branch; never use a runtime boolean for this; the compile-time approach is zero-cost in production and prevents test state from leaking
+- Repeat count: This issue has occurred 2 time(s)
+
+### Observation: CI test script must compile all binary dependencies before running tests that shell out to them
+- Problem: `TCLIIntegrationTests` and `TFormatCompatTests` both invoke `flatpaint_cli` as a subprocess; on a clean checkout the binary may be absent or stale, so those test classes failed with a process-launch error before any assertion ran
+- Core error: `run_tests_ci.sh` originally compiled only the test runner, not the CLI binary that integration tests depended on
+- Investigation: failure was silent on the original developer's machine (always had a current binary) but reproducible on clean checkout; traced by reading `cli_integration_tests.pas` and finding `P.Executable := 'dist/flatpaint_cli'` with no pre-existence check
+- Root cause: the CI script build order was compile-tests → run-tests; the prerequisite binary was assumed present
+- Fix: added an explicit `fpc … -oflatpaint_cli …` and `cp flatpaint_cli dist/flatpaint_cli` step at the top of `run_tests_ci.sh` before the test runner compilation; the CLI is now always the first build target in CI regardless of what's on disk
+- Reuse note: when a test class shells out to a binary, that binary must be an explicit build step at the top of the CI script before even the test runner is compiled; never assume a checked-in or previously built artifact is fresh enough to satisfy the current test suite
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: "assert structural invariants after N operations" is the right test class for rolling-buffer and eviction-based data structures
+- Problem: the region-based undo history introduced rolling snapshot eviction; there was no cheap way to assert that 20 consecutive paint→push-history cycles did not corrupt the snapshot stack without comparing exact pixel values for every intermediate frame
+- Core error: fully asserting pixel state after 20 operations would require storing 20 expected surfaces and would make the test brittle whenever brush behavior changed
+- Investigation: reviewed `perf_snapshot_tests.pas` — the single assertion `AssertTrue('History depth >= 20', Doc.UndoDepth >= 20)` verifies that the rolling eviction did not silently discard live entries, without dictating which specific snapshots survive eviction
+- Root cause: no established test pattern existed for "this code path should handle N iterations without crashing or losing the structural invariant"
+- Fix: `Test_PushHistory_MultipleSnapshots_NoException` creates a document, runs 20 paint+push cycles, then asserts `UndoDepth >= 20`; stack overflow, corruption, or silent entry loss all trip the assertion while the test remains stable across brush algorithm changes; the eviction boundary itself is tested separately in `fpdocument_tests.pas`
+- Reuse note: for rolling-buffer or eviction-based structures, pair two test types: (1) structure-invariant test — "after N insertions, depth = min(N, maxDepth)"; (2) eviction-boundary test — "when depth reaches maxDepth+1, the oldest entry is gone"; do not try to assert exact element values unless the test is specifically about correctness of one particular operation
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: history timeline tests should simulate row-click semantics through a pure document helper, not through the form event handler
+- Problem: `HistoryTimeline_NavigateViaRowClickSimulation` and `HistoryTimeline_ClickInitialStateUndoesAll` needed to test "user clicks row N → document pixel state reverts to that point" without instantiating `TMainForm`
+- Core error: wiring these tests through the form's `ListBox.OnClick` handler would force full LCL application initialization and mouse-event simulation — far too heavy for unit tests
+- Investigation: read the existing `NavigateHistoryTo(Doc, ClickedRow)` helper in `fpdocument_tests.pas`; it translates a row index into the correct number of `Doc.Undo` / `Doc.Redo` calls directly on the document model, bypassing the form entirely; pixel state is then asserted on the document surface
+- Root cause: timeline navigation is pure document-model logic (compute delta from current row to target row, apply N undos or M redos) but was originally exposed only through a `ListBox1.OnClick` handler in the form
+- Fix: extracted the "how many undos/redos to reach row R from current position?" calculation into a test-private `NavigateHistoryTo` helper; the form's click handler delegates to the same index math; tests drive the model directly and assert pixel state, the form handler just calls the same function with the selected index
+- Reuse note: any document-model operation triggered by a UI event should have its core logic expressible as `procedure DoSomething(Doc: TImageDocument; Param: …)`; test the pure function; let the event handler be a one-line call site; this pattern also makes the feature testable before the UI that exposes it is built
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: a tool-enum count assertion is the cheapest way to enforce metadata-table completeness at CI time
+- Problem: every new `TToolKind` enum value requires a corresponding entry in the tool-metadata array in `mainform.pas`; without a coverage assertion, a new enum value added without its metadata row caused a runtime access violation that only surfaced during manual QA
+- Core error: adding an enum value and forgetting its metadata row is a silent compile-time success but a runtime failure
+- Investigation: reviewed `fpdocument_tests.pas` after a tool-routing bug; found `NewToolKindCountIsCorrect` — it asserts `Ord(High(TToolKind)) + 1 = <expected count>`; any addition to the enum that does not also update the expected count breaks CI immediately
+- Root cause: the metadata table was manually maintained and the enum could grow independently of it
+- Fix: `NewToolKindCountIsCorrect` asserts the exact expected tool count; updating it is mandatory in the same commit as the enum addition, which forces the developer to also update tool descriptions, icon labels, cursor assignments, and menu routing before the commit can land
+- Reuse note: for any `packed enum` that drives a parallel metadata table, add `AssertEquals('tool count', <N>, Ord(High(TToolKind)) + 1)` and update the expected value atomically with every enum addition; this converts a category of silent runtime access violations into an immediate CI assertion failure with a one-line fix
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: `TProcess`-based FPCUnit tests are the right scope for "does this OS-level dependency exist?" checks
+- Problem: features depending on `osascript` and the app bundle needed automated verification that the external tool or path was present, without requiring a full GUI automation harness
+- Core error: adding these checks as `{$IFDEF DARWIN}` blocks in production code would mix environment probing with application logic; a GUI automation framework was too heavy for a simple reachability assertion
+- Investigation: read `ui_prototype_tests.pas` and `ui_applescript_tests.pas`; both use `TProcess` to run a shell command and assert the exit code; the applescript test exits early with a pass if `flatpaint.app` is not present on disk, keeping the suite green on clean checkouts
+- Root cause: no lightweight pattern existed for "assert OS-level prerequisite reachability" in this project
+- Fix: create a `TProcess`, set `Executable` + `Parameters`, set `poWaitOnExit`, call `Execute`, then `AssertEquals('exit code', 0, P.ExitStatus)`; for optional filesystem prerequisites add an early `Exit` (implicit pass) when the file is absent
+- Reuse note: use `TProcess` + `poWaitOnExit` for any test that validates an external command's availability or exit behavior; always add an early-exit guard when the test only makes sense with a specific artifact present; never use `Shell()` because its exit-code semantics are less explicit and platform-dependent
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: region-based undo (dirty-rect snapshot) reduces per-stroke snapshot cost from O(W×H×LayerCount) to O(dirtyW×dirtyH)
+- Problem: the full-document snapshot model stored a complete copy of all layer pixel data on every `PushHistory`; for a 1024×768 three-layer document a single brush stroke triggered ~9 MB of allocation even when only a 30×30 region changed
+- Core error: `TDocumentSnapshot` called `TImageDocument.Clone` unconditionally; snapshot size was proportional to total canvas area × layer count, not to actual change area
+- Investigation: the `perf_snapshot_tests` loop made heap pressure measurable; each `PushHistory` call in a steady-state paint loop cost `W × H × 4 × LayerCount` bytes of allocation and an equal deallocation on eviction
+- Root cause: the initial undo model correctly prioritized correctness over efficiency; the clone-everything approach was the simplest honest implementation but became the dominant GC pressure source during painting
+- Fix: introduced `TSnapshotKind` (`skFullDocument` / `skLayerRegion`); `PushHistory` now computes the current tool's dirty rect (brush bounding box expanded by radius), saves only that sub-surface in `(FRegionLayerIndex, FDirtyRect, FRegionSurface)`, and restores by stamping the saved region back into the correct layer; operations that affect multiple layers or document structure (merge, flatten, resize) still use `skFullDocument`
+- Reuse note: implement region snapshots as a `(LayerIndex: Integer; DirtyRect: TRect; RegionSurface: TRasterSurface)` triple alongside the existing full snapshot path; always test the region restore path separately from the full-document restore path — a dirty-rect off-by-one leaves visible single-pixel ghost artifacts that are easy to miss in a "no exception" test
+- Repeat count: This issue has occurred 1 time(s)
