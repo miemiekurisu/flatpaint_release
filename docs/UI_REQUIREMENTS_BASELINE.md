@@ -1,112 +1,132 @@
 # UI Requirements Baseline
 
 ## Purpose
-This document normalizes the shared UI rules that are consistent across paint.net, Adobe Photoshop, GIMP, Photopea, and modern browser-based editors such as Pixlr.
-It exists so FlatPaint UI work follows explicit layout and interaction requirements instead of ad hoc taste.
+This document defines the active FlatPaint UI baseline.
+The visual reference now comes from the local Figma export in `flatpaint_design/`, not from the earlier paint.net-style UI baseline.
+
+The archived paint.net-focused UI docs have been preserved at:
+- `DocsBackup/UI_REQUIREMENTS_BASELINE.paintnet.md`
+- `DocsBackup/UI_PARITY_AUDIT.paintnet.md`
+
+This baseline changes the workspace presentation and layout rules only.
+It does not reduce the existing feature surface.
 
 ## Source set
-- paint.net Main Window: `https://www.getpaint.net/doc/latest/MainWindow.html`
-- paint.net Toolbar: `https://www.getpaint.net/doc/latest/Toolbar.html`
-- paint.net Status Bar: `https://www.getpaint.net/doc/latest/StatusBar.html`
-- Adobe Photoshop workspace basics: `https://helpx.adobe.com/photoshop/using/workspace-basics.html`
-- GIMP dockable dialogs: `https://docs.gimp.org/2.10/en/gimp-concepts-docks.html`
-- GIMP toolbox: `https://docs.gimp.org/2.10/en/gimp-toolbox.html`
-- Photopea workspace docs: `https://www.photopea.com/learn/workspace`
-- Pixlr product UI (current web app class reference): `https://pixlr.com/`
+- `flatpaint_design/src/app/App.tsx`
+- `flatpaint_design/src/app/components/TopMenuBar.tsx`
+- `flatpaint_design/src/app/components/FloatingToolbar.tsx`
+- `flatpaint_design/src/app/components/FloatingColorPanel.tsx`
+- `flatpaint_design/src/app/components/FloatingHistoryPanel.tsx`
+- `flatpaint_design/src/app/components/FloatingLayersPanel.tsx`
+- `flatpaint_design/src/app/components/CanvasArea.tsx`
+- `flatpaint_design/src/styles/theme.css`
 
-## Normalized cross-editor UI requirements
-1. Canvas positioning
-- The editable image must be the visual center of the workspace.
-- When the rendered canvas is smaller than the viewport, it must be centered horizontally and vertically.
-- When the rendered canvas is larger than the viewport, scroll origin may move, but zoom commands should preserve a clear focal point instead of snapping the image to a corner.
-- `Open`, `New`, `Fit to Window`, `Actual Size`, and `Zoom to Selection` should all leave the canvas in an intentional position, not just update scale.
+## Core layout model
+1. Workspace hierarchy
+- Native macOS menu bar remains the complete command surface.
+- Inside the app window, the visual structure is:
+- top quick-action bar
+- top tool-options bar
+- document tab strip
+- central canvas workspace
+- bottom status strip
 
-2. Zoom control model
-- The primary quick-zoom control should live at the bottom-right of the status bar region.
-- A compact horizontal zoom slider plus a percentage readout is the dominant pattern across paint.net-class editors.
-- `Fit to Window` and `100%` should be one click away from that bottom-right cluster.
-- A top-toolbar zoom chooser may exist, but it is secondary to the status-bar quick zoom.
+2. Top quick-action bar
+- This row carries high-frequency commands only.
+- It should surface the compact shortcut layer: New, Open, Save, Cut, Copy, Paste, Undo, Redo, palette toggles, and zoom controls.
+- It should read as a light macOS-style strip, not a dark banner.
 
-3. Gesture behavior
-- Trackpad pinch / magnify must zoom smoothly.
-- Gesture zoom should be viewport-centric (or cursor-centric) and should not record undo history.
-- Wheel / trackpad scrolling and zooming should feel continuous, not step-jumpy, whenever the toolkit allows it.
+3. Top tool-options bar
+- Tool-dependent controls stay on a dedicated second row below the quick-action bar.
+- This is an intentional divergence from the Figma mock's inline placement because the real product has many more adjustable controls.
+- The second row should continue to host dynamic controls such as:
+- active tool
+- size
+- opacity
+- hardness
+- selection mode
+- fill / wand / gradient / picker / shape options
+- Any tool option that materially affects output must remain reachable here.
 
-4. Workspace zoning
-- Top: dense command surface (menu + main toolbar).
-- Left: primary tool stack.
-- Right: utility panels / docks (`Layers`, `History`, `Colors`, properties).
-- Center: canvas viewport.
-- Bottom: status strip with hints, metrics, and zoom.
-- This zoning is consistent enough across the reference products that breaking it should be treated as a deliberate exception.
+4. Document tab strip
+- The existing multi-document tab strip remains directly below the tool-options row.
+- The Figma mock does not show it, but the real product must keep it visible because multi-document support already exists in code.
 
-5. Utility panel behavior
-- Panels should be compact, dockable or palette-like, and visually subordinate to the canvas.
-- Panels should support closing, re-showing, and predictable reset to a default layout.
-- Default layout matters: users should not need to manually arrange basic panels after launch.
+5. Canvas region
+- The canvas remains the visual center.
+- The workspace background should be a light neutral gray consistent with the updated Figma shell.
+- Rulers remain visible when enabled and stay integrated with the canvas area.
+- The status strip remains anchored at the bottom.
 
-6. Document surfacing
-- Multiple documents are normally exposed as a visible tab strip, thumbnail strip, or document bar near the top of the workspace.
-- Switching documents should be one-click.
-- Unsaved state should be visible at the document surface, not only in the window title.
+## Floating panel model
+1. Panels
+- The primary utility surfaces remain:
+- `Tools`
+- `Colors`
+- `History`
+- `Layers`
 
-7. Toolbar density
-- Toolbar controls should be compact, icon-first, and tightly grouped by function.
-- Repeated controls should be avoided unless the duplicate surface has a clearly different role.
-- Spacing and chrome should read like a desktop editor, not a generic form.
+2. Floating behavior
+- These four surfaces remain floating panels inside the editor workspace.
+- They are not treated as fixed dock columns.
+- Overlap between panels is acceptable and matches the new design bundle as well as the current code model.
 
-8. Canvas-first safety rules
-- Large images should open fit-first.
-- Small images should stay centered and not collapse to the top-left.
-- Scrollbars, rulers, and overlays must support the canvas, not push it out of the primary visual focus.
+3. Movement behavior
+- Panels must remain draggable by their header region.
+- While dragging, panels should become semi-transparent.
+- When the drag ends, they return to full opacity.
+- Practical in-window clamping is still preferred so panels do not disappear outside the workspace.
 
-## FlatPaint code comparison (current)
-1. Canvas centering
-- Implemented as a baseline invariant.
-- `UpdateCanvasSize` now centers the canvas host child when the rendered image is smaller than the viewport and clears stale scroll offsets in those centered directions.
-- The shared zoom route now preserves an explicit anchor point while still recentering the canvas correctly when the scaled image drops below the viewport size.
-- Result: small documents now read as visually centered instead of collapsing toward the scroll origin.
+4. Default placement
+- Default positions should roughly follow the current code layout:
+- tools upper-left
+- colors lower-left
+- history upper-right
+- layers lower-right
+- Exact overlap-free placement is desirable, but mild overlap is not a design violation by itself.
 
-2. Bottom-right zoom control
-- Implemented as the primary quick-zoom path.
-- The status bar now exposes a horizontal zoom slider plus the percentage readout, and the slider stays synchronized with the rest of the zoom commands instead of becoming a stale secondary control.
-- The top-toolbar zoom chooser still exists, but it now reads as the secondary precision chooser rather than the only dense zoom surface.
+## Visual language
+1. Surface style
+- Prefer light neutral surfaces with subtle borders.
+- Floating panels may use translucent or frosted styling, but they should remain legible over the canvas.
+- Avoid the previous dark slate palette chrome as the primary visual identity.
 
-3. Gesture zoom
-- Partially implemented.
-- The current Lazarus GUI source still has no dedicated magnification gesture recognizer, so true native pinch parity is still open.
-- A practical cross-editor fallback now exists: `Ctrl` / `Command` modified wheel input zooms the viewport around the pointer anchor, which closes the old command-only gap while the native pinch path remains open.
+2. Control style
+- Favor compact icon or short-label controls.
+- Emoji-like toolbar captions are no longer acceptable as the primary UI style.
+- Header bars should be light, compact, and visibly draggable.
 
-4. Document surface
-- Not implemented yet.
-- The main form still owns one `TImageDocument`, and there is no real image-list / document-tab control in the current code path.
+3. Canvas framing
+- The canvas surround should be quiet and low-contrast.
+- Transparency checkerboard, rulers, and selection overlays must remain clearly readable over the lighter shell.
 
-5. Workspace zoning
-- Partially implemented.
-- The current app does have a top command strip, left tools, right-side utility panels, and a bottom status strip.
-- The basic zones now exist, but centering, density, and exact role separation are still weaker than the baseline.
+## Functional preservation rules
+1. Design is not the full spec
+- The Figma export is a visual reference only.
+- Missing controls in the mockup must not be treated as removed features.
 
-6. Utility panels
-- Partially implemented.
-- `Tools`, `Colors`, `History`, and `Layers` exist and can be shown/hidden.
-- The remaining gap is tighter docking behavior, denser layout, and more accurate default placement.
+2. Preserve advanced functionality
+- Existing commands, dialogs, and tool options must remain available even if the design only shows a simplified subset.
+- If a feature is not visible in the quick-action row or panel mock, keep it in:
+- the menu bar
+- the tool-options row
+- the relevant dialog
+- the relevant floating panel
 
-7. Toolbar density
-- Partially implemented.
-- Functionally stronger than before, but still too loose and too horizontally spread compared with paint.net / Photoshop / Photopea class editors.
+3. Panel simplification must not remove actions
+- `History` still needs undo/redo plus the timeline list.
+- `Layers` still needs add/delete/duplicate/merge/visibility/properties/blend mode/list behavior.
+- `Colors` still needs practical color editing, not just the visible mock controls.
+- `Tools` still needs the full tool set available in code, not just the subset shown in the design file.
 
-## Immediate UI implementation rules
-1. Keep canvas centering as a non-negotiable viewport invariant.
-2. Keep the status-bar slider as the primary quick-zoom surface.
-3. Keep the top zoom combo only as a secondary precision control.
-4. Add smooth trackpad pinch zoom before claiming the viewport interaction is mature.
-5. Do not claim image-list parity until a real multi-document surface exists in code.
-6. Use this document together with `docs/UI_PARITY_AUDIT.md`:
-- `UI_REQUIREMENTS_BASELINE.md` defines cross-editor rules.
-- `UI_PARITY_AUDIT.md` remains paint.net-specific.
+## Immediate implementation rules
+1. Re-skin the workspace to match `flatpaint_design`, but keep the current floating-panel architecture.
+2. Keep the dedicated second tool-options row under the quick-action row.
+3. Keep the document tab strip below the tool-options row.
+4. Preserve the status strip and ruler behavior.
+5. Keep drag translucency on floating panels as a required behavior, not optional polish.
 
-## Priority order
-1. Trackpad pinch zoom
-2. Real document tab / image-list surface
-3. Palette docking and density refinement
-4. Final iconography and spacing polish
+## Review rule
+Before calling a UI pass complete, confirm both:
+1. The window reads like the updated `flatpaint_design` composition at first glance.
+2. No existing workflow became unreachable while matching the new style.

@@ -1,5 +1,13 @@
 # Development Progress Log
 
+## 2026-03-03 (UI baseline reset to local Figma export)
+
+- The active UI visual authority has been switched from the older paint.net-style workspace spec to the local `flatpaint_design/` bundle.
+- The previous paint.net-oriented UI baseline was archived into `DocsBackup/UI_REQUIREMENTS_BASELINE.paintnet.md` and `DocsBackup/UI_PARITY_AUDIT.paintnet.md` instead of being deleted outright.
+- The new active UI docs are now `docs/UI_REQUIREMENTS_BASELINE.md` and `docs/UI_PARITY_AUDIT.md`, and they explicitly preserve the current product architecture that the design mock does not show in full.
+- Two implementation constraints are now locked in the active spec: the four utility surfaces (`Tools`, `Colors`, `History`, `Layers`) remain floating panels that may overlap and become semi-transparent while dragging, and the tool-dependent control surface remains a dedicated second toolbar row beneath the quick-action row rather than being collapsed into the Figma mock's single strip.
+- The document tab strip also remains part of the required top-of-workspace stack below the tool-options row, because the live code already supports multi-document tabs and the design mock is treated as visual guidance rather than a full feature contract.
+
 ## 2026-03-03 (tool options parity pass + documentation sync)
 
 - Re-checked the current source against `src/app/mainform.pas`, `src/core/fpdocument.pas`, `src/core/fpsurface.pas`, `src/core/fpio.pas`, and the current test/build scripts so the latest docs match the real code again.
