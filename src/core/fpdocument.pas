@@ -193,7 +193,7 @@ type
     procedure RadialBlur(Amount: Integer);
     procedure Twist(Amount: Integer);
     procedure Fragment(Offset: Integer);
-    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255);
+    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; PreserveValue: Boolean = False; ASelection: TSelectionMask = nil);
     function HasSelection: Boolean;
     function HasStoredSelection: Boolean;
     procedure StoreSelectionForPaste;
@@ -1074,9 +1074,9 @@ begin
   ActiveLayer.Surface.Fragment(Offset);
 end;
 
-procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte);
+procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; PreserveValue: Boolean; ASelection: TSelectionMask);
 begin
-  ActiveLayer.Surface.RecolorBrush(X, Y, Radius, SourceColor, NewColor, Tolerance, Opacity);
+  ActiveLayer.Surface.RecolorBrush(X, Y, Radius, SourceColor, NewColor, Tolerance, Opacity, PreserveValue, ASelection);
 end;
 
 function TImageDocument.HasStoredSelection: Boolean;

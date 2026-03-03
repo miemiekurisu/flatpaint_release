@@ -1,5 +1,13 @@
 # Test Log
 
+## 2026-03-03 (canvas-feedback tool pass)
+- Full CI verification after adding shared canvas hover feedback, clone-source markers, and tool-hover metadata coverage: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 163 tests, 0 errors, 0 failures, including the new hover-feedback and brush-overlay helper assertions
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+- GUI smoke verification after the same pass: launched `./flatpaint`, left it running briefly, then confirmed the process stayed alive until manually terminated
+- Result: no startup crash or immediate event-loop failure was observed after wiring the new paint-box hover/leave handlers and canvas overlay draw path
+
 ## 2026-03-03 (system-picker color panel + speed-button completion pass)
 - Full CI verification after replacing the custom wheel-first Colors surface with the slimmer system-picker companion panel and completing the shared speed-button path: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 151 tests, 0 errors, 0 failures after the color-panel refactor, palette-height reduction, and button-type unification

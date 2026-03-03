@@ -258,6 +258,11 @@ type
     function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0): TSpeedButton;
     procedure CreateMenuItem(AParent: TMenuItem; const ACaption: string; AHandler: TNotifyEvent; AShortcut: TShortCut = 0);
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
+    procedure DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+    procedure DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
+    procedure DrawHoverToolOverlay(ACanvas: TCanvas);
+    function ActiveToolOverlayRadius: Integer;
+    function TryGetCloneOverlaySourcePoint(out APoint: TPoint): Boolean;
     procedure PaintRuler(ACanvas: TCanvas; const ARect: TRect; AOrientation: TRulerOrientation);
     procedure UpdateCanvasSize;
     procedure FitDocumentToViewport(AOnlyShrink: Boolean);
@@ -480,6 +485,7 @@ type
     procedure PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure PaintBoxMouseLeave(Sender: TObject);
     { Stroke history helpers }
     procedure BeginStrokeHistory;
     procedure ExpandStrokeDirty(const APoint: TPoint);
@@ -842,6 +848,7 @@ begin
   FPaintBox.OnMouseDown := @PaintBoxMouseDown;
   FPaintBox.OnMouseMove := @PaintBoxMouseMove;
   FPaintBox.OnMouseUp := @PaintBoxMouseUp;
+  FPaintBox.OnMouseLeave := @PaintBoxMouseLeave;
 
   BuildSidePanel;
   RefreshPaletteMenuChecks;
@@ -1212,9 +1219,17 @@ begin
   if Assigned(FFillTolSpin) then
   begin
     if FCurrentTool = tkRecolor then
+    begin
+      FFillTolLabel.Left := 480;
+      FFillTolSpin.Left := 552;
       FFillTolSpin.Value := FWandTolerance
+    end
     else
+    begin
+      FFillTolLabel.Left := 348;
+      FFillTolSpin.Left := 420;
       FFillTolSpin.Value := FFillTolerance;
+    end;
     if FCurrentTool = tkRecolor then
       FFillTolSpin.Hint := 'Recolor tolerance (0=exact, 255=replace broad color range)'
     else
@@ -1227,6 +1242,8 @@ begin
   if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Checked := FGradientReverse;
   if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Visible := FCurrentTool = tkCloneStamp;
   if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
+  if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
+  if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
   if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
   if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
   if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
@@ -2240,6 +2257,150 @@ begin
   AParent.Add(MenuItem);
 end;
 
+function TMainForm.ActiveToolOverlayRadius: Integer;
+begin
+  case FCurrentTool of
+    tkPencil:
+      Result := Max(0, (FBrushSize - 1) div 2);
+    tkBrush, tkEraser, tkCloneStamp, tkRecolor:
+      Result := Max(1, FBrushSize div 2);
+  else
+    Result := 0;
+  end;
+end;
+
+function TMainForm.TryGetCloneOverlaySourcePoint(out APoint: TPoint): Boolean;
+begin
+  Result := False;
+  if not FCloneStampSampled then
+    Exit;
+
+  if FCloneAligned and FCloneAlignedOffsetValid and
+     (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) then
+    APoint := Point(
+      FLastImagePoint.X + FCloneAlignedOffset.X,
+      FLastImagePoint.Y + FCloneAlignedOffset.Y
+    )
+  else
+    APoint := FCloneStampSource;
+
+  Result := (APoint.X >= 0) and (APoint.Y >= 0) and
+    (APoint.X < FDocument.Width) and (APoint.Y < FDocument.Height);
+end;
+
+procedure TMainForm.DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
+var
+  LeftX: Integer;
+  TopY: Integer;
+  RightX: Integer;
+  BottomY: Integer;
+  CenterX: Integer;
+  CenterY: Integer;
+  CrossHalf: Integer;
+begin
+  if (APoint.X < 0) or (APoint.Y < 0) then
+    Exit;
+
+  LeftX := Round(APoint.X * FZoomScale);
+  TopY := Round(APoint.Y * FZoomScale);
+  RightX := Round((APoint.X + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + 1) * FZoomScale);
+  if RightX <= LeftX then
+    RightX := LeftX + 1;
+  if BottomY <= TopY then
+    BottomY := TopY + 1;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clWhite;
+  ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+
+  CenterX := (LeftX + RightX) div 2;
+  CenterY := (TopY + BottomY) div 2;
+  CrossHalf := Max(2, Round(FZoomScale));
+  ACanvas.Pen.Color := clBlack;
+  ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
+  ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
+  ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
+  ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+end;
+
+procedure TMainForm.DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+var
+  LeftX: Integer;
+  TopY: Integer;
+  RightX: Integer;
+  BottomY: Integer;
+  CenterX: Integer;
+  CenterY: Integer;
+  CrossHalf: Integer;
+begin
+  if ARadius <= 0 then
+  begin
+    DrawPointHoverOverlay(ACanvas, APoint);
+    Exit;
+  end;
+
+  LeftX := Round((APoint.X - ARadius) * FZoomScale);
+  TopY := Round((APoint.Y - ARadius) * FZoomScale);
+  RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
+  if RightX <= LeftX then
+    RightX := LeftX + 1;
+  if BottomY <= TopY then
+    BottomY := TopY + 1;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clWhite;
+  ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+
+  CenterX := Round((APoint.X + 0.5) * FZoomScale);
+  CenterY := Round((APoint.Y + 0.5) * FZoomScale);
+  CrossHalf := Max(2, Round(FZoomScale));
+  ACanvas.Pen.Color := clBlack;
+  ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
+  ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
+  ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
+  ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+end;
+
+procedure TMainForm.DrawHoverToolOverlay(ACanvas: TCanvas);
+var
+  SourcePoint: TPoint;
+  CenterX: Integer;
+  CenterY: Integer;
+  CrossHalf: Integer;
+begin
+  if not PaintToolHasCanvasHoverOverlay(FCurrentTool) then
+    Exit;
+  if (FLastImagePoint.X < 0) or (FLastImagePoint.Y < 0) then
+    Exit;
+  if (FLastImagePoint.X >= FDocument.Width) or (FLastImagePoint.Y >= FDocument.Height) then
+    Exit;
+
+  if PaintToolUsesBrushOverlay(FCurrentTool) then
+    DrawBrushHoverOverlay(ACanvas, FLastImagePoint, ActiveToolOverlayRadius)
+  else
+    DrawPointHoverOverlay(ACanvas, FLastImagePoint);
+
+  if (FCurrentTool = tkCloneStamp) and TryGetCloneOverlaySourcePoint(SourcePoint) then
+  begin
+    CenterX := Round((SourcePoint.X + 0.5) * FZoomScale);
+    CenterY := Round((SourcePoint.Y + 0.5) * FZoomScale);
+    CrossHalf := Max(3, Round(FZoomScale * 1.5));
+    ACanvas.Pen.Style := psSolid;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Pen.Color := clRed;
+    ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
+    ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
+    ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
+    ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+  end;
+end;
+
 procedure TMainForm.PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
 var
   DisplaySurface: TRasterSurface;
@@ -2283,87 +2444,89 @@ begin
     end;
   end;
 
-  if not FPointerDown then
-    Exit;
-
-  ACanvas.Pen.Color := clBlack;
-  ACanvas.Pen.Width := 1;
-  ACanvas.Brush.Style := bsClear;
-  case FCurrentTool of
-    tkLine, tkGradient:
-      begin
-        ACanvas.MoveTo(
-          Round((FDragStart.X + 0.5) * FZoomScale),
-          Round((FDragStart.Y + 0.5) * FZoomScale)
-        );
-        ACanvas.LineTo(
-          Round((FLastImagePoint.X + 0.5) * FZoomScale),
-          Round((FLastImagePoint.Y + 0.5) * FZoomScale)
-        );
-      end;
-    tkRectangle, tkSelectRect:
-      begin
-        LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-        TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-        RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-        BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
-        ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
-      end;
-    tkCrop:
-      begin
-        LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-        TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-        RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-        BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
-        ACanvas.Pen.Style := psDash;
-        ACanvas.Pen.Color := clWhite;
-        ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
-        ACanvas.Pen.Style := psSolid;
-        ACanvas.Pen.Color := clBlack;
-        ACanvas.Rectangle(LeftX - 1, TopY - 1, RightX + 1, BottomY + 1);
-      end;
-    tkRoundedRectangle:
-      begin
-        LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-        TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-        RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-        BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
-        ACanvas.RoundRect(
-          LeftX,
-          TopY,
-          RightX,
-          BottomY,
-          Max(6, (RightX - LeftX) div 4),
-          Max(6, (BottomY - TopY) div 4)
-        );
-      end;
-    tkEllipseShape, tkSelectEllipse:
-      begin
-        LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-        TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-        RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-        BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
-        ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
-      end;
-    tkSelectLasso, tkFreeformShape:
-      if Length(FLassoPoints) > 1 then
-      begin
-        ACanvas.MoveTo(
-          Round((FLassoPoints[0].X + 0.5) * FZoomScale),
-          Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
-        );
-        for PointIndex := 1 to High(FLassoPoints) do
-          ACanvas.LineTo(
-            Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
-            Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
+  if FPointerDown then
+  begin
+    ACanvas.Pen.Color := clBlack;
+    ACanvas.Pen.Width := 1;
+    ACanvas.Brush.Style := bsClear;
+    case FCurrentTool of
+      tkLine, tkGradient:
+        begin
+          ACanvas.MoveTo(
+            Round((FDragStart.X + 0.5) * FZoomScale),
+            Round((FDragStart.Y + 0.5) * FZoomScale)
           );
-        if (FCurrentTool = tkFreeformShape) and (Length(FLassoPoints) > 2) then
           ACanvas.LineTo(
+            Round((FLastImagePoint.X + 0.5) * FZoomScale),
+            Round((FLastImagePoint.Y + 0.5) * FZoomScale)
+          );
+        end;
+      tkRectangle, tkSelectRect:
+        begin
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+        end;
+      tkCrop:
+        begin
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          ACanvas.Pen.Style := psDash;
+          ACanvas.Pen.Color := clWhite;
+          ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+          ACanvas.Pen.Style := psSolid;
+          ACanvas.Pen.Color := clBlack;
+          ACanvas.Rectangle(LeftX - 1, TopY - 1, RightX + 1, BottomY + 1);
+        end;
+      tkRoundedRectangle:
+        begin
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          ACanvas.RoundRect(
+            LeftX,
+            TopY,
+            RightX,
+            BottomY,
+            Max(6, (RightX - LeftX) div 4),
+            Max(6, (BottomY - TopY) div 4)
+          );
+        end;
+      tkEllipseShape, tkSelectEllipse:
+        begin
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+        end;
+      tkSelectLasso, tkFreeformShape:
+        if Length(FLassoPoints) > 1 then
+        begin
+          ACanvas.MoveTo(
             Round((FLassoPoints[0].X + 0.5) * FZoomScale),
             Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
           );
-      end;
+          for PointIndex := 1 to High(FLassoPoints) do
+            ACanvas.LineTo(
+              Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
+              Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
+            );
+          if (FCurrentTool = tkFreeformShape) and (Length(FLassoPoints) > 2) then
+            ACanvas.LineTo(
+              Round((FLassoPoints[0].X + 0.5) * FZoomScale),
+              Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
+            );
+        end;
+    end;
   end;
+
+  DrawHoverToolOverlay(ACanvas);
 end;
 
 procedure TMainForm.PaintRuler(ACanvas: TCanvas; const ARect: TRect; AOrientation: TRulerOrientation);
@@ -4137,6 +4300,7 @@ begin
         ActivePaintColor,
         EnsureRange(FWandTolerance, 0, 255),
         FBrushOpacity * 255 div 100,
+        FRecolorPreserveValue,
         PaintSelection
       );
     tkCloneStamp:
@@ -5521,6 +5685,7 @@ begin
   FCurrentTool := TToolKind(TControl(Sender).Tag);
   FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
   UpdateToolOptionControl;
+  RefreshCanvas;
   RefreshStatus(FLastImagePoint);
 end;
 
@@ -5530,6 +5695,7 @@ begin
   if FToolCombo.ItemIndex >= 0 then
     FCurrentTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
   UpdateToolOptionControl;
+  RefreshCanvas;
   RefreshStatus(FLastImagePoint);
 end;
 
@@ -6005,7 +6171,10 @@ begin
         end;
       tkRecolor:
         FPickSecondaryTarget := Button = mbRight;
-      tkCloneStamp, tkZoom:
+      tkCloneStamp:
+        FPickSecondaryTarget := (Button = mbRight) or
+          ((Button = mbLeft) and (ssAlt in Shift));
+      tkZoom:
         FPickSecondaryTarget := Button = mbRight;
     else
       FPickSecondaryTarget := False;
@@ -6082,6 +6251,8 @@ begin
           FCloneStampSnapshot.Free;
           FCloneStampSnapshot := FDocument.ActiveLayer.Surface.Clone;
           FPointerDown := False;
+          if Assigned(FPaintBox) then
+            FPaintBox.Invalidate;
         end
         else if FCloneStampSampled then
         begin
@@ -6138,6 +6309,8 @@ begin
         ApplyImmediateTool(ImagePoint);
         FPointerDown := False;
         RefreshColorsPanel;
+        if Assigned(FPaintBox) then
+          FPaintBox.Invalidate;
         RefreshStatus(ImagePoint);
       end;
     tkMoveSelection, tkMovePixels:
@@ -6235,6 +6408,8 @@ begin
     end;
   if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels]) then
     FLastImagePoint := ImagePoint;
+  if (not FPointerDown) and PaintToolHasCanvasHoverOverlay(FCurrentTool) and Assigned(FPaintBox) then
+    FPaintBox.Invalidate;
   RefreshStatus(ImagePoint);
 end;
 
@@ -6315,6 +6490,14 @@ begin
     RefreshCanvas;
   end;
   RefreshStatus(ImagePoint);
+end;
+
+procedure TMainForm.PaintBoxMouseLeave(Sender: TObject);
+begin
+  FLastImagePoint := Point(-1, -1);
+  if Assigned(FPaintBox) then
+    FPaintBox.Invalidate;
+  RefreshStatus(FLastImagePoint);
 end;
 
 procedure TMainForm.PlaceTextAtPoint(const AResult: TTextDialogResult;
@@ -7543,6 +7726,12 @@ begin
   FCloneAligned := FCloneAlignedCheck.Checked;
   if not FCloneAligned then
     FCloneAlignedOffsetValid := False;
+end;
+
+procedure TMainForm.RecolorPreserveValueChanged(Sender: TObject);
+begin
+  if not Assigned(FRecolorPreserveValueCheck) then Exit;
+  FRecolorPreserveValue := FRecolorPreserveValueCheck.Checked;
 end;
 
 procedure TMainForm.PickerSampleComboChanged(Sender: TObject);

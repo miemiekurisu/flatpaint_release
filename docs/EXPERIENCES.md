@@ -12,6 +12,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (backend-only tool illusion)
+- Problem: several tool passes had real behavior in code, but they still felt broken in manual use because the canvas often gave no visible feedback until after a click, drag, or unrelated repaint
+- Core error: tool work was being counted as "implemented" when the raster path existed, even if the user could not reliably see that the active tool was attached to the canvas
+- Investigation: re-read the `PaintCanvasTo(...)`, `PaintBoxMouseMove(...)`, and tool-switch paths in `mainform.pas`, then compared the current visible tool set against which ones actually drew hover or drag feedback on the canvas
+- Root cause: implementation status had drifted toward backend capability and option wiring, while the minimal UX contract for canvas tools ("the pointer should show what the tool will do") had not been tracked as a first-class requirement
+- Fix: added shared hover-feedback classification in `fpuihelpers.pas`, routed that into the main canvas paint path, added live brush/point overlays plus a clone-source marker, refreshed the canvas on tool switches and mouse-leave, and documented the "visible canvas feedback" rule in `docs/TOOL_OPTIONS_BASELINE.md`
+- Reuse note: for any tool that acts on the canvas, do not stop at "the pixel operation exists"; verify that hover, click, or drag produces immediate visible feedback on the canvas itself before calling the tool pass usable
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (LCL color control boundary)
 - Problem: the requested color-panel direction needed to feel more native, but the first implementation had drifted into a fully custom picker surface that duplicated the platform color dialog instead of working with it
 - Core error: the UI exposed both a custom in-panel picker and the system color dialog path, which made the colors workflow feel redundant and less aligned with the intended macOS behavior

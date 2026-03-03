@@ -11,6 +11,8 @@ uses
 function PaintToolName(ATool: TToolKind): string;
 function PaintToolHint(ATool: TToolKind): string;
 function PaintToolGlyph(ATool: TToolKind): string;
+function PaintToolHasCanvasHoverOverlay(ATool: TToolKind): Boolean;
+function PaintToolUsesBrushOverlay(ATool: TToolKind): Boolean;
 function LayerOpacityPercentFromByte(AOpacity: Byte): Integer;
 function LayerOpacityByteFromPercent(APercent: Integer): Byte;
 function PaintToolDisplayCount: Integer;
@@ -149,7 +151,7 @@ begin
     tkText:
       Result := 'Text places a text string onto the active layer';
     tkCloneStamp:
-      Result := 'Clone Stamp samples with right-click, then paints sampled pixels with the brush';
+      Result := 'Clone Stamp samples with right-click or Option-click, then paints sampled pixels with the brush';
     tkRecolor:
       Result := 'Recolor swaps active and inactive swatch colors within the brush tolerance';
   else
@@ -209,6 +211,16 @@ begin
   else
     Result := 'Tool';
   end;
+end;
+
+function PaintToolHasCanvasHoverOverlay(ATool: TToolKind): Boolean;
+begin
+  Result := not (ATool in [tkMoveSelection, tkMovePixels, tkPan]);
+end;
+
+function PaintToolUsesBrushOverlay(ATool: TToolKind): Boolean;
+begin
+  Result := ATool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
 end;
 
 function LayerOpacityPercentFromByte(AOpacity: Byte): Integer;

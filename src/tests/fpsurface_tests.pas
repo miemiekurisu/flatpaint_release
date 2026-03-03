@@ -25,6 +25,7 @@ type
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
     procedure RecolorBrushOpacityBlendsTowardTarget;
+    procedure RecolorBrushPreserveValueKeepsShading;
     procedure RenderCloudsWritesNonTransparentPixels;
     procedure PixelateBlursPixelsIntoBlocks;
     procedure VignetteDarkensEdges;
@@ -359,6 +360,28 @@ begin
     AssertTrue('red channel does not jump fully to target', Surface[2, 2].R > 50);
     AssertTrue('green channel moves toward target', Surface[2, 2].G > 50);
     AssertTrue('green channel does not jump fully to target', Surface[2, 2].G < 200);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushPreserveValueKeepsShading;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(120, 30, 30, 255));
+    Source := RGBA(120, 30, 30, 255);
+    Target := RGBA(50, 200, 50, 255);
+
+    Surface.RecolorBrush(2, 2, 2, Source, Target, 10, 255, True);
+
+    AssertTrue('green channel shifts toward target hue', Surface[2, 2].G > Surface[2, 2].R);
+    AssertTrue('preserved value stays darker than raw target', Surface[2, 2].G < 200);
+    AssertTrue('preserved value stays above original red floor', Surface[2, 2].G > 30);
   finally
     Surface.Free;
   end;

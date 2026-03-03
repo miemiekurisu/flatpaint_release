@@ -1,5 +1,15 @@
 # Development Progress Log
 
+## 2026-03-03 (canvas-feedback tool pass)
+
+- This pass maps primarily to the `Paint tools`, `Draw tools`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
+- The live tool surface is less "backend-only" now: visible tools no longer depend solely on hidden state changes or delayed commits to feel active, because the canvas now renders direct hover feedback for almost every non-move tool.
+- `Pencil`, `Brush`, `Eraser`, `Clone Stamp`, and `Recolor` now draw a live brush-radius outline under the pointer, while click/drag-oriented tools such as `Paint Bucket`, `Magic Wand`, `Color Picker`, `Text`, `Crop`, and the drag-shape family now show a minimal point/crosshair marker so the user can see that the tool is attached to the canvas before committing.
+- `Clone Stamp` is clearer during use now: after sampling, the canvas also shows a live source-point marker in addition to the destination brush outline, so the source/destination relationship is no longer hidden.
+- This pass also closes one UI-state gap behind that feedback: switching tools now forces a canvas refresh, leaving the canvas clears hover state, and one-shot actions such as clone-source sampling and color picking now explicitly invalidate the paint surface so their feedback updates immediately.
+- Added regression coverage for the new interaction contract in `src/app/fpuihelpers.pas` and `src/tests/fpuihelpers_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **163 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the tool layer is materially more trustworthy in real use because more tools now visibly attach to the canvas, so the overall completion estimate moves to **~91%**; the biggest remaining gaps are still true curve-node editing, real anti-aliased selections, image-list parity, and deeper per-tool behavior parity beyond the current first-pass interactions.
+
 ## 2026-03-03 (system-picker color panel + speed-button completion pass)
 
 - This pass maps primarily to the `Colors`, `Workspace visual parity`, and `Iconography` rows in `docs/FEATURE_MATRIX.md`.

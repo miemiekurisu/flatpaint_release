@@ -47,8 +47,6 @@
 - True inline text editing (modal dialog exists; inline canvas text entry deferred)
 - True line/curve dual-mode tool (line tool exists; curve editing deferred)
 - Square brush mode for eraser
-- Aligned-clone toggle for Clone Stamp
-- Hue preservation toggle for Recolor
 - Feather option for selection tools
 
 ## Required per-tool option baseline
@@ -67,11 +65,12 @@
 | Eraser | Size, opacity (**live**), hardness (**live**) | Size, shape (`Round` / `Square`), hardness deferred | Opacity and hardness now visible; square mode deferred |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
 | Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; line-style/dash and shape-kind chooser still deferred |
-| Clone Stamp | Brush size + opacity + right-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity, and aligned sampling can stay locked across strokes |
-| Recolor | Brush size + opacity + tolerance live | Tolerance, source hue preservation toggle | Visible tolerance is now routed through the shared tolerance spin while `Recolor` is active; hue preservation remains deferred |
+| Clone Stamp | Brush size + opacity + right-click / Option-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned sampling stays locked across strokes, and Option-click sampling now mirrors common editor behavior |
+| Recolor | Brush size + opacity + tolerance live + **Preserve Value TCheckBox live** | Tolerance, source hue preservation toggle | Visible tolerance is routed through the shared tolerance spin while `Recolor` is active, and `Preserve Value` now keeps original brightness while shifting hue/saturation |
 | Text | Font family, size, bold/italic (modal dialog) | Full inline text entry with alignment | Modal text flow live; inline text editing deferred |
 
 ## Acceptance rules
 - If a tool appears in the visible `Tools` palette, its main action must work on real pixels or viewport state and must be testable.
+- If a tool is expected to act on the canvas directly, it must also provide at least minimal visible hover, click, or drag feedback on the canvas instead of feeling inert until after a hidden state change.
 - If a tool has a visible option control, that option must have helper-level or core-level unit coverage.
 - Do not claim the tool-options surface complete while modifier-only hidden behavior is standing in for a required visible paint.net-style control.

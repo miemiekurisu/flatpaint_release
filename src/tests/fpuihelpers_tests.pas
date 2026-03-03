@@ -25,6 +25,8 @@ type
     procedure ShortcutCyclesMoveTools;
     procedure ShortcutCyclesShapeTools;
     procedure ShortcutSingleKeyMaps;
+    procedure AdvancedToolsAdvertiseCanvasHoverFeedback;
+    procedure BrushOverlayClassificationStaysFocused;
     procedure ColorShortcutTogglesTarget;
     procedure LayerOpacityHelpersRoundTripPercentScale;
   end;
@@ -329,6 +331,29 @@ begin
   { unrelated key leaves unchanged }
   t := NextToolForKey('Q', False, t);
   AssertEquals(Ord(tkColorPicker), Ord(t));
+end;
+
+procedure TFPUIHelpersTests.AdvancedToolsAdvertiseCanvasHoverFeedback;
+begin
+  AssertTrue('fill should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkFill));
+  AssertTrue('gradient should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkGradient));
+  AssertTrue('magic wand should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkMagicWand));
+  AssertTrue('color picker should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkColorPicker));
+  AssertTrue('crop should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkCrop));
+  AssertTrue('text should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkText));
+  AssertTrue('clone stamp should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkCloneStamp));
+  AssertTrue('recolor should expose hover feedback', PaintToolHasCanvasHoverOverlay(tkRecolor));
+  AssertFalse('pan should not claim hover feedback', PaintToolHasCanvasHoverOverlay(tkPan));
+  AssertFalse('move pixels should not claim hover feedback', PaintToolHasCanvasHoverOverlay(tkMovePixels));
+end;
+
+procedure TFPUIHelpersTests.BrushOverlayClassificationStaysFocused;
+begin
+  AssertTrue('brush uses brush overlay', PaintToolUsesBrushOverlay(tkBrush));
+  AssertTrue('clone uses brush overlay', PaintToolUsesBrushOverlay(tkCloneStamp));
+  AssertTrue('recolor uses brush overlay', PaintToolUsesBrushOverlay(tkRecolor));
+  AssertFalse('fill should not use brush overlay', PaintToolUsesBrushOverlay(tkFill));
+  AssertFalse('text should not use brush overlay', PaintToolUsesBrushOverlay(tkText));
 end;
 
 procedure TFPUIHelpersTests.ColorShortcutTogglesTarget;

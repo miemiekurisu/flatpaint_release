@@ -81,7 +81,7 @@ type
     procedure RadialBlur(Amount: Integer);
     procedure Twist(Amount: Integer);
     procedure Fragment(Offset: Integer);
-    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; PreserveValue: Boolean = False; ASelection: TSelectionMask = nil);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
     function CopySelection(ASelection: TSelectionMask): TRasterSurface;
@@ -2061,13 +2061,20 @@ begin
     end;
 end;
 
-procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; ASelection: TSelectionMask);
+procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; PreserveValue: Boolean; ASelection: TSelectionMask);
 var
   BX, BY: Integer;
   Dist: Integer;
   Pix: TRGBA32;
+  TargetPix: TRGBA32;
   DR, DG, DB: Integer;
   ColorDist: Integer;
+  IgnoreHue: Double;
+  IgnoreSat: Double;
+  IgnoreVal: Double;
+  PixelVal: Double;
+  TargetHue: Double;
+  TargetSat: Double;
 begin
   for BY := Max(0, Y - Radius) to Min(FHeight - 1, Y + Radius) do
     for BX := Max(0, X - Radius) to Min(FWidth - 1, X + Radius) do
@@ -2084,17 +2091,26 @@ begin
       ColorDist := (Abs(DR) + Abs(DG) + Abs(DB)) div 3;
       if ColorDist <= Tolerance then
       begin
-        if Opacity >= 255 then
+        TargetPix := Pix;
+        if PreserveValue then
         begin
-          Pix.R := NewColor.R;
-          Pix.G := NewColor.G;
-          Pix.B := NewColor.B;
+          RGBToHSV(Pix, IgnoreHue, IgnoreSat, PixelVal);
+          RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
+          TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Pix.A);
         end
         else
         begin
-          Pix.R := (Pix.R * (255 - Opacity) + NewColor.R * Opacity + 127) div 255;
-          Pix.G := (Pix.G * (255 - Opacity) + NewColor.G * Opacity + 127) div 255;
-          Pix.B := (Pix.B * (255 - Opacity) + NewColor.B * Opacity + 127) div 255;
+          TargetPix.R := NewColor.R;
+          TargetPix.G := NewColor.G;
+          TargetPix.B := NewColor.B;
+        end;
+        if Opacity >= 255 then
+          Pix := TargetPix
+        else
+        begin
+          Pix.R := (Pix.R * (255 - Opacity) + TargetPix.R * Opacity + 127) div 255;
+          Pix.G := (Pix.G * (255 - Opacity) + TargetPix.G * Opacity + 127) div 255;
+          Pix.B := (Pix.B * (255 - Opacity) + TargetPix.B * Opacity + 127) div 255;
         end;
         FPixels[IndexOf(BX, BY)] := Pix;
       end;
