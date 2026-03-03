@@ -47,7 +47,6 @@
 - True inline text editing (modal dialog exists; inline canvas text entry deferred)
 - True line/curve dual-mode tool (line tool exists; curve editing deferred)
 - Square brush mode for eraser
-- Sample-source controls for paint bucket (layer vs composite still deferred for Fill)
 - Aligned-clone toggle for Clone Stamp
 - Hue preservation toggle for Recolor
 - Feather option for selection tools
@@ -61,14 +60,14 @@
 | Move Selection / Move Selected Pixels | Real mask / pixel movement | Move mode stays tool-defined; no extra options required beyond future nudge settings | Already backed by real shared-core movement paths |
 | Zoom | Preset zoom ladder, toolbar chooser, status slider | Zoom mode (`In` / `Out`), optional scrub zoom deferred | Current code supports left-click in / right-click out plus menu and slider parity |
 | Pan | Hand-style viewport drag | No heavy options required; future "spacebar temporary hand" is optional | User-facing expectation follows Photoshop/GIMP hand tool behavior |
-| Paint Bucket | Flood fill on active layer + **Fill mode TComboBox live** + **Tolerance TSpinEdit live** | Fill mode (`Contiguous` / `Global`), tolerance, sample source (`Layer` / `Image`) | Contiguous/global + tolerance now visible; sample source still deferred |
+| Paint Bucket | Flood fill on active layer + **Fill mode TComboBox live** + **Tolerance TSpinEdit live** + **Sample Source TComboBox live** | Fill mode (`Contiguous` / `Global`), tolerance, sample source (`Layer` / `Image`) | Contiguous/global + tolerance + sample source now visible; global mode now replaces every matching color instead of clearing the layer |
 | Gradient | **Type TComboBox (Linear/Radial) live** + **Reverse TCheckBox live** + `FillRadialGradient` wired | Gradient type, reverse, alpha mode deferred | Linear and radial gradient types now selectable with reverse; alpha mode deferred |
 | Pencil | Size, hard-edge | Size, hard-edge behavior, future square/round shape choice | Zero-radius line drawing for true single-pixel steps at size `1` |
 | Brush | Size, opacity (**live**), hardness (**live**) | Size, opacity, shape, hardness | All three primary options now visible |
 | Eraser | Size, opacity (**live**), hardness (**live**) | Size, shape (`Round` / `Square`), hardness deferred | Opacity and hardness now visible; square mode deferred |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
 | Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; line-style/dash and shape-kind chooser still deferred |
-| Clone Stamp | Brush size + opacity + right-click sample live | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned toggle still deferred |
+| Clone Stamp | Brush size + opacity + right-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity, and aligned sampling can stay locked across strokes |
 | Recolor | Brush size + opacity + tolerance live | Tolerance, source hue preservation toggle | Visible tolerance is now routed through the shared tolerance spin while `Recolor` is active; hue preservation remains deferred |
 | Text | Font family, size, bold/italic (modal dialog) | Full inline text entry with alignment | Modal text flow live; inline text editing deferred |
 

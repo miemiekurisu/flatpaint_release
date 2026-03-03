@@ -29,18 +29,18 @@ type
     function Clone: TRasterSurface;
     function InBounds(X, Y: Integer): Boolean; inline;
     procedure Clear(const AColor: TRGBA32);
-    procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255);
-    procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255);
-    procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255);
-    procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
-    procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
-    procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
-    procedure DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean = True; Opacity: Byte = 255);
-    procedure FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte = 255);
+    procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean = True; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure FloodFill(X, Y: Integer; const AColor: TRGBA32; Tolerance: Byte = 0);
-    procedure FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32);
-    procedure FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32);
-    procedure PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte = 255);
+    procedure FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask = nil);
+    procedure FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask = nil);
+    procedure PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     { Region copy: copies ASource.Width × ASource.Height pixels from Self at (SrcX, SrcY) into ADest at (0,0). Direct overwrite, no blending. }
     procedure CopyRegionTo(ADest: TRasterSurface; SrcX, SrcY: Integer);
     { Region overwrite: writes ASource.Width × ASource.Height pixels from ASource into Self at (DstX, DstY). Direct overwrite, no blending. }
@@ -81,7 +81,7 @@ type
     procedure RadialBlur(Amount: Integer);
     procedure Twist(Amount: Integer);
     procedure Fragment(Offset: Integer);
-    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255);
+    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
     function CopySelection(ASelection: TSelectionMask): TRasterSurface;
@@ -359,17 +359,19 @@ begin
   FPixels[IndexOf(X, Y)] := AValue;
 end;
 
-procedure TRasterSurface.BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte);
+procedure TRasterSurface.BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte; ASelection: TSelectionMask);
 var
   PixelIndex: Integer;
 begin
   if not InBounds(X, Y) then
     Exit;
+  if Assigned(ASelection) and not ASelection[X, Y] then
+    Exit;
   PixelIndex := IndexOf(X, Y);
   FPixels[PixelIndex] := BlendNormal(AColor, FPixels[PixelIndex], Opacity);
 end;
 
-procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte);
+procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
 var
   DrawX: Integer;
   DrawY: Integer;
@@ -401,12 +403,12 @@ begin
       else
         EffectiveOpacity := 0;
       if EffectiveOpacity > 0 then
-        BlendPixel(DrawX, DrawY, AColor, Min(255, EffectiveOpacity));
+        BlendPixel(DrawX, DrawY, AColor, Min(255, EffectiveOpacity), ASelection);
     end;
   end;
 end;
 
-procedure TRasterSurface.DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte);
+procedure TRasterSurface.DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
 var
   DX: Integer;
   DY: Integer;
@@ -429,7 +431,7 @@ begin
   ErrorValue := DX - DY;
   while True do
   begin
-    DrawBrush(X1, Y1, Radius, AColor, Opacity, Hardness);
+    DrawBrush(X1, Y1, Radius, AColor, Opacity, Hardness, ASelection);
     if (X1 = X2) and (Y1 = Y2) then
       Break;
     DoubleError := ErrorValue * 2;
@@ -446,7 +448,7 @@ begin
   end;
 end;
 
-procedure TRasterSurface.DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte);
+procedure TRasterSurface.DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte; ASelection: TSelectionMask);
 var
   LeftX: Integer;
   RightX: Integer;
@@ -464,7 +466,7 @@ begin
   begin
     for Y := TopY to BottomY do
       for X := LeftX to RightX do
-        BlendPixel(X, Y, AColor, Opacity);
+        BlendPixel(X, Y, AColor, Opacity, ASelection);
     Exit;
   end;
 
@@ -477,12 +479,12 @@ begin
          (X > RightX - StrokeWidth) or
          (Y < TopY + StrokeWidth) or
          (Y > BottomY - StrokeWidth) then
-        BlendPixel(X, Y, AColor, Opacity);
+        BlendPixel(X, Y, AColor, Opacity, ASelection);
     end;
   end;
 end;
 
-procedure TRasterSurface.DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte);
+procedure TRasterSurface.DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte; ASelection: TSelectionMask);
 var
   LeftX: Integer;
   RightX: Integer;
@@ -545,11 +547,11 @@ begin
       if DrawPixel and (not Filled) and (InnerLeft <= InnerRight) and (InnerTop <= InnerBottom) then
         DrawPixel := not InsideRoundedRect(PixelCenterX, PixelCenterY, InnerLeft, InnerTop, InnerRight, InnerBottom, InnerRadius);
       if DrawPixel then
-        BlendPixel(X, Y, AColor, Opacity);
+        BlendPixel(X, Y, AColor, Opacity, ASelection);
     end;
 end;
 
-procedure TRasterSurface.DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte);
+procedure TRasterSurface.DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte; ASelection: TSelectionMask);
 var
   LeftX: Integer;
   RightX: Integer;
@@ -588,7 +590,7 @@ begin
         NX := (X - CenterX) / RadiusX;
         NY := (Y - CenterY) / RadiusY;
         if (NX * NX) + (NY * NY) <= 1.0 then
-          BlendPixel(X, Y, AColor, Opacity);
+          BlendPixel(X, Y, AColor, Opacity, ASelection);
       end;
     Exit;
   end;
@@ -598,7 +600,7 @@ begin
   InnerRadiusY := RadiusY - StrokeWidth;
   if (InnerRadiusX <= 0.0) or (InnerRadiusY <= 0.0) then
   begin
-    DrawEllipse(X1, Y1, X2, Y2, StrokeWidth, AColor, True, Opacity);
+    DrawEllipse(X1, Y1, X2, Y2, StrokeWidth, AColor, True, Opacity, ASelection);
     Exit;
   end;
 
@@ -615,11 +617,11 @@ begin
       InnerNY := (Y - CenterY) / InnerRadiusY;
       InnerDistanceValue := (InnerNX * InnerNX) + (InnerNY * InnerNY);
       if InnerDistanceValue >= 1.0 then
-        BlendPixel(X, Y, AColor, Opacity);
+        BlendPixel(X, Y, AColor, Opacity, ASelection);
     end;
 end;
 
-procedure TRasterSurface.DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean; Opacity: Byte);
+procedure TRasterSurface.DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean; Opacity: Byte; ASelection: TSelectionMask);
 var
   PointIndex: Integer;
   LineRadius: Integer;
@@ -636,7 +638,9 @@ begin
       APoints[PointIndex + 1].Y,
       LineRadius,
       AColor,
-      Opacity
+      Opacity,
+      255,
+      ASelection
     );
 
   if Closed and (High(APoints) >= 2) then
@@ -647,11 +651,13 @@ begin
       APoints[0].Y,
       LineRadius,
       AColor,
-      Opacity
+      Opacity,
+      255,
+      ASelection
     );
 end;
 
-procedure TRasterSurface.FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte);
+procedure TRasterSurface.FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte; ASelection: TSelectionMask);
 var
   MinY: Integer;
   MaxY: Integer;
@@ -713,7 +719,7 @@ begin
     while PointIndex + 1 < Length(Intersections) do
     begin
       for FillX := Max(0, Intersections[PointIndex]) to Min(FWidth - 1, Intersections[PointIndex + 1]) do
-        BlendPixel(FillX, Y, AColor, Opacity);
+        BlendPixel(FillX, Y, AColor, Opacity, ASelection);
       Inc(PointIndex, 2);
     end;
   end;
@@ -774,7 +780,7 @@ begin
   end;
 end;
 
-procedure TRasterSurface.FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32);
+procedure TRasterSurface.FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
 var
   X: Integer;
   Y: Integer;
@@ -789,19 +795,23 @@ begin
 
   if LengthSquared <= 0.0 then
   begin
-    Clear(StartColor);
+    if ASelection = nil then
+      Clear(StartColor)
+    else
+      FillSelection(ASelection, StartColor, 255);
     Exit;
   end;
 
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
-    begin
-      Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
-      Pixels[X, Y] := LerpColor(StartColor, EndColor, Projection);
-    end;
+      if (ASelection = nil) or ASelection[X, Y] then
+      begin
+        Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
+        Pixels[X, Y] := LerpColor(StartColor, EndColor, Projection);
+      end;
 end;
 
-procedure TRasterSurface.FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32);
+procedure TRasterSurface.FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
 var
   X: Integer;
   Y: Integer;
@@ -810,19 +820,23 @@ var
 begin
   if Radius <= 0 then
   begin
-    Clear(StartColor);
+    if ASelection = nil then
+      Clear(StartColor)
+    else
+      FillSelection(ASelection, StartColor, 255);
     Exit;
   end;
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
-    begin
-      Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
-      T := Dist / Radius;
-      Pixels[X, Y] := LerpColor(StartColor, EndColor, T);
-    end;
+      if (ASelection = nil) or ASelection[X, Y] then
+      begin
+        Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
+        T := Dist / Radius;
+        Pixels[X, Y] := LerpColor(StartColor, EndColor, T);
+      end;
 end;
 
-procedure TRasterSurface.PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte);
+procedure TRasterSurface.PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte; ASelection: TSelectionMask);
 var
   SourceX: Integer;
   SourceY: Integer;
@@ -841,7 +855,7 @@ begin
       TargetX := SourceX + OffsetX;
       if (TargetX < 0) or (TargetX >= FWidth) then
         Continue;
-      BlendPixel(TargetX, TargetY, ASource[SourceX, SourceY], Opacity);
+      BlendPixel(TargetX, TargetY, ASource[SourceX, SourceY], Opacity, ASelection);
     end;
   end;
 end;
@@ -2047,7 +2061,7 @@ begin
     end;
 end;
 
-procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte);
+procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; ASelection: TSelectionMask);
 var
   BX, BY: Integer;
   Dist: Integer;
@@ -2060,6 +2074,8 @@ begin
     begin
       Dist := Round(Sqrt((BX - X) * (BX - X) + (BY - Y) * (BY - Y)));
       if Dist > Radius then
+        Continue;
+      if Assigned(ASelection) and not ASelection[BX, BY] then
         Continue;
       Pix := FPixels[IndexOf(BX, BY)];
       DR := Pix.R - SourceColor.R;

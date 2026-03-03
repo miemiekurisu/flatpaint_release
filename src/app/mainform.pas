@@ -187,6 +187,8 @@ type
     FShapeStyleLabel: TLabel;
     FBucketModeCombo: TComboBox;
     FBucketModeLabel: TLabel;
+    FFillSampleCombo: TComboBox;
+    FFillSampleLabel: TLabel;
     FWandSampleCombo: TComboBox;
     FWandSampleLabel: TLabel;
     { Wand contiguous toggle }
@@ -203,6 +205,14 @@ type
     FGradientTypeCombo: TComboBox;
     FGradientTypeLabel: TLabel;
     FGradientReverseCheck: TCheckBox;
+    FCloneAligned: Boolean;
+    FCloneAlignedCheck: TCheckBox;
+    FRecolorPreserveValue: Boolean;
+    FRecolorPreserveValueCheck: TCheckBox;
+    FCloneAlignedOffset: TPoint;
+    FCloneAlignedOffsetValid: Boolean;
+    { Fill sample source: 0=Current Layer, 1=All Layers }
+    FFillSampleSource: Integer;
     { Color picker sample source: 0=Current Layer, 1=All Layers }
     FPickerSampleSource: Integer;
     FPickerSampleCombo: TComboBox;
@@ -404,11 +414,14 @@ type
     procedure SelModeComboChanged(Sender: TObject);
     procedure ShapeStyleComboChanged(Sender: TObject);
     procedure BucketModeComboChanged(Sender: TObject);
+    procedure FillSampleComboChanged(Sender: TObject);
     procedure WandSampleComboChanged(Sender: TObject);
     procedure WandContiguousChanged(Sender: TObject);
     procedure FillTolSpinChanged(Sender: TObject);
     procedure GradientTypeComboChanged(Sender: TObject);
     procedure GradientReverseChanged(Sender: TObject);
+    procedure CloneAlignedChanged(Sender: TObject);
+    procedure RecolorPreserveValueChanged(Sender: TObject);
     procedure PickerSampleComboChanged(Sender: TObject);
     procedure SelAntiAliasChanged(Sender: TObject);
     { Layer operations }
@@ -592,12 +605,17 @@ begin
     FBrushHardness := 100;
     FShapeStyle := 0;
     FBucketFloodMode := 0;
+    FFillSampleSource := 0;
     FWandSampleSource := 0;
     FWandContiguous := True;
     FJpegQuality := 90;
     FFillTolerance := 8;
     FGradientType := 0;
     FGradientReverse := False;
+    FCloneAligned := True;
+    FRecolorPreserveValue := True;
+    FCloneAlignedOffset := Point(0, 0);
+    FCloneAlignedOffsetValid := False;
     FPickerSampleSource := 0;
     FSelAntiAlias := True;
     FClipboardOffset := Point(0, 0);
@@ -652,12 +670,17 @@ begin
   FBrushHardness := 100;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
+  FFillSampleSource := 0;
   FWandSampleSource := 0;
   FWandContiguous := True;
   FJpegQuality := 90;
   FFillTolerance := 8;
   FGradientType := 0;
   FGradientReverse := False;
+  FCloneAligned := True;
+  FRecolorPreserveValue := True;
+  FCloneAlignedOffset := Point(0, 0);
+  FCloneAlignedOffsetValid := False;
   FPickerSampleSource := 0;
   FSelAntiAlias := True;
   FClipboardOffset := Point(0, 0);
@@ -1176,6 +1199,9 @@ begin
   if Assigned(FBucketModeLabel) then FBucketModeLabel.Visible := IsBucketTool;
   if Assigned(FBucketModeCombo) then FBucketModeCombo.Visible := IsBucketTool;
   if Assigned(FBucketModeCombo) then FBucketModeCombo.ItemIndex := FBucketFloodMode;
+  if Assigned(FFillSampleLabel) then FFillSampleLabel.Visible := IsBucketTool;
+  if Assigned(FFillSampleCombo) then FFillSampleCombo.Visible := IsBucketTool;
+  if Assigned(FFillSampleCombo) then FFillSampleCombo.ItemIndex := FFillSampleSource;
   if Assigned(FWandSampleLabel) then FWandSampleLabel.Visible := FCurrentTool = tkMagicWand;
   if Assigned(FWandSampleCombo) then FWandSampleCombo.Visible := FCurrentTool = tkMagicWand;
   if Assigned(FWandSampleCombo) then FWandSampleCombo.ItemIndex := FWandSampleSource;
@@ -1199,6 +1225,8 @@ begin
   if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := FGradientType;
   if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Visible := FCurrentTool = tkGradient;
   if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Checked := FGradientReverse;
+  if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Visible := FCurrentTool = tkCloneStamp;
+  if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
   if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
   if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
   if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
@@ -1727,6 +1755,29 @@ begin
   FBucketModeCombo.Hint := 'Fill mode';
   FBucketModeCombo.ShowHint := True;
 
+  { Fill sample source combo: Current Layer / All Layers }
+  FFillSampleLabel := TLabel.Create(FTopPanel);
+  FFillSampleLabel.Parent := FTopPanel;
+  FFillSampleLabel.Caption := 'Sample:';
+  FFillSampleLabel.Font.Color := ChromeTextColor;
+  FFillSampleLabel.Left := 500;
+  FFillSampleLabel.Top := 41;
+  FFillSampleLabel.Visible := False;
+
+  FFillSampleCombo := TComboBox.Create(FTopPanel);
+  FFillSampleCombo.Parent := FTopPanel;
+  FFillSampleCombo.Left := 552;
+  FFillSampleCombo.Top := 36;
+  FFillSampleCombo.Width := 120;
+  FFillSampleCombo.Style := csDropDownList;
+  FFillSampleCombo.Items.Add('Current Layer');
+  FFillSampleCombo.Items.Add('All Layers');
+  FFillSampleCombo.ItemIndex := 0;
+  FFillSampleCombo.Visible := False;
+  FFillSampleCombo.OnChange := @FillSampleComboChanged;
+  FFillSampleCombo.Hint := 'Fill sample source';
+  FFillSampleCombo.ShowHint := True;
+
   { Magic wand sample source combo: Current Layer / All Layers }
   FWandSampleLabel := TLabel.Create(FTopPanel);
   FWandSampleLabel.Parent := FTopPanel;
@@ -1820,6 +1871,32 @@ begin
   FGradientReverseCheck.OnChange := @GradientReverseChanged;
   FGradientReverseCheck.Hint := 'Reverse gradient direction';
   FGradientReverseCheck.ShowHint := True;
+
+  { Clone aligned checkbox }
+  FCloneAlignedCheck := TCheckBox.Create(FTopPanel);
+  FCloneAlignedCheck.Parent := FTopPanel;
+  FCloneAlignedCheck.Left := 480;
+  FCloneAlignedCheck.Top := 38;
+  FCloneAlignedCheck.Width := 80;
+  FCloneAlignedCheck.Caption := 'Aligned';
+  FCloneAlignedCheck.Checked := FCloneAligned;
+  FCloneAlignedCheck.Visible := False;
+  FCloneAlignedCheck.OnChange := @CloneAlignedChanged;
+  FCloneAlignedCheck.Hint := 'Keep the clone source aligned across multiple strokes';
+  FCloneAlignedCheck.ShowHint := True;
+
+  { Recolor preserve-value checkbox }
+  FRecolorPreserveValueCheck := TCheckBox.Create(FTopPanel);
+  FRecolorPreserveValueCheck.Parent := FTopPanel;
+  FRecolorPreserveValueCheck.Left := 628;
+  FRecolorPreserveValueCheck.Top := 38;
+  FRecolorPreserveValueCheck.Width := 120;
+  FRecolorPreserveValueCheck.Caption := 'Preserve Value';
+  FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
+  FRecolorPreserveValueCheck.Visible := False;
+  FRecolorPreserveValueCheck.OnChange := @RecolorPreserveValueChanged;
+  FRecolorPreserveValueCheck.Hint := 'Keep original brightness while shifting the color';
+  FRecolorPreserveValueCheck.ShowHint := True;
 
   { Color picker sample source combo }
   FPickerSampleLabel := TLabel.Create(FTopPanel);
@@ -3951,12 +4028,19 @@ end;
 procedure TMainForm.ApplyImmediateTool(const APoint: TPoint);
 var
   CompositeSurface: TRasterSurface;
+  SampleSurface: TRasterSurface;
+  FillMask: TSelectionMask;
+  PaintSelection: TSelectionMask;
   Radius: Integer;
   DestX: Integer;
   DestY: Integer;
   SourceX: Integer;
   SourceY: Integer;
 begin
+  if FDocument.HasSelection then
+    PaintSelection := FDocument.Selection
+  else
+    PaintSelection := nil;
   case FCurrentTool of
     tkPencil:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -3967,7 +4051,8 @@ begin
         Max(0, (FBrushSize - 1) div 2),
         ActivePaintColor,
         FBrushOpacity * 255 div 100,
-        255 { pencil always hard }
+        255, { pencil always hard }
+        PaintSelection
       );
     tkBrush, tkEraser:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -3978,20 +4063,43 @@ begin
         Max(1, FBrushSize div 2),
         ActivePaintColor,
         FBrushOpacity * 255 div 100,
-        FBrushHardness * 255 div 100
+        FBrushHardness * 255 div 100,
+        PaintSelection
       );
     tkFill:
       begin
-        if FBucketFloodMode = 1 then
-          { Global: fill entire layer with paint color }
-          FDocument.ActiveLayer.Surface.Clear(ActivePaintColor)
+        if FFillSampleSource = 1 then
+          SampleSurface := FDocument.Composite
         else
-          FDocument.ActiveLayer.Surface.FloodFill(
-            APoint.X,
-            APoint.Y,
-            ActivePaintColor,
-            EnsureRange(FFillTolerance, 0, 255)
-          );
+          SampleSurface := FDocument.ActiveLayer.Surface;
+        try
+          if FBucketFloodMode = 1 then
+            FillMask := SampleSurface.CreateGlobalColorSelection(
+              APoint.X,
+              APoint.Y,
+              EnsureRange(FFillTolerance, 0, 255)
+            )
+          else
+            FillMask := SampleSurface.CreateContiguousSelection(
+              APoint.X,
+              APoint.Y,
+              EnsureRange(FFillTolerance, 0, 255)
+            );
+          try
+            if PaintSelection <> nil then
+              FillMask.IntersectWith(PaintSelection);
+            FDocument.ActiveLayer.Surface.FillSelection(
+              FillMask,
+              ActivePaintColor,
+              255
+            );
+          finally
+            FillMask.Free;
+          end;
+        finally
+          if FFillSampleSource = 1 then
+            SampleSurface.Free;
+        end;
       end;
     tkColorPicker:
       begin
@@ -4028,7 +4136,8 @@ begin
         ColorForActiveTarget(not FPickSecondaryTarget),
         ActivePaintColor,
         EnsureRange(FWandTolerance, 0, 255),
-        FBrushOpacity * 255 div 100
+        FBrushOpacity * 255 div 100,
+        PaintSelection
       );
     tkCloneStamp:
       if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
@@ -4041,15 +4150,24 @@ begin
           begin
             if Round(Sqrt(Sqr(DestX - APoint.X) + Sqr(DestY - APoint.Y))) > Radius then
               Continue;
-            SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
-            SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
+            if FCloneAligned and FCloneAlignedOffsetValid then
+            begin
+              SourceX := DestX + FCloneAlignedOffset.X;
+              SourceY := DestY + FCloneAlignedOffset.Y;
+            end
+            else
+            begin
+              SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
+              SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
+            end;
             if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
               Continue;
             FDocument.ActiveLayer.Surface.BlendPixel(
               DestX,
               DestY,
               FCloneStampSnapshot[SourceX, SourceY],
-              FBrushOpacity * 255 div 100
+              FBrushOpacity * 255 div 100,
+              PaintSelection
             );
           end;
       end;
@@ -4062,11 +4180,16 @@ var
   DoFill: Boolean;
   DoOutline: Boolean;
   FillColor: TRGBA32;
+  PaintSelection: TSelectionMask;
 begin
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
   DoFill := FShapeStyle in [1, 2];
   FillColor := RGBA(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A);
+  if FDocument.HasSelection then
+    PaintSelection := FDocument.Selection
+  else
+    PaintSelection := nil;
   case FCurrentTool of
     tkLine:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -4075,7 +4198,10 @@ begin
         AEndPoint.X,
         AEndPoint.Y,
         Max(1, FBrushSize div 2),
-        ActivePaintColor
+        ActivePaintColor,
+        255,
+        255,
+        PaintSelection
       );
     tkGradient:
       begin
@@ -4089,7 +4215,8 @@ begin
               AStartPoint.Y,
               Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
               FSecondaryColor,
-              FPrimaryColor
+              FPrimaryColor,
+              PaintSelection
             );
           end
           else
@@ -4100,7 +4227,8 @@ begin
               AEndPoint.X,
               AEndPoint.Y,
               FSecondaryColor,
-              FPrimaryColor
+              FPrimaryColor,
+              PaintSelection
             );
           end;
         end
@@ -4114,7 +4242,8 @@ begin
               AStartPoint.Y,
               Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
               FPrimaryColor,
-              FSecondaryColor
+              FSecondaryColor,
+              PaintSelection
             );
           end
           else
@@ -4125,7 +4254,8 @@ begin
               AEndPoint.X,
               AEndPoint.Y,
               FPrimaryColor,
-              FSecondaryColor
+              FSecondaryColor,
+              PaintSelection
             );
           end;
         end;
@@ -4135,44 +4265,46 @@ begin
         if DoFill then
           FDocument.ActiveLayer.Surface.DrawRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), FillColor, True);
+            Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
         if DoOutline then
           FDocument.ActiveLayer.Surface.DrawRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), ActivePaintColor, False);
+            Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
       end;
     tkRoundedRectangle:
       begin
         if DoFill then
           FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), FillColor, True);
+            Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
         if DoOutline then
           FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), ActivePaintColor, False);
+            Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
       end;
     tkEllipseShape:
       begin
         if DoFill then
           FDocument.ActiveLayer.Surface.DrawEllipse(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), FillColor, True);
+            Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
         if DoOutline then
           FDocument.ActiveLayer.Surface.DrawEllipse(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), ActivePaintColor, False);
+            Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
       end;
     tkFreeformShape:
       begin
         if DoFill then
-          FDocument.ActiveLayer.Surface.FillPolygon(FLassoPoints, FillColor);
+          FDocument.ActiveLayer.Surface.FillPolygon(FLassoPoints, FillColor, 255, PaintSelection);
         if DoOutline then
           FDocument.ActiveLayer.Surface.DrawPolygon(
             FLassoPoints,
             Max(1, FBrushSize div 3),
             ActivePaintColor,
-            True
+            True,
+            255,
+            PaintSelection
           );
       end;
   end;
@@ -5946,12 +6078,21 @@ begin
           { Right-click = set clone source }
           FCloneStampSource := ImagePoint;
           FCloneStampSampled := True;
+          FCloneAlignedOffsetValid := False;
           FCloneStampSnapshot.Free;
           FCloneStampSnapshot := FDocument.ActiveLayer.Surface.Clone;
           FPointerDown := False;
         end
         else if FCloneStampSampled then
         begin
+          if FCloneAligned and not FCloneAlignedOffsetValid then
+          begin
+            FCloneAlignedOffset := Point(
+              FCloneStampSource.X - ImagePoint.X,
+              FCloneStampSource.Y - ImagePoint.Y
+            );
+            FCloneAlignedOffsetValid := True;
+          end;
           BeginStrokeHistory;
           ApplyImmediateTool(ImagePoint);
           ExpandStrokeDirty(ImagePoint);
@@ -6180,13 +6321,18 @@ procedure TMainForm.PlaceTextAtPoint(const AResult: TTextDialogResult;
   APoint: TPoint; AColor: TRGBA32);
 var
   TextSurface: TRasterSurface;
+  PaintSelection: TSelectionMask;
 begin
   TextSurface := RenderTextToSurface(AResult, AColor);
   if TextSurface = nil then
     Exit;
   try
+    if FDocument.HasSelection then
+      PaintSelection := FDocument.Selection
+    else
+      PaintSelection := nil;
     FDocument.ActiveLayer.Surface.PasteSurface(TextSurface,
-      APoint.X, APoint.Y);
+      APoint.X, APoint.Y, 255, PaintSelection);
   finally
     TextSurface.Free;
   end;
@@ -7349,6 +7495,12 @@ begin
   FBucketFloodMode := FBucketModeCombo.ItemIndex;
 end;
 
+procedure TMainForm.FillSampleComboChanged(Sender: TObject);
+begin
+  if not Assigned(FFillSampleCombo) then Exit;
+  FFillSampleSource := FFillSampleCombo.ItemIndex;
+end;
+
 procedure TMainForm.WandSampleComboChanged(Sender: TObject);
 begin
   if not Assigned(FWandSampleCombo) then Exit;
@@ -7383,6 +7535,14 @@ procedure TMainForm.GradientReverseChanged(Sender: TObject);
 begin
   if not Assigned(FGradientReverseCheck) then Exit;
   FGradientReverse := FGradientReverseCheck.Checked;
+end;
+
+procedure TMainForm.CloneAlignedChanged(Sender: TObject);
+begin
+  if not Assigned(FCloneAlignedCheck) then Exit;
+  FCloneAligned := FCloneAlignedCheck.Checked;
+  if not FCloneAligned then
+    FCloneAlignedOffsetValid := False;
 end;
 
 procedure TMainForm.PickerSampleComboChanged(Sender: TObject);

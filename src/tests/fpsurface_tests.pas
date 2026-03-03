@@ -5,7 +5,7 @@ unit fpsurface_tests;
 interface
 
 uses
-  Types, fpcunit, testregistry, FPColor, FPSurface;
+  Types, fpcunit, testregistry, FPColor, FPSelection, FPSurface;
 
 type
   TFPSurfaceTests = class(TTestCase)
@@ -19,6 +19,8 @@ type
     procedure RoundedRectangleLeavesHardCornersOpen;
     procedure PolygonOutlineClosesLastSegmentAndKeepsInteriorOpen;
     procedure FilledPolygonPaintsInterior;
+    procedure MaskedLineOnlyPaintsInsideSelection;
+    procedure MaskedGradientLeavesUnselectedPixelsUntouched;
     procedure EmbossShiftsPixelsRelativeToNeighbors;
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
@@ -232,6 +234,52 @@ begin
     AssertEquals('interior is filled', 255, Surface[6, 9].A);
     AssertEquals('outside stays clear', 0, Surface[11, 4].A);
   finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.MaskedLineOnlyPaintsInsideSelection;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(5, 1);
+  Selection := TSelectionMask.Create(5, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Selection[2, 0] := True;
+
+    Surface.DrawLine(0, 0, 4, 0, 0, RGBA(255, 0, 0, 255), 255, 255, Selection);
+
+    AssertEquals('left pixel stays clear', 0, Surface[0, 0].A);
+    AssertEquals('middle selected pixel is painted', 255, Surface[2, 0].A);
+    AssertEquals('right pixel stays clear', 0, Surface[4, 0].A);
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.MaskedGradientLeavesUnselectedPixelsUntouched;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(4, 1);
+  Selection := TSelectionMask.Create(4, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Selection[1, 0] := True;
+    Selection[2, 0] := True;
+
+    Surface.FillGradient(0, 0, 3, 0, RGBA(255, 0, 0, 255), RGBA(0, 0, 255, 255), Selection);
+
+    AssertEquals('unselected left pixel stays clear', 0, Surface[0, 0].A);
+    AssertEquals('selected left-middle pixel is written', 255, Surface[1, 0].A);
+    AssertEquals('selected right-middle pixel is written', 255, Surface[2, 0].A);
+    AssertEquals('unselected right pixel stays clear', 0, Surface[3, 0].A);
+  finally
+    Selection.Free;
     Surface.Free;
   end;
 end;
