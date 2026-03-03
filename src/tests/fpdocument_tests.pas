@@ -12,6 +12,11 @@ type
   published
     procedure HistoryDepthTracksUndoAndRedo;
     procedure HistoryLabelsTrackUndoAndRedo;
+    procedure HistoryTimelineRowCountMatchesDepths;
+    procedure HistoryTimeline_CurrentIndexIsUndoDepth;
+    procedure HistoryTimeline_UndoRestoresPixelState;
+    procedure HistoryTimeline_NavigateViaRowClickSimulation;
+    procedure HistoryTimeline_ClickInitialStateUndoesAll;
     procedure MagicWandIntersectKeepsOnlySharedRegion;
     procedure LayerBlendModeDefaultsToNormal;
     procedure LayerBlendModePreservedInClone;
@@ -67,6 +72,172 @@ begin
     AssertEquals('redo label clears after redo', '', Document.RedoActionLabel);
   finally
     Document.Free;
+  end;
+end;
+
+{ Helper: simulate the mainform HistoryListClick navigation on a document.
+  ClickedRow = row index in the history list (0=initial, 1..N=past, N=current, N+1..=redo).
+  CurrentRow is always UndoDepth. }
+procedure NavigateHistoryTo(Doc: TImageDocument; ClickedRow: Integer);
+var
+  CurrentRow: Integer;
+  Delta: Integer;
+  I: Integer;
+begin
+  CurrentRow := Doc.UndoDepth;
+  if ClickedRow = CurrentRow then Exit;
+  Delta := ClickedRow - CurrentRow;
+  if Delta < 0 then
+    for I := 1 to Abs(Delta) do
+    begin
+      if Doc.UndoDepth = 0 then Break;
+      Doc.Undo;
+    end
+  else
+    for I := 1 to Delta do
+    begin
+      if Doc.RedoDepth = 0 then Break;
+      Doc.Redo;
+    end;
+end;
+
+procedure TFPDocumentTests.HistoryTimelineRowCountMatchesDepths;
+var
+  Doc: TImageDocument;
+begin
+  Doc := TImageDocument.Create(4, 4);
+  try
+    { No operations: 0+1+0 = 1 row (just initial) }
+    AssertEquals('rows before any op', 1, Doc.UndoDepth + 1 + Doc.RedoDepth);
+    { Push 3 ops }
+    Doc.PushHistory('A');
+    Doc.PushHistory('B');
+    Doc.PushHistory('C');
+    AssertEquals('rows after 3 ops', 4, Doc.UndoDepth + 1 + Doc.RedoDepth);
+    { Undo once: row count stays 4 (1 undo moves to redo) }
+    Doc.Undo;
+    AssertEquals('rows after 1 undo', 4, Doc.UndoDepth + 1 + Doc.RedoDepth);
+    { Undo twice more: still 4 }
+    Doc.Undo;
+    Doc.Undo;
+    AssertEquals('rows after 3 undos', 4, Doc.UndoDepth + 1 + Doc.RedoDepth);
+  finally
+    Doc.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.HistoryTimeline_CurrentIndexIsUndoDepth;
+var
+  Doc: TImageDocument;
+begin
+  Doc := TImageDocument.Create(4, 4);
+  try
+    AssertEquals('current index before any op', 0, Doc.UndoDepth);
+    Doc.PushHistory('A');
+    AssertEquals('current index = 1 after op A', 1, Doc.UndoDepth);
+    Doc.PushHistory('B');
+    Doc.PushHistory('C');
+    AssertEquals('current index = 3 after ops A,B,C', 3, Doc.UndoDepth);
+    Doc.Undo;
+    AssertEquals('current index = 2 after 1 undo', 2, Doc.UndoDepth);
+    Doc.Undo;
+    Doc.Undo;
+    AssertEquals('current index = 0 after 3 undos (at initial)', 0, Doc.UndoDepth);
+    Doc.Redo;
+    AssertEquals('current index = 1 after 1 redo', 1, Doc.UndoDepth);
+  finally
+    Doc.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.HistoryTimeline_UndoRestoresPixelState;
+var
+  Doc: TImageDocument;
+  RedPixel, BluePixel, RestoredPixel: TRGBA32;
+begin
+  Doc := TImageDocument.Create(4, 4);
+  try
+    { Paint pixel red, push history (snapshot before painting blue) }
+    Doc.ActiveLayer.Surface[1, 1] := RGBA(255, 0, 0, 255);
+    Doc.PushHistory('Paint Blue');
+    Doc.ActiveLayer.Surface[1, 1] := RGBA(0, 0, 255, 255);
+
+    BluePixel := Doc.ActiveLayer.Surface[1, 1];
+    AssertEquals('pixel is blue before undo', 255, BluePixel.B);
+    AssertEquals('pixel is not red before undo', 0, BluePixel.R);
+
+    Doc.Undo;
+    RedPixel := Doc.ActiveLayer.Surface[1, 1];
+    AssertEquals('pixel restored to red after undo', 255, RedPixel.R);
+    AssertEquals('pixel is not blue after undo', 0, RedPixel.B);
+
+    Doc.Redo;
+    RestoredPixel := Doc.ActiveLayer.Surface[1, 1];
+    AssertEquals('pixel is blue again after redo', 255, RestoredPixel.B);
+    AssertEquals('pixel is not red after redo', 0, RestoredPixel.R);
+  finally
+    Doc.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.HistoryTimeline_NavigateViaRowClickSimulation;
+var
+  Doc: TImageDocument;
+begin
+  { Build a 3-op timeline: ops A, B, C.
+    List rows: 0=(initial), 1=A, 2=B, 3=C(current).
+    Click row 1 (after op A) → should undo 2 times → UndoDepth becomes 1. }
+  Doc := TImageDocument.Create(4, 4);
+  try
+    Doc.PushHistory('A');
+    Doc.PushHistory('B');
+    Doc.PushHistory('C');
+    AssertEquals('start: UndoDepth=3', 3, Doc.UndoDepth);
+
+    NavigateHistoryTo(Doc, 1);  { click row 1 = state after A }
+    AssertEquals('after click row 1: UndoDepth=1', 1, Doc.UndoDepth);
+    AssertEquals('after click row 1: RedoDepth=2', 2, Doc.RedoDepth);
+    AssertEquals('current row = 1', 1, Doc.UndoDepth);
+
+    NavigateHistoryTo(Doc, 3);  { click row 3 = state after C }
+    AssertEquals('after click row 3: UndoDepth=3', 3, Doc.UndoDepth);
+    AssertEquals('after click row 3: RedoDepth=0', 0, Doc.RedoDepth);
+
+    NavigateHistoryTo(Doc, 2);  { click row 2 = state after B }
+    AssertEquals('after click row 2: UndoDepth=2', 2, Doc.UndoDepth);
+    AssertEquals('UndoActionLabel is B', 'B', Doc.UndoActionLabel);
+  finally
+    Doc.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.HistoryTimeline_ClickInitialStateUndoesAll;
+var
+  Doc: TImageDocument;
+begin
+  { Clicking row 0 (initial) should undo everything. }
+  Doc := TImageDocument.Create(4, 4);
+  try
+    Doc.ActiveLayer.Surface[0, 0] := RGBA(10, 20, 30, 255);
+    { initial pixel color is now set; push 3 ops }
+    Doc.PushHistory('Op1');
+    Doc.ActiveLayer.Surface[0, 0] := RGBA(100, 0, 0, 255);
+    Doc.PushHistory('Op2');
+    Doc.ActiveLayer.Surface[0, 0] := RGBA(200, 0, 0, 255);
+    Doc.PushHistory('Op3');
+    Doc.ActiveLayer.Surface[0, 0] := RGBA(255, 0, 0, 255);
+
+    AssertEquals('UndoDepth=3 before navigate', 3, Doc.UndoDepth);
+
+    NavigateHistoryTo(Doc, 0);  { click row 0 = initial state }
+    AssertEquals('UndoDepth=0 at initial state', 0, Doc.UndoDepth);
+    AssertEquals('RedoDepth=3 at initial state', 3, Doc.RedoDepth);
+    { Canvas should show the snapshot that was taken at first PushHistory, i.e. RGBA(10,20,30,255) }
+    AssertEquals('pixel R at initial', 10, Doc.ActiveLayer.Surface[0, 0].R);
+    AssertEquals('pixel G at initial', 20, Doc.ActiveLayer.Surface[0, 0].G);
+    AssertEquals('pixel B at initial', 30, Doc.ActiveLayer.Surface[0, 0].B);
+  finally
+    Doc.Free;
   end;
 end;
 
