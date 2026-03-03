@@ -132,6 +132,12 @@ type
     FLayerBlendCombo: TComboBox;
     FLayerPropsButton: TButton;
     FCloneStampSnapshot: TRasterSurface;
+    { Pre-stroke snapshot for efficient region-based undo (brush/pencil/eraser/recolor/clone).
+      FPreStrokeSnapshot holds a clone of the active layer taken at stroke start.
+      On mouse-up we crop it to FStrokeDirtyRect and push a region history entry. }
+    FPreStrokeSnapshot: TRasterSurface;
+    FStrokeDirtyRect: TRect;
+    FStrokeLayerIndex: Integer;
     { Document tab management }
     FTabDocuments: array of TImageDocument;
     FTabFileNames: array of string;
@@ -408,6 +414,10 @@ type
     procedure PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    { Stroke history helpers }
+    procedure BeginStrokeHistory;
+    procedure ExpandStrokeDirty(const APoint: TPoint);
+    procedure CommitStrokeHistory(const ALabel: string);
   public
     { Public constructor / destructor }
     constructor Create(TheOwner: TComponent); override;
@@ -748,6 +758,7 @@ begin
   FDisplaySurface.Free;
   FClipboardSurface.Free;
   FCloneStampSnapshot.Free;
+  FPreStrokeSnapshot.Free;  { defensive cleanup in case a stroke was interrupted }
   { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
   for I := 0 to Length(FTabDocuments) - 1 do
     FTabDocuments[I].Free;
@@ -4947,6 +4958,57 @@ begin
   PaintBoxMouseUp(nil, Button, Shift, X, Y);
 end;
 
+procedure TMainForm.BeginStrokeHistory;
+begin
+  FreeAndNil(FPreStrokeSnapshot);  { defensive: discard any incomplete previous stroke }
+  FStrokeLayerIndex := FDocument.ActiveLayerIndex;
+  FPreStrokeSnapshot := FDocument.ActiveLayer.Surface.Clone;
+  FStrokeDirtyRect := Rect(MaxInt, MaxInt, 0, 0);  { empty sentinel: Left > Right }
+end;
+
+procedure TMainForm.ExpandStrokeDirty(const APoint: TPoint);
+var
+  R: Integer;
+begin
+  R := Max(2, (FBrushSize + 1) div 2 + 2);  { brush radius + a small margin }
+  if FStrokeDirtyRect.Left > FStrokeDirtyRect.Right then
+  begin
+    FStrokeDirtyRect := Rect(APoint.X - R, APoint.Y - R,
+                             APoint.X + R + 1, APoint.Y + R + 1);
+  end
+  else
+  begin
+    if APoint.X - R     < FStrokeDirtyRect.Left   then FStrokeDirtyRect.Left   := APoint.X - R;
+    if APoint.Y - R     < FStrokeDirtyRect.Top    then FStrokeDirtyRect.Top    := APoint.Y - R;
+    if APoint.X + R + 1 > FStrokeDirtyRect.Right  then FStrokeDirtyRect.Right  := APoint.X + R + 1;
+    if APoint.Y + R + 1 > FStrokeDirtyRect.Bottom then FStrokeDirtyRect.Bottom := APoint.Y + R + 1;
+  end;
+end;
+
+procedure TMainForm.CommitStrokeHistory(const ALabel: string);
+var
+  BeforePixels: TRasterSurface;
+  CR: TRect;
+begin
+  if not Assigned(FPreStrokeSnapshot) then Exit;
+  { Clamp dirty rect to document bounds }
+  CR.Left   := Max(0, FStrokeDirtyRect.Left);
+  CR.Top    := Max(0, FStrokeDirtyRect.Top);
+  CR.Right  := Min(FDocument.Width,  FStrokeDirtyRect.Right);
+  CR.Bottom := Min(FDocument.Height, FStrokeDirtyRect.Bottom);
+  if (CR.Right <= CR.Left) or (CR.Bottom <= CR.Top) then
+  begin
+    FreeAndNil(FPreStrokeSnapshot);
+    Exit;
+  end;
+  { Crop the pre-stroke layer copy to just the dirty sub-rectangle }
+  BeforePixels := TRasterSurface.Create(CR.Right - CR.Left, CR.Bottom - CR.Top);
+  FPreStrokeSnapshot.CopyRegionTo(BeforePixels, CR.Left, CR.Top);
+  { PushRegionHistory takes ownership of BeforePixels }
+  FDocument.PushRegionHistory(ALabel, FStrokeLayerIndex, CR, BeforePixels);
+  FreeAndNil(FPreStrokeSnapshot);
+end;
+
 procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   ImagePoint: TPoint;
@@ -4978,8 +5040,9 @@ begin
   case FCurrentTool of
     tkPencil, tkBrush, tkEraser:
       begin
-        FDocument.PushHistory(PaintToolName(FCurrentTool));
+        BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
+        ExpandStrokeDirty(ImagePoint);
         SetDirty(True);
         RefreshCanvas;
       end;
@@ -5037,8 +5100,9 @@ begin
         end
         else if FCloneStampSampled then
         begin
-          FDocument.PushHistory('Clone Stamp');
+          BeginStrokeHistory;
           ApplyImmediateTool(ImagePoint);
+          ExpandStrokeDirty(ImagePoint);
           SetDirty(True);
           RefreshCanvas;
         end
@@ -5047,8 +5111,9 @@ begin
       end;
     tkRecolor:
       begin
-        FDocument.PushHistory('Recolor');
+        BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
+        ExpandStrokeDirty(ImagePoint);
         SetDirty(True);
         RefreshCanvas;
       end;
@@ -5105,6 +5170,7 @@ begin
       tkPencil, tkBrush, tkEraser:
         begin
           ApplyImmediateTool(ImagePoint);
+          ExpandStrokeDirty(ImagePoint);
           InvalidatePreparedBitmap;
           RefreshCanvas;
         end;
@@ -5160,6 +5226,7 @@ begin
       tkRecolor:
         begin
           ApplyImmediateTool(ImagePoint);
+          ExpandStrokeDirty(ImagePoint);
           SetDirty(True);
           RefreshCanvas;
         end;
@@ -5167,6 +5234,7 @@ begin
         if FCloneStampSampled then
         begin
           ApplyImmediateTool(ImagePoint);
+          ExpandStrokeDirty(ImagePoint);
           SetDirty(True);
           RefreshCanvas;
         end;
@@ -5185,6 +5253,9 @@ begin
   if Button = mbMiddle then
     DeactivateTempPan;
   FPointerDown := False;
+  { Finalise stroke-based region history for painting tools }
+  if Assigned(FPreStrokeSnapshot) then
+    CommitStrokeHistory(PaintToolName(FCurrentTool));
   ImagePoint := CanvasToImage(X, Y);
   FLastImagePoint := ImagePoint;
 

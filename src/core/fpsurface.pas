@@ -40,6 +40,10 @@ type
     procedure FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32);
     procedure FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32);
     procedure PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte = 255);
+    { Region copy: copies ASource.Width × ASource.Height pixels from Self at (SrcX, SrcY) into ADest at (0,0). Direct overwrite, no blending. }
+    procedure CopyRegionTo(ADest: TRasterSurface; SrcX, SrcY: Integer);
+    { Region overwrite: writes ASource.Width × ASource.Height pixels from ASource into Self at (DstX, DstY). Direct overwrite, no blending. }
+    procedure OverwriteRegion(ASource: TRasterSurface; DstX, DstY: Integer);
     procedure FlipHorizontal;
     procedure FlipVertical;
     procedure Rotate180;
@@ -766,6 +770,44 @@ begin
         Continue;
       BlendPixel(TargetX, TargetY, ASource[SourceX, SourceY], Opacity);
     end;
+  end;
+end;
+
+procedure TRasterSurface.CopyRegionTo(ADest: TRasterSurface; SrcX, SrcY: Integer);
+{ Copies ADest.Width × ADest.Height pixels from Self starting at (SrcX, SrcY) into
+  ADest at (0, 0). Used to snapshot a dirty region before a paint operation. }
+var
+  Row: Integer;
+  W: Integer;
+begin
+  if ADest = nil then Exit;
+  W := ADest.FWidth;
+  for Row := 0 to ADest.FHeight - 1 do
+  begin
+    if (SrcY + Row < 0) or (SrcY + Row >= FHeight) then Continue;
+    if (SrcX < 0) or (SrcX + W > FWidth) then Continue;
+    Move(FPixels[IndexOf(SrcX, SrcY + Row)],
+         ADest.FPixels[Row * W],
+         W * SizeOf(TRGBA32));
+  end;
+end;
+
+procedure TRasterSurface.OverwriteRegion(ASource: TRasterSurface; DstX, DstY: Integer);
+{ Writes ASource.Width × ASource.Height pixels from ASource into Self at (DstX, DstY).
+  Direct overwrite — no blending. Used to restore a saved region snapshot on undo. }
+var
+  Row: Integer;
+  W: Integer;
+begin
+  if ASource = nil then Exit;
+  W := ASource.FWidth;
+  for Row := 0 to ASource.FHeight - 1 do
+  begin
+    if (DstY + Row < 0) or (DstY + Row >= FHeight) then Continue;
+    if (DstX < 0) or (DstX + W > FWidth) then Continue;
+    Move(ASource.FPixels[Row * W],
+         FPixels[IndexOf(DstX, DstY + Row)],
+         W * SizeOf(TRGBA32));
   end;
 end;
 

@@ -63,21 +63,37 @@ type
     property Surface: TRasterSurface read FSurface;
   end;
 
+  TSnapshotKind = (skFullDocument, skLayerRegion);
+
   TDocumentSnapshot = class
   private
+    FKind: TSnapshotKind;
+    { Full-document fields (skFullDocument) }
     FLayers: TObjectList;
     FSelection: TSelectionMask;
     FWidth: Integer;
     FHeight: Integer;
     FActiveLayerIndex: Integer;
+    { Region fields (skLayerRegion): saves only a rect of one layer }
+    FRegionLayerIndex: Integer;
+    FRegionSurface: TRasterSurface;
+    FDirtyRect: TRect;
   public
     constructor CreateFromDocument(ADocument: TObject);
+    { Captures current pixels of ADocument.Layers[ALayerIndex] within ARect. }
+    constructor CreateFromRegion(ADocument: TObject; ALayerIndex: Integer; const ARect: TRect);
+    { Takes ownership of APixels (already-captured before-pixels for ARect). }
+    constructor WrapRegionPixels(ALayerIndex: Integer; const ARect: TRect; APixels: TRasterSurface);
     destructor Destroy; override;
+    property Kind: TSnapshotKind read FKind;
     property Layers: TObjectList read FLayers;
     property Selection: TSelectionMask read FSelection;
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
     property ActiveLayerIndex: Integer read FActiveLayerIndex;
+    property RegionLayerIndex: Integer read FRegionLayerIndex;
+    property RegionSurface: TRasterSurface read FRegionSurface;
+    property DirtyRect: TRect read FDirtyRect;
   end;
 
   TImageDocument = class
@@ -105,6 +121,8 @@ type
     procedure NewBlank(AWidth, AHeight: Integer);
     procedure ReplaceWithSingleLayer(ASurface: TRasterSurface; const ALayerName: string);
     procedure PushHistory(const ALabel: string = 'Change');
+    { Push a region snapshot with already-captured before-pixels (ownership is transferred). }
+    procedure PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
     function CanUndo: Boolean;
     function CanRedo: Boolean;
     procedure Undo;
@@ -226,6 +244,7 @@ var
   Index: Integer;
 begin
   inherited Create;
+  FKind := skFullDocument;
   Document := TImageDocument(ADocument);
   FLayers := TObjectList.Create(True);
   FSelection := Document.Selection.Clone;
@@ -236,10 +255,37 @@ begin
     FLayers.Add(Document.Layers[Index].Clone);
 end;
 
+constructor TDocumentSnapshot.CreateFromRegion(ADocument: TObject; ALayerIndex: Integer; const ARect: TRect);
+var
+  Doc: TImageDocument;
+  W, H: Integer;
+begin
+  inherited Create;
+  FKind := skLayerRegion;
+  Doc := TImageDocument(ADocument);
+  FRegionLayerIndex := ALayerIndex;
+  FDirtyRect := ARect;
+  W := ARect.Right - ARect.Left;
+  H := ARect.Bottom - ARect.Top;
+  FRegionSurface := TRasterSurface.Create(Max(1, W), Max(1, H));
+  if (ALayerIndex >= 0) and (ALayerIndex < Doc.LayerCount) then
+    Doc.Layers[ALayerIndex].Surface.CopyRegionTo(FRegionSurface, ARect.Left, ARect.Top);
+end;
+
+constructor TDocumentSnapshot.WrapRegionPixels(ALayerIndex: Integer; const ARect: TRect; APixels: TRasterSurface);
+begin
+  inherited Create;
+  FKind := skLayerRegion;
+  FRegionLayerIndex := ALayerIndex;
+  FDirtyRect := ARect;
+  FRegionSurface := APixels;  { take ownership }
+end;
+
 destructor TDocumentSnapshot.Destroy;
 begin
   FSelection.Free;
   FLayers.Free;
+  FRegionSurface.Free;  { nil for full snapshots; non-nil for region snapshots }
   inherited Destroy;
 end;
 
@@ -295,11 +341,27 @@ begin
   if ASnapshot = nil then
     Exit;
 
+  if ASnapshot.Kind = skLayerRegion then
+  begin
+    { Region restore: O(dirty_area) only. Restores the saved sub-rectangle of
+      one layer; all other layers and selection are left unchanged. }
+    if (ASnapshot.RegionLayerIndex >= 0) and (ASnapshot.RegionLayerIndex < FLayers.Count) then
+      TRasterLayer(FLayers[ASnapshot.RegionLayerIndex]).Surface.OverwriteRegion(
+        ASnapshot.RegionSurface,
+        ASnapshot.DirtyRect.Left,
+        ASnapshot.DirtyRect.Top);
+    Exit;
+  end;
+
+  { Full document restore. Transfer layer object ownership from the snapshot
+    instead of cloning — saves one O(layers x pixels) copy per undo/redo since
+    the caller frees the snapshot immediately after this call. }
+  ASnapshot.Layers.OwnsObjects := False;
   FLayers.Clear;
   FWidth := ASnapshot.Width;
   FHeight := ASnapshot.Height;
   for Index := 0 to ASnapshot.Layers.Count - 1 do
-    FLayers.Add(TRasterLayer(ASnapshot.Layers[Index]).Clone);
+    FLayers.Add(ASnapshot.Layers[Index]);
   FSelection.Assign(ASnapshot.Selection);
 
   FActiveLayerIndex := EnsureRange(ASnapshot.ActiveLayerIndex, 0, Max(0, FLayers.Count - 1));
@@ -358,6 +420,20 @@ begin
   end;
 end;
 
+procedure TImageDocument.PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
+{ Ownership of ABeforePixels is transferred to the new snapshot. }
+begin
+  FHistory.Add(TDocumentSnapshot.WrapRegionPixels(ALayerIndex, ADirtyRect, ABeforePixels));
+  FHistoryLabels.Add(ALabel);
+  FRedo.Clear;
+  FRedoLabels.Clear;
+  while FHistory.Count > FMaxHistory do
+  begin
+    FHistory.Delete(0);
+    FHistoryLabels.Delete(0);
+  end;
+end;
+
 function TImageDocument.CanUndo: Boolean;
 begin
   Result := FHistory.Count > 0;
@@ -376,11 +452,16 @@ begin
   if not CanUndo then
     Exit;
   ActionLabel := UndoActionLabel;
-  FRedo.Add(TDocumentSnapshot.CreateFromDocument(Self));
-  FRedoLabels.Add(ActionLabel);
+  { Pop first so we can inspect the kind before allocating the redo entry }
   Snapshot := PopSnapshot(FHistory);
   FHistoryLabels.Delete(FHistoryLabels.Count - 1);
   try
+    { Save current state for redo: region snapshot if undo is region-based }
+    if Snapshot.Kind = skLayerRegion then
+      FRedo.Add(TDocumentSnapshot.CreateFromRegion(Self, Snapshot.RegionLayerIndex, Snapshot.DirtyRect))
+    else
+      FRedo.Add(TDocumentSnapshot.CreateFromDocument(Self));
+    FRedoLabels.Add(ActionLabel);
     ApplySnapshot(Snapshot);
   finally
     Snapshot.Free;
@@ -395,11 +476,15 @@ begin
   if not CanRedo then
     Exit;
   ActionLabel := RedoActionLabel;
-  FHistory.Add(TDocumentSnapshot.CreateFromDocument(Self));
-  FHistoryLabels.Add(ActionLabel);
   Snapshot := PopSnapshot(FRedo);
   FRedoLabels.Delete(FRedoLabels.Count - 1);
   try
+    { Save current state for undo: region snapshot if redo is region-based }
+    if Snapshot.Kind = skLayerRegion then
+      FHistory.Add(TDocumentSnapshot.CreateFromRegion(Self, Snapshot.RegionLayerIndex, Snapshot.DirtyRect))
+    else
+      FHistory.Add(TDocumentSnapshot.CreateFromDocument(Self));
+    FHistoryLabels.Add(ActionLabel);
     ApplySnapshot(Snapshot);
   finally
     Snapshot.Free;
