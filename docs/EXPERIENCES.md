@@ -835,3 +835,59 @@ Use the same compact structure every time.
 - Fix: moved the `TileColor` computation inside the `PixelColor.A < 255` branch, added an early-exit path for fully opaque pixels (`if PixelColor.A = 255 then FDisplaySurface[X, Y] := PixelColor`), and replaced `div 8 … mod 2` with a single `shr 3 … and 1` per axis (the compiler may already fold this with -O2 but making it explicit is clearer intent)
 - Reuse note: in pixel-iteration hot paths, read the discriminating field first and gate all auxiliary computations behind it; the fully-opaque case is almost always the dominant branch for paint-editor canvases and should be the shortest code path
 - Repeat count: This issue has occurred 1 time(s)
+
+## 2026-03-04
+
+### Observation: `with TObject.Create do begin … Self … end` reads the enclosing class instance as Self in Free Pascal
+- Problem: a `with TMenuItem.Create(FMainMenu) do begin … CreateMenuItem(Self, …) end` block was expected to build a sub-menu and then register child items under the newly created item; instead `CreateMenuItem` received the enclosing `TMainForm` instance as its parent because `Self` inside a `with` block refers to the nearest enclosing class method context, not to the object named in the `with` head
+- Core error: child menu items were being added to the main form rather than to the intended sub-menu `TMenuItem`
+- Investigation: compiler did not error on this code; the problem was silent misbehavior at runtime where all child items ended up on the form object instead of the sub-menu; traced by adding a local named variable and comparing parents
+- Root cause: Free Pascal's `with` scoping rule for `Self` — `Self` is always the implicit receiver of the enclosing method, not the `with` target; the `with` block only promotes the target's members into scope, it never changes `Self`
+- Fix: replaced `with TMenuItem.Create(FMainMenu) do begin … end` with an explicit local variable (`SubMenu := TMenuItem.Create(FMainMenu); SubMenu.Caption := …; EffectsMenu.Add(SubMenu); CreateMenuItem(SubMenu, …)` etc.) so the parent reference is unambiguous at every call site
+- Reuse note: in Free Pascal, never rely on `Self` inside a `with SomeNewObject.Create do` block to mean the newly created object; `Self` is immutable within a method and always refers to the enclosing class instance; use an explicit named local variable whenever the newly-created object must be passed or referenced by name inside the same block
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: Cocoa native bridge pattern is confirmed reusable for new UI capabilities
+- Problem: adding palette drag-translucency required calling `setAlphaValue:` on an Objective-C NSView; the LCL abstraction does not expose this property, so there was no Pascal-level API path
+- Core error: no LCL or RTL entry point exists for per-view alpha in the Cocoa widgetset
+- Investigation: reviewed the existing `fp_magnify.m` / `fpmagbridge.pas` bridge structure and confirmed the pattern was self-contained: one `.m` source, one compilation block in `common.sh`, one Pascal bridge unit with a `{$IFDEF TESTING}` no-op guard, and one `{$LINK fp_xxx.o}` directive in the bridge unit's implementation section
+- Root cause: the LCL Cocoa widgetset wraps only the intersection of all widgetsets; any macOS-specific visual property requires a native extension
+- Fix: applied the same pattern — `src/native/fp_alpha.m` exports `void FPSetViewAlpha(void *nsViewHandle, double alpha)`, `src/app/fpalphabridge.pas` wraps it with a TESTING guard, `common.sh` compiles it with `clang -c -O2 -arch $(uname -m) -mmacosx-version-min=11.0 -fobjc-arc -framework Cocoa`; wired into `ApplyPaletteVisualState` with alpha 0.60 on drag start and 1.0 on drop
+- Reuse note: for any new macOS-only visual capability, follow this four-part pattern: `.m` file with a plain C entry point → `common.sh` compilation block → Pascal bridge unit with `{$IFDEF TESTING}` no-op → `{$LINK}` directive; the TESTING guard ensures CI tests compile cleanly without the Objective-C object; the native handle is obtained from `TWinControl.Handle` cast to `Pointer`
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: owner-draw listbox `ItemHeight` must be set at construction time before the first paint
+- Problem: layer thumbnails in the `Layers` panel were clipped to the default row height even though `Style := lbOwnerDrawFixed` had been set and `OnDrawItem` was assigned
+- Core error: the default `ItemHeight` for `lbOwnerDrawFixed` in LCL is 16 pixels; the first repaint used 16 before the form-layout pass ran and the larger value assignment was overwritten by an implicit layout reset
+- Investigation: set `ListBox.ItemHeight := 36` at various points and confirmed it was only respected when set immediately after `Style` assignment in the same construction block
+- Root cause: Lazarus LCL resets `ItemHeight` to a widgetset default during control initialization unless the property is explicitly committed before the control receives any paint or resize events
+- Fix: set `FLayerList.Style := lbOwnerDrawFixed` and `FLayerList.ItemHeight := 36` consecutively in the same control-creation block inside `BuildPalettes`, immediately after the control is constructed; moving either assignment later caused the value to be ignored
+- Reuse note: in Lazarus, always assign `lbOwnerDrawFixed` and `ItemHeight` together in the control's construction sequence; do not defer `ItemHeight` to a later layout pass — the first paint will have already committed the default before the deferred assignment runs
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: effects menu grows unwieldy past ~10 items; sub-menu categorization matches paint.net structure
+- Problem: the flat `Effects` menu had grown to over a dozen items with no grouping, making discoverability poor and the menu inconsistent with paint.net's categorized structure
+- Core error: items were appended to a flat list as effects were implemented, following implementation order rather than product intent
+- Investigation: compared the current flat list against the paint.net effects menu hierarchy (Blurs, Distort, Noise, Photo, Render, Stylize) and counted 17 items that map to those six categories
+- Root cause: each new effect was wired to the effects menu directly using `CreateMenuItem(EffectsMenu, …)` without a category layer; the menu structure reflected source code addition order
+- Fix: introduced six `TMenuItem` sub-menu items (Blurs, Distort, Noise, Photo, Render, Stylize) as local named variables and routed every effect through the appropriate sub-menu parent; used the explicit `SubMenu := TMenuItem.Create(FMainMenu)` pattern (see `with` Self lesson above) to avoid the parent-confusion bug
+- Reuse note: categorize effects menus from the start using named sub-menu variables so items naturally land in the right group; retrofitting a flat list is error-prone because the order of additions is no longer visible; the sub-menu variable pattern (`SubMenu := …; EffectsMenu.Add(SubMenu); CreateMenuItem(SubMenu, …)`) is the safe idiom in this codebase
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: zsh shell interprets unmatched quotation characters in multi-line `-m` git commit strings as an open string literal — terminal hangs
+- Problem: a `git commit -m "…"` command containing em-dashes, colons inside quotes, and embedded line breaks caused the zsh session to wait indefinitely because the shell treated the message as an unclosed string
+- Core error: zsh multi-line string handling: any `"` inside a `-m` value that contains special characters zsh interprets as string terminators can produce an ambiguous parse; the terminal appeared to hang waiting for a closing `"`
+- Investigation: interrupted the hanging terminal with Ctrl-C, then attempted the commit with a shorter single-line message — it succeeded immediately
+- Root cause: the commit message literal contained characters zsh parsed as parts of a quoting sequence rather than as plain text inside the outer double-quote delimiters
+- Fix: used a short single-line `-m` message or wrote the message to a temporary file and used `git commit -F <file>`; alternatively, replaced em-dashes and multi-line content with plain ASCII and single-line phrasing
+- Reuse note: when constructing git commit messages in zsh that contain colons, em-dashes, parentheses, or embedded newlines, keep the `-m` value to one concise plain-ASCII line; use `git commit -F <tempfile>` for rich multi-line messages to avoid shell quoting ambiguity
+- Repeat count: This issue has occurred 1 time(s)
+
+### Observation: 28-color swatch grid as a `TPaintBox` owner-drawn control gives clean color-palette UX with minimal code
+- Problem: the Colors panel had a color wheel and value bar but no quick-access swatches for common colors, making color selection require multiple drag interactions even for a simple black-to-red change
+- Core error: no swatch surface existed; primary/secondary color picking relied entirely on the continuous hue wheel gesture
+- Investigation: compared against paint.net's Colors panel swatches and counted 28 standard colors as a reasonable first-pass palette grid
+- Root cause: the initial Colors panel was built around the hue wheel and left swatches as a deferred feature
+- Fix: added `FSwatchBox: TPaintBox` with `FSwatchColors: array[0..27] of TRGBA32` initialized in the constructor (2 rows of 14: a dark/earth row and a bright/saturated row); `OnPaint` renders 2×14 cells; `OnMouseDown` routes left-click → primary color and right-click → secondary color, then forces a hue-wheel repaint to sync the indicator; `ColorsPaletteHeight` raised from 306 to 346 to accommodate the new 40 px strip
+- Reuse note: a `TPaintBox` with fixed-array color data is the lowest-overhead swatch surface in LCL; owner-draw gives full style control without a custom control class; always widen the palette height constant when adding a new strip to the Colors panel so the strip is not cropped on first display
+- Repeat count: This issue has occurred 1 time(s)
