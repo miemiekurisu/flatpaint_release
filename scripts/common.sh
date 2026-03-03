@@ -212,6 +212,17 @@ compile_native_modules() {
       -o "$output_dir/fp_magnify.o" \
       "$src_dir/fp_magnify.m"
   fi
+
+  if [[ -f "$src_dir/fp_alpha.m" ]]; then
+    log "Compiling native module: fp_alpha.m"
+    clang -c -O2 \
+      -arch "$(uname -m)" \
+      -mmacosx-version-min=11.0 \
+      -fobjc-arc \
+      -framework Cocoa \
+      -o "$output_dir/fp_alpha.o" \
+      "$src_dir/fp_alpha.m"
+  fi
 }
 
 clean_generated_artifacts() {

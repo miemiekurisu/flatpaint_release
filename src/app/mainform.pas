@@ -450,7 +450,7 @@ uses
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers,
-  FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge;
+  FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge, FPAlphaBridge;
 
 const
   DisplayDPI = 96.0;
@@ -2980,6 +2980,9 @@ begin
 end;
 
 procedure TMainForm.ApplyPaletteVisualState(APalette: TControl; ADragging: Boolean);
+const
+  DragAlpha   = 0.60;  { semi-transparent while dragging }
+  NormalAlpha = 1.00;  { fully opaque at rest }
 var
   PaletteKind: TPaletteKind;
   HeaderPanel: TPanel;
@@ -2991,6 +2994,10 @@ begin
   HeaderPanel := PaletteHeaderControl(APalette);
   if Assigned(HeaderPanel) then
     HeaderPanel.Color := PaletteHeaderColor(PaletteKind, ADragging);
+  { Set Cocoa-level alpha so the panel is genuinely see-through during drag }
+  if APalette is TWinControl then
+    FPSetViewAlpha(Pointer(TWinControl(APalette).Handle),
+                   IfThen(ADragging, DragAlpha, NormalAlpha));
 end;
 
 procedure TMainForm.RefreshPaletteMenuChecks;
