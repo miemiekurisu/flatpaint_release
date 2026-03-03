@@ -409,6 +409,8 @@ type
     procedure BrushSizeChanged(Sender: TObject);
     procedure LayerListClick(Sender: TObject);
     procedure LayerListDblClick(Sender: TObject);
+    procedure LayerListDrawItem(Control: TWinControl; Index: Integer;
+      ARect: TRect; State: TOwnerDrawState);
     procedure PaletteMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaletteMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaletteMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -1944,6 +1946,9 @@ begin
   FLayerList.Color := $00353D4A;
   FLayerList.Font.Color := clWhite;
   FLayerList.Font.Size := 9;
+  FLayerList.Style := lbOwnerDrawFixed;
+  FLayerList.ItemHeight := 36;
+  FLayerList.OnDrawItem := @LayerListDrawItem;
   FLayerList.OnClick := @LayerListClick;
   FLayerList.OnDblClick := @LayerListDblClick;
 end;
