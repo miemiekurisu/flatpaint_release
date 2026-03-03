@@ -2471,7 +2471,9 @@ var
 begin
   LB := TListBox(Control);
   if not Assigned(FDocument) then Exit;
-  CurrentIndex := FDocument.UndoDepth - 1;
+  { Current live state is always at row UndoDepth (0 = initial, 1..N = past ops,
+    N = current, N+1.. = future redo ops) }
+  CurrentIndex := FDocument.UndoDepth;
   if odSelected in State then
   begin
     BgCol := $00705848;  { warm selection highlight }
@@ -2504,7 +2506,8 @@ var
   RedoLabel: string;
   UndoCount: Integer;
   RedoCount: Integer;
-  Index: Integer;
+  RowIndex: Integer;
+  OpIndex: Integer;
 begin
   if Assigned(FHistoryValueLabel) then
   begin
@@ -2519,27 +2522,36 @@ begin
       [UndoLabel, RedoLabel]
     );
   end;
-  if Assigned(FHistoryList) then
-  begin
-    FHistoryList.Items.BeginUpdate;
-    try
-      FHistoryList.Items.Clear;
-      UndoCount := FDocument.UndoDepth;
-      RedoCount := FDocument.RedoDepth;
-      { Undo items: oldest first (label index from newest = UndoCount-1 downto 0) }
-      for Index := UndoCount - 1 downto 0 do
-        FHistoryList.Items.Add(Format('%d. %s', [UndoCount - Index, FDocument.UndoActionLabel(Index)]));
-      { Redo items: closest future first (label index from newest = 0 to RedoCount-1) }
-      for Index := 0 to RedoCount - 1 do
-        FHistoryList.Items.Add(Format('%d. %s', [UndoCount + Index + 1, FDocument.RedoActionLabel(Index)]));
-      { Highlight the last undo item as the current state }
-      if UndoCount > 0 then
-        FHistoryList.ItemIndex := UndoCount - 1
-      else
-        FHistoryList.ItemIndex := -1;
-    finally
-      FHistoryList.Items.EndUpdate;
+  if not Assigned(FHistoryList) then Exit;
+  FHistoryList.Items.BeginUpdate;
+  try
+    FHistoryList.Items.Clear;
+    UndoCount := FDocument.UndoDepth;
+    RedoCount := FDocument.RedoDepth;
+    { --- Timeline layout ---
+      Row 0            : initial state (always present)
+      Row 1..UndoCount : states produced by each recorded operation (oldest→newest)
+      Row UndoCount    : live current state ← highlighted / selected
+      Row UndoCount+1..: redo (future) states, dimmed
+    }
+    { Row 0: initial state }
+    FHistoryList.Items.Add('0. (initial)');
+    { Rows 1..UndoCount: past operations, oldest first }
+    for RowIndex := 1 to UndoCount do
+    begin
+      OpIndex := UndoCount - RowIndex;   { 0 = newest, UndoCount-1 = oldest }
+      FHistoryList.Items.Add(Format('%d. %s', [RowIndex, FDocument.UndoActionLabel(OpIndex)]));
     end;
+    { Rows UndoCount+1..UndoCount+RedoCount: future redo states, oldest redo first }
+    for RowIndex := 1 to RedoCount do
+    begin
+      OpIndex := RowIndex - 1;    { 0 = next redo, RedoCount-1 = furthest }
+      FHistoryList.Items.Add(Format('%d. %s', [UndoCount + RowIndex, FDocument.RedoActionLabel(OpIndex)]));
+    end;
+    { Highlight current state at row = UndoCount }
+    FHistoryList.ItemIndex := UndoCount;
+  finally
+    FHistoryList.Items.EndUpdate;
   end;
 end;
 
@@ -2781,9 +2793,9 @@ begin
   if not Assigned(FHistoryList) then Exit;
   ClickedIndex := FHistoryList.ItemIndex;
   if ClickedIndex < 0 then Exit;
-  { Items before CurrentIndex are past states (undo); items after are future (redo).
-    CurrentIndex = last undo item = UndoDepth - 1 }
-  CurrentIndex := FDocument.UndoDepth - 1;
+  { Row layout: 0=(initial), 1..UndoDepth=(past ops), UndoDepth=(current), UndoDepth+1..=(redo)
+    So the current position is always at index UndoDepth. }
+  CurrentIndex := FDocument.UndoDepth;
   if ClickedIndex = CurrentIndex then Exit;
   StepsDelta := ClickedIndex - CurrentIndex;
   if StepsDelta < 0 then
@@ -2804,6 +2816,7 @@ begin
       FDocument.Redo;
     end;
   end;
+  InvalidatePreparedBitmap;
   RefreshLayers;
   RefreshCanvas;
   RefreshStatus(FLastImagePoint);
@@ -3794,6 +3807,7 @@ end;
 procedure TMainForm.UndoClick(Sender: TObject);
 begin
   FDocument.Undo;
+  InvalidatePreparedBitmap;
   RefreshLayers;
   RefreshCanvas;
   SetDirty(True);
@@ -3802,6 +3816,7 @@ end;
 procedure TMainForm.RedoClick(Sender: TObject);
 begin
   FDocument.Redo;
+  InvalidatePreparedBitmap;
   RefreshLayers;
   RefreshCanvas;
   SetDirty(True);
