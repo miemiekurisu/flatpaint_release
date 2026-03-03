@@ -1,55 +1,36 @@
 # Development Progress Log
 
-## 2026-03-03 (tool options parity pass + effects expansion)
+## 2026-03-03 (tool options parity pass + documentation sync)
 
-| Area | Before | After | Key changes |
-| --- | --- | --- | --- |
-| Ctrl+Tab navigation | ~65% | ~73% | `FormKeyDown` handles Ctrl+Tab / Ctrl+Shift+Tab (with wrap) before the `Shift` guard |
-| Effects | ~70% | ~85% | Added `OilPaint` (luminosity-bucket mode), `FrostedGlass` (noise displacement), `ZoomBlur` (radial 8-sample); all wired through fpsurface → fpdocument → mainform + 3 new menu items `Oil Paint…`, `Frosted Glass…`, `Zoom Blur…` following the GlowClick pattern |
-| Tool/Config Options | ~75% | ~90% | **Fill tolerance** visible TSpinEdit for bucket tool; **Wand contiguous** TCheckBox (calls `CreateGlobalColorSelection` when unchecked); **Gradient type** TComboBox (Linear/Radial) + **Reverse** TCheckBox both wired to `FillRadialGradient`/`FillGradient`; **Color picker sample source** TComboBox (Current Layer / All Layers) rewires ColorPicker MouseMove handler; **Selection anti-alias** TCheckBox for rect/ellipse/lasso tools; all controls show/hide via `UpdateToolOptionControl` |
-| Image/Menus shortcuts | ~75% | ~80% | Flatten `Cmd+Shift+F` added |
-| fpsurface core | — | — | `FillRadialGradient(CenterX, CenterY, Radius, StartColor, EndColor)` added; `CreateGlobalColorSelection` added for wand non-contiguous mode |
-| fpdocument core | — | — | `OilPaint`, `FrostedGlass`, `ZoomBlur` delegating wrappers; `SelectMagicWand` gains `Contiguous: Boolean = True` parameter |
-| Tests | 129 | 130 | `RadialGradientFadesFromCenter` added to `fpsurface_tests.pas`; 3 effect tests added in prior sub-session; 0 errors, 0 failures |
-| UI/Shortcuts | ~75% | ~80% | Added `C` key to toggle primary/secondary color target and painted a notch indicator in the color panel; `TMainForm` now exposes testing properties. Unit tests expanded accordingly; manual CI run exposed Lazarus path misconfiguration and missing WSRegister stubs. |
-
-**Overall estimate after this pass: ~88%**
-
-Key gaps still open:
-- Iconography: ~45% (text-symbol placeholders; no paint.net icon set)
-- Workspace visual parity: ~55% (toolbar density, palette chrome, status-bar weight)
-- Compatibility IO: ~55% (no `.pdn`/`.kra` layer-preserving import)
-- Document tabs: ~73% (Ctrl+Tab added; image-list thumbnail strip still open)
-- Command surface parity: ~75% (image-list strip still absent)
-
-
-Code-level pass against `src/app/mainform.pas`, `src/core/fpdocument.pas` (`TToolKind` enum), `COMMAND_SURFACE_BASELINE.md`, `TOOL_OPTIONS_BASELINE.md`, and `UI_PARITY_AUDIT.md`.
+- Re-checked the current source against `src/app/mainform.pas`, `src/core/fpdocument.pas`, `src/core/fpsurface.pas`, `src/core/fpio.pas`, and the current test/build scripts so the latest docs match the real code again.
+- The codebase is ahead of the stale audit notes that had drifted into this file: document tabs, text, clone stamp, recolor, `Paste Selection (Replace)`, Layer Properties, `Layers -> Import From File`, `Repeat Last Effect`, RGBA + hex color editing, `C` color-slot toggle, Spacebar temp pan, middle-mouse pan, redo-row display, and partial `.pdn` fallback import are all live in the current source.
+- `bash ./scripts/run_tests_ci.sh` now compiles and runs the full suite at **142 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` links the GUI app cleanly in the current workspace.
 
 | Area | Completion | Key open gaps |
 | --- | --- | --- |
-| Workspace shell | ~75% | Document tabs absent; toolbar density still below paint.net baseline; palette chrome too loose |
-| Document tabs | 0% | Not started; `TMainForm` still owns a single `TImageDocument`; no tab strip or image-list control in code |
-| Command surface parity | ~70% | Missing: image-list strip, `Paste Selection (Replace)`, Layer Properties, `Layers › Import From File`, Effects `Repeat Last` |
-| Workspace visual parity | ~50% | Toolbar too sparse; palettes too large; text-symbol icons not paint.net-style; status bar visual treatment still too loose |
-| File workflow | ~85% | Missing: `.pdn` and `.kra` import; `Save All Images` has no real multi-document semantic yet |
-| Undo/redo | ~90% | Robust; action labels live; History palette shows depth + labels; only minor polish remaining |
-| Layers | ~75% | Missing: Layer Properties dialog, Rotate/Zoom layer command, blend-mode GUI picker, `Layers › Import From File` menu item |
-| Selection tools | ~75% | All 4 tools + replace/add/subtract/intersect in core; missing visible combine-mode control UI and anti-alias edge option |
-| Paint tools | ~60% | Missing: Clone Stamp, Recolor, Text (none in `TToolKind`); existing tools have very limited option surfaces |
-| Draw tools | ~60% | Missing: Text tool, true curve mode on Line, fill/outline toggle for shape tools |
-| View controls | ~80% | Native trackpad pinch-to-zoom not implemented in the current Lazarus path |
-| Colors panel | ~45% | Only Primary/Secondary buttons + hex label; no color wheel, no RGB/alpha sliders, no palette swatches |
-| Adjustments | ~90% | All 10 adjustments routed + dedicated modals; missing only per-channel curve editing |
-| Effects | ~40% | Only Blur/Sharpen/Noise/Outline; missing Distort, Photo, Render, Stylize families and repeat-last-effect command |
-| Resize/canvas ops | ~85% | All transforms done; missing dedicated interactive Crop tool (only Crop to Selection via menu) |
-| Text/rendering | 0% | Not started; no Text entry in `TToolKind`, no font/size surface in GUI |
-| Clipboard | ~80% | Core flows done; missing `Paste Selection (Replace)` command |
-| Menus/Shortcuts | ~75% | Most primary shortcuts in place; some shortcut policy gaps remain per `SHORTCUT_POLICY.md` |
-| Iconography | ~35% | Text-symbol placeholders only; no paint.net-style icon set |
-| Tool/Config Options | ~40% | Only brush size + wand tolerance visible; hardness, shape, sample source, fill mode, anti-alias missing |
-| Hidden sheet options | ~70% | JPEG quality and PNG interlace present; some export-option gaps remain |
-| Compatibility IO | ~40% | `.fpd`, flat `.psd`, flat `.xcf` done; `.pdn` and `.kra` not implemented |
-| **Overall** | **~72%** | Three 0% areas (Document tabs, Text tool, Iconography) plus shallow Colors panel and Effects breadth are the largest gap clusters |
+| Workspace shell | ~78% | Tab strip and floating palettes are live; image-list strip, denser chrome, and icon polish still lag paint.net |
+| Document tabs | ~73% | Real multi-document tab strip exists; missing image-list thumbnails, drag-to-reorder, and richer tab chrome |
+| Command surface parity | ~80% | The previously cited missing routes are now live; the biggest remaining visible gap is still the missing image-list surface |
+| Workspace visual parity | ~55% | Toolbar density, palette compactness, and icon language remain below target |
+| File workflow | ~85% | `.pdn` is only partial flattened fallback and `.kra` is still friendly-fail only; `Save All Images` still maps to the current shell |
+| Undo/redo | ~90% | Undo/redo labels and redo rows are visible; grey-out / comparison-polish remains open |
+| Layers | ~80% | Properties dialog, rotate/zoom, blend-mode picker, and import-as-layer are live; thumbnails and drag reorder are still missing |
+| Selection tools | ~85% | Visible combine-mode control is live; selection anti-alias is still a UI-only toggle pending core support |
+| Paint tools | ~85% | Clone Stamp, Recolor, Gradient, Pan, Zoom, and interactive Crop are live; richer per-tool parity remains open |
+| Draw tools | ~80% | Text is live; true curve-node editing is still missing |
+| View controls | ~90% | Pinch zoom, Spacebar temp pan, and middle-mouse pan are live; resize-handle parity is still partial |
+| Colors panel | ~60% | HSV wheel, RGBA/hex editing, 28 swatches, active-slot notch, and `C` slot toggle are live; full 96-swatch / HSV-field parity remains open |
+| Adjustments | ~90% | Broad baseline is routed; richer curve editing is still the main gap |
+| Effects | ~55% | 17 effects plus `Repeat Last Effect` are live; deeper families and submenu grouping are still missing |
+| Resize/canvas ops | ~90% | Interactive Crop is live; remaining work is mostly parity polish |
+| Text/rendering | ~80% | Modal text tool is implemented; richer editing still remains open |
+| Clipboard | ~85% | `Paste Selection (Replace)` is live; remaining gaps are polish and edge-case parity |
+| Menus/Shortcuts | ~85% | Single-key tool shortcuts, `C`, Spacebar pan, and Ctrl+Tab are live; remaining gaps are edge-case parity and image-list-related flows |
+| Iconography | ~45% | Still text-heavy in several surfaces |
+| Tool/Config Options | ~85% | Most visible controls now affect output; selection anti-alias remains the main UI-only option |
+| Hidden sheet options | ~70% | Export/save-sheet options remain partial |
+| Compatibility IO | ~55% | `.psd` / `.xcf` flattened import is live, `.pdn` has partial flattened fallback, and `.kra` remains descriptive unsupported |
+| **Overall** | **~84%** | Biggest remaining gaps are image-list parity, broader effect coverage, fuller color/layer panels, and iconography polish |
 
 ## 2026-03-02 (test infrastructure fix)
 - `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.

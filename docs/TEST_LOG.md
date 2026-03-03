@@ -1,5 +1,11 @@
 # Test Log
 
+## 2026-03-03
+- Full CI verification after the documentation-sync audit: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 142 tests, 0 errors, 0 failures
+- GUI build verification after the same audit: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-02
 - FPCUnit rebuild after the selection-intersect follow-up: `mkdir -p lib/tests dist/tests && /usr/local/bin/fpc -Fu./src/core -Fu./src/app -Fu./src/tests -Fu/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/fcl-fpcunit -FE./dist/tests -FU./lib/tests ./src/tests/flatpaint_tests.lpr && ./dist/tests/flatpaint_tests --all`
 - Result: passed; the local suite now runs 92 tests, adding direct `TSelectionMask` intersect coverage plus a document-level magic-wand intersect regression
