@@ -31,7 +31,9 @@ type
     procedure Clear(const AColor: TRGBA32);
     procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawSquareBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawQuadraticBezier(X1, Y1, ControlX, ControlY, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
@@ -409,6 +411,39 @@ begin
   end;
 end;
 
+procedure TRasterSurface.DrawSquareBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  DrawX: Integer;
+  DrawY: Integer;
+  DeltaX: Integer;
+  DeltaY: Integer;
+  EdgeRadius: Integer;
+  DistToEdge: Integer;
+  EffectiveOpacity: Integer;
+begin
+  Radius := Max(0, Radius);
+  EdgeRadius := Radius * Hardness div 255;
+  for DrawY := Y - Radius to Y + Radius do
+  begin
+    for DrawX := X - Radius to X + Radius do
+    begin
+      DeltaX := Abs(DrawX - X);
+      DeltaY := Abs(DrawY - Y);
+      DistToEdge := Max(DeltaX, DeltaY);
+      if DistToEdge > Radius then
+        Continue;
+      if (Hardness >= 255) or (DistToEdge <= EdgeRadius) then
+        EffectiveOpacity := Opacity
+      else if Radius > EdgeRadius then
+        EffectiveOpacity := Opacity * (Radius - DistToEdge) div (Radius - EdgeRadius)
+      else
+        EffectiveOpacity := 0;
+      if EffectiveOpacity > 0 then
+        BlendPixel(DrawX, DrawY, AColor, Min(255, EffectiveOpacity), ASelection);
+    end;
+  end;
+end;
+
 procedure TRasterSurface.DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
 var
   DX: Integer;
@@ -433,6 +468,46 @@ begin
   while True do
   begin
     DrawBrush(X1, Y1, Radius, AColor, Opacity, Hardness, ASelection);
+    if (X1 = X2) and (Y1 = Y2) then
+      Break;
+    DoubleError := ErrorValue * 2;
+    if DoubleError > -DY then
+    begin
+      ErrorValue := ErrorValue - DY;
+      X1 := X1 + StepX;
+    end;
+    if DoubleError < DX then
+    begin
+      ErrorValue := ErrorValue + DX;
+      Y1 := Y1 + StepY;
+    end;
+  end;
+end;
+
+procedure TRasterSurface.DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  DX: Integer;
+  DY: Integer;
+  StepX: Integer;
+  StepY: Integer;
+  ErrorValue: Integer;
+  DoubleError: Integer;
+begin
+  DX := Abs(X2 - X1);
+  DY := Abs(Y2 - Y1);
+  if X1 < X2 then
+    StepX := 1
+  else
+    StepX := -1;
+  if Y1 < Y2 then
+    StepY := 1
+  else
+    StepY := -1;
+
+  ErrorValue := DX - DY;
+  while True do
+  begin
+    DrawSquareBrush(X1, Y1, Radius, AColor, Opacity, Hardness, ASelection);
     if (X1 = X2) and (Y1 = Y2) then
       Break;
     DoubleError := ErrorValue * 2;

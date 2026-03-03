@@ -1,5 +1,24 @@
 # Development Progress Log
 
+## 2026-03-03 (inline text tool pass)
+
+- This pass maps primarily to the `Draw tools` and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`, and it closes one of the remaining explicit tool-baseline gaps in `docs/TOOL_OPTIONS_BASELINE.md`.
+- The visible `Text` tool no longer hard-jumps straight into a modal-only flow for every placement. Left-click on the canvas now opens a live inline text editor at the clicked image position, so text input is visibly attached to the canvas before it is committed.
+- The inline text editor is not just cosmetic: pressing `Return` commits the typed text into the active layer through the existing text raster path, `Escape` cancels it, and focus loss also commits so tool switches, tab switches, and document-close flows do not silently drop pending text.
+- The previous text-style dialog is still available as a real style surface instead of being discarded: right-click or `Option`-click with the `Text` tool now opens the font/style dialog and immediately updates the live inline editor if one is active.
+- This pass also fixes a quieter reliability issue in the old text path: `TTextDialogResult` now starts from explicit defaults instead of relying on an uninitialized record, so first-use text placement no longer depends on undefined font state.
+- Added helper coverage for the new interaction contract in `src/tests/fpuihelpers_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **166 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the inline-text changes.
+- Honest progress update after this pass: the text tool now reads as a real canvas tool instead of a modal detour, so another explicit tool-baseline gap is closed; the biggest remaining tool-specific gaps are now feathered selections and richer multi-node curve editing.
+
+## 2026-03-03 (eraser square-tip pass)
+
+- This pass maps primarily to the `Paint tools` and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
+- The `Eraser` tool no longer hard-locks to a circular tip. The top tool-options row now exposes a visible `Shape` selector for eraser mode, with `Round` and `Square` choices.
+- This is fully wired through the actual pixel path: square mode now uses a dedicated square brush/line raster pass instead of reusing the circular brush behind the scenes, so the effect on the image matches the selected tip shape.
+- The canvas feedback is also consistent with the tool state now: switching the eraser to `Square` changes the live hover outline from a circle to a square, so the UI preview and the committed erase result stay aligned.
+- Added regression coverage for the new square-tip raster path in `src/tests/fpsurface_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **165 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: another previously documented tool gap is now closed; the remaining tool work is increasingly in deeper parity items, not obviously missing basic shape/size behaviors.
+
 ## 2026-03-03 (line-curve interaction pass)
 
 - This pass maps primarily to the `Draw tools` row in `docs/FEATURE_MATRIX.md`, with a smaller impact on the tool-behavior notes in `docs/TOOL_OPTIONS_BASELINE.md`.

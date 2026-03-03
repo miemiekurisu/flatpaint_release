@@ -139,6 +139,10 @@ type
     FCloneStampSource: TPoint;
     FCloneStampSampled: Boolean;
     FTextLastResult: TTextDialogResult;
+    FInlineTextEdit: TEdit;
+    FInlineTextAnchor: TPoint;
+    FInlineTextColor: TRGBA32;
+    FInlineTextCommitting: Boolean;
     FLayerBlendCombo: TComboBox;
     FLayerPropsButton: TSpeedButton;
     FLayerVisibleCheck: TCheckBox;
@@ -184,6 +188,9 @@ type
     FHardnessSpin: TSpinEdit;
     FHardnessLabel: TLabel;
     FBrushHardness: Integer;
+    FEraserSquareShape: Boolean;
+    FEraserShapeLabel: TLabel;
+    FEraserShapeCombo: TComboBox;
     FSelModeCombo: TComboBox;
     FSelModeLabel: TLabel;
     FShapeStyleCombo: TComboBox;
@@ -252,6 +259,11 @@ type
     function SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
     procedure AppendLassoPoint(const APoint: TPoint);
     procedure ResetLineCurveState;
+    procedure InitializeTextToolDefaults;
+    procedure UpdateInlineTextEditStyle;
+    procedure UpdateInlineTextEditBounds;
+    procedure BeginInlineTextEdit(const APoint: TPoint);
+    procedure CommitInlineTextEdit(ACommit: Boolean = True);
     procedure InvalidatePreparedBitmap;
     procedure UpdateToolOptionControl;
     procedure RefreshUnitsMenu;
@@ -263,6 +275,7 @@ type
     procedure CreateMenuItem(AParent: TMenuItem; const ACaption: string; AHandler: TNotifyEvent; AShortcut: TShortCut = 0);
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
     procedure DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+    procedure DrawSquareHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
     procedure DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
     procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
@@ -391,6 +404,10 @@ type
     procedure LayerPropertiesClick(Sender: TObject);
     procedure PasteSelectionClick(Sender: TObject);
     procedure LayerBlendModeChanged(Sender: TObject);
+    procedure InlineTextEditChange(Sender: TObject);
+    procedure InlineTextEditMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure InlineTextEditKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure InlineTextEditExit(Sender: TObject);
     procedure PlaceTextAtPoint(const AResult: TTextDialogResult; APoint: TPoint; AColor: TRGBA32);
     { Document tab management }
     procedure TabButtonClick(Sender: TObject);
@@ -423,6 +440,7 @@ type
     { Tool option handlers }
     procedure OpacitySpinChanged(Sender: TObject);
     procedure HardnessSpinChanged(Sender: TObject);
+    procedure EraserShapeComboChanged(Sender: TObject);
     procedure SelModeComboChanged(Sender: TObject);
     procedure ShapeStyleComboChanged(Sender: TObject);
     procedure BucketModeComboChanged(Sender: TObject);
@@ -616,6 +634,7 @@ begin
     FWandTolerance := 32;
     FBrushOpacity := 100;
     FBrushHardness := 100;
+    FEraserSquareShape := False;
     FShapeStyle := 0;
     FBucketFloodMode := 0;
     FLineCurvePending := False;
@@ -634,6 +653,15 @@ begin
     FCloneAlignedOffsetValid := False;
     FPickerSampleSource := 0;
     FSelAntiAlias := True;
+    FTextLastResult.Text := '';
+    FTextLastResult.FontName := '';
+    FTextLastResult.FontSize := 24;
+    FTextLastResult.Bold := False;
+    FTextLastResult.Italic := False;
+    FInlineTextEdit := nil;
+    FInlineTextAnchor := Point(0, 0);
+    FInlineTextColor := FPrimaryColor;
+    FInlineTextCommitting := False;
     FClipboardOffset := Point(0, 0);
     FPreparedBitmap := TBitmap.Create;
     FRenderRevision := 1;
@@ -684,6 +712,7 @@ begin
   FWandTolerance := 32;
   FBrushOpacity := 100;
   FBrushHardness := 100;
+  FEraserSquareShape := False;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
   FLineCurvePending := False;
@@ -702,6 +731,15 @@ begin
   FCloneAlignedOffsetValid := False;
   FPickerSampleSource := 0;
   FSelAntiAlias := True;
+  FTextLastResult.Text := '';
+  FTextLastResult.FontName := '';
+  FTextLastResult.FontSize := 24;
+  FTextLastResult.Bold := False;
+  FTextLastResult.Italic := False;
+  FInlineTextEdit := nil;
+  FInlineTextAnchor := Point(0, 0);
+  FInlineTextColor := FPrimaryColor;
+  FInlineTextCommitting := False;
   FClipboardOffset := Point(0, 0);
   FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
@@ -862,6 +900,19 @@ begin
   FPaintBox.OnMouseMove := @PaintBoxMouseMove;
   FPaintBox.OnMouseUp := @PaintBoxMouseUp;
   FPaintBox.OnMouseLeave := @PaintBoxMouseLeave;
+
+  FInlineTextEdit := TEdit.Create(FCanvasHost);
+  FInlineTextEdit.Parent := FCanvasHost;
+  FInlineTextEdit.Visible := False;
+  FInlineTextEdit.AutoSize := False;
+  FInlineTextEdit.Left := FPaintBox.Left;
+  FInlineTextEdit.Top := FPaintBox.Top;
+  FInlineTextEdit.Width := 128;
+  FInlineTextEdit.Height := 30;
+  FInlineTextEdit.OnChange := @InlineTextEditChange;
+  FInlineTextEdit.OnMouseDown := @InlineTextEditMouseDown;
+  FInlineTextEdit.OnKeyDown := @InlineTextEditKeyDown;
+  FInlineTextEdit.OnExit := @InlineTextEditExit;
 
   BuildSidePanel;
   RefreshPaletteMenuChecks;
@@ -1184,6 +1235,105 @@ begin
   FLineCurveControlPoint := Point(0, 0);
 end;
 
+procedure TMainForm.InitializeTextToolDefaults;
+begin
+  if FTextLastResult.FontName = '' then
+    FTextLastResult.FontName := Font.Name;
+  if FTextLastResult.FontSize <= 0 then
+    FTextLastResult.FontSize := 24;
+end;
+
+procedure TMainForm.UpdateInlineTextEditStyle;
+var
+  DisplayFontSize: Integer;
+  FontStyles: TFontStyles;
+begin
+  if not Assigned(FInlineTextEdit) then
+    Exit;
+  InitializeTextToolDefaults;
+  DisplayFontSize := Max(6, Round(FTextLastResult.FontSize * FZoomScale));
+  FInlineTextEdit.Font.Name := FTextLastResult.FontName;
+  FInlineTextEdit.Font.Size := DisplayFontSize;
+  FontStyles := [];
+  if FTextLastResult.Bold then
+    Include(FontStyles, fsBold);
+  if FTextLastResult.Italic then
+    Include(FontStyles, fsItalic);
+  FInlineTextEdit.Font.Style := FontStyles;
+  FInlineTextEdit.Font.Color := RGBToColor(
+    FInlineTextColor.R,
+    FInlineTextColor.G,
+    FInlineTextColor.B
+  );
+end;
+
+procedure TMainForm.UpdateInlineTextEditBounds;
+var
+  DisplayFontSize: Integer;
+  VisibleText: string;
+begin
+  if not Assigned(FInlineTextEdit) or not FInlineTextEdit.Visible then
+    Exit;
+  DisplayFontSize := Max(6, Round(FTextLastResult.FontSize * FZoomScale));
+  VisibleText := FInlineTextEdit.Text;
+  if VisibleText = '' then
+    VisibleText := 'W';
+  FInlineTextEdit.Left := FPaintBox.Left + Round(FInlineTextAnchor.X * FZoomScale);
+  FInlineTextEdit.Top := FPaintBox.Top + Round(FInlineTextAnchor.Y * FZoomScale);
+  FInlineTextEdit.Width := Max(
+    120,
+    Round((Length(VisibleText) + 3) * DisplayFontSize * 0.7)
+  );
+  FInlineTextEdit.Height := Max(28, Round(DisplayFontSize * 1.9));
+end;
+
+procedure TMainForm.BeginInlineTextEdit(const APoint: TPoint);
+begin
+  if not Assigned(FInlineTextEdit) then
+    Exit;
+  CommitInlineTextEdit(True);
+  InitializeTextToolDefaults;
+  FInlineTextAnchor := Point(
+    EnsureRange(APoint.X, 0, Max(0, FDocument.Width - 1)),
+    EnsureRange(APoint.Y, 0, Max(0, FDocument.Height - 1))
+  );
+  FInlineTextColor := ActivePaintColor;
+  FInlineTextEdit.Text := '';
+  FInlineTextEdit.Visible := True;
+  UpdateInlineTextEditStyle;
+  UpdateInlineTextEditBounds;
+  FInlineTextEdit.SelectAll;
+  FInlineTextEdit.SetFocus;
+  if Assigned(FPaintBox) then
+    FPaintBox.Invalidate;
+end;
+
+procedure TMainForm.CommitInlineTextEdit(ACommit: Boolean);
+var
+  TextResult: TTextDialogResult;
+begin
+  if not Assigned(FInlineTextEdit) or not FInlineTextEdit.Visible or FInlineTextCommitting then
+    Exit;
+  FInlineTextCommitting := True;
+  try
+    if ACommit and (Trim(FInlineTextEdit.Text) <> '') then
+    begin
+      InitializeTextToolDefaults;
+      TextResult := FTextLastResult;
+      TextResult.Text := FInlineTextEdit.Text;
+      FTextLastResult.Text := FInlineTextEdit.Text;
+      FDocument.PushHistory('Text');
+      PlaceTextAtPoint(TextResult, FInlineTextAnchor, FInlineTextColor);
+      SetDirty(True);
+    end;
+    FInlineTextEdit.Visible := False;
+    FInlineTextEdit.Text := '';
+    RefreshCanvas;
+  finally
+    FInlineTextCommitting := False;
+  end;
+end;
+
 procedure TMainForm.InvalidatePreparedBitmap;
 begin
   Inc(FRenderRevision);
@@ -1194,6 +1344,7 @@ var
   IsSelTool: Boolean;
   IsOpacityTool: Boolean;
   IsHardnessTool: Boolean;
+  IsEraserShapeTool: Boolean;
   IsShapeTool: Boolean;
   IsBucketTool: Boolean;
   IsToleranceTool: Boolean;
@@ -1206,6 +1357,7 @@ begin
     IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
     IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
     IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
+    IsEraserShapeTool := FCurrentTool = tkEraser;
     IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
     IsBucketTool := FCurrentTool = tkFill;
     IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
@@ -1218,6 +1370,9 @@ begin
     if Assigned(FHardnessLabel) then FHardnessLabel.Visible := IsHardnessTool;
     if Assigned(FHardnessSpin) then FHardnessSpin.Visible := IsHardnessTool;
     if Assigned(FHardnessSpin) then FHardnessSpin.Value := FBrushHardness;
+    if Assigned(FEraserShapeLabel) then FEraserShapeLabel.Visible := IsEraserShapeTool;
+    if Assigned(FEraserShapeCombo) then FEraserShapeCombo.Visible := IsEraserShapeTool;
+    if Assigned(FEraserShapeCombo) then FEraserShapeCombo.ItemIndex := Ord(FEraserSquareShape);
     if Assigned(FShapeStyleLabel) then FShapeStyleLabel.Visible := IsShapeTool;
     if Assigned(FShapeStyleCombo) then FShapeStyleCombo.Visible := IsShapeTool;
     if Assigned(FShapeStyleCombo) then FShapeStyleCombo.ItemIndex := FShapeStyle;
@@ -1716,6 +1871,28 @@ begin
   FHardnessSpin.OnChange := @HardnessSpinChanged;
   FHardnessSpin.Hint := 'Brush hardness (1=soft, 100=hard)';
   FHardnessSpin.ShowHint := True;
+
+  FEraserShapeLabel := TLabel.Create(FTopPanel);
+  FEraserShapeLabel.Parent := FTopPanel;
+  FEraserShapeLabel.Caption := 'Shape:';
+  FEraserShapeLabel.Font.Color := ChromeTextColor;
+  FEraserShapeLabel.Left := 628;
+  FEraserShapeLabel.Top := 41;
+  FEraserShapeLabel.Visible := False;
+
+  FEraserShapeCombo := TComboBox.Create(FTopPanel);
+  FEraserShapeCombo.Parent := FTopPanel;
+  FEraserShapeCombo.Left := 676;
+  FEraserShapeCombo.Top := 36;
+  FEraserShapeCombo.Width := 92;
+  FEraserShapeCombo.Style := csDropDownList;
+  FEraserShapeCombo.Items.Add('Round');
+  FEraserShapeCombo.Items.Add('Square');
+  FEraserShapeCombo.ItemIndex := 0;
+  FEraserShapeCombo.Visible := False;
+  FEraserShapeCombo.OnChange := @EraserShapeComboChanged;
+  FEraserShapeCombo.Hint := 'Eraser tip shape';
+  FEraserShapeCombo.ShowHint := True;
 
   FSelModeLabel := TLabel.Create(FTopPanel);
   FSelModeLabel.Parent := FTopPanel;
@@ -2383,6 +2560,47 @@ begin
   ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
 end;
 
+procedure TMainForm.DrawSquareHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+var
+  LeftX: Integer;
+  TopY: Integer;
+  RightX: Integer;
+  BottomY: Integer;
+  CenterX: Integer;
+  CenterY: Integer;
+  CrossHalf: Integer;
+begin
+  if ARadius <= 0 then
+  begin
+    DrawPointHoverOverlay(ACanvas, APoint);
+    Exit;
+  end;
+
+  LeftX := Round((APoint.X - ARadius) * FZoomScale);
+  TopY := Round((APoint.Y - ARadius) * FZoomScale);
+  RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
+  if RightX <= LeftX then
+    RightX := LeftX + 1;
+  if BottomY <= TopY then
+    BottomY := TopY + 1;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clWhite;
+  ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+
+  CenterX := Round((APoint.X + 0.5) * FZoomScale);
+  CenterY := Round((APoint.Y + 0.5) * FZoomScale);
+  CrossHalf := Max(2, Round(FZoomScale));
+  ACanvas.Pen.Color := clBlack;
+  ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
+  ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
+  ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
+  ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+end;
+
 procedure TMainForm.DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
 var
   SourceX: Integer;
@@ -2534,7 +2752,12 @@ begin
     Exit;
 
   if PaintToolUsesBrushOverlay(FCurrentTool) then
-    DrawBrushHoverOverlay(ACanvas, FLastImagePoint, ActiveToolOverlayRadius)
+  begin
+    if (FCurrentTool = tkEraser) and FEraserSquareShape then
+      DrawSquareHoverOverlay(ACanvas, FLastImagePoint, ActiveToolOverlayRadius)
+    else
+      DrawBrushHoverOverlay(ACanvas, FLastImagePoint, ActiveToolOverlayRadius);
+  end
   else
     DrawPointHoverOverlay(ACanvas, FLastImagePoint);
 
@@ -2923,6 +3146,7 @@ begin
     if TopOffset > 0 then
       FCanvasHost.VertScrollBar.Position := 0;
   end;
+  UpdateInlineTextEditBounds;
 end;
 
 procedure TMainForm.CanvasHostResize(Sender: TObject);
@@ -2954,6 +3178,7 @@ end;
 procedure TMainForm.RefreshCanvas;
 begin
   UpdateCanvasSize;
+  UpdateInlineTextEditBounds;
   FPaintBox.Invalidate;
   RefreshRulers;
   RefreshHistoryPanel;
@@ -4493,7 +4718,7 @@ begin
         255, { pencil always hard }
         PaintSelection
       );
-    tkBrush, tkEraser:
+    tkBrush:
       FDocument.ActiveLayer.Surface.DrawLine(
         FLastImagePoint.X,
         FLastImagePoint.Y,
@@ -4505,6 +4730,31 @@ begin
         FBrushHardness * 255 div 100,
         PaintSelection
       );
+    tkEraser:
+      if FEraserSquareShape then
+        FDocument.ActiveLayer.Surface.DrawSquareLine(
+          FLastImagePoint.X,
+          FLastImagePoint.Y,
+          APoint.X,
+          APoint.Y,
+          Max(1, FBrushSize div 2),
+          ActivePaintColor,
+          FBrushOpacity * 255 div 100,
+          FBrushHardness * 255 div 100,
+          PaintSelection
+        )
+      else
+        FDocument.ActiveLayer.Surface.DrawLine(
+          FLastImagePoint.X,
+          FLastImagePoint.Y,
+          APoint.X,
+          APoint.Y,
+          Max(1, FBrushSize div 2),
+          ActivePaintColor,
+          FBrushOpacity * 255 div 100,
+          FBrushHardness * 255 div 100,
+          PaintSelection
+        );
     tkFill:
       begin
         if FFillSampleSource = 1 then
@@ -4767,6 +5017,7 @@ end;
 
 procedure TMainForm.ResetDocument(AWidth, AHeight: Integer);
 begin
+  CommitInlineTextEdit(True);
   FDocument.NewBlank(AWidth, AHeight);
   ResetLineCurveState;
   FCurrentFileName := '';
@@ -4788,6 +5039,7 @@ begin
   TargetHeight := FDocument.Height;
   if not RunNewImageDialog(Self, TargetWidth, TargetHeight, FNewImageResolutionDPI) then
     Exit;
+  CommitInlineTextEdit(True);
   NewDoc := TImageDocument.Create(TargetWidth, TargetHeight);
   AddDocumentTab(NewDoc, '', False);
   FPointerDown := False;
@@ -5895,6 +6147,7 @@ var
   DirtyCount: Integer;
   Choice: Integer;
 begin
+  CommitInlineTextEdit(True);
   { Sync current tab dirty flag }
   if Length(FTabDirtyFlags) > FActiveTabIndex then
     FTabDirtyFlags[FActiveTabIndex] := FDirty;
@@ -5974,6 +6227,7 @@ end;
 
 procedure TMainForm.ToolButtonClick(Sender: TObject);
 begin
+  CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
   FCurrentTool := TToolKind(TControl(Sender).Tag);
@@ -5985,6 +6239,7 @@ end;
 
 procedure TMainForm.ToolComboChange(Sender: TObject);
 begin
+  CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
   if FToolCombo.ItemIndex >= 0 then
@@ -6332,6 +6587,7 @@ begin
   NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
   if NewTool <> FCurrentTool then
   begin
+    CommitInlineTextEdit(True);
     ResetLineCurveState;
     FCurrentTool := NewTool;
     if Assigned(FToolCombo) then
@@ -6537,15 +6793,18 @@ begin
       end;
     tkText:
       begin
-        { Text tool: show dialog on click }
-        if RunTextDialog(Self, FTextLastResult) then
+        if (Button = mbRight) or (ssAlt in Shift) then
         begin
-          FDocument.PushHistory('Text');
-          PlaceTextAtPoint(FTextLastResult, ImagePoint, ActivePaintColor);
-          SetDirty(True);
-          InvalidatePreparedBitmap;
-          RefreshCanvas;
-        end;
+          InitializeTextToolDefaults;
+          if RunTextDialog(Self, FTextLastResult) and
+             Assigned(FInlineTextEdit) and FInlineTextEdit.Visible then
+          begin
+            UpdateInlineTextEditStyle;
+            UpdateInlineTextEditBounds;
+          end;
+        end
+        else
+          BeginInlineTextEdit(ImagePoint);
         FPointerDown := False;
       end;
     tkCloneStamp:
@@ -7245,6 +7504,56 @@ begin
   RefreshCanvas;
 end;
 
+procedure TMainForm.InlineTextEditChange(Sender: TObject);
+begin
+  UpdateInlineTextEditBounds;
+end;
+
+procedure TMainForm.InlineTextEditMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if (X < 0) or (Y < 0) then
+    Exit;
+  if (Button <> mbRight) and not (ssAlt in Shift) then
+    Exit;
+  InitializeTextToolDefaults;
+  if RunTextDialog(Self, FTextLastResult) then
+  begin
+    UpdateInlineTextEditStyle;
+    UpdateInlineTextEditBounds;
+  end;
+end;
+
+procedure TMainForm.InlineTextEditKeyDown(Sender: TObject; var Key: Word;
+  Shift: TShiftState);
+begin
+  if (Key = VK_RETURN) and (ssShift in Shift) then
+  begin
+    CommitInlineTextEdit(True);
+    Key := 0;
+    Exit;
+  end;
+  case Key of
+    VK_RETURN:
+      begin
+        CommitInlineTextEdit(True);
+        Key := 0;
+      end;
+    VK_ESCAPE:
+      begin
+        CommitInlineTextEdit(False);
+        Key := 0;
+      end;
+  end;
+end;
+
+procedure TMainForm.InlineTextEditExit(Sender: TObject);
+begin
+  if FInlineTextCommitting then
+    Exit;
+  CommitInlineTextEdit(True);
+end;
+
 { ── Document Tab Management ─────────────────────────────────────────────── }
 
 function TMainForm.TabDocumentDisplayName(AIndex: Integer): string;
@@ -7296,6 +7605,7 @@ procedure TMainForm.SwitchToTab(AIndex: Integer);
 begin
   if AIndex = FActiveTabIndex then Exit;
   if (AIndex < 0) or (AIndex >= Length(FTabDocuments)) then Exit;
+  CommitInlineTextEdit(True);
 
   { Save current state }
   FTabFileNames[FActiveTabIndex] := FCurrentFileName;
@@ -7336,6 +7646,7 @@ var
   I, N: Integer;
 begin
   N := Length(FTabDocuments);
+  CommitInlineTextEdit(True);
   if N <= 1 then
   begin
     { Cannot close the last tab — reset to blank instead }
@@ -7994,6 +8305,14 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FHardnessSpin) then Exit;
   FBrushHardness := EnsureRange(FHardnessSpin.Value, 1, 100);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.EraserShapeComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FEraserShapeCombo) then Exit;
+  FEraserSquareShape := FEraserShapeCombo.ItemIndex = 1;
   RefreshCanvas;
 end;
 

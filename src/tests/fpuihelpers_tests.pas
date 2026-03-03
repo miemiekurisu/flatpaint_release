@@ -27,6 +27,7 @@ type
     procedure ShortcutSingleKeyMaps;
     procedure AdvancedToolsAdvertiseCanvasHoverFeedback;
     procedure BrushOverlayClassificationStaysFocused;
+    procedure TextToolHintMentionsInlineEditing;
     procedure ColorShortcutTogglesTarget;
     procedure LayerOpacityHelpersRoundTripPercentScale;
   end;
@@ -354,6 +355,14 @@ begin
   AssertTrue('recolor uses brush overlay', PaintToolUsesBrushOverlay(tkRecolor));
   AssertFalse('fill should not use brush overlay', PaintToolUsesBrushOverlay(tkFill));
   AssertFalse('text should not use brush overlay', PaintToolUsesBrushOverlay(tkText));
+end;
+
+procedure TFPUIHelpersTests.TextToolHintMentionsInlineEditing;
+begin
+  AssertTrue(
+    'text hint should mention inline editing',
+    Pos('inline', LowerCase(PaintToolHint(tkText))) > 0
+  );
 end;
 
 procedure TFPUIHelpersTests.ColorShortcutTogglesTarget;

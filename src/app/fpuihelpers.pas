@@ -149,7 +149,7 @@ begin
     tkCrop:
       Result := 'Crop trims the canvas to a dragged rectangle';
     tkText:
-      Result := 'Text places a text string onto the active layer';
+      Result := 'Text clicks to type inline on the canvas; right-click or Option-click edits text style';
     tkCloneStamp:
       Result := 'Clone Stamp samples with right-click or Option-click, then paints sampled pixels with the brush';
     tkRecolor:

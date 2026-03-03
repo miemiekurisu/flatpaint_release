@@ -44,9 +44,7 @@
 - Freeform Shape
 
 ### Still missing from the target baseline
-- True inline text editing (modal dialog exists; inline canvas text entry deferred)
 - Multi-node curve / Bézier node editing (single-control-point curve bending is now live)
-- Square brush mode for eraser
 - Feather option for selection tools
 
 ## Required per-tool option baseline
@@ -62,12 +60,12 @@
 | Gradient | **Type TComboBox (Linear/Radial) live** + **Reverse TCheckBox live** + `FillRadialGradient` wired | Gradient type, reverse, alpha mode deferred | Linear and radial gradient types now selectable with reverse; alpha mode deferred |
 | Pencil | Size, hard-edge | Size, hard-edge behavior, future square/round shape choice | Zero-radius line drawing for true single-pixel steps at size `1` |
 | Brush | Size, opacity (**live**), hardness (**live**) | Size, opacity, shape, hardness | All three primary options now visible |
-| Eraser | Size, opacity (**live**), hardness (**live**) | Size, shape (`Round` / `Square`), hardness deferred | Opacity and hardness now visible; square mode deferred |
+| Eraser | Size, opacity (**live**), hardness (**live**), **Shape ComboBox live** | Size, shape (`Round` / `Square`), hardness | Opacity, hardness, and round/square tip shape are now visible and routed; square mode uses a real square raster path plus matching hover preview |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
 | Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; the `Line` tool now does a two-stage endpoint-then-curve interaction with a single control-point bend; richer line-style/dash controls and deeper node editing still remain deferred |
 | Clone Stamp | Brush size + opacity + right-click / Option-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned sampling stays locked across strokes, and Option-click sampling now mirrors common editor behavior |
 | Recolor | Brush size + opacity + tolerance live + **Preserve Value TCheckBox live** | Tolerance, source hue preservation toggle | Visible tolerance is routed through the shared tolerance spin while `Recolor` is active, and `Preserve Value` now keeps original brightness while shifting hue/saturation |
-| Text | Font family, size, bold/italic (modal dialog) | Full inline text entry with alignment | Modal text flow live; inline text editing deferred |
+| Text | Inline canvas text entry on left-click + font family/size/bold/italic style dialog on right-click / `Option`-click | Full inline text entry with alignment | Text now starts with a real inline editor anchored to the clicked canvas position; `Return` commits, `Escape` cancels, and the existing dialog remains as the style editor rather than the only entry path |
 
 ## Acceptance rules
 - If a tool appears in the visible `Tools` palette, its main action must work on real pixels or viewport state and must be testable.

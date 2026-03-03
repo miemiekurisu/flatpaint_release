@@ -12,6 +12,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (modal-only tool trap)
+- Problem: a tool can technically "work" while still feeling broken if its only real interaction happens in a detached dialog instead of on the canvas where the user clicked
+- Core error: the text pipeline had real raster output, but the visible tool surface still behaved like a settings command because every placement immediately jumped to a modal dialog
+- Investigation: re-audited the explicit remaining gaps in `docs/TOOL_OPTIONS_BASELINE.md`, then traced the `tkText` mouse path in `mainform.pas` and confirmed it never created any on-canvas editing state
+- Root cause: the implementation stopped at the rendering backend and skipped the intermediate interaction layer, so the tool had output but no direct canvas editing phase
+- Fix: added a real inline text editor anchored to the canvas, wired commit/cancel/focus-loss behavior into document and tool transitions, and kept the older dialog only as a style editor on right-click / `Option`-click
+- Reuse note: when a tool's expected interaction is spatial and canvas-driven, do not treat a modal dialog as equivalent just because the backend can already render the final result; the interaction stage is part of the feature, not optional glue
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (preview/output shape drift)
+- Problem: adding a new tool shape option can still leave the app feeling broken if the visible preview changes but the raster path keeps using the old shape, or vice versa
+- Core error: shape options are easy to wire into one layer of the stack only, which creates a mismatch between what the canvas promises and what the pixels actually do
+- Investigation: while adding square-tip eraser support, audited the tool-option control, the hover overlay path, and the actual eraser drawing branch together instead of treating them as separate tasks
+- Root cause: tool-shape behavior spans at least three layers (visible control, canvas preview, raster operation), and any one-layer-only change creates a false sense of completion
+- Fix: added the eraser `Shape` combo, a square hover overlay, and a separate square raster brush/line path in the surface core so all three layers move together
+- Reuse note: whenever a tool changes geometric shape, verify control state, hover preview, and final pixel output as one contract; do not close the task when only one or two of those layers are wired
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (single-gesture tool assumption)
 - Problem: the original line tool looked "implemented" because it painted pixels, but it still missed a major expected behavior: bending a line into a curve without switching tools or opening another mode
 - Core error: the interaction model assumed every canvas tool should finish in one drag, which made the line tool stop at the straight-line subset only

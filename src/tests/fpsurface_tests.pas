@@ -32,6 +32,7 @@ type
     procedure DrawLineOpacityScalesAlphaChannel;
     procedure DrawLineFullOpacityMatchesDirectPaint;
     procedure DrawLineSoftHardnessProducesGradientEdge;
+    procedure SquareLineBrushCoversCornerPixels;
     procedure QuadraticBezierBendsTowardControlPoint;
     procedure MotionBlurChangesPixels;
     procedure MedianFilterReducesNoise;
@@ -494,6 +495,25 @@ begin
     AssertTrue('centre should be opaque', CentreAlpha = 255);
     AssertTrue('edge should be semi-transparent', EdgeAlpha < 255);
     AssertTrue('edge should not be fully transparent', EdgeAlpha > 0);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.SquareLineBrushCoversCornerPixels;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawSquareLine(2, 2, 2, 2, 1, RGBA(255, 0, 0, 255), 255, 255);
+
+    AssertEquals('top-left corner is painted', 255, Surface[1, 1].A);
+    AssertEquals('top-right corner is painted', 255, Surface[3, 1].A);
+    AssertEquals('bottom-left corner is painted', 255, Surface[1, 3].A);
+    AssertEquals('bottom-right corner is painted', 255, Surface[3, 3].A);
+    AssertEquals('outside stays clear', 0, Surface[0, 0].A);
   finally
     Surface.Free;
   end;

@@ -1,5 +1,17 @@
 # Test Log
 
+## 2026-03-03 (inline text tool pass)
+- Full CI verification after moving the `Text` tool from modal-only placement to live inline canvas editing: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 166 tests, 0 errors, 0 failures, including the new `TextToolHintMentionsInlineEditing` helper coverage
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (eraser square-tip pass)
+- Full CI verification after adding the eraser `Round` / `Square` tip path and square hover feedback: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 165 tests, 0 errors, 0 failures, including the new `SquareLineBrushCoversCornerPixels` coverage
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-03 (line-curve interaction pass)
 - Full CI verification after adding quadratic-curve raster support and the two-stage `Line` tool interaction: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 164 tests, 0 errors, 0 failures, including the new `QuadraticBezierBendsTowardControlPoint` coverage
