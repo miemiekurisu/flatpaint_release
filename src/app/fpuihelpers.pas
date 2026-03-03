@@ -18,6 +18,7 @@ function LayerOpacityByteFromPercent(APercent: Integer): Byte;
 function PaintToolDisplayCount: Integer;
 function PaintToolAtDisplayIndex(AIndex: Integer): TToolKind;
 function PaintToolDisplayIndex(ATool: TToolKind): Integer;
+function DefaultStartupTool: TToolKind;
 
 { Given a key and a reverse-flag (Shift held), compute the new tool.  }
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
@@ -119,7 +120,7 @@ begin
     tkGradient:
       Result := 'Gradient drags from primary toward secondary color';
     tkLine:
-      Result := 'Line drags endpoints first, then moves and clicks again to bend a curve';
+      Result := 'Line drags endpoints, clicks to lock two handles, then keeps the path open so more segments can be chained until Enter or right-click';
     tkRectangle:
       Result := 'Rectangle drags an outlined rectangle';
     tkRoundedRectangle:
@@ -262,6 +263,11 @@ begin
     if ToolDisplayOrder[Index] = ATool then
       Exit(Index);
   Result := 0;
+end;
+
+function DefaultStartupTool: TToolKind;
+begin
+  Result := ToolDisplayOrder[0];
 end;
 
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;

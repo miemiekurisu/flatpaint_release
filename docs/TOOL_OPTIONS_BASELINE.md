@@ -19,6 +19,7 @@
 ## Current code-audited tool coverage
 
 ### Live now
+- Startup default active tool: Rectangle Select
 - Rectangle Select
 - Ellipse Select
 - Lasso Select
@@ -44,14 +45,13 @@
 - Freeform Shape
 
 ### Still missing from the target baseline
-- Multi-node curve / Bézier node editing (single-control-point curve bending is now live)
-- Feather option for selection tools
+- No explicitly tracked tool-surface gaps remain in this audit snapshot; remaining work is parity polish (for example dash styles, richer post-commit node editing, and deeper text alignment controls), not missing visible tool routes.
 
 ## Required per-tool option baseline
 
 | Tool family | Current code | Required visible options for parity | Notes |
 | --- | --- | --- | --- |
-| Rectangle / Ellipse / Lasso Select | Drag selection + replace/add/subtract/intersect | Selection mode (`Replace`, `Add`, `Subtract`, `Intersect`), edge quality (`Aliased` vs `Anti-aliased`), feather deferred | Selection mode combo is functional (keyboard modifiers override only when held; combo value used otherwise); the anti-alias checkbox is now hidden until the core selection APIs can consume it |
+| Rectangle / Ellipse / Lasso Select | Drag selection + replace/add/subtract/intersect | Selection mode (`Replace`, `Add`, `Subtract`, `Intersect`), edge quality (`Aliased` vs `Anti-aliased`), feather radius spinner (0–128) | Selection mode combo is functional (keyboard modifiers override only when held; combo value used otherwise); the anti-alias checkbox now appears again alongside a `Feather` spinner, and the new `ApplySelectionFeather` helper feeds the resulting radius into `TSelectionMask.Feather(...)` so the mask goal stays in sync with the control |
 | Magic Wand | Tolerance + replace/add/subtract/intersect + **Contiguous TCheckBox live** + **Sample Source TComboBox live** | Selection mode, tolerance, contiguous toggle, sample source (`Layer` / `Image`), edge quality | All primary visible options now present; anti-alias on wand still deferred |
 | Move Selection / Move Selected Pixels | Real mask / pixel movement | Move mode stays tool-defined; no extra options required beyond future nudge settings | Already backed by real shared-core movement paths |
 | Zoom | Preset zoom ladder, toolbar chooser, status slider | Zoom mode (`In` / `Out`), optional scrub zoom deferred | Current code supports left-click in / right-click out plus menu and slider parity |
@@ -62,7 +62,7 @@
 | Brush | Size, opacity (**live**), hardness (**live**) | Size, opacity, shape, hardness | All three primary options now visible |
 | Eraser | Size, opacity (**live**), hardness (**live**), **Shape ComboBox live** | Size, shape (`Round` / `Square`), hardness | Opacity, hardness, and round/square tip shape are now visible and routed; square mode uses a real square raster path plus matching hover preview |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
-| Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; the `Line` tool now does a two-stage endpoint-then-curve interaction with a single control-point bend; richer line-style/dash controls and deeper node editing still remain deferred |
+| Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; the `Line` tool now does a staged endpoint-first interaction, then locks a first handle on the next click, then previews and commits a second handle on the following click, and keeps the last endpoint open so more Bézier segments can be chained on the canvas until `Enter` or right-click finishes the path; dash styles and deeper post-commit node editing still remain deferred |
 | Clone Stamp | Brush size + opacity + right-click / Option-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned sampling stays locked across strokes, and Option-click sampling now mirrors common editor behavior |
 | Recolor | Brush size + opacity + tolerance live + **Preserve Value TCheckBox live** | Tolerance, source hue preservation toggle | Visible tolerance is routed through the shared tolerance spin while `Recolor` is active, and `Preserve Value` now keeps original brightness while shifting hue/saturation |
 | Text | Inline canvas text entry on left-click + font family/size/bold/italic style dialog on right-click / `Option`-click | Full inline text entry with alignment | Text now starts with a real inline editor anchored to the clicked canvas position; `Return` commits, `Escape` cancels, and the existing dialog remains as the style editor rather than the only entry path |

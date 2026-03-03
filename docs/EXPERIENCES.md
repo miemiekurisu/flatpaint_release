@@ -12,6 +12,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (startup defaults should be shared state, not duplicated literals)
+- Problem: the startup active tool needed to change from a paint tool to `Rectangle Select`, but the current code held that default in more than one constructor path and the first test approach tried to instantiate the full form in a headless environment.
+- Core error: duplicated startup literals are easy to update incompletely, and GUI construction is a brittle way to verify a simple default-state contract in CI.
+- Investigation: traced the duplicate `FCurrentTool := ...` assignments in both `TMainForm.Create(...)` branches, then hit a headless `EAccessViolation` when a new regression test tried to verify the startup tool by constructing `TMainForm` directly.
+- Root cause: the startup default was not modeled as shared configuration; it was copied into multiple constructor branches, and the test layer had no stable non-GUI source of truth to assert against.
+- Fix: added a shared `DefaultStartupTool` helper in `fpuihelpers.pas`, switched both `TMainForm` constructor paths to use it, and changed the regression test to assert the helper directly instead of building the full form.
+- Reuse note: if a default value matters to real UX, expose it as a shared helper or constant that both runtime code and tests can consume; do not force GUI construction just to verify a default.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (image effects are incomplete until the menu route and repaint path exist)
+- Problem: adding a new image-processing primitive in the surface core does not help users validate it unless it is reachable from the visible `Effects` menu and the canvas cache is invalidated immediately after application.
+- Core error: effect work can look "done" in code review while still feeling missing in real use if the function exists only in the core layer or if the effect mutates pixels without forcing the prepared bitmap to rebuild.
+- Investigation: re-audited the existing effect handlers in `mainform.pas` and confirmed the real user-facing contract is a three-part chain: visible menu item, document mutation call, then `InvalidatePreparedBitmap` + `RefreshCanvas`.
+- Root cause: image-processing features span core math plus UI routing plus canvas cache invalidation, and skipping any one of those leaves the effect either undiscoverable or visually stale.
+- Fix: added the missing `Unfocus`, `Surface Blur`, `Bulge`, `Dents`, and `Relief` paths in both `fpsurface.pas` and `fpdocument.pas`, wired them into the grouped `Effects` menu, and kept the same invalidate-and-refresh flow used by the existing effect handlers.
+- Reuse note: treat every new effect as incomplete until it satisfies the full visible loop: reachable command, immediate pixel mutation, and immediate canvas feedback after the command returns.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (multi-step tool states need explicit finish and repaint paths)
+- Problem: a multi-step canvas tool can still feel broken even after the core interaction exists if the user has no clear way to continue, finish, or cancel the state, or if idle previews do not repaint while the state is active.
+- Core error: after the first two-handle line-curve pass, the tool could edit one richer segment, but the next segment was still a documented gap because the state machine ended too early and the non-hover line preview path was not guaranteed to repaint on plain mouse move.
+- Investigation: re-read the `tkLine` branches in `PaintBoxMouseDown(...)`, `PaintBoxMouseMove(...)`, `FormKeyDown(...)`, and `PaintCanvasTo(...)`, then compared that against the remaining gap notes in `docs/TOOL_OPTIONS_BASELINE.md` and the user requirement that the active tool must visibly react on the canvas while it is in use.
+- Root cause: the first pass treated the richer line interaction as a single edited segment instead of a reusable state loop, and it still relied on the generic hover-overlay invalidation path even though `Line` uses its own preview drawing instead of the shared hover overlay classification.
+- Fix: split full line-state reset from per-segment reset, kept the last endpoint active after each committed segment, added explicit `Enter` / right-click / `Escape` exit paths, and forced line-path preview invalidation on mouse move while the tool is in its open-path states.
+- Reuse note: when a tool grows from one gesture into a staged workflow, audit four things together: continue-state reuse, explicit finish/cancel gestures, repaint triggers for idle preview states, and whether each completed stage lands visible output immediately.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (preview path must match committed path)
+- Problem: staged curve tools become misleading fast if the on-canvas edit flow suggests a richer curve than the raster backend can actually write to the layer.
+- Core error: once the line tool moved from a single-handle bend to a two-handle edit flow, the previous quadratic-only raster path would have made the preview and the committed stroke disagree.
+- Investigation: before expanding the line-tool state machine, re-checked the existing `DrawQuadraticBezier(...)` commit path in `mainform.pas` and the matching preview helper, then compared that against the new two-handle interaction the tool now exposes.
+- Root cause: the interaction model and the raster model had diverged; the tool could stage two handles, but the surface core still only knew how to rasterize a one-control-point curve.
+- Fix: added a matching `DrawCubicBezier(...)` path in `fpsurface.pas`, switched the line tool to a staged first-handle / second-handle state machine, and kept the preview layer visually aligned with the same cubic control points that the final stroke uses.
+- Reuse note: any time a canvas tool gets a deeper staged edit mode, promote the raster primitive in the same pass; do not ship a richer preview on top of an older commit path.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (modal-only tool trap)
 - Problem: a tool can technically "work" while still feeling broken if its only real interaction happens in a detached dialog instead of on the canvas where the user clicked
 - Core error: the text pipeline had real raster output, but the visible tool surface still behaved like a settings command because every placement immediately jumped to a modal dialog
@@ -19,6 +55,15 @@ Use the same compact structure every time.
 - Root cause: the implementation stopped at the rendering backend and skipped the intermediate interaction layer, so the tool had output but no direct canvas editing phase
 - Fix: added a real inline text editor anchored to the canvas, wired commit/cancel/focus-loss behavior into document and tool transitions, and kept the older dialog only as a style editor on right-click / `Option`-click
 - Reuse note: when a tool's expected interaction is spatial and canvas-driven, do not treat a modal dialog as equivalent just because the backend can already render the final result; the interaction stage is part of the feature, not optional glue
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (selection feather contract)
+- Problem: toggling an "anti-alias" option that never changes the actual mask made the UI promise feel fake because paint bucket/fill/gradient still met a hard edge.
+- Core error: the selection mask was purely Boolean (`0`/`1`), so even a correctly wired top bar control could not soften pixel output unless the mask itself stored coverage values.
+- Investigation: audited each selection commit path in `mainform.pas` (`SelectRectangle`, `SelectEllipse`, `SelectLasso`, `SelectMagicWand`) and checked that none of them ever softened the shared `TSelectionMask` instance before we wired the UI to it.
+- Root cause: the core mask only tracked `Selected[X,Y]` as `Boolean`, so there was no place to store the feather radius coverage that the checkbox and spinner suggested.
+- Fix: added `TSelectionMask.Feather` plus the new `ApplySelectionFeather` helper so every selection naturally runs the gradient mask pass, and exposed the anti-alias checkbox and feather spinner to the tool bar so UI/behavior stay in sync.
+- Reuse note: whenever a UI option claims to change geometric coverage, follow the value down to the mask/bitmap and make sure that data structure actually stores the updated coverage; otherwise the option is just a visual effect.
 - Repeat count: `This issue has occurred 1 time(s)`
 
 ## 2026-03-03 (preview/output shape drift)

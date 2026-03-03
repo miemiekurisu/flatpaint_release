@@ -45,6 +45,8 @@ type
     function Crop(X, Y, AWidth, AHeight: Integer): TSelectionMask;
     function ResizeNearest(ANewWidth, ANewHeight: Integer): TSelectionMask;
     function BoundsRect: TRect;
+    procedure Feather(ARadius: Integer);
+    function Coverage(X, Y: Integer): Byte;
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
     property Selected[X, Y: Integer]: Boolean read GetSelected write SetSelected; default;
@@ -187,6 +189,95 @@ begin
     if FData[Index] <> 0 then
       Exit(True);
   Result := False;
+end;
+
+function TSelectionMask.Coverage(X, Y: Integer): Byte;
+begin
+  if not InBounds(X, Y) then
+    Exit(0);
+  Result := FData[IndexOf(X, Y)];
+end;
+
+procedure TSelectionMask.Feather(ARadius: Integer);
+const
+  LargeDistance = 1 shl 20;
+var
+  Radius: Integer;
+  Len: Integer;
+  Index: Integer;
+  DistInside: array of Integer;
+  DistOutside: array of Integer;
+  SelectedFlag: array of Boolean;
+  X: Integer;
+  Y: Integer;
+  CurrentIndex: Integer;
+  CoverageValue: Integer;
+begin
+  Radius := Max(0, ARadius);
+  Len := Length(FData);
+  if (Radius <= 0) or (Len = 0) then
+    Exit;
+
+  SetLength(DistInside, Len);
+  SetLength(DistOutside, Len);
+  SetLength(SelectedFlag, Len);
+  for Index := 0 to Len - 1 do
+  begin
+    SelectedFlag[Index] := FData[Index] <> 0;
+    if SelectedFlag[Index] then
+    begin
+      DistInside[Index] := LargeDistance;
+      DistOutside[Index] := 0;
+    end
+    else
+    begin
+      DistInside[Index] := 0;
+      DistOutside[Index] := LargeDistance;
+    end;
+  end;
+
+  for Y := 0 to FHeight - 1 do
+  begin
+    for X := 0 to FWidth - 1 do
+    begin
+      CurrentIndex := IndexOf(X, Y);
+      if X > 0 then
+        DistInside[CurrentIndex] := Min(DistInside[CurrentIndex], DistInside[CurrentIndex - 1] + 1);
+      if Y > 0 then
+        DistInside[CurrentIndex] := Min(DistInside[CurrentIndex], DistInside[CurrentIndex - FWidth] + 1);
+      if X > 0 then
+        DistOutside[CurrentIndex] := Min(DistOutside[CurrentIndex], DistOutside[CurrentIndex - 1] + 1);
+      if Y > 0 then
+        DistOutside[CurrentIndex] := Min(DistOutside[CurrentIndex], DistOutside[CurrentIndex - FWidth] + 1);
+    end;
+  end;
+
+  for Y := FHeight - 1 downto 0 do
+  begin
+    for X := FWidth - 1 downto 0 do
+    begin
+      CurrentIndex := IndexOf(X, Y);
+      if X < FWidth - 1 then
+        DistInside[CurrentIndex] := Min(DistInside[CurrentIndex], DistInside[CurrentIndex + 1] + 1);
+      if Y < FHeight - 1 then
+        DistInside[CurrentIndex] := Min(DistInside[CurrentIndex], DistInside[CurrentIndex + FWidth] + 1);
+      if X < FWidth - 1 then
+        DistOutside[CurrentIndex] := Min(DistOutside[CurrentIndex], DistOutside[CurrentIndex + 1] + 1);
+      if Y < FHeight - 1 then
+        DistOutside[CurrentIndex] := Min(DistOutside[CurrentIndex], DistOutside[CurrentIndex + FWidth] + 1);
+    end;
+  end;
+
+  for Index := 0 to Len - 1 do
+  begin
+    if SelectedFlag[Index] then
+      CoverageValue := Round(255.0 * Min(DistInside[Index], Radius) / Radius)
+    else if DistOutside[Index] <= Radius then
+      CoverageValue := 255 - Round(255.0 * DistOutside[Index] / Radius)
+    else
+      CoverageValue := 0;
+    FData[Index] := EnsureRange(CoverageValue, 0, 255);
+  end;
 end;
 
 procedure TSelectionMask.SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);

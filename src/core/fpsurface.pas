@@ -35,6 +35,7 @@ type
     procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawQuadraticBezier(X1, Y1, ControlX, ControlY, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawCubicBezier(X1, Y1, Control1X, Control1Y, Control2X, Control2Y, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
@@ -81,9 +82,20 @@ type
     procedure FrostedGlass(Amount: Integer = 4);
     procedure ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer = 8);
     procedure GaussianBlur(Radius: Integer);
+    procedure Unfocus(Radius: Integer);
+    procedure SurfaceBlur(Radius: Integer; Threshold: Byte = 24);
     procedure RadialBlur(Amount: Integer);
     procedure Twist(Amount: Integer);
     procedure Fragment(Offset: Integer);
+    procedure Bulge(Amount: Integer);
+    procedure Dents(Amount: Integer);
+    procedure Relief(Angle: Integer = 45);
+    procedure RedEye(Threshold: Byte = 48; Strength: Integer = 100);
+    procedure TileReflection(TileSize: Integer);
+    procedure Crystallize(CellSize: Integer; Seed: Cardinal = 1);
+    procedure InkSketch(InkStrength: Integer = 75; Coloring: Integer = 50);
+    procedure RenderMandelbrot(Iterations: Integer = 64; Zoom: Double = 1.0);
+    procedure RenderJulia(Iterations: Integer = 64; Zoom: Double = 1.0; CReal: Double = -0.8; CImag: Double = 0.156);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; PreserveValue: Boolean = False; ASelection: TSelectionMask = nil);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
@@ -288,6 +300,24 @@ begin
       ClampedY
     )
   ];
+end;
+
+function FractalPaletteColor(Iteration, MaxIterations: Integer): TRGBA32; inline;
+var
+  TVal: Double;
+  OneMinusT: Double;
+begin
+  if Iteration >= Max(1, MaxIterations) then
+    Exit(RGBA(8, 8, 12, 255));
+
+  TVal := Iteration / Max(1, MaxIterations);
+  OneMinusT := 1.0 - TVal;
+  Result := RGBA(
+    ClampChannel(Round(255.0 * 9.0 * OneMinusT * TVal * TVal * TVal)),
+    ClampChannel(Round(255.0 * 15.0 * OneMinusT * OneMinusT * TVal * TVal)),
+    ClampChannel(Round(255.0 * 8.5 * OneMinusT * OneMinusT * OneMinusT * TVal)),
+    255
+  );
 end;
 
 constructor TRasterSurface.Create(AWidth, AHeight: Integer);
@@ -558,6 +588,54 @@ begin
       (InverseT * InverseT * Y1) +
       (2.0 * InverseT * TValue * ControlY) +
       (TValue * TValue * Y2)
+    );
+    DrawLine(PrevX, PrevY, NextX, NextY, Radius, AColor, Opacity, Hardness, ASelection);
+    PrevX := NextX;
+    PrevY := NextY;
+  end;
+end;
+
+procedure TRasterSurface.DrawCubicBezier(X1, Y1, Control1X, Control1Y,
+  Control2X, Control2Y, X2, Y2, Radius: Integer; const AColor: TRGBA32;
+  Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  SegmentCount: Integer;
+  Step: Integer;
+  TValue: Double;
+  InverseT: Double;
+  PrevX: Integer;
+  PrevY: Integer;
+  NextX: Integer;
+  NextY: Integer;
+begin
+  SegmentCount := Max(
+    8,
+    Max(
+      Abs(Control1X - X1) + Abs(Control1Y - Y1),
+      Max(
+        Abs(Control2X - Control1X) + Abs(Control2Y - Control1Y),
+        Abs(X2 - Control2X) + Abs(Y2 - Control2Y)
+      )
+    ) * 2
+  );
+
+  PrevX := X1;
+  PrevY := Y1;
+  for Step := 1 to SegmentCount do
+  begin
+    TValue := Step / SegmentCount;
+    InverseT := 1.0 - TValue;
+    NextX := Round(
+      (InverseT * InverseT * InverseT * X1) +
+      (3.0 * InverseT * InverseT * TValue * Control1X) +
+      (3.0 * InverseT * TValue * TValue * Control2X) +
+      (TValue * TValue * TValue * X2)
+    );
+    NextY := Round(
+      (InverseT * InverseT * InverseT * Y1) +
+      (3.0 * InverseT * InverseT * TValue * Control1Y) +
+      (3.0 * InverseT * TValue * TValue * Control2Y) +
+      (TValue * TValue * TValue * Y2)
     );
     DrawLine(PrevX, PrevY, NextX, NextY, Radius, AColor, Opacity, Hardness, ASelection);
     PrevX := NextX;
@@ -2072,6 +2150,114 @@ begin
   BoxBlur(Radius);
 end;
 
+procedure TRasterSurface.Unfocus(Radius: Integer);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  OffsetX, OffsetY: Integer;
+  SampleX, SampleY: Integer;
+  SumR, SumG, SumB, SumA: Integer;
+  SampleCount: Integer;
+  Pixel: TRGBA32;
+begin
+  Radius := EnsureRange(Radius, 1, 24);
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        SumR := 0;
+        SumG := 0;
+        SumB := 0;
+        SumA := 0;
+        SampleCount := 0;
+        for OffsetY := -Radius to Radius do
+          for OffsetX := -Radius to Radius do
+          begin
+            if (OffsetX * OffsetX) + (OffsetY * OffsetY) > Radius * Radius then
+              Continue;
+            SampleX := EnsureRange(X + OffsetX, 0, FWidth - 1);
+            SampleY := EnsureRange(Y + OffsetY, 0, FHeight - 1);
+            Pixel := Source[SampleX, SampleY];
+            Inc(SumR, Pixel.R);
+            Inc(SumG, Pixel.G);
+            Inc(SumB, Pixel.B);
+            Inc(SumA, Pixel.A);
+            Inc(SampleCount);
+          end;
+        if SampleCount > 0 then
+          FPixels[Y * FWidth + X] := RGBA(
+            SumR div SampleCount,
+            SumG div SampleCount,
+            SumB div SampleCount,
+            SumA div SampleCount
+          );
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.SurfaceBlur(Radius: Integer; Threshold: Byte);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  OffsetX, OffsetY: Integer;
+  SampleX, SampleY: Integer;
+  SumR, SumG, SumB, SumA: Integer;
+  SampleCount: Integer;
+  BasePixel: TRGBA32;
+  Pixel: TRGBA32;
+  BaseLuma: Integer;
+  PixelLuma: Integer;
+begin
+  Radius := EnsureRange(Radius, 1, 24);
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        BasePixel := Source[X, Y];
+        BaseLuma := LumaOfColor(BasePixel);
+        SumR := 0;
+        SumG := 0;
+        SumB := 0;
+        SumA := 0;
+        SampleCount := 0;
+        for OffsetY := -Radius to Radius do
+          for OffsetX := -Radius to Radius do
+          begin
+            if (OffsetX * OffsetX) + (OffsetY * OffsetY) > Radius * Radius then
+              Continue;
+            SampleX := EnsureRange(X + OffsetX, 0, FWidth - 1);
+            SampleY := EnsureRange(Y + OffsetY, 0, FHeight - 1);
+            Pixel := Source[SampleX, SampleY];
+            PixelLuma := LumaOfColor(Pixel);
+            if Abs(PixelLuma - BaseLuma) > Threshold then
+              Continue;
+            if Abs(Pixel.A - BasePixel.A) > Threshold then
+              Continue;
+            Inc(SumR, Pixel.R);
+            Inc(SumG, Pixel.G);
+            Inc(SumB, Pixel.B);
+            Inc(SumA, Pixel.A);
+            Inc(SampleCount);
+          end;
+        if SampleCount = 0 then
+          FPixels[Y * FWidth + X] := BasePixel
+        else
+          FPixels[Y * FWidth + X] := RGBA(
+            SumR div SampleCount,
+            SumG div SampleCount,
+            SumB div SampleCount,
+            SumA div SampleCount
+          );
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
 procedure TRasterSurface.RadialBlur(Amount: Integer);
 { Spin blur: samples pixels at slight angular offsets around the image centre
   and averages them, producing a rotational motion-blur impression.
@@ -2175,6 +2361,383 @@ begin
       P := Snap[Y3 * FWidth + X3]; Inc(R, P.R); Inc(G, P.G); Inc(B, P.B); Inc(A, P.A);
       P := Snap[Y4 * FWidth + X4]; Inc(R, P.R); Inc(G, P.G); Inc(B, P.B); Inc(A, P.A);
       FPixels[Y * FWidth + X] := RGBA(R shr 2, G shr 2, B shr 2, A shr 2);
+    end;
+end;
+
+procedure TRasterSurface.Bulge(Amount: Integer);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  CenterX, CenterY: Double;
+  DX, DY: Double;
+  Distance: Double;
+  MaxDistance: Double;
+  NormalizedDistance: Double;
+  SourceDistance: Double;
+  Strength: Double;
+  SourceX, SourceY: Integer;
+begin
+  Amount := EnsureRange(Amount, 1, 100);
+  CenterX := (FWidth - 1) / 2.0;
+  CenterY := (FHeight - 1) / 2.0;
+  MaxDistance := Sqrt((CenterX * CenterX) + (CenterY * CenterY));
+  if MaxDistance <= 0.0 then
+    Exit;
+  Strength := Amount / 100.0;
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        DX := X - CenterX;
+        DY := Y - CenterY;
+        Distance := Sqrt((DX * DX) + (DY * DY));
+        if Distance <= 0.0 then
+        begin
+          FPixels[Y * FWidth + X] := Source[X, Y];
+          Continue;
+        end;
+        NormalizedDistance := Min(1.0, Distance / MaxDistance);
+        SourceDistance := Distance * (1.0 - (Strength * (1.0 - (NormalizedDistance * NormalizedDistance))));
+        SourceDistance := EnsureRange(SourceDistance, 0.0, MaxDistance);
+        SourceX := EnsureRange(
+          Round(CenterX + (DX / Distance) * SourceDistance),
+          0,
+          FWidth - 1
+        );
+        SourceY := EnsureRange(
+          Round(CenterY + (DY / Distance) * SourceDistance),
+          0,
+          FHeight - 1
+        );
+        FPixels[Y * FWidth + X] := Source[SourceX, SourceY];
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.Dents(Amount: Integer);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  CenterX, CenterY: Double;
+  DX, DY: Double;
+  Distance: Double;
+  MaxDistance: Double;
+  NormalizedDistance: Double;
+  SourceDistance: Double;
+  Strength: Double;
+  SourceX, SourceY: Integer;
+begin
+  Amount := EnsureRange(Amount, 1, 100);
+  CenterX := (FWidth - 1) / 2.0;
+  CenterY := (FHeight - 1) / 2.0;
+  MaxDistance := Sqrt((CenterX * CenterX) + (CenterY * CenterY));
+  if MaxDistance <= 0.0 then
+    Exit;
+  Strength := Amount / 100.0;
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        DX := X - CenterX;
+        DY := Y - CenterY;
+        Distance := Sqrt((DX * DX) + (DY * DY));
+        if Distance <= 0.0 then
+        begin
+          FPixels[Y * FWidth + X] := Source[X, Y];
+          Continue;
+        end;
+        NormalizedDistance := Min(1.0, Distance / MaxDistance);
+        SourceDistance := Distance * (1.0 + (Strength * (1.0 - (NormalizedDistance * NormalizedDistance))));
+        SourceDistance := EnsureRange(SourceDistance, 0.0, MaxDistance);
+        SourceX := EnsureRange(
+          Round(CenterX + (DX / Distance) * SourceDistance),
+          0,
+          FWidth - 1
+        );
+        SourceY := EnsureRange(
+          Round(CenterY + (DY / Distance) * SourceDistance),
+          0,
+          FHeight - 1
+        );
+        FPixels[Y * FWidth + X] := Source[SourceX, SourceY];
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.Relief(Angle: Integer);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  StepX, StepY: Integer;
+  ForwardPixel, BackPixel, BasePixel: TRGBA32;
+  HeightValue: Integer;
+begin
+  Source := Clone;
+  try
+    StepX := Round(Cos(DegToRad(Angle)));
+    StepY := Round(Sin(DegToRad(Angle)));
+    if (StepX = 0) and (StepY = 0) then
+      StepX := 1;
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        ForwardPixel := PixelAtClamped(Source, X + StepX, Y + StepY);
+        BackPixel := PixelAtClamped(Source, X - StepX, Y - StepY);
+        BasePixel := Source[X, Y];
+        HeightValue := 128 + (LumaOfColor(ForwardPixel) - LumaOfColor(BackPixel));
+        HeightValue := EnsureRange(HeightValue, 0, 255);
+        FPixels[Y * FWidth + X] := RGBA(
+          HeightValue,
+          HeightValue,
+          HeightValue,
+          BasePixel.A
+        );
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.RedEye(Threshold: Byte; Strength: Integer);
+var
+  Index: Integer;
+  PixelValue: TRGBA32;
+  TargetRed: Integer;
+  Delta: Integer;
+begin
+  Strength := EnsureRange(Strength, 0, 100);
+  for Index := 0 to High(FPixels) do
+  begin
+    PixelValue := FPixels[Index];
+    if PixelValue.A = 0 then
+      Continue;
+    if (PixelValue.R <= PixelValue.G + Threshold) or
+       (PixelValue.R <= PixelValue.B + Threshold) or
+       (PixelValue.R < 80) then
+      Continue;
+
+    TargetRed := (Integer(PixelValue.G) + Integer(PixelValue.B)) div 2;
+    Delta := Integer(PixelValue.R) - TargetRed;
+    PixelValue.R := ClampChannel(Integer(PixelValue.R) - ((Delta * Strength) div 100));
+    if PixelValue.R < TargetRed then
+      PixelValue.R := Byte(TargetRed);
+    FPixels[Index] := PixelValue;
+  end;
+end;
+
+procedure TRasterSurface.TileReflection(TileSize: Integer);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  TileLeft, TileTop: Integer;
+  LocalX, LocalY: Integer;
+  MirrorX, MirrorY: Integer;
+  SourceX, SourceY: Integer;
+begin
+  TileSize := EnsureRange(TileSize, 2, 256);
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        TileLeft := (X div TileSize) * TileSize;
+        TileTop := (Y div TileSize) * TileSize;
+        LocalX := X - TileLeft;
+        LocalY := Y - TileTop;
+        if LocalX >= (TileSize div 2) then
+          MirrorX := TileSize - 1 - LocalX
+        else
+          MirrorX := LocalX;
+        if LocalY >= (TileSize div 2) then
+          MirrorY := TileSize - 1 - LocalY
+        else
+          MirrorY := LocalY;
+        SourceX := EnsureRange(TileLeft + MirrorX, 0, FWidth - 1);
+        SourceY := EnsureRange(TileTop + MirrorY, 0, FHeight - 1);
+        FPixels[Y * FWidth + X] := Source[SourceX, SourceY];
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.Crystallize(CellSize: Integer; Seed: Cardinal);
+var
+  Source: TRasterSurface;
+  X, Y: Integer;
+  BaseCellX, BaseCellY: Integer;
+  CellX, CellY: Integer;
+  GridWidth, GridHeight: Integer;
+  SiteX, SiteY: Integer;
+  BestX, BestY: Integer;
+  DeltaX, DeltaY: Integer;
+  DistanceSquared: Integer;
+  BestDistanceSquared: Integer;
+  function CellRandom(ACellX, ACellY, ASalt: Integer): Double;
+  var
+    State: Cardinal;
+  begin
+    State := Cardinal((ACellX + 4096) * 73856093);
+    State := State xor Cardinal((ACellY + 4096) * 19349663);
+    State := State xor Cardinal((ASalt + 1) * 83492791);
+    State := State xor Seed;
+    Result := (NextNoiseValue(State) and $FFFF) / 65535.0;
+  end;
+begin
+  CellSize := EnsureRange(CellSize, 2, 128);
+  GridWidth := Max(1, (FWidth + CellSize - 1) div CellSize);
+  GridHeight := Max(1, (FHeight + CellSize - 1) div CellSize);
+  Source := Clone;
+  try
+    for Y := 0 to FHeight - 1 do
+      for X := 0 to FWidth - 1 do
+      begin
+        BaseCellX := X div CellSize;
+        BaseCellY := Y div CellSize;
+        BestDistanceSquared := High(Integer);
+        BestX := X;
+        BestY := Y;
+        for CellY := Max(0, BaseCellY - 1) to Min(GridHeight - 1, BaseCellY + 1) do
+          for CellX := Max(0, BaseCellX - 1) to Min(GridWidth - 1, BaseCellX + 1) do
+          begin
+            SiteX := EnsureRange(
+              CellX * CellSize + Round(CellRandom(CellX, CellY, 1) * (CellSize - 1)),
+              0,
+              FWidth - 1
+            );
+            SiteY := EnsureRange(
+              CellY * CellSize + Round(CellRandom(CellX, CellY, 2) * (CellSize - 1)),
+              0,
+              FHeight - 1
+            );
+            DeltaX := X - SiteX;
+            DeltaY := Y - SiteY;
+            DistanceSquared := (DeltaX * DeltaX) + (DeltaY * DeltaY);
+            if DistanceSquared < BestDistanceSquared then
+            begin
+              BestDistanceSquared := DistanceSquared;
+              BestX := SiteX;
+              BestY := SiteY;
+            end;
+          end;
+        FPixels[Y * FWidth + X] := Source[BestX, BestY];
+      end;
+  finally
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.InkSketch(InkStrength: Integer; Coloring: Integer);
+var
+  Source: TRasterSurface;
+  EdgeMap: TRasterSurface;
+  Index: Integer;
+  SourcePixel: TRGBA32;
+  EdgePixel: TRGBA32;
+  GrayValue: Integer;
+  BaseR, BaseG, BaseB: Integer;
+  OutlineShade: Integer;
+begin
+  InkStrength := EnsureRange(InkStrength, 0, 200);
+  Coloring := EnsureRange(Coloring, 0, 100);
+  Source := Clone;
+  EdgeMap := Clone;
+  try
+    EdgeMap.DetectEdges;
+    for Index := 0 to High(FPixels) do
+    begin
+      SourcePixel := Source.FPixels[Index];
+      EdgePixel := EdgeMap.FPixels[Index];
+      GrayValue := LumaOfColor(SourcePixel);
+      BaseR := (GrayValue * (100 - Coloring) + Integer(SourcePixel.R) * Coloring) div 100;
+      BaseG := (GrayValue * (100 - Coloring) + Integer(SourcePixel.G) * Coloring) div 100;
+      BaseB := (GrayValue * (100 - Coloring) + Integer(SourcePixel.B) * Coloring) div 100;
+      OutlineShade := 255 - EnsureRange((LumaOfColor(EdgePixel) * InkStrength) div 100, 0, 255);
+      FPixels[Index] := RGBA(
+        ClampChannel((BaseR * OutlineShade) div 255),
+        ClampChannel((BaseG * OutlineShade) div 255),
+        ClampChannel((BaseB * OutlineShade) div 255),
+        SourcePixel.A
+      );
+    end;
+  finally
+    EdgeMap.Free;
+    Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.RenderMandelbrot(Iterations: Integer; Zoom: Double);
+var
+  X, Y: Integer;
+  ZX, ZY: Double;
+  ZXSquared, ZYSquared: Double;
+  CX, CY: Double;
+  Scale: Double;
+  HalfWidth, HalfHeight: Double;
+  Iteration: Integer;
+begin
+  Iterations := EnsureRange(Iterations, 8, 512);
+  Zoom := EnsureRange(Zoom, 0.1, 100.0);
+  Scale := 3.0 / (Max(1, Min(FWidth, FHeight)) * Zoom);
+  HalfWidth := (FWidth - 1) / 2.0;
+  HalfHeight := (FHeight - 1) / 2.0;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      CX := -0.75 + (X - HalfWidth) * Scale;
+      CY := (Y - HalfHeight) * Scale;
+      ZX := 0.0;
+      ZY := 0.0;
+      Iteration := 0;
+      repeat
+        ZXSquared := ZX * ZX;
+        ZYSquared := ZY * ZY;
+        if (ZXSquared + ZYSquared) > 4.0 then
+          Break;
+        ZY := (2.0 * ZX * ZY) + CY;
+        ZX := (ZXSquared - ZYSquared) + CX;
+        Inc(Iteration);
+      until Iteration >= Iterations;
+      FPixels[Y * FWidth + X] := FractalPaletteColor(Iteration, Iterations);
+    end;
+end;
+
+procedure TRasterSurface.RenderJulia(Iterations: Integer; Zoom: Double; CReal: Double; CImag: Double);
+var
+  X, Y: Integer;
+  ZX, ZY: Double;
+  ZXSquared, ZYSquared: Double;
+  Scale: Double;
+  HalfWidth, HalfHeight: Double;
+  Iteration: Integer;
+begin
+  Iterations := EnsureRange(Iterations, 8, 512);
+  Zoom := EnsureRange(Zoom, 0.1, 100.0);
+  Scale := 3.0 / (Max(1, Min(FWidth, FHeight)) * Zoom);
+  HalfWidth := (FWidth - 1) / 2.0;
+  HalfHeight := (FHeight - 1) / 2.0;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      ZX := (X - HalfWidth) * Scale;
+      ZY := (Y - HalfHeight) * Scale;
+      Iteration := 0;
+      repeat
+        ZXSquared := ZX * ZX;
+        ZYSquared := ZY * ZY;
+        if (ZXSquared + ZYSquared) > 4.0 then
+          Break;
+        ZY := (2.0 * ZX * ZY) + CImag;
+        ZX := (ZXSquared - ZYSquared) + CReal;
+        Inc(Iteration);
+      until Iteration >= Iterations;
+      FPixels[Y * FWidth + X] := FractalPaletteColor(Iteration, Iterations);
     end;
 end;
 

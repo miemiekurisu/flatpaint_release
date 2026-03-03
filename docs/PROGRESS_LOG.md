@@ -1,5 +1,44 @@
 # Development Progress Log
 
+## 2026-03-03 (effects near-completion + safe startup-tool pass)
+
+- This pass maps primarily to the `Effects`, `Tool palette`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
+- Added six more previously missing high-visibility effects and routed each one through the real `Effects` menu: `Red Eye`, `Tile Reflection`, `Crystallize`, `Ink Sketch`, `Mandelbrot Fractal`, and `Julia Fractal`.
+- These follow the same visible contract as the rest of the live effects family: the command is visible in the grouped menu, the active layer is mutated immediately, the prepared bitmap cache is invalidated, and the canvas refreshes in the same pass so the result is readable right after the dialog closes.
+- The effect family is now materially closer to parity: the short, user-visible missing-effects list is gone, and the remaining work has moved to the smaller long-tail filters outside the current audited shortlist.
+- Startup behavior is safer now too: the main form no longer boots into a paint tool by default. The shared `DefaultStartupTool` helper now drives both constructors and tests, and the default active tool is `Rectangle Select` so opening a document does not accidentally drop a brush stroke.
+- Added six new surface regression tests for the new effects plus a startup-default helper regression; `bash ./scripts/run_tests_ci.sh` now passes at **183 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the new menu routes and startup-default change.
+- Honest progress update after this pass: functional/tool-to-canvas integration is now down to deeper parity edges rather than obviously missing routed commands, and the remaining work is increasingly concentrated in visual/UI polish plus any final long-tail effect additions.
+
+## 2026-03-03 (advanced effects expansion pass)
+
+- This pass maps primarily to the `Effects` row in `docs/FEATURE_MATRIX.md`.
+- Added five previously missing high-visibility effects and routed each one through the real `Effects` menu: `Unfocus`, `Surface Blur`, `Bulge`, `Dents`, and `Relief`.
+- These are not backend-only additions. Every new effect now follows the same user-visible contract as the existing effect family: confirm parameters, mutate the active layer immediately, invalidate the cached prepared bitmap, and refresh the canvas in the same pass so the changed pixels are visible as soon as the dialog closes.
+- `Surface Blur` now uses an edge-aware blur pass (radius + threshold) instead of a plain blur clone, `Unfocus` uses a disk-kernel blur for a softer defocus look, `Bulge` and `Dents` add opposite centre-weighted distortions, and `Relief` adds directional grayscale height shading.
+- The same pass also fixes a visibility trap in fresh documents: `NewBlank(...)` now initializes the default `Background` layer as opaque white instead of transparent black, so new files open on a white base while later added layers remain transparent.
+- Added five new core regression tests in `src/tests/fpsurface_tests.pas` plus a new document-default regression in `src/tests/fpdocument_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **176 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the new menu routes, effect primitives, and white-background default landed.
+- Honest progress update after this pass: the effects family is materially more complete and easier to verify by eye; the remaining work is now in the longer-tail missing filters rather than the biggest obvious core gaps.
+
+## 2026-03-03 (multi-segment line-path pass)
+
+- This pass maps primarily to the `Draw tools` row in `docs/FEATURE_MATRIX.md` and removes the last explicitly tracked `Line / Shapes` tool-gap note from `docs/TOOL_OPTIONS_BASELINE.md`.
+- The visible `Line` tool no longer stops after a single two-handle curve. Once one segment is committed, the last endpoint stays active on the canvas so the user can click a new endpoint, lock two new handles, and keep chaining additional Bézier segments without switching tools.
+- This is not preview-only continuation: each finished segment is committed into the active layer immediately, so the image changes as the path grows, while the next segment still gets a live visible preview from the carried-forward endpoint.
+- The path lifecycle is visible and controllable now: `Enter` commits the current segment (if one is in progress) and exits path mode, right-click exits the open path, and `Escape` cancels only the in-progress preview segment when a prior segment has already been committed.
+- The canvas refresh path was tightened in the same pass so idle line-path previews repaint on mouse move even though `Line` is not one of the generic hover-overlay tools.
+- Added helper coverage for the updated line-tool hint and reran full verification; `bash ./scripts/run_tests_ci.sh` now passes at **170 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the chained-path changes.
+- Honest progress update after this pass: the explicit tool-surface gap list is now empty; the remaining work is deeper parity polish, not missing basic routed tool behaviors.
+
+## 2026-03-03 (two-handle line-curve pass)
+
+- This pass maps primarily to the `Draw tools` row in `docs/FEATURE_MATRIX.md` and closes the remaining `Line / Shapes` interaction gap in `docs/TOOL_OPTIONS_BASELINE.md`.
+- The visible `Line` tool no longer stops at a single-handle bend. After the initial endpoint drag, the first click now locks handle one, the next move previews the second handle, and the following click commits a real two-handle Bézier curve into the active layer.
+- The curve state is visible on the canvas while editing, not hidden in internal state: the first handle remains pinned as a locked marker, the second handle stays attached to the live pointer, and the preview path updates before the user commits the final stroke.
+- This is backed by a real raster-path change, not just a different preview: `TRasterSurface` now has a `DrawCubicBezier(...)` path, so the final pixels follow the same two-handle curve the canvas previews.
+- Added regression coverage for the new cubic path in `src/tests/fpsurface_tests.pas`, plus a helper assertion for the updated line-tool hint; `bash ./scripts/run_tests_ci.sh` now passes at **169 tests, 0 errors, 0 failures** after the curve-state and cubic-raster changes.
+- Honest progress update after this pass: the previous curve-editing gap is materially smaller now; the remaining draw-tool gap is multi-segment path editing rather than a missing editable Bézier mode.
+
 ## 2026-03-03 (inline text tool pass)
 
 - This pass maps primarily to the `Draw tools` and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`, and it closes one of the remaining explicit tool-baseline gaps in `docs/TOOL_OPTIONS_BASELINE.md`.
@@ -9,6 +48,14 @@
 - This pass also fixes a quieter reliability issue in the old text path: `TTextDialogResult` now starts from explicit defaults instead of relying on an uninitialized record, so first-use text placement no longer depends on undefined font state.
 - Added helper coverage for the new interaction contract in `src/tests/fpuihelpers_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **166 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the inline-text changes.
 - Honest progress update after this pass: the text tool now reads as a real canvas tool instead of a modal detour, so another explicit tool-baseline gap is closed; the biggest remaining tool-specific gaps are now feathered selections and richer multi-node curve editing.
+
+## 2026-03-03 (selection feather pass)
+
+- This pass maps primarily to the `Selection tools` and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md` plus the `Rectangle / Ellipse / Lasso Select` row in `docs/TOOL_OPTIONS_BASELINE.md`.
+- Selection tools now expose a visible `Anti-alias` checkbox plus a `Feather` spinner (0–128 px) on the top option bar; those controls now call the new `TSelectionMask.Feather(...)` path so the mask itself softens immediately rather than only darkening the preview.
+- The new feather implementation produces literal gradient coverage values so both the canvas preview and all core APIs (fill, erase, recolor, bucket, clone stamp within a selection) honor the softened boundary instead of needing special-case blits.
+- Added regression coverage for the new feather path in `src/tests/fpselection_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes with that new selection coverage in the suite.
+- Honest progress update after this pass: the last explicitly documented selection gap is resolved, so the remaining big tool-specific holes are richer multi-node curve editing and deeper effect parity.
 
 ## 2026-03-03 (eraser square-tip pass)
 

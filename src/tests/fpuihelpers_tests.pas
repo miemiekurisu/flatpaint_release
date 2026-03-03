@@ -6,7 +6,7 @@ unit fpuihelpers_tests;
 interface
 
 uses
-  fpcunit, testregistry, FPDocument, FPUIHelpers, FPUtilityHelpers, MainForm,
+  fpcunit, testregistry, FPDocument, FPUIHelpers, FPUtilityHelpers,
   Controls, StdCtrls, Classes, LCLType, LazUTF8, SysUtils;
 
 type
@@ -27,6 +27,8 @@ type
     procedure ShortcutSingleKeyMaps;
     procedure AdvancedToolsAdvertiseCanvasHoverFeedback;
     procedure BrushOverlayClassificationStaysFocused;
+    procedure LineToolHintMentionsTwoHandleCurve;
+    procedure LineToolHintMentionsPathChaining;
     procedure TextToolHintMentionsInlineEditing;
     procedure ColorShortcutTogglesTarget;
     procedure LayerOpacityHelpersRoundTripPercentScale;
@@ -34,6 +36,7 @@ type
 
   TMainFormTests = class(TTestCase)
   published
+    procedure DefaultToolStartsAsRectangleSelect;
     procedure SpacebarPanShortcut;
     procedure MiddleMousePanShortcut;
   end;
@@ -357,6 +360,22 @@ begin
   AssertFalse('text should not use brush overlay', PaintToolUsesBrushOverlay(tkText));
 end;
 
+procedure TFPUIHelpersTests.LineToolHintMentionsTwoHandleCurve;
+begin
+  AssertTrue(
+    'line hint should mention handle staging',
+    Pos('handle', LowerCase(PaintToolHint(tkLine))) > 0
+  );
+end;
+
+procedure TFPUIHelpersTests.LineToolHintMentionsPathChaining;
+begin
+  AssertTrue(
+    'line hint should mention path chaining',
+    Pos('chain', LowerCase(PaintToolHint(tkLine))) > 0
+  );
+end;
+
 procedure TFPUIHelpersTests.TextToolHintMentionsInlineEditing;
 begin
   AssertTrue(
@@ -425,6 +444,15 @@ begin
   finally
     F.Free;
   end;
+end;
+
+procedure TMainFormTests.DefaultToolStartsAsRectangleSelect;
+begin
+  AssertEquals(
+    'main form should start in rectangle-select mode to avoid accidental painting',
+    Ord(tkSelectRect),
+    Ord(DefaultStartupTool)
+  );
 end;
 
 procedure TMainFormTests.MiddleMousePanShortcut;

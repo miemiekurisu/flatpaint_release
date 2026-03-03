@@ -69,9 +69,12 @@ type
     FUpdatingToolOption: Boolean;
     FPointerDown: Boolean;
     FDragStart: TPoint;
+    FLinePathOpen: Boolean;
     FLineCurvePending: Boolean;
+    FLineCurveSecondStage: Boolean;
     FLineCurveEndPoint: TPoint;
     FLineCurveControlPoint: TPoint;
+    FLineCurveControlPoint2: TPoint;
     FLastImagePoint: TPoint;
     FLastPointerPoint: TPoint;
     FLassoPoints: array of TPoint;
@@ -230,6 +233,9 @@ type
     { Selection anti-alias }
     FSelAntiAlias: Boolean;
     FSelAntiAliasCheck: TCheckBox;
+    FSelFeather: Integer;
+    FSelFeatherLabel: TLabel;
+    FSelFeatherSpin: TSpinEdit;
     FLayerDragIndex: Integer;
     FLayerDragTargetIndex: Integer;
     FMagnifyInstalled: Boolean;
@@ -258,7 +264,10 @@ type
     function PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
     function SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
     procedure AppendLassoPoint(const APoint: TPoint);
+    procedure ResetLineCurveSegmentState;
     procedure ResetLineCurveState;
+    procedure CommitPendingLineSegment(AContinuePath: Boolean);
+    procedure ApplySelectionFeather;
     procedure InitializeTextToolDefaults;
     procedure UpdateInlineTextEditStyle;
     procedure UpdateInlineTextEditBounds;
@@ -280,6 +289,7 @@ type
     procedure DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
     procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawQuadraticCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
+    procedure DrawCubicCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint1, AControlPoint2, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
     procedure DrawHoverToolOverlay(ACanvas: TCanvas);
     function ActiveToolOverlayRadius: Integer;
     function TryGetCloneOverlaySourcePoint(out APoint: TPoint): Boolean;
@@ -397,9 +407,20 @@ type
     procedure FrostedGlassClick(Sender: TObject);
     procedure ZoomBlurClick(Sender: TObject);
     procedure GaussianBlurClick(Sender: TObject);
+    procedure UnfocusClick(Sender: TObject);
+    procedure SurfaceBlurClick(Sender: TObject);
     procedure RadialBlurClick(Sender: TObject);
     procedure TwistClick(Sender: TObject);
     procedure FragmentClick(Sender: TObject);
+    procedure BulgeClick(Sender: TObject);
+    procedure DentsClick(Sender: TObject);
+    procedure ReliefClick(Sender: TObject);
+    procedure RedEyeClick(Sender: TObject);
+    procedure TileReflectionClick(Sender: TObject);
+    procedure CrystallizeClick(Sender: TObject);
+    procedure InkSketchClick(Sender: TObject);
+    procedure MandelbrotClick(Sender: TObject);
+    procedure JuliaClick(Sender: TObject);
     procedure RepeatLastEffectClick(Sender: TObject);
     procedure LayerPropertiesClick(Sender: TObject);
     procedure PasteSelectionClick(Sender: TObject);
@@ -454,6 +475,7 @@ type
     procedure RecolorPreserveValueChanged(Sender: TObject);
     procedure PickerSampleComboChanged(Sender: TObject);
     procedure SelAntiAliasChanged(Sender: TObject);
+    procedure SelFeatherSpinChanged(Sender: TObject);
     { Layer operations }
     procedure LayerRotateZoomClick(Sender: TObject);
     procedure DeselectClick(Sender: TObject);
@@ -532,7 +554,10 @@ type
     procedure SimulateKeyDown(Key: Word; Shift: TShiftState);
     procedure SimulateKeyUp(Key: Word; Shift: TShiftState);
     procedure SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SimulateMouseMove(Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
+    property TestDocument: TImageDocument read FDocument;
     procedure MakeTestSafe; { lightweight test-mode initialization }
   end;
 
@@ -629,7 +654,7 @@ begin
     FStrokeColor := FPrimaryColor;
     FZoomScale := 1.0;
     FDisplayUnit := duPixels;
-    FCurrentTool := tkBrush;
+    FCurrentTool := DefaultStartupTool;
     FBrushSize := 8;
     FWandTolerance := 32;
     FBrushOpacity := 100;
@@ -637,9 +662,12 @@ begin
     FEraserSquareShape := False;
     FShapeStyle := 0;
     FBucketFloodMode := 0;
+    FLinePathOpen := False;
     FLineCurvePending := False;
+    FLineCurveSecondStage := False;
     FLineCurveEndPoint := Point(0, 0);
     FLineCurveControlPoint := Point(0, 0);
+    FLineCurveControlPoint2 := Point(0, 0);
     FFillSampleSource := 0;
     FWandSampleSource := 0;
     FWandContiguous := True;
@@ -653,6 +681,7 @@ begin
     FCloneAlignedOffsetValid := False;
     FPickerSampleSource := 0;
     FSelAntiAlias := True;
+    FSelFeather := 0;
     FTextLastResult.Text := '';
     FTextLastResult.FontName := '';
     FTextLastResult.FontSize := 24;
@@ -707,7 +736,7 @@ begin
   FStrokeColor := FPrimaryColor;
   FZoomScale := 1.0;
   FDisplayUnit := duPixels;
-  FCurrentTool := tkBrush;
+  FCurrentTool := DefaultStartupTool;
   FBrushSize := 8;
   FWandTolerance := 32;
   FBrushOpacity := 100;
@@ -715,9 +744,12 @@ begin
   FEraserSquareShape := False;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
+  FLinePathOpen := False;
   FLineCurvePending := False;
+  FLineCurveSecondStage := False;
   FLineCurveEndPoint := Point(0, 0);
   FLineCurveControlPoint := Point(0, 0);
+  FLineCurveControlPoint2 := Point(0, 0);
   FFillSampleSource := 0;
   FWandSampleSource := 0;
   FWandContiguous := True;
@@ -731,6 +763,7 @@ begin
   FCloneAlignedOffsetValid := False;
   FPickerSampleSource := 0;
   FSelAntiAlias := True;
+  FSelFeather := 0;
   FTextLastResult.Text := '';
   FTextLastResult.FontName := '';
   FTextLastResult.FontSize := 24;
@@ -1228,11 +1261,39 @@ begin
   FLassoPoints[PointCount] := APoint;
 end;
 
-procedure TMainForm.ResetLineCurveState;
+procedure TMainForm.ResetLineCurveSegmentState;
 begin
   FLineCurvePending := False;
+  FLineCurveSecondStage := False;
   FLineCurveEndPoint := Point(0, 0);
   FLineCurveControlPoint := Point(0, 0);
+  FLineCurveControlPoint2 := Point(0, 0);
+end;
+
+procedure TMainForm.ResetLineCurveState;
+begin
+  FLinePathOpen := False;
+  ResetLineCurveSegmentState;
+end;
+
+procedure TMainForm.CommitPendingLineSegment(AContinuePath: Boolean);
+begin
+  if not FLineCurvePending then
+    Exit;
+  FDocument.PushHistory(PaintToolName(FCurrentTool));
+  CommitShapeTool(FDragStart, FLineCurveEndPoint);
+  SetDirty(True);
+  FDragStart := FLineCurveEndPoint;
+  FLastImagePoint := FDragStart;
+  ResetLineCurveSegmentState;
+  FLinePathOpen := AContinuePath;
+end;
+
+procedure TMainForm.ApplySelectionFeather;
+begin
+  if (not FSelAntiAlias) or (FSelFeather <= 0) or (not Assigned(FDocument)) or (not FDocument.HasSelection) then
+    Exit;
+  FDocument.Selection.Feather(FSelFeather);
 end;
 
 procedure TMainForm.InitializeTextToolDefaults;
@@ -1348,6 +1409,7 @@ var
   IsShapeTool: Boolean;
   IsBucketTool: Boolean;
   IsToleranceTool: Boolean;
+  IsFeatherTool: Boolean;
 begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
@@ -1361,6 +1423,7 @@ begin
     IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
     IsBucketTool := FCurrentTool = tkFill;
     IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
+    IsFeatherTool := IsSelTool;
 
     if Assigned(FSelModeLabel) then FSelModeLabel.Visible := IsSelTool;
     if Assigned(FSelModeCombo) then FSelModeCombo.Visible := IsSelTool;
@@ -1420,7 +1483,19 @@ begin
     if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
     if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
     if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
-    if Assigned(FSelAntiAliasCheck) then FSelAntiAliasCheck.Visible := False;
+    if Assigned(FSelAntiAliasCheck) then
+    begin
+      FSelAntiAliasCheck.Visible := IsSelTool;
+      FSelAntiAliasCheck.Checked := FSelAntiAlias;
+    end;
+    if Assigned(FSelFeatherLabel) then
+      FSelFeatherLabel.Visible := IsFeatherTool;
+    if Assigned(FSelFeatherSpin) then
+    begin
+      FSelFeatherSpin.Visible := IsFeatherTool;
+      FSelFeatherSpin.Enabled := FSelAntiAlias;
+      FSelFeatherSpin.Value := EnsureRange(FSelFeather, FSelFeatherSpin.MinValue, FSelFeatherSpin.MaxValue);
+    end;
 
     case FCurrentTool of
       tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
@@ -1678,6 +1753,8 @@ begin
   CreateMenuItem(SubMenu, '&Gaussian Blur...', @GaussianBlurClick);
   CreateMenuItem(SubMenu, '&Motion Blur...', @MotionBlurClick);
   CreateMenuItem(SubMenu, '&Radial Blur...', @RadialBlurClick);
+  CreateMenuItem(SubMenu, '&Surface Blur...', @SurfaceBlurClick);
+  CreateMenuItem(SubMenu, '&Unfocus...', @UnfocusClick);
   CreateMenuItem(SubMenu, '&Zoom Blur...', @ZoomBlurClick);
   { ---------- Distort sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
@@ -1686,6 +1763,9 @@ begin
   CreateMenuItem(SubMenu, '&Fragment...', @FragmentClick);
   CreateMenuItem(SubMenu, '&Pixelate...', @PixelateClick);
   CreateMenuItem(SubMenu, '&Twist...', @TwistClick);
+  CreateMenuItem(SubMenu, '&Bulge...', @BulgeClick);
+  CreateMenuItem(SubMenu, '&Dents...', @DentsClick);
+  CreateMenuItem(SubMenu, 'Tile &Reflection...', @TileReflectionClick);
   { ---------- Noise sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
   SubMenu.Caption := '&Noise';
@@ -1698,6 +1778,7 @@ begin
   EffectsMenu.Add(SubMenu);
   CreateMenuItem(SubMenu, '&Glow...', @GlowClick);
   CreateMenuItem(SubMenu, '&Oil Paint...', @OilPaintClick);
+  CreateMenuItem(SubMenu, '&Red Eye...', @RedEyeClick);
   CreateMenuItem(SubMenu, '&Sharpen', @SharpenClick);
   CreateMenuItem(SubMenu, 'S&often', @SoftenClick);
   CreateMenuItem(SubMenu, '&Vignette...', @VignetteClick);
@@ -1707,12 +1788,17 @@ begin
   EffectsMenu.Add(SubMenu);
   CreateMenuItem(SubMenu, '&Clouds', @RenderCloudsClick);
   CreateMenuItem(SubMenu, '&Frosted Glass...', @FrostedGlassClick);
+  CreateMenuItem(SubMenu, '&Mandelbrot Fractal...', @MandelbrotClick);
+  CreateMenuItem(SubMenu, '&Julia Fractal...', @JuliaClick);
   { ---------- Stylize sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
   SubMenu.Caption := '&Stylize';
   EffectsMenu.Add(SubMenu);
+  CreateMenuItem(SubMenu, '&Crystallize...', @CrystallizeClick);
   CreateMenuItem(SubMenu, 'Detect &Edges', @OutlineClick);
   CreateMenuItem(SubMenu, '&Emboss', @EmbossClick);
+  CreateMenuItem(SubMenu, '&Ink Sketch...', @InkSketchClick);
+  CreateMenuItem(SubMenu, '&Relief...', @ReliefClick);
   CreateMenuItem(SubMenu, 'Outline Effe&ct...', @OutlineEffectClick);
 
   Menu := FMainMenu;
@@ -2143,6 +2229,25 @@ begin
   FSelAntiAliasCheck.OnChange := @SelAntiAliasChanged;
   FSelAntiAliasCheck.Hint := 'Smooth selection edges';
   FSelAntiAliasCheck.ShowHint := True;
+
+  FSelFeatherLabel := TLabel.Create(FTopPanel);
+  FSelFeatherLabel.Parent := FTopPanel;
+  FSelFeatherLabel.Caption := 'Feather:';
+  FSelFeatherLabel.Left := 596;
+  FSelFeatherLabel.Top := 40;
+  FSelFeatherLabel.Font.Color := ChromeTextColor;
+  FSelFeatherLabel.Visible := False;
+
+  FSelFeatherSpin := TSpinEdit.Create(FTopPanel);
+  FSelFeatherSpin.Parent := FTopPanel;
+  FSelFeatherSpin.Left := 656;
+  FSelFeatherSpin.Top := 34;
+  FSelFeatherSpin.Width := 52;
+  FSelFeatherSpin.MinValue := 0;
+  FSelFeatherSpin.MaxValue := 128;
+  FSelFeatherSpin.Value := FSelFeather;
+  FSelFeatherSpin.Visible := False;
+  FSelFeatherSpin.OnChange := @SelFeatherSpinChanged;
 
   UpdateToolOptionControl;
   UpdateZoomControls;
@@ -2740,6 +2845,83 @@ begin
   end;
 end;
 
+procedure TMainForm.DrawCubicCurvePreview(ACanvas: TCanvas; const AStartPoint,
+  AControlPoint1, AControlPoint2, AEndPoint: TPoint; AStrokeColor: TColor;
+  AStrokeWidth: Integer);
+var
+  SegmentCount: Integer;
+  Step: Integer;
+  TValue: Double;
+  InverseT: Double;
+  PrevPoint: TPoint;
+  NextPoint: TPoint;
+begin
+  SegmentCount := Max(
+    8,
+    Max(
+      Abs(AControlPoint1.X - AStartPoint.X) + Abs(AControlPoint1.Y - AStartPoint.Y),
+      Max(
+        Abs(AControlPoint2.X - AControlPoint1.X) + Abs(AControlPoint2.Y - AControlPoint1.Y),
+        Abs(AEndPoint.X - AControlPoint2.X) + Abs(AEndPoint.Y - AControlPoint2.Y)
+      )
+    ) * 2
+  );
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psDot;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Color := clSilver;
+  ACanvas.MoveTo(
+    Round((AStartPoint.X + 0.5) * FZoomScale),
+    Round((AStartPoint.Y + 0.5) * FZoomScale)
+  );
+  ACanvas.LineTo(
+    Round((AControlPoint1.X + 0.5) * FZoomScale),
+    Round((AControlPoint1.Y + 0.5) * FZoomScale)
+  );
+  ACanvas.MoveTo(
+    Round((AEndPoint.X + 0.5) * FZoomScale),
+    Round((AEndPoint.Y + 0.5) * FZoomScale)
+  );
+  ACanvas.LineTo(
+    Round((AControlPoint2.X + 0.5) * FZoomScale),
+    Round((AControlPoint2.Y + 0.5) * FZoomScale)
+  );
+
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := AStrokeWidth;
+  ACanvas.Pen.Color := AStrokeColor;
+  PrevPoint := AStartPoint;
+  for Step := 1 to SegmentCount do
+  begin
+    TValue := Step / SegmentCount;
+    InverseT := 1.0 - TValue;
+    NextPoint := Point(
+      Round(
+        (InverseT * InverseT * InverseT * AStartPoint.X) +
+        (3.0 * InverseT * InverseT * TValue * AControlPoint1.X) +
+        (3.0 * InverseT * TValue * TValue * AControlPoint2.X) +
+        (TValue * TValue * TValue * AEndPoint.X)
+      ),
+      Round(
+        (InverseT * InverseT * InverseT * AStartPoint.Y) +
+        (3.0 * InverseT * InverseT * TValue * AControlPoint1.Y) +
+        (3.0 * InverseT * TValue * TValue * AControlPoint2.Y) +
+        (TValue * TValue * TValue * AEndPoint.Y)
+      )
+    );
+    ACanvas.MoveTo(
+      Round((PrevPoint.X + 0.5) * FZoomScale),
+      Round((PrevPoint.Y + 0.5) * FZoomScale)
+    );
+    ACanvas.LineTo(
+      Round((NextPoint.X + 0.5) * FZoomScale),
+      Round((NextPoint.Y + 0.5) * FZoomScale)
+    );
+    PrevPoint := NextPoint;
+  end;
+end;
+
 procedure TMainForm.DrawHoverToolOverlay(ACanvas: TCanvas);
 var
   SourcePoint: TPoint;
@@ -2816,21 +2998,60 @@ begin
     end;
   end;
 
+  if (FCurrentTool = tkLine) and FLinePathOpen and (not FLineCurvePending) and
+     (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) then
+  begin
+    PreviewStrokeColor := RGBToColor(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B);
+    PreviewStrokeWidth := Min(24, Max(1, Round(Max(1, FBrushSize div 2) * FZoomScale)));
+    ACanvas.Pen.Color := PreviewStrokeColor;
+    ACanvas.Pen.Width := PreviewStrokeWidth;
+    ACanvas.Pen.Style := psSolid;
+    ACanvas.Brush.Style := bsClear;
+    ACanvas.MoveTo(
+      Round((FDragStart.X + 0.5) * FZoomScale),
+      Round((FDragStart.Y + 0.5) * FZoomScale)
+    );
+    ACanvas.LineTo(
+      Round((FLastImagePoint.X + 0.5) * FZoomScale),
+      Round((FLastImagePoint.Y + 0.5) * FZoomScale)
+    );
+    DrawPointHoverOverlay(ACanvas, FDragStart);
+    if (FLastImagePoint.X <> FDragStart.X) or (FLastImagePoint.Y <> FDragStart.Y) then
+      DrawPointHoverOverlay(ACanvas, FLastImagePoint);
+  end;
+
   if FLineCurvePending and (FCurrentTool = tkLine) then
   begin
     PreviewStrokeColor := RGBToColor(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B);
     PreviewStrokeWidth := Min(24, Max(1, Round(Max(1, FBrushSize div 2) * FZoomScale)));
-    DrawQuadraticCurvePreview(
-      ACanvas,
-      FDragStart,
-      FLineCurveControlPoint,
-      FLineCurveEndPoint,
-      PreviewStrokeColor,
-      PreviewStrokeWidth
-    );
+    if FLineCurveSecondStage then
+      DrawCubicCurvePreview(
+        ACanvas,
+        FDragStart,
+        FLineCurveControlPoint,
+        FLineCurveControlPoint2,
+        FLineCurveEndPoint,
+        PreviewStrokeColor,
+        PreviewStrokeWidth
+      )
+    else
+      DrawQuadraticCurvePreview(
+        ACanvas,
+        FDragStart,
+        FLineCurveControlPoint,
+        FLineCurveEndPoint,
+        PreviewStrokeColor,
+        PreviewStrokeWidth
+      );
     DrawPointHoverOverlay(ACanvas, FDragStart);
     DrawPointHoverOverlay(ACanvas, FLineCurveEndPoint);
-    DrawCloneSourceOverlay(ACanvas, FLineCurveControlPoint, 0);
+    if FLineCurveSecondStage then
+    begin
+      DrawCloneSourceOverlay(ACanvas, FLineCurveControlPoint, 0);
+      DrawPointHoverOverlay(ACanvas, FLineCurveControlPoint2);
+    end
+    else
+      DrawCloneSourceOverlay(ACanvas, FLineCurveControlPoint, 0);
   end;
 
   if FPointerDown then
@@ -3177,9 +3398,13 @@ end;
 
 procedure TMainForm.RefreshCanvas;
 begin
-  UpdateCanvasSize;
-  UpdateInlineTextEditBounds;
-  FPaintBox.Invalidate;
+  if Assigned(FPaintBox) then
+  begin
+    UpdateCanvasSize;
+    FPaintBox.Invalidate;
+  end
+  else
+    UpdateInlineTextEditBounds;
   RefreshRulers;
   RefreshHistoryPanel;
   RefreshStatus(FLastImagePoint);
@@ -4883,19 +5108,36 @@ begin
   case FCurrentTool of
     tkLine:
       if FLineCurvePending then
-        FDocument.ActiveLayer.Surface.DrawQuadraticBezier(
-          AStartPoint.X,
-          AStartPoint.Y,
-          FLineCurveControlPoint.X,
-          FLineCurveControlPoint.Y,
-          FLineCurveEndPoint.X,
-          FLineCurveEndPoint.Y,
-          Max(1, FBrushSize div 2),
-          ActivePaintColor,
-          255,
-          255,
-          PaintSelection
-        )
+        if FLineCurveSecondStage then
+          FDocument.ActiveLayer.Surface.DrawCubicBezier(
+            AStartPoint.X,
+            AStartPoint.Y,
+            FLineCurveControlPoint.X,
+            FLineCurveControlPoint.Y,
+            FLineCurveControlPoint2.X,
+            FLineCurveControlPoint2.Y,
+            FLineCurveEndPoint.X,
+            FLineCurveEndPoint.Y,
+            Max(1, FBrushSize div 2),
+            ActivePaintColor,
+            255,
+            255,
+            PaintSelection
+          )
+        else
+          FDocument.ActiveLayer.Surface.DrawQuadraticBezier(
+            AStartPoint.X,
+            AStartPoint.Y,
+            FLineCurveControlPoint.X,
+            FLineCurveControlPoint.Y,
+            FLineCurveEndPoint.X,
+            FLineCurveEndPoint.Y,
+            Max(1, FBrushSize div 2),
+            ActivePaintColor,
+            255,
+            255,
+            PaintSelection
+          )
       else
         FDocument.ActiveLayer.Surface.DrawLine(
           AStartPoint.X,
@@ -6582,6 +6824,30 @@ begin
     Exit;
   end;
 
+  if (FCurrentTool = tkLine) and (FLineCurvePending or FLinePathOpen) then
+    case Key of
+      VK_ESCAPE:
+        begin
+          if FLineCurvePending and FLinePathOpen then
+            ResetLineCurveSegmentState
+          else
+            ResetLineCurveState;
+          RefreshCanvas;
+          Key := 0;
+          Exit;
+        end;
+      VK_RETURN:
+        begin
+          if FLineCurvePending then
+            CommitPendingLineSegment(False)
+          else
+            ResetLineCurveState;
+          RefreshCanvas;
+          Key := 0;
+          Exit;
+        end;
+    end;
+
   { Tool shortcuts and color swap/reset only; modifiers are allowed for
     cycling (Shift reverses order) }  
   NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
@@ -6644,6 +6910,11 @@ end;
 procedure TMainForm.SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 begin
   PaintBoxMouseDown(nil, Button, Shift, X, Y);
+end;
+
+procedure TMainForm.SimulateMouseMove(Shift: TShiftState; X, Y: Integer);
+begin
+  PaintBoxMouseMove(nil, Shift, X, Y);
 end;
 
 procedure TMainForm.SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -6737,13 +7008,46 @@ begin
   ImagePoint := CanvasToImage(X, Y);
   FLastPointerPoint := Point(X, Y);
   FLastImagePoint := ImagePoint;
+  if (FCurrentTool = tkLine) and (Button = mbRight) and (FLineCurvePending or FLinePathOpen) then
+  begin
+    if FLineCurvePending and FLinePathOpen then
+      ResetLineCurveSegmentState
+    else
+      ResetLineCurveState;
+    RefreshCanvas;
+    RefreshStatus(ImagePoint);
+    Exit;
+  end;
   if (FCurrentTool = tkLine) and FLineCurvePending then
   begin
-    FLineCurveControlPoint := ImagePoint;
-    FDocument.PushHistory(PaintToolName(FCurrentTool));
-    CommitShapeTool(FDragStart, FLineCurveEndPoint);
-    ResetLineCurveState;
-    SetDirty(True);
+    if not FLineCurveSecondStage then
+    begin
+      FLineCurveControlPoint := ImagePoint;
+      FLineCurveSecondStage := True;
+      FLineCurveControlPoint2 := ImagePoint;
+    end
+    else
+    begin
+      FLineCurveControlPoint2 := ImagePoint;
+      CommitPendingLineSegment(True);
+    end;
+    RefreshCanvas;
+    RefreshStatus(ImagePoint);
+    Exit;
+  end;
+  if (FCurrentTool = tkLine) and FLinePathOpen then
+  begin
+    if (ImagePoint.X <> FDragStart.X) or (ImagePoint.Y <> FDragStart.Y) then
+    begin
+      FLineCurvePending := True;
+      FLineCurveSecondStage := False;
+      FLineCurveEndPoint := ImagePoint;
+      FLineCurveControlPoint := Point(
+        (FDragStart.X + ImagePoint.X) div 2,
+        (FDragStart.Y + ImagePoint.Y) div 2
+      );
+      FLineCurveControlPoint2 := FLineCurveControlPoint;
+    end;
     RefreshCanvas;
     RefreshStatus(ImagePoint);
     Exit;
@@ -6787,6 +7091,7 @@ begin
       begin
         FDocument.PushHistory('Magic Wand');
         FDocument.SelectMagicWand(ImagePoint.X, ImagePoint.Y, EnsureRange(FWandTolerance, 0, 255), FPendingSelectionMode, FWandSampleSource = 1, FWandContiguous);
+        ApplySelectionFeather;
         SetDirty(True);
         RefreshCanvas;
         FPointerDown := False;
@@ -6974,10 +7279,19 @@ begin
         end;
     end;
   if (not FPointerDown) and (FCurrentTool = tkLine) and FLineCurvePending then
-    FLineCurveControlPoint := ImagePoint;
+  begin
+    if FLineCurveSecondStage then
+      FLineCurveControlPoint2 := ImagePoint
+    else
+      FLineCurveControlPoint := ImagePoint;
+  end;
   if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels]) then
     FLastImagePoint := ImagePoint;
-  if (not FPointerDown) and PaintToolHasCanvasHoverOverlay(FCurrentTool) and Assigned(FPaintBox) then
+  if (not FPointerDown) and Assigned(FPaintBox) and
+     (
+       PaintToolHasCanvasHoverOverlay(FCurrentTool) or
+       ((FCurrentTool = tkLine) and (FLineCurvePending or FLinePathOpen))
+     ) then
     FPaintBox.Invalidate;
   RefreshStatus(ImagePoint);
 end;
@@ -7009,12 +7323,15 @@ begin
       end
       else
       begin
+        FLinePathOpen := False;
         FLineCurvePending := True;
+        FLineCurveSecondStage := False;
         FLineCurveEndPoint := ImagePoint;
         FLineCurveControlPoint := Point(
           (FDragStart.X + ImagePoint.X) div 2,
           (FDragStart.Y + ImagePoint.Y) div 2
         );
+        FLineCurveControlPoint2 := FLineCurveControlPoint;
       end;
       RefreshCanvas;
     end;
@@ -7061,6 +7378,7 @@ begin
   begin
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     FDocument.SelectRectangle(FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FPendingSelectionMode);
+    ApplySelectionFeather;
     SetDirty(True);
     RefreshCanvas;
   end;
@@ -7068,6 +7386,7 @@ begin
   begin
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     FDocument.SelectEllipse(FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FPendingSelectionMode);
+    ApplySelectionFeather;
     SetDirty(True);
     RefreshCanvas;
   end;
@@ -7076,6 +7395,7 @@ begin
     AppendLassoPoint(ImagePoint);
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     FDocument.SelectLasso(FLassoPoints, FPendingSelectionMode);
+    ApplySelectionFeather;
     SetLength(FLassoPoints, 0);
     SetDirty(True);
     RefreshCanvas;
@@ -7378,6 +7698,57 @@ begin
   end;
 end;
 
+procedure TMainForm.UnfocusClick(Sender: TObject);
+var
+  RadiusText: string;
+  RadiusValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  RadiusText := '4';
+  if not InputQuery('Unfocus', 'Radius (1-24):', RadiusText) then Exit;
+  RadiusValue := EnsureRange(StrToIntDef(Trim(RadiusText), 4), 1, 24);
+  FDocument.PushHistory('Unfocus');
+  FDocument.Unfocus(RadiusValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Unfocus';
+  FLastEffectProc := @UnfocusClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.SurfaceBlurClick(Sender: TObject);
+var
+  RadiusText: string;
+  ThresholdText: string;
+  RadiusValue: Integer;
+  ThresholdValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  RadiusText := '3';
+  if not InputQuery('Surface Blur', 'Radius (1-24):', RadiusText) then Exit;
+  RadiusValue := EnsureRange(StrToIntDef(Trim(RadiusText), 3), 1, 24);
+  ThresholdText := '24';
+  if not InputQuery('Surface Blur', 'Edge threshold (0-255):', ThresholdText) then Exit;
+  ThresholdValue := EnsureRange(StrToIntDef(Trim(ThresholdText), 24), 0, 255);
+  FDocument.PushHistory('Surface Blur');
+  FDocument.SurfaceBlur(RadiusValue, ThresholdValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Surface Blur';
+  FLastEffectProc := @SurfaceBlurClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
 procedure TMainForm.RadialBlurClick(Sender: TObject);
 var
   AmtStr: string;
@@ -7440,6 +7811,233 @@ begin
   RefreshCanvas;
   FLastEffectCaption := 'Fragment';
   FLastEffectProc := @FragmentClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.BulgeClick(Sender: TObject);
+var
+  AmountText: string;
+  AmountValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AmountText := '50';
+  if not InputQuery('Bulge', 'Strength (1-100):', AmountText) then Exit;
+  AmountValue := EnsureRange(StrToIntDef(Trim(AmountText), 50), 1, 100);
+  FDocument.PushHistory('Bulge');
+  FDocument.Bulge(AmountValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Bulge';
+  FLastEffectProc := @BulgeClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.DentsClick(Sender: TObject);
+var
+  AmountText: string;
+  AmountValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AmountText := '50';
+  if not InputQuery('Dents', 'Strength (1-100):', AmountText) then Exit;
+  AmountValue := EnsureRange(StrToIntDef(Trim(AmountText), 50), 1, 100);
+  FDocument.PushHistory('Dents');
+  FDocument.Dents(AmountValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Dents';
+  FLastEffectProc := @DentsClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.ReliefClick(Sender: TObject);
+var
+  AngleText: string;
+  AngleValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  AngleText := '45';
+  if not InputQuery('Relief', 'Light angle in degrees (0-359):', AngleText) then Exit;
+  AngleValue := EnsureRange(StrToIntDef(Trim(AngleText), 45), 0, 359);
+  FDocument.PushHistory('Relief');
+  FDocument.Relief(AngleValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Relief';
+  FLastEffectProc := @ReliefClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.RedEyeClick(Sender: TObject);
+var
+  ThresholdText: string;
+  StrengthText: string;
+  ThresholdValue: Integer;
+  StrengthValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  ThresholdText := '48';
+  if not InputQuery('Red Eye', 'Red threshold (0-255):', ThresholdText) then Exit;
+  ThresholdValue := EnsureRange(StrToIntDef(Trim(ThresholdText), 48), 0, 255);
+  StrengthText := '100';
+  if not InputQuery('Red Eye', 'Reduction strength (0-100):', StrengthText) then Exit;
+  StrengthValue := EnsureRange(StrToIntDef(Trim(StrengthText), 100), 0, 100);
+  FDocument.PushHistory('Red Eye');
+  FDocument.RedEye(ThresholdValue, StrengthValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Red Eye';
+  FLastEffectProc := @RedEyeClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.TileReflectionClick(Sender: TObject);
+var
+  TileText: string;
+  TileValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  TileText := '32';
+  if not InputQuery('Tile Reflection', 'Tile size in pixels (2-256):', TileText) then Exit;
+  TileValue := EnsureRange(StrToIntDef(Trim(TileText), 32), 2, 256);
+  FDocument.PushHistory('Tile Reflection');
+  FDocument.TileReflection(TileValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Tile Reflection';
+  FLastEffectProc := @TileReflectionClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.CrystallizeClick(Sender: TObject);
+var
+  CellText: string;
+  CellValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  CellText := '24';
+  if not InputQuery('Crystallize', 'Cell size in pixels (2-128):', CellText) then Exit;
+  CellValue := EnsureRange(StrToIntDef(Trim(CellText), 24), 2, 128);
+  FDocument.PushHistory('Crystallize');
+  FDocument.Crystallize(CellValue, 1);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Crystallize';
+  FLastEffectProc := @CrystallizeClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.InkSketchClick(Sender: TObject);
+var
+  InkText: string;
+  ColorText: string;
+  InkValue: Integer;
+  ColorValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  InkText := '100';
+  if not InputQuery('Ink Sketch', 'Ink strength (0-200):', InkText) then Exit;
+  InkValue := EnsureRange(StrToIntDef(Trim(InkText), 100), 0, 200);
+  ColorText := '45';
+  if not InputQuery('Ink Sketch', 'Color retention (0-100):', ColorText) then Exit;
+  ColorValue := EnsureRange(StrToIntDef(Trim(ColorText), 45), 0, 100);
+  FDocument.PushHistory('Ink Sketch');
+  FDocument.InkSketch(InkValue, ColorValue);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Ink Sketch';
+  FLastEffectProc := @InkSketchClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.MandelbrotClick(Sender: TObject);
+var
+  IterationText: string;
+  ZoomText: string;
+  IterationValue: Integer;
+  ZoomValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  IterationText := '64';
+  if not InputQuery('Mandelbrot Fractal', 'Iterations (8-512):', IterationText) then Exit;
+  IterationValue := EnsureRange(StrToIntDef(Trim(IterationText), 64), 8, 512);
+  ZoomText := '100';
+  if not InputQuery('Mandelbrot Fractal', 'Zoom percent (25-400):', ZoomText) then Exit;
+  ZoomValue := EnsureRange(StrToIntDef(Trim(ZoomText), 100), 25, 400);
+  FDocument.PushHistory('Mandelbrot Fractal');
+  FDocument.RenderMandelbrot(IterationValue, ZoomValue / 100.0);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Mandelbrot Fractal';
+  FLastEffectProc := @MandelbrotClick;
+  if Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+end;
+
+procedure TMainForm.JuliaClick(Sender: TObject);
+var
+  IterationText: string;
+  ZoomText: string;
+  IterationValue: Integer;
+  ZoomValue: Integer;
+begin
+  if FDocument.LayerCount = 0 then Exit;
+  IterationText := '64';
+  if not InputQuery('Julia Fractal', 'Iterations (8-512):', IterationText) then Exit;
+  IterationValue := EnsureRange(StrToIntDef(Trim(IterationText), 64), 8, 512);
+  ZoomText := '100';
+  if not InputQuery('Julia Fractal', 'Zoom percent (25-400):', ZoomText) then Exit;
+  ZoomValue := EnsureRange(StrToIntDef(Trim(ZoomText), 100), 25, 400);
+  FDocument.PushHistory('Julia Fractal');
+  FDocument.RenderJulia(IterationValue, ZoomValue / 100.0);
+  InvalidatePreparedBitmap;
+  SetDirty(True);
+  RefreshCanvas;
+  FLastEffectCaption := 'Julia Fractal';
+  FLastEffectProc := @JuliaClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
     FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
@@ -8424,6 +9022,14 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FSelAntiAliasCheck) then Exit;
   FSelAntiAlias := FSelAntiAliasCheck.Checked;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.SelFeatherSpinChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FSelFeatherSpin) then Exit;
+  FSelFeather := EnsureRange(FSelFeatherSpin.Value, 0, 128);
   RefreshCanvas;
 end;
 

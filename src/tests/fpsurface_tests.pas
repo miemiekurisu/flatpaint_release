@@ -34,12 +34,24 @@ type
     procedure DrawLineSoftHardnessProducesGradientEdge;
     procedure SquareLineBrushCoversCornerPixels;
     procedure QuadraticBezierBendsTowardControlPoint;
+    procedure CubicBezierUsesBothControlHandles;
     procedure MotionBlurChangesPixels;
     procedure MedianFilterReducesNoise;
     procedure OilPaintChangesPixels;
     procedure FrostedGlassDisplacesPixels;
     procedure ZoomBlurSmearsCentreBrightness;
     procedure RadialGradientFadesFromCenter;
+    procedure UnfocusSoftensSingleBrightPixel;
+    procedure SurfaceBlurKeepsHardEdgeFromBleeding;
+    procedure BulgePullsGradientTowardCenter;
+    procedure DentsPushesGradientAwayFromCenter;
+    procedure ReliefProducesDirectionalShading;
+    procedure RedEyeReducesRedDominance;
+    procedure TileReflectionMirrorsWithinTiles;
+    procedure CrystallizeCollapsesSingleCellToOneColor;
+    procedure InkSketchChangesHighContrastPixels;
+    procedure MandelbrotRenderWritesVisibleFractal;
+    procedure JuliaRenderWritesVisibleFractal;
   end;
 
 implementation
@@ -537,6 +549,39 @@ begin
   end;
 end;
 
+procedure TFPSurfaceTests.CubicBezierUsesBothControlHandles;
+var
+  Surface: TRasterSurface;
+  X: Integer;
+  Y: Integer;
+  HasUpperArc: Boolean;
+  HasLowerArc: Boolean;
+begin
+  Surface := TRasterSurface.Create(13, 16);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawCubicBezier(1, 8, 3, 1, 9, 14, 11, 8, 0, RGBA(255, 0, 0, 255));
+
+    HasUpperArc := False;
+    for Y := 1 to 6 do
+      for X := 2 to 5 do
+        if Surface[X, Y].A > 0 then
+          HasUpperArc := True;
+    HasLowerArc := False;
+    for Y := 10 to 14 do
+      for X := 7 to 10 do
+        if Surface[X, Y].A > 0 then
+          HasLowerArc := True;
+
+    AssertTrue('upper arc should paint above the baseline', HasUpperArc);
+    AssertTrue('lower arc should paint below the baseline', HasLowerArc);
+    AssertEquals('start point is painted', 255, Surface[1, 8].A);
+    AssertEquals('end point is painted', 255, Surface[11, 8].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
 procedure TFPSurfaceTests.MotionBlurChangesPixels;
 { Motion blur on a surface that has a single bright pixel in an otherwise dark
   field should spread that brightness along the blur direction. }
@@ -670,6 +715,265 @@ begin
     CentreR := Surface[20, 20].R;
     EdgeR   := Surface[20, 38].R;   { near the rim }
     AssertTrue('centre should be brighter than near-edge', CentreR > EdgeR);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.UnfocusSoftensSingleBrightPixel;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(11, 11);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 255));
+    Surface[5, 5] := RGBA(255, 255, 255, 255);
+    Surface.Unfocus(2);
+
+    AssertTrue('unfocus should dim the original hotspot', Surface[5, 5].R < 255);
+    AssertTrue('unfocus should spread brightness to a neighbour', Surface[6, 5].R > 0);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.SurfaceBlurKeepsHardEdgeFromBleeding;
+var
+  Surface: TRasterSurface;
+  X: Integer;
+begin
+  Surface := TRasterSurface.Create(12, 3);
+  try
+    for X := 0 to 5 do
+    begin
+      Surface[X, 1] := RGBA(0, 0, 0, 255);
+      Surface[X, 0] := RGBA(0, 0, 0, 255);
+      Surface[X, 2] := RGBA(0, 0, 0, 255);
+    end;
+    for X := 6 to 11 do
+    begin
+      Surface[X, 1] := RGBA(255, 255, 255, 255);
+      Surface[X, 0] := RGBA(255, 255, 255, 255);
+      Surface[X, 2] := RGBA(255, 255, 255, 255);
+    end;
+
+    Surface.SurfaceBlur(2, 10);
+
+    AssertTrue('dark side should stay dark near the edge', Surface[5, 1].R < 40);
+    AssertTrue('light side should stay light near the edge', Surface[6, 1].R > 215);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.BulgePullsGradientTowardCenter;
+var
+  Surface: TRasterSurface;
+  X, Y: Integer;
+  BeforeValue, AfterValue: Byte;
+begin
+  Surface := TRasterSurface.Create(21, 21);
+  try
+    for Y := 0 to 20 do
+      for X := 0 to 20 do
+        Surface[X, Y] := RGBA(Byte(X * 12), 0, 0, 255);
+
+    BeforeValue := Surface[15, 10].R;
+    Surface.Bulge(60);
+    AfterValue := Surface[15, 10].R;
+
+    AssertTrue('bulge should sample from closer to center on the right side', AfterValue < BeforeValue);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DentsPushesGradientAwayFromCenter;
+var
+  Surface: TRasterSurface;
+  X, Y: Integer;
+  BeforeValue, AfterValue: Byte;
+begin
+  Surface := TRasterSurface.Create(21, 21);
+  try
+    for Y := 0 to 20 do
+      for X := 0 to 20 do
+        Surface[X, Y] := RGBA(Byte(X * 12), 0, 0, 255);
+
+    BeforeValue := Surface[15, 10].R;
+    Surface.Dents(60);
+    AfterValue := Surface[15, 10].R;
+
+    AssertTrue('dents should sample from farther out on the right side', AfterValue > BeforeValue);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.ReliefProducesDirectionalShading;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(7, 5);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 255));
+    Surface[4, 2] := RGBA(255, 255, 255, 255);
+    Surface[5, 2] := RGBA(255, 255, 255, 255);
+    Surface[6, 2] := RGBA(255, 255, 255, 255);
+
+    Surface.Relief(0);
+
+    AssertEquals('relief should produce grayscale output', Surface[4, 2].R, Surface[4, 2].G);
+    AssertEquals('relief should keep grayscale output in blue too', Surface[4, 2].G, Surface[4, 2].B);
+    AssertEquals('relief should preserve alpha', 255, Surface[4, 2].A);
+    AssertTrue('relief should create visible shading on the edge', Surface[4, 2].R <> 0);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RedEyeReducesRedDominance;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(2, 1);
+  try
+    Surface[0, 0] := RGBA(250, 24, 24, 255);
+    Surface[1, 0] := RGBA(80, 72, 70, 255);
+
+    Surface.RedEye(40, 100);
+
+    AssertTrue('red-eye pass should reduce strong red channel', Surface[0, 0].R < 250);
+    AssertEquals('red-eye pass should preserve alpha', 255, Surface[0, 0].A);
+    AssertEquals('neutral pixel red should stay the same', 80, Surface[1, 0].R);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.TileReflectionMirrorsWithinTiles;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(4, 1);
+  try
+    Surface[0, 0] := RGBA(10, 0, 0, 255);
+    Surface[1, 0] := RGBA(40, 0, 0, 255);
+    Surface[2, 0] := RGBA(200, 0, 0, 255);
+    Surface[3, 0] := RGBA(250, 0, 0, 255);
+
+    Surface.TileReflection(4);
+
+    AssertEquals('third pixel should mirror the second', 40, Surface[2, 0].R);
+    AssertEquals('fourth pixel should mirror the first', 10, Surface[3, 0].R);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.CrystallizeCollapsesSingleCellToOneColor;
+var
+  Surface: TRasterSurface;
+  X, Y: Integer;
+  FirstPixel: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(8, 8);
+  try
+    for Y := 0 to 7 do
+      for X := 0 to 7 do
+        Surface[X, Y] := RGBA(Byte(X * 20), Byte(Y * 20), 0, 255);
+
+    Surface.Crystallize(8, 1);
+    FirstPixel := Surface[0, 0];
+
+    AssertEquals('single crystallize cell keeps one flat color (r)', FirstPixel.R, Surface[7, 7].R);
+    AssertEquals('single crystallize cell keeps one flat color (g)', FirstPixel.G, Surface[4, 3].G);
+    AssertEquals('single crystallize cell keeps one flat color (a)', FirstPixel.A, Surface[2, 6].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.InkSketchChangesHighContrastPixels;
+var
+  Surface: TRasterSurface;
+  Original: array[0..4] of TRGBA32;
+  X: Integer;
+  Changed: Boolean;
+begin
+  Surface := TRasterSurface.Create(5, 1);
+  try
+    Surface[0, 0] := RGBA(255, 255, 255, 255);
+    Surface[1, 0] := RGBA(255, 255, 255, 255);
+    Surface[2, 0] := RGBA(0, 0, 0, 255);
+    Surface[3, 0] := RGBA(0, 0, 0, 255);
+    Surface[4, 0] := RGBA(255, 255, 255, 255);
+    for X := 0 to 4 do
+      Original[X] := Surface[X, 0];
+
+    Surface.InkSketch(100, 50);
+
+    Changed := False;
+    for X := 0 to 4 do
+      if (Surface[X, 0].R <> Original[X].R) or
+         (Surface[X, 0].G <> Original[X].G) or
+         (Surface[X, 0].B <> Original[X].B) then
+      begin
+        Changed := True;
+        Break;
+      end;
+    AssertTrue('ink sketch should visibly alter at least one contrasted pixel', Changed);
+    AssertEquals('ink sketch should preserve alpha', 255, Surface[2, 0].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.MandelbrotRenderWritesVisibleFractal;
+var
+  Surface: TRasterSurface;
+  CornerPixel: TRGBA32;
+  CenterPixel: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(48, 32);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.RenderMandelbrot(48, 1.0);
+    CornerPixel := Surface[0, 0];
+    CenterPixel := Surface[24, 16];
+
+    AssertEquals('mandelbrot render should paint opaque output', 255, CornerPixel.A);
+    AssertTrue(
+      'mandelbrot render should produce visible variation',
+      (CornerPixel.R <> CenterPixel.R) or
+      (CornerPixel.G <> CenterPixel.G) or
+      (CornerPixel.B <> CenterPixel.B)
+    );
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.JuliaRenderWritesVisibleFractal;
+var
+  Surface: TRasterSurface;
+  LeftPixel: TRGBA32;
+  RightPixel: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(48, 32);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.RenderJulia(48, 1.0);
+    LeftPixel := Surface[8, 16];
+    RightPixel := Surface[40, 16];
+
+    AssertEquals('julia render should paint opaque output', 255, LeftPixel.A);
+    AssertTrue(
+      'julia render should produce visible variation',
+      (LeftPixel.R <> RightPixel.R) or
+      (LeftPixel.G <> RightPixel.G) or
+      (LeftPixel.B <> RightPixel.B)
+    );
   finally
     Surface.Free;
   end;

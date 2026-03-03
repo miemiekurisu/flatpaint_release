@@ -190,9 +190,20 @@ type
     procedure FrostedGlass(Amount: Integer = 4);
     procedure ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer = 8);
     procedure GaussianBlur(Radius: Integer);
+    procedure Unfocus(Radius: Integer);
+    procedure SurfaceBlur(Radius: Integer; Threshold: Byte = 24);
     procedure RadialBlur(Amount: Integer);
     procedure Twist(Amount: Integer);
     procedure Fragment(Offset: Integer);
+    procedure Bulge(Amount: Integer);
+    procedure Dents(Amount: Integer);
+    procedure Relief(Angle: Integer = 45);
+    procedure RedEye(Threshold: Byte = 48; Strength: Integer = 100);
+    procedure TileReflection(TileSize: Integer);
+    procedure Crystallize(CellSize: Integer; Seed: Cardinal = 1);
+    procedure InkSketch(InkStrength: Integer = 75; Coloring: Integer = 50);
+    procedure RenderMandelbrot(Iterations: Integer = 64; Zoom: Double = 1.0);
+    procedure RenderJulia(Iterations: Integer = 64; Zoom: Double = 1.0; CReal: Double = -0.8; CImag: Double = 0.156);
     procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; PreserveValue: Boolean = False; ASelection: TSelectionMask = nil);
     function HasSelection: Boolean;
     function HasStoredSelection: Boolean;
@@ -385,6 +396,7 @@ begin
   FHeight := Max(1, AHeight);
   FLayers.Clear;
   FLayers.Add(TRasterLayer.Create('Background', FWidth, FHeight));
+  TRasterLayer(FLayers[0]).Surface.Clear(RGBA(255, 255, 255, 255));
   FSelection.SetSize(FWidth, FHeight);
   FSelection.Clear;
   FActiveLayerIndex := 0;
@@ -1059,6 +1071,16 @@ begin
   ActiveLayer.Surface.GaussianBlur(Radius);
 end;
 
+procedure TImageDocument.Unfocus(Radius: Integer);
+begin
+  ActiveLayer.Surface.Unfocus(Radius);
+end;
+
+procedure TImageDocument.SurfaceBlur(Radius: Integer; Threshold: Byte);
+begin
+  ActiveLayer.Surface.SurfaceBlur(Radius, Threshold);
+end;
+
 procedure TImageDocument.RadialBlur(Amount: Integer);
 begin
   ActiveLayer.Surface.RadialBlur(Amount);
@@ -1072,6 +1094,51 @@ end;
 procedure TImageDocument.Fragment(Offset: Integer);
 begin
   ActiveLayer.Surface.Fragment(Offset);
+end;
+
+procedure TImageDocument.Bulge(Amount: Integer);
+begin
+  ActiveLayer.Surface.Bulge(Amount);
+end;
+
+procedure TImageDocument.Dents(Amount: Integer);
+begin
+  ActiveLayer.Surface.Dents(Amount);
+end;
+
+procedure TImageDocument.Relief(Angle: Integer);
+begin
+  ActiveLayer.Surface.Relief(Angle);
+end;
+
+procedure TImageDocument.RedEye(Threshold: Byte; Strength: Integer);
+begin
+  ActiveLayer.Surface.RedEye(Threshold, Strength);
+end;
+
+procedure TImageDocument.TileReflection(TileSize: Integer);
+begin
+  ActiveLayer.Surface.TileReflection(TileSize);
+end;
+
+procedure TImageDocument.Crystallize(CellSize: Integer; Seed: Cardinal);
+begin
+  ActiveLayer.Surface.Crystallize(CellSize, Seed);
+end;
+
+procedure TImageDocument.InkSketch(InkStrength: Integer; Coloring: Integer);
+begin
+  ActiveLayer.Surface.InkSketch(InkStrength, Coloring);
+end;
+
+procedure TImageDocument.RenderMandelbrot(Iterations: Integer; Zoom: Double);
+begin
+  ActiveLayer.Surface.RenderMandelbrot(Iterations, Zoom);
+end;
+
+procedure TImageDocument.RenderJulia(Iterations: Integer; Zoom: Double; CReal: Double; CImag: Double);
+begin
+  ActiveLayer.Surface.RenderJulia(Iterations, Zoom, CReal, CImag);
 end;
 
 procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; PreserveValue: Boolean; ASelection: TSelectionMask);

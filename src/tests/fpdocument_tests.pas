@@ -22,6 +22,7 @@ type
     procedure LayerBlendModePreservedInClone;
     procedure MoveLayerReordersAndTracksActiveLayer;
     procedure StoredSelectionRoundtrips;
+    procedure NewBlankStartsWithWhiteBackground;
     procedure NewToolKindCountIsCorrect;
   end;
 
@@ -337,6 +338,23 @@ begin
     AssertFalse('selection cleared', Document.HasSelection);
     Document.PasteStoredSelection;
     AssertTrue('selection restored after paste', Document.Selection[2, 2]);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.NewBlankStartsWithWhiteBackground;
+var
+  Document: TImageDocument;
+  Pixel: TRGBA32;
+begin
+  Document := TImageDocument.Create(8, 8);
+  try
+    Pixel := Document.ActiveLayer.Surface[0, 0];
+    AssertEquals('background starts white red', 255, Pixel.R);
+    AssertEquals('background starts white green', 255, Pixel.G);
+    AssertEquals('background starts white blue', 255, Pixel.B);
+    AssertEquals('background starts opaque', 255, Pixel.A);
   finally
     Document.Free;
   end;

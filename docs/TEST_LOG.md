@@ -1,5 +1,33 @@
 # Test Log
 
+## 2026-03-03 (effects near-completion + safe startup-tool pass)
+- Full CI verification after adding `Red Eye`, `Tile Reflection`, `Crystallize`, `Ink Sketch`, `Mandelbrot Fractal`, `Julia Fractal`, and switching the startup default tool to `Rectangle Select`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 183 tests, 0 errors, 0 failures, including six new effect-specific surface tests plus the new startup-default helper regression
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (advanced effects expansion pass)
+- Full CI verification after adding `Unfocus`, `Surface Blur`, `Bulge`, `Dents`, and `Relief`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 176 tests, 0 errors, 0 failures, including five new effect-specific surface tests plus the new white-background document-default regression
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (multi-segment line-path pass)
+- Full CI verification after extending the `Line` tool from a single staged Bézier segment into a chained multi-segment path flow: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 170 tests, 0 errors, 0 failures, including the new line-hint chaining helper coverage
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (two-handle line-curve pass)
+- Full CI verification after promoting the `Line` tool from a single-handle bend to a staged two-handle Bézier flow: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 169 tests, 0 errors, 0 failures, including the new `CubicBezierUsesBothControlHandles` coverage and the line-hint helper assertion
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (selection feather pass)
+- Full CI verification after wiring `Anti-alias` + `Feather` through `TSelectionMask.Feather(...)`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 167 tests, 0 errors, 0 failures, including the new `FeatherSoftensEdges` coverage
+
 ## 2026-03-03 (inline text tool pass)
 - Full CI verification after moving the `Text` tool from modal-only placement to live inline canvas editing: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 166 tests, 0 errors, 0 failures, including the new `TextToolHintMentionsInlineEditing` helper coverage
