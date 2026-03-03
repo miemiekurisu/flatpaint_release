@@ -6,8 +6,8 @@ unit fpuihelpers_tests;
 interface
 
 uses
-  fpcunit, testregistry, FPDocument, FPUIHelpers, MainForm,
-  Controls, StdCtrls, Classes, LCLType, SysUtils;
+  fpcunit, testregistry, FPDocument, FPUIHelpers, FPUtilityHelpers, MainForm,
+  Controls, StdCtrls, Classes, LCLType, LazUTF8, SysUtils;
 
 type
   TFPUIHelpersTests = class(TTestCase)
@@ -20,6 +20,7 @@ type
     procedure ToolGlyphsStayCompact;
     procedure CropTextCloneRecolorAppearInDisplayOrder;
     procedure TotalDisplayCountIsCorrect;
+    procedure UtilityGlyphsStayCompact;
     procedure ShortcutCyclesSelectionTools;
     procedure ShortcutCyclesMoveTools;
     procedure ShortcutCyclesShapeTools;
@@ -209,8 +210,10 @@ begin
   for ToolIndex := 0 to PaintToolDisplayCount - 1 do
     AssertTrue(
       'tool glyph should stay compact',
-      Length(PaintToolGlyph(PaintToolAtDisplayIndex(ToolIndex))) <= 4
+      UTF8Length(PaintToolGlyph(PaintToolAtDisplayIndex(ToolIndex))) <= 1
     );
+  AssertTrue('brush glyph should no longer use text abbreviation', PaintToolGlyph(tkBrush) <> 'Br');
+  AssertTrue('zoom glyph should no longer use text label', PaintToolGlyph(tkZoom) <> 'Zoom');
 end;
 
 procedure TFPUIHelpersTests.CropTextCloneRecolorAppearInDisplayOrder;
@@ -227,6 +230,20 @@ end;
 procedure TFPUIHelpersTests.TotalDisplayCountIsCorrect;
 begin
   AssertEquals('total tool display count', 23, PaintToolDisplayCount);
+end;
+
+procedure TFPUIHelpersTests.UtilityGlyphsStayCompact;
+var
+  CommandIndex: Integer;
+  CommandKind: TUtilityCommandKind;
+begin
+  for CommandIndex := 0 to UtilityCommandDisplayCount - 1 do
+  begin
+    CommandKind := UtilityCommandAtDisplayIndex(CommandIndex);
+    AssertTrue('utility glyph missing', UtilityCommandGlyph(CommandKind) <> '');
+    AssertTrue('utility glyph should stay compact', UTF8Length(UtilityCommandGlyph(CommandKind)) <= 1);
+  end;
+  AssertTrue('tools utility should not fall back to plain text placeholder', UtilityCommandGlyph(ucTools) <> 'T');
 end;
 
 procedure TFPUIHelpersTests.LayerOpacityHelpersRoundTripPercentScale;

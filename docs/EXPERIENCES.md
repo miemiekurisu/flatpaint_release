@@ -12,6 +12,33 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (LCL color control boundary)
+- Problem: the requested color-panel direction needed to feel more native, but the first implementation had drifted into a fully custom picker surface that duplicated the platform color dialog instead of working with it
+- Core error: the UI exposed both a custom in-panel picker and the system color dialog path, which made the colors workflow feel redundant and less aligned with the intended macOS behavior
+- Investigation: checked the local Lazarus sources directly (`lcl/colorbox.pas`, `lcl/include/colorbutton.inc`, and `lcl/interfaces/cocoa/cocoawsdialogs.pas`) to separate pure-LCL color controls from the Cocoa widgetset bridge for `TColorDialog`
+- Root cause: `TColorButton` / `ColorBox` are reusable pure-LCL controls, but `TColorDialog` on Cocoa is a widgetset-backed wrapper around `NSColorPanel.sharedColorPanel`, so it is not the same kind of embeddable/customizable control surface
+- Fix: moved the live app to a slimmer companion-panel model built around `TColorButton` plus our own stacked swatches and slider strips, instead of keeping a larger standalone custom picker; documented the native-dialog boundary explicitly in the project logs
+- Reuse note: when a Lazarus control request mixes "native dialog" and "embedded custom UI", verify whether the target piece is pure LCL or widgetset-backed before committing to a design; if it is widgetset-backed, prefer a companion-panel pattern unless a platform-specific bridge is truly justified
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (FPC parallel build collision)
+- Problem: trying to run the Lazarus app build and the FPC test build in parallel in the same workspace caused a false-negative test failure even though the source changes were valid
+- Core error: the test-side link step failed with `ppaslink.sh: line 10: paint/symbol_order.fpc: No such file or directory`
+- Investigation: compared the failing parallel run against the immediately successful standalone `build.sh` run and traced the failure to both commands generating and consuming FPC link-script artifacts in the same working tree at the same time
+- Root cause: FPC/Lazarus writes transient linker-script files (`ppaslink.sh` and related inputs) into shared locations during builds, so concurrent compile/link jobs in one tree can overwrite each other's temporary link inputs
+- Fix: re-ran the verification serially instead of in parallel; the test suite then passed cleanly at 151 tests and the GUI build linked normally
+- Reuse note: do not parallelize independent FPC/Lazarus compile pipelines in the same workspace unless they are isolated into separate build/output roots; treat them as mutually interfering jobs by default
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (Native button icon fidelity limit)
+- Problem: the new Figma-like control direction called for icon buttons, but the current standard Lazarus `TButton` path does not natively match that design language closely enough on its own
+- Core error: a stock `TButton` gives a text caption surface, so keeping the implementation on standard controls made exact vector-style icon parity impossible without a heavier control rewrite
+- Investigation: re-read the current button-construction path in `mainform.pas`, compared it against the design's icon-only buttons, and kept the pass constrained to controls that already exist in the live app so functionality and layout stayed stable
+- Root cause: the current UI layer is built around standard native button controls, not owner-drawn/image-backed controls or a dedicated image-list icon pipeline
+- Fix: switched the existing buttons to compact symbol glyphs as an interim icon-like surface while preserving the same click targets, hints, and layout; documented that full asset-backed icon parity remains a separate remaining task
+- Reuse note: when exact icon parity matters in Lazarus/LCL, plan for image-backed or owner-drawn controls explicitly; do not assume a stock `TButton` caption can reproduce a modern Figma icon system exactly
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (Panel density pass)
 - Problem: deepening the color and layer panels risked adding more controls without keeping the panel surfaces readable or keeping the new controls synchronized with the existing state
 - Core error: if the new controls reused ad hoc conversions or only updated one representation, the UI would drift into conflicting RGB/HSV/hex values or duplicate opacity semantics across the layer panel

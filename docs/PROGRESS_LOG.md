@@ -1,5 +1,26 @@
 # Development Progress Log
 
+## 2026-03-03 (system-picker color panel + speed-button completion pass)
+
+- This pass maps primarily to the `Colors`, `Workspace visual parity`, and `Iconography` rows in `docs/FEATURE_MATRIX.md`.
+- The live Colors panel no longer depends on the custom wheel-first surface. It now follows a slimmer companion-panel model around the native macOS system color picker: a `TColorButton` opens the system palette for the active swatch, the floating `Colors` panel keeps stacked foreground/background swatches for active-slot switching, and the in-panel controls are limited to compact live hex readouts plus H/S/V/A scrub bars.
+- This keeps the actual editing surface closer to the user's requested direction while staying inside standard LCL: the panel is still embedded in our window, but the color-picking dialog itself is delegated back to the widgetset-backed system color panel instead of trying to fake an entire custom picker.
+- The earlier half-finished button refactor is now closed properly: the shared `CreateButton(...)` path uses `TSpeedButton`, so the top quick-action strip, tool palette, utility strip, history actions, and layer actions all now share one flatter, more icon-like button style instead of mixing old `TButton` and newer symbol-button variants.
+- The default `Colors` floating panel is slimmer now in the default layout (`src/app/fppalettehelpers.pas`), so its first-launch footprint better matches the new control density without reintroducing default panel overlap.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **151 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the implementation is materially closer to the intended macOS-native color workflow, but this is still refinement rather than a whole new feature family, so the overall completion estimate stays at **~87%**; the biggest remaining gaps are still image-list parity, broader effect coverage, richer layer-thumbnail interaction, and true asset-backed icon controls.
+
+## 2026-03-03 (wheel-first color panel + icon-button pass)
+
+- This pass maps primarily to the `Colors`, `Layers`, `Workspace visual parity`, and `Iconography` rows in `docs/FEATURE_MATRIX.md`.
+- The Colors panel now follows the wheel-first direction the current design and mainstream editors imply more closely: the old dense quick-swatch grid is no longer part of the default surface, and the live panel now uses a fully saturated circular color wheel for hue/saturation selection, stacked foreground/background color squares on a checkerboard tray, plus dedicated H/S/V scrub bars below it.
+- The color interaction path is deeper than the older wheel-only pass: left-drag now continuously scrubs on the wheel, the active slot remains directly selectable from the stacked preview, and right-clicking the wheel updates the inactive color slot without first changing the active slot.
+- The Layers panel closes a real workflow gap now: the owner-drawn layer list supports drag-to-reorder in the live UI, with visual target-row feedback and real document-layer reordering through `TImageDocument.MoveLayer(...)`, instead of forcing all reordering through the Up/Down buttons only.
+- The broader control language is more icon-like now across the top quick-action row, tool palette, utility strip, History, and Layers panels; however, this is still an honest Lazarus-native compromise based on compact symbol glyphs inside standard buttons, not full Figma-accurate vector icon controls yet.
+- I also did a real visual check against the running app after the pass: the default launch layout stayed readable, the floating panels still avoided default overlap/clipping, and the updated Colors/Layers panel content fit without newly introduced occlusion in the checked window state.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` now passes at **151 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: closing drag-reorder plus the stronger wheel-first color surface moves the overall completion estimate to **~87%**; the biggest remaining gaps are still image-list parity, broader effect coverage, exact asset-backed icon parity, richer curve editing, and deeper layer-thumbnail interactions.
+
 ## 2026-03-03 (panel depth + compact control pass)
 
 - This pass maps primarily to the `Colors`, `Layers`, `Iconography`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
@@ -40,23 +61,23 @@
 | Workspace visual parity | ~62% | Lighter macOS-style chrome plus denser panel internals are now live; image-list strip and fuller native icon language still remain below target |
 | File workflow | ~85% | `.pdn` is only partial flattened fallback and `.kra` is still friendly-fail only; `Save All Images` still maps to the current shell |
 | Undo/redo | ~90% | Undo/redo labels and redo rows are visible; grey-out / comparison-polish remains open |
-| Layers | ~86% | Inline visibility/opacity, blend-mode picker, and thumbnail list are live; drag reorder and send-to-top/bottom parity are still missing |
+| Layers | ~89% | Inline visibility/opacity, blend-mode picker, thumbnail list, and drag reorder are live; send-to-top/bottom parity and richer thumbnail-first interaction still remain |
 | Selection tools | ~85% | Visible combine-mode control is live; selection anti-alias is still a UI-only toggle pending core support |
 | Paint tools | ~85% | Clone Stamp, Recolor, Gradient, Pan, Zoom, and interactive Crop are live; richer per-tool parity remains open |
 | Draw tools | ~80% | Text is live; true curve-node editing is still missing |
 | View controls | ~90% | Pinch zoom, Spacebar temp pan, and middle-mouse pan are live; resize-handle parity is still partial |
-| Colors panel | ~68% | HSV wheel, H/S/V numeric fields, RGBA/hex editing, 28 swatches, active-slot notch, and `C` slot toggle are live; full 96-swatch / slider-strip parity remains open |
+| Colors panel | ~82% | Slim companion panel around the native system color picker is live: stacked foreground/background swatches, a system-palette launch button, H/S/V/A scrub bars, live hex labels, swap/reset commands, and the `C` slot toggle are all live; true embedding/custom controls inside the native panel and richer polish still remain |
 | Adjustments | ~90% | Broad baseline is routed; richer curve editing is still the main gap |
 | Effects | ~55% | 17 effects plus `Repeat Last Effect` are live; deeper families and submenu grouping are still missing |
 | Resize/canvas ops | ~90% | Interactive Crop is live; remaining work is mostly parity polish |
 | Text/rendering | ~80% | Modal text tool is implemented; richer editing still remains open |
 | Clipboard | ~85% | `Paste Selection (Replace)` is live; remaining gaps are polish and edge-case parity |
 | Menus/Shortcuts | ~85% | Single-key tool shortcuts, `C`, Spacebar pan, and Ctrl+Tab are live; remaining gaps are edge-case parity and image-list-related flows |
-| Iconography | ~52% | Compact labels are now more consistent across tools and layers, but a fuller native icon system is still missing |
+| Iconography | ~62% | Compact symbol-glyph buttons now cover the main tool/action surfaces, but a true asset-backed native icon system is still missing |
 | Tool/Config Options | ~88% | Most visible controls now affect output, including inline layer controls; selection anti-alias remains the main UI-only option |
 | Hidden sheet options | ~70% | Export/save-sheet options remain partial |
 | Compatibility IO | ~55% | `.psd` / `.xcf` flattened import is live, `.pdn` has partial flattened fallback, and `.kra` remains descriptive unsupported |
-| **Overall** | **~86%** | Biggest remaining gaps are image-list parity, broader effect coverage, drag-to-reorder in layers, deeper color swatch parity, and iconography polish |
+| **Overall** | **~87%** | Biggest remaining gaps are image-list parity, broader effect coverage, exact asset-backed icon parity, richer curve editing, and deeper layer-thumbnail polish |
 
 ## 2026-03-02 (test infrastructure fix)
 - `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.

@@ -56,7 +56,7 @@
 
 | Tool family | Current code | Required visible options for parity | Notes |
 | --- | --- | --- | --- |
-| Rectangle / Ellipse / Lasso Select | Drag selection + replace/add/subtract/intersect + **Anti-alias TCheckBox visible** | Selection mode (`Replace`, `Add`, `Subtract`, `Intersect`), edge quality (`Aliased` vs `Anti-aliased`), feather deferred | Selection mode combo is now functional (keyboard modifiers override only when held; combo value used otherwise); **anti-alias checkbox is UI-only** — the core selection APIs do not yet accept an anti-alias parameter, so the checkbox toggles a stored field that nothing reads |
+| Rectangle / Ellipse / Lasso Select | Drag selection + replace/add/subtract/intersect | Selection mode (`Replace`, `Add`, `Subtract`, `Intersect`), edge quality (`Aliased` vs `Anti-aliased`), feather deferred | Selection mode combo is functional (keyboard modifiers override only when held; combo value used otherwise); the anti-alias checkbox is now hidden until the core selection APIs can consume it |
 | Magic Wand | Tolerance + replace/add/subtract/intersect + **Contiguous TCheckBox live** + **Sample Source TComboBox live** | Selection mode, tolerance, contiguous toggle, sample source (`Layer` / `Image`), edge quality | All primary visible options now present; anti-alias on wand still deferred |
 | Move Selection / Move Selected Pixels | Real mask / pixel movement | Move mode stays tool-defined; no extra options required beyond future nudge settings | Already backed by real shared-core movement paths |
 | Zoom | Preset zoom ladder, toolbar chooser, status slider | Zoom mode (`In` / `Out`), optional scrub zoom deferred | Current code supports left-click in / right-click out plus menu and slider parity |
@@ -68,8 +68,8 @@
 | Eraser | Size, opacity (**live**), hardness (**live**) | Size, shape (`Round` / `Square`), hardness deferred | Opacity and hardness now visible; square mode deferred |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
 | Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; line-style/dash and shape-kind chooser still deferred |
-| Clone Stamp | Brush size + right-click sample live | Aligned toggle, sample-on-Option-click | Core sampling behavior implemented |
-| Recolor | Tolerance (shared FBrushSize/FWandTolerance fields) | Tolerance, source hue preservation toggle | Tolerance live through shared control; hue preservation deferred |
+| Clone Stamp | Brush size + opacity + right-click sample live | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned toggle still deferred |
+| Recolor | Brush size + opacity + tolerance live | Tolerance, source hue preservation toggle | Visible tolerance is now routed through the shared tolerance spin while `Recolor` is active; hue preservation remains deferred |
 | Text | Font family, size, bold/italic (modal dialog) | Full inline text entry with alignment | Modal text flow live; inline text editing deferred |
 
 ## Acceptance rules

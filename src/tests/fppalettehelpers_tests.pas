@@ -21,7 +21,7 @@ type
     procedure PaletteDragTintDiffersFromRestTint;
     procedure ToolsPaletteUsesNarrowTwoColumnLayout;
     procedure SnapPaletteRectAlignsToNearbyWorkspaceEdges;
-    procedure ColorsPanelFitsRGBASpinsAndHexField;
+    procedure ColorsPanelFitsSystemPickerAndSliderRows;
     procedure PaletteHeightsFitDeeperPanelControls;
   end;
 
@@ -191,15 +191,16 @@ begin
   AssertEquals('snap bottom', 220, Snapped.Bottom);
 end;
 
-procedure TFPPaletteHelpersTests.ColorsPanelFitsRGBASpinsAndHexField;
+procedure TFPPaletteHelpersTests.ColorsPanelFitsSystemPickerAndSliderRows;
 var
   R: TRect;
 begin
-  { Colors panel was expanded to fit RGB/RGBA edits plus deeper controls.
-    Minimum width required for the current control grid is about 240px. }
+  { Colors now uses a slimmer companion palette around the system picker:
+    stacked swatches, compact hex labels, and HSV/A strips. }
   R := PaletteDefaultRect(pkColors);
-  AssertTrue('colors panel wide enough for RGBA spins', (R.Right - R.Left) >= 240);
-  AssertTrue('colors panel tall enough for RGB/HSV rows', (R.Bottom - R.Top) >= 360);
+  AssertTrue('colors panel wide enough for compact controls', (R.Right - R.Left) >= 240);
+  AssertTrue('colors panel tall enough for swatches and slider strips', (R.Bottom - R.Top) >= 280);
+  AssertTrue('colors panel should stay compact after slimming the picker', (R.Bottom - R.Top) < 340);
 end;
 
 procedure TFPPaletteHelpersTests.PaletteHeightsFitDeeperPanelControls;
@@ -208,6 +209,11 @@ begin
     'colors palette should be taller than the history panel',
     (PaletteDefaultRect(pkColors).Bottom - PaletteDefaultRect(pkColors).Top) >
     (PaletteDefaultRect(pkHistory).Bottom - PaletteDefaultRect(pkHistory).Top)
+  );
+  AssertTrue(
+    'colors palette should be shorter than the tools palette after slimming the picker',
+    (PaletteDefaultRect(pkColors).Bottom - PaletteDefaultRect(pkColors).Top) <
+    (PaletteDefaultRect(pkTools).Bottom - PaletteDefaultRect(pkTools).Top)
   );
   AssertTrue(
     'layers palette should be tall enough for inline controls and list',

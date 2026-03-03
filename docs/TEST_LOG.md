@@ -1,5 +1,19 @@
 # Test Log
 
+## 2026-03-03 (system-picker color panel + speed-button completion pass)
+- Full CI verification after replacing the custom wheel-first Colors surface with the slimmer system-picker companion panel and completing the shared speed-button path: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 151 tests, 0 errors, 0 failures after the color-panel refactor, palette-height reduction, and button-type unification
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (wheel-first color panel + icon-button pass)
+- Full CI verification after the wheel-first Colors panel and layer-reorder/icon-button pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 151 tests, 0 errors, 0 failures after the color-wheel interaction change, the layer drag-reorder path, the glyph-button updates, and the later foreground/background preview visibility tweak
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+- Live visual verification after the same pass: launched `dist/FlatPaint.app` and captured the running window via the local screenshot helper
+- Result: the checked default window state showed no new clipping or default panel overlap, and the updated Colors/Layers panel content fit in the visible layout
+
 ## 2026-03-03 (panel depth + compact control pass)
 - Full CI verification after the color/layer panel density pass: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 149 tests, 0 errors, 0 failures, including the new compact-glyph assertions, layer-opacity mapping coverage, and deeper palette-size regressions

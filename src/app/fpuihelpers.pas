@@ -1,6 +1,7 @@
 unit FPUIHelpers;
 
 {$mode objfpc}{$H+}
+{$codepage utf8}
 
 interface
 
@@ -148,9 +149,9 @@ begin
     tkText:
       Result := 'Text places a text string onto the active layer';
     tkCloneStamp:
-      Result := 'Clone Stamp copies pixels from a sampled source point';
+      Result := 'Clone Stamp samples with right-click, then paints sampled pixels with the brush';
     tkRecolor:
-      Result := 'Recolor replaces the source color under the brush with the target color';
+      Result := 'Recolor swaps active and inactive swatch colors within the brush tolerance';
   else
     Result := 'Ready';
   end;
@@ -160,51 +161,51 @@ function PaintToolGlyph(ATool: TToolKind): string;
 begin
   case ATool of
     tkSelectRect:
-      Result := 'Rct';
+      Result := '▭';
     tkSelectEllipse:
-      Result := 'Ell';
+      Result := '◌';
     tkSelectLasso:
-      Result := 'Lso';
+      Result := '⌒';
     tkMagicWand:
-      Result := 'Wnd';
+      Result := '✦';
     tkMoveSelection:
-      Result := 'Sel';
+      Result := '⊞';
     tkMovePixels:
-      Result := 'Pix';
+      Result := '✣';
     tkZoom:
-      Result := 'Zoom';
+      Result := '⌕';
     tkPan:
-      Result := 'Pan';
+      Result := '↕';
     tkFill:
-      Result := 'Fill';
+      Result := '▧';
     tkGradient:
-      Result := 'Grad';
+      Result := '◫';
     tkPencil:
-      Result := 'Pen';
+      Result := '✎';
     tkBrush:
-      Result := 'Br';
+      Result := '◍';
     tkEraser:
-      Result := 'Er';
+      Result := '⌫';
     tkColorPicker:
-      Result := 'Pick';
+      Result := '⌖';
     tkCloneStamp:
-      Result := 'Cln';
+      Result := '⧉';
     tkRecolor:
-      Result := 'Re';
+      Result := '◐';
     tkLine:
-      Result := 'Ln';
+      Result := '／';
     tkRectangle:
-      Result := 'Rect';
+      Result := '□';
     tkRoundedRectangle:
-      Result := 'Rnd';
+      Result := '▢';
     tkEllipseShape:
-      Result := 'Oval';
+      Result := '○';
     tkFreeformShape:
-      Result := 'Free';
+      Result := '〰';
     tkCrop:
-      Result := 'Crop';
+      Result := '⌗';
     tkText:
-      Result := 'Text';
+      Result := 'T';
   else
     Result := 'Tool';
   end;

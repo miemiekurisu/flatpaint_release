@@ -1,11 +1,13 @@
 unit MainForm;
 
 {$mode objfpc}{$H+}
+{$codepage utf8}
 
 interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
+  Buttons,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers;
 
@@ -103,6 +105,8 @@ type
     FStatusZoomLabel: TLabel;
     FLayerList: TListBox;
     FHistoryList: TListBox;
+    FColorPickButton: TColorButton;
+    FActiveColorHexLabel: TLabel;
     FColorsValueLabel: TLabel;
     FHistoryValueLabel: TLabel;
     FBrushSpin: TSpinEdit;
@@ -110,8 +114,9 @@ type
     FZoomCombo: TComboBox;
     FOptionLabel: TLabel;
     FColorsBox: TPaintBox;
+    FColorSliderBox: TPaintBox;
     FSwatchBox: TPaintBox;
-    FSwatchColors: array[0..27] of TRGBA32;
+    FSwatchColors: array[0..95] of TRGBA32;
     FDraggingPalette: TControl;
     FPaletteDragOffset: TPoint;
     FPaletteViewItems: array[TPaletteKind] of TMenuItem;
@@ -132,7 +137,7 @@ type
     FCloneStampSampled: Boolean;
     FTextLastResult: TTextDialogResult;
     FLayerBlendCombo: TComboBox;
-    FLayerPropsButton: TButton;
+    FLayerPropsButton: TSpeedButton;
     FLayerVisibleCheck: TCheckBox;
     FLayerOpacitySpin: TSpinEdit;
     FLayerOpacityLabel: TLabel;
@@ -153,6 +158,9 @@ type
     FTabPopupMenu: TPopupMenu;
     FPopupTabIndex: Integer;
     FUpdatingTabs: Boolean;
+    FTabPressedIndex: Integer;
+    FTabDragOrigin: TPoint;
+    FTabDragging: Boolean;
     { Colors panel RGBA }
     FColorRSpin: TSpinEdit;
     FColorGSpin: TSpinEdit;
@@ -164,6 +172,7 @@ type
     FColorHexEdit: TEdit;
     FUpdatingColorSpins: Boolean;
     FColorEditTarget: Integer; { 0=Primary, 1=Secondary }
+    FActiveColorSlider: Integer;
     FColorTargetCombo: TComboBox;
     { Tool options — opacity and selection mode }
     FOpacitySpin: TSpinEdit;
@@ -201,8 +210,11 @@ type
     { Selection anti-alias }
     FSelAntiAlias: Boolean;
     FSelAntiAliasCheck: TCheckBox;
+    FLayerDragIndex: Integer;
+    FLayerDragTargetIndex: Integer;
     FMagnifyInstalled: Boolean;
     function ActivePaintColor: TRGBA32;
+    function ColorForActiveTarget(AAlternate: Boolean = False): TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
     function BuildDisplaySurface: TRasterSurface;
@@ -214,6 +226,12 @@ type
     function FormatMeasurement(APixels: Integer): string;
     procedure ColorsBoxPaint(Sender: TObject);
     procedure ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ColorsBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure ColorPickButtonChanged(Sender: TObject);
+    procedure ColorSliderBoxPaint(Sender: TObject);
+    procedure ColorSliderBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ColorSliderBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure ColorSliderBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SwatchBoxPaint(Sender: TObject);
     procedure SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     function ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
@@ -227,7 +245,7 @@ type
     procedure BuildTabPopupMenu;
     procedure BuildToolbar;
     procedure BuildSidePanel;
-    function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0): TButton;
+    function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0): TSpeedButton;
     procedure CreateMenuItem(AParent: TMenuItem; const ACaption: string; AHandler: TNotifyEvent; AShortcut: TShortCut = 0);
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
     procedure PaintRuler(ACanvas: TCanvas; const ARect: TRect; AOrientation: TRulerOrientation);
@@ -240,6 +258,7 @@ type
     procedure RefreshHistoryPanel;
     procedure RefreshStatus(const ACursorPoint: TPoint);
     procedure UpdateStatusForTool;  { call when current tool changes }
+    procedure SyncStrokeColorToActiveTarget;
 
     procedure ActivateTempPan;
     procedure DeactivateTempPan;
@@ -262,6 +281,11 @@ type
     procedure RefreshPaletteMenuChecks;
     procedure RestorePaletteLayout;
     procedure CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
+    procedure ApplyColorSliderAt(X, Y: Integer);
+    procedure LayoutColorsPanel;
+    procedure LayoutLayersPanel;
+    procedure ColorsPanelResize(Sender: TObject);
+    procedure LayersPanelResize(Sender: TObject);
     function ConfirmDocumentReplacement(const AAction: string): Boolean;
     procedure SetDirty(AValue: Boolean);
     procedure SaveToPath(const AFileName: string);
@@ -348,6 +372,9 @@ type
     procedure PlaceTextAtPoint(const AResult: TTextDialogResult; APoint: TPoint; AColor: TRGBA32);
     { Document tab management }
     procedure TabButtonClick(Sender: TObject);
+    procedure TabCardMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure TabCardMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure TabCardMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure TabCloseButtonClick(Sender: TObject);
     procedure TabMenuCloseClick(Sender: TObject);
     procedure TabMenuCloseOthersClick(Sender: TObject);
@@ -362,6 +389,9 @@ type
     procedure RefreshTabStrip;
     function TabDocumentDisplayName(AIndex: Integer): string;
     procedure OpenFileInNewTab(const AFileName: string);
+    procedure MoveDocumentTab(AFromIndex, AToIndex: Integer);
+    function PointToTabStrip(AControl: TControl; X, Y: Integer): TPoint;
+    procedure BuildTabThumbnail(AIndex: Integer; AImage: TImage);
     { Colors panel RGBA controls }
     procedure UpdateColorSpins;
     procedure ColorSpinChanged(Sender: TObject);
@@ -419,6 +449,9 @@ type
     procedure BrushSizeChanged(Sender: TObject);
     procedure LayerListClick(Sender: TObject);
     procedure LayerListDblClick(Sender: TObject);
+    procedure LayerListMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure LayerListMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure LayerListMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure LayerListDrawItem(Control: TWinControl; Index: Integer;
       ARect: TRect; State: TOwnerDrawState);
     procedure PaletteMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -469,7 +502,7 @@ uses
   FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
-  FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers,
+  FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers, FPTabHelpers,
   FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge, FPAlphaBridge;
 
 const
@@ -522,7 +555,16 @@ end;
 
 constructor TMainForm.Create(TheOwner: TComponent);
 var
+  ColIndex: Integer;
   I: Integer;
+  PaletteIndex: Integer;
+  RowIndex: Integer;
+  Hue: Double;
+  Sat: Double;
+  Val: Double;
+  SwatchR: Byte;
+  SwatchG: Byte;
+  SwatchB: Byte;
 begin
   inherited Create(TheOwner);
   { If there is no LCL Application available (headless test run), avoid
@@ -580,6 +622,12 @@ begin
     FShowRulers := True;
     FDeferredLayoutPass := True;
     FLastScrollPosition := Point(0, 0);
+    FActiveColorSlider := -1;
+    FTabPressedIndex := -1;
+    FTabDragOrigin := Point(0, 0);
+    FTabDragging := False;
+    FLayerDragIndex := -1;
+    FLayerDragTargetIndex := -1;
     GMainForm := Self;
     Exit;
   end;
@@ -636,38 +684,67 @@ begin
   FShowRulers := True;
   FDeferredLayoutPass := True;
   FLastScrollPosition := Point(0, 0);
+  FActiveColorSlider := -1;
+  FTabPressedIndex := -1;
+  FTabDragOrigin := Point(0, 0);
+  FTabDragging := False;
+  FLayerDragIndex := -1;
+  FLayerDragTargetIndex := -1;
 
-  { Default 28-colour swatch palette (2 rows × 14 columns, Paint.NET-style) }
-  { Row 1: dark / earth tones }
-  FSwatchColors[0]  := RGBA(  0,   0,   0, 255); { Black }
-  FSwatchColors[1]  := RGBA( 64,  64,  64, 255); { Dark Gray }
-  FSwatchColors[2]  := RGBA(128,   0,   0, 255); { Dark Red }
-  FSwatchColors[3]  := RGBA(160,  80,   0, 255); { Dark Orange }
-  FSwatchColors[4]  := RGBA(128, 128,   0, 255); { Olive }
-  FSwatchColors[5]  := RGBA(  0, 104,   0, 255); { Dark Green }
-  FSwatchColors[6]  := RGBA(  0, 104, 104, 255); { Dark Teal }
-  FSwatchColors[7]  := RGBA(  0,   0, 160, 255); { Dark Blue }
-  FSwatchColors[8]  := RGBA(  0,  32,  96, 255); { Navy }
-  FSwatchColors[9]  := RGBA( 64,   0, 128, 255); { Dark Violet }
-  FSwatchColors[10] := RGBA(128,   0, 128, 255); { Dark Purple }
-  FSwatchColors[11] := RGBA(160,   0,  96, 255); { Dark Magenta }
-  FSwatchColors[12] := RGBA(120,  56,  24, 255); { Brown }
-  FSwatchColors[13] := RGBA(255, 255, 255, 255); { White }
-  { Row 2: bright / saturated }
-  FSwatchColors[14] := RGBA(128, 128, 128, 255); { Gray }
-  FSwatchColors[15] := RGBA(192, 192, 192, 255); { Silver }
-  FSwatchColors[16] := RGBA(255,   0,   0, 255); { Red }
-  FSwatchColors[17] := RGBA(255, 128,   0, 255); { Orange }
-  FSwatchColors[18] := RGBA(255, 255,   0, 255); { Yellow }
-  FSwatchColors[19] := RGBA(  0, 255,   0, 255); { Lime }
-  FSwatchColors[20] := RGBA(  0, 255, 255, 255); { Aqua }
-  FSwatchColors[21] := RGBA(  0, 128, 255, 255); { Sky Blue }
-  FSwatchColors[22] := RGBA(  0,   0, 255, 255); { Blue }
-  FSwatchColors[23] := RGBA(128,   0, 255, 255); { Violet }
-  FSwatchColors[24] := RGBA(255,   0, 255, 255); { Magenta }
-  FSwatchColors[25] := RGBA(255,   0, 128, 255); { Hot Pink }
-  FSwatchColors[26] := RGBA(255, 192, 160, 255); { Peach }
-  FSwatchColors[27] := RGBA(240, 240, 240, 255); { Near White }
+  { Default 96-colour swatch palette:
+    1 grayscale band + 7 hue bands covering dark, mid, bright and pastel ramps. }
+  for ColIndex := 0 to 11 do
+  begin
+    Val := ColIndex / 11.0;
+    SwatchR := EnsureRange(Round(Val * 255.0), 0, 255);
+    FSwatchColors[ColIndex] := RGBA(SwatchR, SwatchR, SwatchR, 255);
+  end;
+  PaletteIndex := 12;
+  for RowIndex := 0 to 6 do
+    for ColIndex := 0 to 11 do
+    begin
+      Hue := ColIndex / 12.0;
+      case RowIndex of
+        0:
+          begin
+            Sat := 0.35;
+            Val := 0.35;
+          end;
+        1:
+          begin
+            Sat := 0.65;
+            Val := 0.48;
+          end;
+        2:
+          begin
+            Sat := 0.82;
+            Val := 0.64;
+          end;
+        3:
+          begin
+            Sat := 0.95;
+            Val := 0.82;
+          end;
+        4:
+          begin
+            Sat := 1.0;
+            Val := 1.0;
+          end;
+        5:
+          begin
+            Sat := 0.60;
+            Val := 0.92;
+          end;
+      else
+        begin
+          Sat := 0.34;
+          Val := 0.98;
+        end;
+      end;
+      HSVToRGB(Hue, Sat, Val, SwatchR, SwatchG, SwatchB);
+      FSwatchColors[PaletteIndex] := RGBA(SwatchR, SwatchG, SwatchB, 255);
+      Inc(PaletteIndex);
+    end;
 
   BuildTabPopupMenu;
   BuildMenus;
@@ -677,11 +754,13 @@ begin
   FTabStrip := TPanel.Create(Self);
   FTabStrip.Parent := Self;
   FTabStrip.Align := alTop;
-  FTabStrip.Height := 32;
+  FTabStrip.Height := TabStripHeight;
   FTabStrip.BevelOuter := bvNone;
   FTabStrip.Caption := '';
   FTabStrip.Color := TabStripBackgroundColor;
   FTabStrip.ParentColor := False;
+  FTabStrip.OnMouseMove := @TabCardMouseMove;
+  FTabStrip.OnMouseUp := @TabCardMouseUp;
 
   FWorkspacePanel := TPanel.Create(Self);
   FWorkspacePanel.Parent := Self;
@@ -823,6 +902,26 @@ begin
   if FCurrentTool = tkEraser then
     Exit(TransparentColor);
   Result := FStrokeColor;
+end;
+
+function TMainForm.ColorForActiveTarget(AAlternate: Boolean): TRGBA32;
+var
+  UseSecondary: Boolean;
+begin
+  UseSecondary := FColorEditTarget = 1;
+  if AAlternate then
+    UseSecondary := not UseSecondary;
+  if UseSecondary then
+    Result := FSecondaryColor
+  else
+    Result := FPrimaryColor;
+end;
+
+procedure TMainForm.SyncStrokeColorToActiveTarget;
+begin
+  if FPointerDown then
+    Exit;
+  FStrokeColor := ColorForActiveTarget(False);
 end;
 
 function TMainForm.DisplayFileName: string;
@@ -1048,6 +1147,7 @@ var
   IsHardnessTool: Boolean;
   IsShapeTool: Boolean;
   IsBucketTool: Boolean;
+  IsToleranceTool: Boolean;
 begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
@@ -1057,6 +1157,7 @@ begin
   IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
   IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
   IsBucketTool := FCurrentTool = tkFill;
+  IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
   IsSizeTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkLine,
     tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape,
     tkCloneStamp, tkRecolor, tkMagicWand];
@@ -1080,9 +1181,19 @@ begin
   if Assigned(FWandSampleCombo) then FWandSampleCombo.ItemIndex := FWandSampleSource;
   if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Visible := FCurrentTool = tkMagicWand;
   if Assigned(FWandContiguousCheck) then FWandContiguousCheck.Checked := FWandContiguous;
-  if Assigned(FFillTolLabel) then FFillTolLabel.Visible := IsBucketTool;
-  if Assigned(FFillTolSpin) then FFillTolSpin.Visible := IsBucketTool;
-  if Assigned(FFillTolSpin) then FFillTolSpin.Value := FFillTolerance;
+  if Assigned(FFillTolLabel) then FFillTolLabel.Visible := IsToleranceTool;
+  if Assigned(FFillTolSpin) then FFillTolSpin.Visible := IsToleranceTool;
+  if Assigned(FFillTolSpin) then
+  begin
+    if FCurrentTool = tkRecolor then
+      FFillTolSpin.Value := FWandTolerance
+    else
+      FFillTolSpin.Value := FFillTolerance;
+    if FCurrentTool = tkRecolor then
+      FFillTolSpin.Hint := 'Recolor tolerance (0=exact, 255=replace broad color range)'
+    else
+      FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
+  end;
   if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := FCurrentTool = tkGradient;
   if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := FCurrentTool = tkGradient;
   if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := FGradientType;
@@ -1091,7 +1202,7 @@ begin
   if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
   if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
   if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
-  if Assigned(FSelAntiAliasCheck) then FSelAntiAliasCheck.Visible := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso];
+  if Assigned(FSelAntiAliasCheck) then FSelAntiAliasCheck.Visible := False;
 
   FUpdatingToolOption := True;
   try
@@ -1397,11 +1508,11 @@ var
   ToolIndex: Integer;
   ToolKind: TToolKind;
   UtilityPanel: TPanel;
-  UtilityButton: TButton;
+  UtilityButton: TSpeedButton;
   UtilityIndex: Integer;
   UtilityCommand: TUtilityCommandKind;
   ZoomIndex: Integer;
-  Btn: TButton;
+  Btn: TSpeedButton;
 begin
   FTopPanel := TPanel.Create(Self);
   FTopPanel.Parent := Self;
@@ -1413,19 +1524,19 @@ begin
   FTopPanel.ParentColor := False;
 
   { Toolbar row 1: quick actions + zoom; the tool-options row stays separate below it. }
-  Btn := CreateButton('New',   10,  8, 52, @NewDocumentClick,  FTopPanel); Btn.Hint := 'New document (Cmd+N)';
-  Btn := CreateButton('Open',  66,  8, 58, @OpenDocumentClick,  FTopPanel); Btn.Hint := 'Open document (Cmd+O)';
-  Btn := CreateButton('Save', 128,  8, 54, @SaveDocumentClick,  FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
-  Btn := CreateButton('Cut',  196,  8, 48, @CutClick,           FTopPanel); Btn.Hint := 'Cut selection (Cmd+X)';
-  Btn := CreateButton('Copy', 248,  8, 54, @CopyClick,          FTopPanel); Btn.Hint := 'Copy selection (Cmd+C)';
-  Btn := CreateButton('Paste',306,  8, 56, @PasteClick,         FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
-  Btn := CreateButton('Undo', 374,  8, 54, @UndoClick,          FTopPanel); Btn.Hint := 'Undo last action (Cmd+Z)';
-  Btn := CreateButton('Redo', 432,  8, 54, @RedoClick,          FTopPanel); Btn.Hint := 'Redo (Cmd+Shift+Z)';
-  Btn := CreateButton('-',    498,  8, 28, @ZoomOutClick,       FTopPanel); Btn.Hint := 'Zoom out';
+  Btn := CreateButton('New',   10,  8, 26, @NewDocumentClick,  FTopPanel); Btn.Hint := 'New document (Cmd+N)';
+  Btn := CreateButton('Open',  40,  8, 26, @OpenDocumentClick,  FTopPanel); Btn.Hint := 'Open document (Cmd+O)';
+  Btn := CreateButton('Save',  70,  8, 26, @SaveDocumentClick,  FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
+  Btn := CreateButton('Cut',  110,  8, 26, @CutClick,           FTopPanel); Btn.Hint := 'Cut selection (Cmd+X)';
+  Btn := CreateButton('Copy', 140,  8, 26, @CopyClick,          FTopPanel); Btn.Hint := 'Copy selection (Cmd+C)';
+  Btn := CreateButton('Paste',170,  8, 26, @PasteClick,         FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
+  Btn := CreateButton('Undo', 214,  8, 26, @UndoClick,          FTopPanel); Btn.Hint := 'Undo last action (Cmd+Z)';
+  Btn := CreateButton('Redo', 244,  8, 26, @RedoClick,          FTopPanel); Btn.Hint := 'Redo (Cmd+Shift+Z)';
+  Btn := CreateButton('-',    288,  8, 26, @ZoomOutClick,       FTopPanel); Btn.Hint := 'Zoom out';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
-  FZoomCombo.Left := 530;
+  FZoomCombo.Left := 318;
   FZoomCombo.Top := 8;
   FZoomCombo.Width := 82;
   FZoomCombo.Style := csDropDownList;
@@ -1433,7 +1544,7 @@ begin
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
 
-  Btn := CreateButton('+', 616, 8, 28, @ZoomInClick, FTopPanel); Btn.Hint := 'Zoom in';
+  Btn := CreateButton('+', 404, 8, 26, @ZoomInClick, FTopPanel); Btn.Hint := 'Zoom in';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
@@ -1448,20 +1559,16 @@ begin
   for UtilityIndex := 0 to UtilityCommandDisplayCount - 1 do
   begin
     UtilityCommand := UtilityCommandAtDisplayIndex(UtilityIndex);
-    UtilityButton := TButton.Create(UtilityPanel);
-    UtilityButton.Parent := UtilityPanel;
-    UtilityButton.Left := UtilityIndex * 28;
-    UtilityButton.Top := 0;
-    UtilityButton.Width := 26;
-    UtilityButton.Height := 26;
-    UtilityButton.Caption := UtilityCommandGlyph(UtilityCommand);
-    UtilityButton.Tag := Ord(UtilityCommand);
-    UtilityButton.ParentFont := False;
-    UtilityButton.Font.Size := 9;
-    UtilityButton.Font.Color := ChromeTextColor;
+    UtilityButton := CreateButton(
+      UtilityCommandGlyph(UtilityCommand),
+      UtilityIndex * 28,
+      0,
+      26,
+      @UtilityButtonClick,
+      UtilityPanel,
+      Ord(UtilityCommand)
+    );
     UtilityButton.Hint := UtilityCommandHint(UtilityCommand);
-    UtilityButton.ShowHint := True;
-    UtilityButton.OnClick := @UtilityButtonClick;
   end;
 
   LabelCtrl := TLabel.Create(FTopPanel);
@@ -1761,7 +1868,7 @@ var
   ColumnIndex: Integer;
   RowIndex: Integer;
   ContentTop: Integer;
-  ToolButton: TButton;
+  ToolButton: TSpeedButton;
 begin
   ContentTop := PaletteHeaderHeight + 8;
 
@@ -1787,133 +1894,88 @@ begin
   FColorsPanel := TPanel.Create(Self);
   CreatePalette(FColorsPanel, pkColors);
 
-  { Color target selector — switch between editing Primary or Secondary }
+  { Keep a hidden combo for keyboard shortcuts and tests that already depend on
+    the primary/secondary target state. The visible interaction is the stacked
+    swatch pair inside the colors palette. }
   FColorEditTarget := 0;
   FColorTargetCombo := TComboBox.Create(FColorsPanel);
   FColorTargetCombo.Parent := FColorsPanel;
   FColorTargetCombo.Style := csDropDownList;
-  FColorTargetCombo.Left := 12;
-  FColorTargetCombo.Top := ContentTop;
-  FColorTargetCombo.Width := 130;
+  FColorTargetCombo.Left := 0;
+  FColorTargetCombo.Top := 0;
+  FColorTargetCombo.Width := 0;
   FColorTargetCombo.Items.Add('Primary');
   FColorTargetCombo.Items.Add('Secondary');
   FColorTargetCombo.ItemIndex := 0;
+  FColorTargetCombo.Visible := False;
   FColorTargetCombo.OnChange := @ColorTargetComboChanged;
-  CreateButton('Pick...', 148, ContentTop, 90, @PrimaryColorClick, FColorsPanel);
-  CreateButton('Swap', 12, ContentTop + 28, 110, @SwapColorsClick, FColorsPanel);
-  CreateButton('Mono', 128, ContentTop + 28, 110, @ResetColorsClick, FColorsPanel);
+  FColorPickButton := TColorButton.Create(FColorsPanel);
+  FColorPickButton.Parent := FColorsPanel;
+  FColorPickButton.Left := 12;
+  FColorPickButton.Top := ContentTop;
+  FColorPickButton.Width := 56;
+  FColorPickButton.Height := 26;
+  FColorPickButton.Caption := '';
+  FColorPickButton.Flat := True;
+  FColorPickButton.BorderWidth := 1;
+  FColorPickButton.Hint := 'Open the system color palette for the active swatch';
+  FColorPickButton.ShowHint := True;
+  FColorPickButton.OnColorChanged := @ColorPickButtonChanged;
+  FColorPickButton.ButtonColor := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
 
-  { R/G/B row }
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'R:'; Font.Color := ChromeTextColor; Left := 12; Top := ContentTop + 62; end;
-  FColorRSpin := TSpinEdit.Create(FColorsPanel);
-  FColorRSpin.Parent := FColorsPanel;
-  FColorRSpin.Left := 28; FColorRSpin.Top := ContentTop + 59;
-  FColorRSpin.Width := 56; FColorRSpin.MinValue := 0; FColorRSpin.MaxValue := 255;
-  FColorRSpin.OnChange := @ColorSpinChanged;
+  CreateButton('Swap', 74, ContentTop, 40, @SwapColorsClick, FColorsPanel);
+  CreateButton('Mono', 120, ContentTop, 40, @ResetColorsClick, FColorsPanel);
 
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'G:'; Font.Color := ChromeTextColor; Left := 90; Top := ContentTop + 62; end;
-  FColorGSpin := TSpinEdit.Create(FColorsPanel);
-  FColorGSpin.Parent := FColorsPanel;
-  FColorGSpin.Left := 106; FColorGSpin.Top := ContentTop + 59;
-  FColorGSpin.Width := 56; FColorGSpin.MinValue := 0; FColorGSpin.MaxValue := 255;
-  FColorGSpin.OnChange := @ColorSpinChanged;
+  FColorsBox := TPaintBox.Create(FColorsPanel);
+  FColorsBox.Parent := FColorsPanel;
+  FColorsBox.Left := 12;
+  FColorsBox.Top := ContentTop + 34;
+  FColorsBox.Width := FColorsPanel.Width - 24;
+  FColorsBox.Height := 84;
+  FColorsBox.Anchors := [akLeft, akRight, akTop];
+  FColorsBox.OnPaint := @ColorsBoxPaint;
+  FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
+  FColorsBox.OnMouseMove := @ColorsBoxMouseMove;
 
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'B:'; Font.Color := ChromeTextColor; Left := 168; Top := ContentTop + 62; end;
-  FColorBSpin := TSpinEdit.Create(FColorsPanel);
-  FColorBSpin.Parent := FColorsPanel;
-  FColorBSpin.Left := 184; FColorBSpin.Top := ContentTop + 59;
-  FColorBSpin.Width := 56; FColorBSpin.MinValue := 0; FColorBSpin.MaxValue := 255;
-  FColorBSpin.OnChange := @ColorSpinChanged;
+  FActiveColorHexLabel := TLabel.Create(FColorsPanel);
+  FActiveColorHexLabel.Parent := FColorsPanel;
+  FActiveColorHexLabel.Left := 12;
+  FActiveColorHexLabel.Top := FColorsBox.Top + FColorsBox.Height + 4;
+  FActiveColorHexLabel.Width := FColorsPanel.Width - 24;
+  FActiveColorHexLabel.Height := 16;
+  FActiveColorHexLabel.Font.Color := ChromeTextColor;
+  FActiveColorHexLabel.Font.Size := 9;
 
-  { Alpha row }
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'A:'; Font.Color := ChromeTextColor; Left := 12; Top := ContentTop + 90; end;
-  FColorASpin := TSpinEdit.Create(FColorsPanel);
-  FColorASpin.Parent := FColorsPanel;
-  FColorASpin.Left := 28; FColorASpin.Top := ContentTop + 87;
-  FColorASpin.Width := 56; FColorASpin.MinValue := 0; FColorASpin.MaxValue := 255;
-  FColorASpin.OnChange := @ColorSpinChanged;
-
-  { Hex field }
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := '#:'; Font.Color := ChromeTextColor; Left := 90; Top := ContentTop + 90; end;
-  FColorHexEdit := TEdit.Create(FColorsPanel);
-  FColorHexEdit.Parent := FColorsPanel;
-  FColorHexEdit.Left := 108; FColorHexEdit.Top := ContentTop + 87;
-  FColorHexEdit.Width := 130; FColorHexEdit.MaxLength := 8;
-  FColorHexEdit.Font.Color := ChromeTextColor;
-  FColorHexEdit.OnChange := @ColorHexChanged;
-  FColorHexEdit.Hint := 'Selected color as RRGGBBAA hex';
-  FColorHexEdit.ShowHint := True;
-
-  { H/S/V row }
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'H:'; Font.Color := ChromeTextColor; Left := 12; Top := ContentTop + 118; end;
-  FColorHSpin := TSpinEdit.Create(FColorsPanel);
-  FColorHSpin.Parent := FColorsPanel;
-  FColorHSpin.Left := 28; FColorHSpin.Top := ContentTop + 115;
-  FColorHSpin.Width := 56; FColorHSpin.MinValue := 0; FColorHSpin.MaxValue := 360;
-  FColorHSpin.OnChange := @ColorHSVSpinChanged;
-
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'S:'; Font.Color := ChromeTextColor; Left := 90; Top := ContentTop + 118; end;
-  FColorSSpin := TSpinEdit.Create(FColorsPanel);
-  FColorSSpin.Parent := FColorsPanel;
-  FColorSSpin.Left := 106; FColorSSpin.Top := ContentTop + 115;
-  FColorSSpin.Width := 56; FColorSSpin.MinValue := 0; FColorSSpin.MaxValue := 100;
-  FColorSSpin.OnChange := @ColorHSVSpinChanged;
-
-  with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'V:'; Font.Color := ChromeTextColor; Left := 168; Top := ContentTop + 118; end;
-  FColorVSpin := TSpinEdit.Create(FColorsPanel);
-  FColorVSpin.Parent := FColorsPanel;
-  FColorVSpin.Left := 184; FColorVSpin.Top := ContentTop + 115;
-  FColorVSpin.Width := 56; FColorVSpin.MinValue := 0; FColorVSpin.MaxValue := 100;
-  FColorVSpin.OnChange := @ColorHSVSpinChanged;
-
-  { Secondary color indicator label }
   FColorsValueLabel := TLabel.Create(FColorsPanel);
   FColorsValueLabel.Parent := FColorsPanel;
   FColorsValueLabel.Left := 12;
-  FColorsValueLabel.Top := ContentTop + 146;
-  FColorsValueLabel.Width := 226;
+  FColorsValueLabel.Top := FActiveColorHexLabel.Top + 18;
+  FColorsValueLabel.Width := FColorsPanel.Width - 24;
   FColorsValueLabel.Height := 14;
   FColorsValueLabel.Font.Color := ChromeMutedTextColor;
   FColorsValueLabel.Font.Size := 8;
 
+  FColorSliderBox := TPaintBox.Create(FColorsPanel);
+  FColorSliderBox.Parent := FColorsPanel;
+  FColorSliderBox.Left := 12;
+  FColorSliderBox.Top := FColorsValueLabel.Top + 18;
+  FColorSliderBox.Width := FColorsPanel.Width - 24;
+  FColorSliderBox.Height := 68;
+  FColorSliderBox.Anchors := [akLeft, akRight, akTop];
+  FColorSliderBox.OnPaint := @ColorSliderBoxPaint;
+  FColorSliderBox.OnMouseDown := @ColorSliderBoxMouseDown;
+  FColorSliderBox.OnMouseMove := @ColorSliderBoxMouseMove;
+  FColorSliderBox.OnMouseUp := @ColorSliderBoxMouseUp;
+  FColorSliderBox.Hint := 'Drag H, S, V and A strips to tune the active swatch';
+  FColorSliderBox.ShowHint := True;
+  FColorsPanel.OnResize := @ColorsPanelResize;
+  LayoutColorsPanel;
   RefreshColorsPanel;
-
-  { Color swatch box }
-  FColorsBox := TPaintBox.Create(FColorsPanel);
-  FColorsBox.Parent := FColorsPanel;
-  FColorsBox.Left := 12;
-  FColorsBox.Top := ContentTop + 164;
-  FColorsBox.Width := FColorsPanel.Width - 24;
-  FColorsBox.Height := FColorsPanel.Height - (ContentTop + 176) - 40;
-  FColorsBox.Anchors := [akLeft, akRight, akTop, akBottom];
-  FColorsBox.OnPaint := @ColorsBoxPaint;
-  FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
-
-  { Swatch palette grid — 2 rows x 14 columns of quick-pick colors }
-  FSwatchBox := TPaintBox.Create(FColorsPanel);
-  FSwatchBox.Parent := FColorsPanel;
-  FSwatchBox.Left := 12;
-  FSwatchBox.Top := FColorsBox.Top + FColorsBox.Height + 4;
-  FSwatchBox.Width := FColorsPanel.Width - 24;
-  FSwatchBox.Height := 34;
-  FSwatchBox.Anchors := [akLeft, akRight, akBottom];
-  FSwatchBox.OnPaint := @SwatchBoxPaint;
-  FSwatchBox.OnMouseDown := @SwatchBoxMouseDown;
-  FSwatchBox.Hint := 'Left-click: set primary colour  Right-click: set secondary colour';
-  FSwatchBox.ShowHint := True;
 
   FHistoryPanel := TPanel.Create(Self);
   CreatePalette(FHistoryPanel, pkHistory);
-  CreateButton('Undo', 12, ContentTop, 104, @UndoClick, FHistoryPanel);
-  CreateButton('Redo', 120, ContentTop, 104, @RedoClick, FHistoryPanel);
+  CreateButton('Undo', 12, ContentTop, 26, @UndoClick, FHistoryPanel);
+  CreateButton('Redo', 42, ContentTop, 26, @RedoClick, FHistoryPanel);
   FHistoryValueLabel := TLabel.Create(FHistoryPanel);
   FHistoryValueLabel.Parent := FHistoryPanel;
   FHistoryValueLabel.Left := 12;
@@ -1942,20 +2004,20 @@ begin
   CreatePalette(FRightPanel, pkLayers);
 
   { Row 1: Add / Duplicate / Delete / Merge }
-  CreateButton('+', 12, ContentTop, 30, @AddLayerClick, FRightPanel);
-  CreateButton('Dup', 44, ContentTop, 36, @DuplicateLayerClick, FRightPanel);
-  CreateButton('Del', 82, ContentTop, 36, @DeleteLayerClick, FRightPanel);
-  CreateButton('Mrg', 120, ContentTop, 36, @MergeDownClick, FRightPanel);
+  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel);
+  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel);
+  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel);
+  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel);
   { Row 1 right: Vis / Up / Down }
-  CreateButton('Vis', 158, ContentTop, 34, @ToggleLayerVisibilityClick, FRightPanel);
-  CreateButton('Up', 194, ContentTop, 20, @MoveLayerUpClick, FRightPanel);
-  CreateButton('Dn', 216, ContentTop, 20, @MoveLayerDownClick, FRightPanel);
+  CreateButton('Vis', 132, ContentTop, 26, @ToggleLayerVisibilityClick, FRightPanel);
+  CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel);
+  CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel);
 
   { Row 2: Opacity / Flatten / Rename / Properties }
-  CreateButton('Fade', 12, ContentTop + 28, 52, @LayerOpacityClick, FRightPanel);
-  CreateButton('Flat', 68, ContentTop + 28, 52, @FlattenClick, FRightPanel);
-  CreateButton('Name', 124, ContentTop + 28, 52, @RenameLayerClick, FRightPanel);
-  FLayerPropsButton := CreateButton('Props', 180, ContentTop + 28, 56, @LayerPropertiesClick, FRightPanel);
+  CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel);
+  CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel);
+  CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel);
+  FLayerPropsButton := CreateButton('Props', 102, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel);
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
@@ -2013,21 +2075,77 @@ begin
   FLayerList.OnDrawItem := @LayerListDrawItem;
   FLayerList.OnClick := @LayerListClick;
   FLayerList.OnDblClick := @LayerListDblClick;
+  FLayerList.OnMouseDown := @LayerListMouseDown;
+  FLayerList.OnMouseMove := @LayerListMouseMove;
+  FLayerList.OnMouseUp := @LayerListMouseUp;
+  FRightPanel.OnResize := @LayersPanelResize;
+  LayoutLayersPanel;
 end;
 
-function TMainForm.CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer): TButton;
+function CompactButtonCaption(const ACaption: string): string;
 begin
-  Result := TButton.Create(AParent);
+  Result := ACaption;
+  if ACaption = 'New' then
+    Result := '✚'
+  else if ACaption = 'Open' then
+    Result := '↥'
+  else if ACaption = 'Save' then
+    Result := '↧'
+  else if ACaption = 'Cut' then
+    Result := '✂'
+  else if ACaption = 'Copy' then
+    Result := '⧉'
+  else if ACaption = 'Paste' then
+    Result := '▣'
+  else if ACaption = 'Undo' then
+    Result := '↶'
+  else if ACaption = 'Redo' then
+    Result := '↷'
+  else if ACaption = 'Pick...' then
+    Result := '⌾'
+  else if ACaption = 'Swap' then
+    Result := '⇄'
+  else if ACaption = 'Mono' then
+    Result := '◐'
+  else if ACaption = 'Dup' then
+    Result := '⧉'
+  else if ACaption = 'Del' then
+    Result := '−'
+  else if ACaption = 'Mrg' then
+    Result := '⇣'
+  else if ACaption = 'Vis' then
+    Result := '◉'
+  else if ACaption = 'Up' then
+    Result := '↑'
+  else if ACaption = 'Dn' then
+    Result := '↓'
+  else if ACaption = 'Fade' then
+    Result := '◔'
+  else if ACaption = 'Flat' then
+    Result := '▤'
+  else if ACaption = 'Name' then
+    Result := '✎'
+  else if ACaption = 'Props' then
+    Result := '⚙';
+end;
+
+function TMainForm.CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer): TSpeedButton;
+begin
+  Result := TSpeedButton.Create(AParent);
   Result.Parent := AParent;
-  Result.Caption := ACaption;
+  Result.Caption := CompactButtonCaption(ACaption);
   Result.Left := ALeft;
   Result.Top := ATop;
   Result.Width := AWidth;
   Result.Height := 26;
+  Result.Flat := True;
   Result.Tag := ATag;
   Result.OnClick := AHandler;
   Result.ParentFont := False;
-  Result.Font.Size := 9;
+  if Length(Result.Caption) <= 4 then
+    Result.Font.Size := 10
+  else
+    Result.Font.Size := 9;
   Result.Font.Color := ChromeTextColor;
   Result.Hint := ACaption;
   Result.ShowHint := True;
@@ -2347,6 +2465,8 @@ var
   CaptionText: string;
   Layer: TRasterLayer;
 begin
+  FLayerDragIndex := -1;
+  FLayerDragTargetIndex := -1;
   FLayerList.Items.BeginUpdate;
   try
     FLayerList.Items.Clear;
@@ -2386,257 +2506,350 @@ begin
 end;
 
 procedure TMainForm.RefreshColorsPanel;
-var
-  OtherColor: TRGBA32;
-  OtherName: string;
 begin
-  if FColorEditTarget = 0 then
-  begin
-    OtherColor := FSecondaryColor;
-    OtherName := 'Secondary';
-  end
-  else
-  begin
-    OtherColor := FPrimaryColor;
-    OtherName := 'Primary';
-  end;
+  SyncStrokeColorToActiveTarget;
   if Assigned(FColorsValueLabel) then
-  begin
     FColorsValueLabel.Caption := Format(
-      '%s: #%2.2x%2.2x%2.2x',
+      'FG #%2.2x%2.2x%2.2x%2.2x   BG #%2.2x%2.2x%2.2x%2.2x',
       [
-        OtherName,
-        OtherColor.R,
-        OtherColor.G,
-        OtherColor.B
+        FPrimaryColor.R,
+        FPrimaryColor.G,
+        FPrimaryColor.B,
+        FPrimaryColor.A,
+        FSecondaryColor.R,
+        FSecondaryColor.G,
+        FSecondaryColor.B,
+        FSecondaryColor.A
       ]
     );
+  if Assigned(FActiveColorHexLabel) then
+  begin
+    if FColorEditTarget = 0 then
+      FActiveColorHexLabel.Caption := Format(
+        'Active: Foreground  #%2.2x%2.2x%2.2x%2.2x',
+        [
+          FPrimaryColor.R,
+          FPrimaryColor.G,
+          FPrimaryColor.B,
+          FPrimaryColor.A
+        ]
+      )
+    else
+      FActiveColorHexLabel.Caption := Format(
+        'Active: Background  #%2.2x%2.2x%2.2x%2.2x',
+        [
+          FSecondaryColor.R,
+          FSecondaryColor.G,
+          FSecondaryColor.B,
+          FSecondaryColor.A
+        ]
+      );
   end;
+  if Assigned(FColorPickButton) then
+  begin
+    if FColorEditTarget = 0 then
+      FColorPickButton.Hint := 'Open the system color palette for the foreground swatch'
+    else
+      FColorPickButton.Hint := 'Open the system color palette for the background swatch';
+  end;
+  if Assigned(FColorTargetCombo) and (FColorTargetCombo.ItemIndex <> FColorEditTarget) then
+    FColorTargetCombo.ItemIndex := FColorEditTarget;
   UpdateColorSpins;
   if Assigned(FColorsBox) then
     FColorsBox.Invalidate;
+  if Assigned(FColorSliderBox) then
+    FColorSliderBox.Invalidate;
+  if Assigned(FSwatchBox) then
+    FSwatchBox.Invalidate;
 end;
 
 procedure TMainForm.ColorsBoxPaint(Sender: TObject);
+const
+  SwatchMargin = 10;
+  SwatchOffset = 16;
+  TileSize = 6;
 var
   PB: TPaintBox;
   C: TCanvas;
-  W, H: Integer;
-  CenterX, CenterY: Integer;
-  Radius: Integer;
-  X, Y: Integer;
-  DX, DY: Double;
-  Dist, Angle: Double;
-  Hue, Sat: Double;
-  R, G, B: Byte;
-  SliderLeft, SliderTop, SliderWidth, SliderHeight: Integer;
-  CurH, CurS, CurV: Double;
-  MarkerX, MarkerY: Integer;
-  ValY: Integer;
-  EditColor: TRGBA32;
+  SwatchSize: Integer;
+  FrontRect: TRect;
+  BackRect: TRect;
+  TileX: Integer;
+  TileY: Integer;
+  TextLeft: Integer;
 begin
-  if not Assigned(Sender) then Exit;
+  if not Assigned(Sender) then
+    Exit;
   PB := TPaintBox(Sender);
   C := PB.Canvas;
-  W := PB.Width;
-  H := PB.Height;
   C.Brush.Style := bsSolid;
   C.Brush.Color := PaletteSurfaceColor(pkColors, False);
-  C.FillRect(Rect(0, 0, W, H));
+  C.FillRect(Rect(0, 0, PB.Width, PB.Height));
 
-  { Draw circular HSV wheel based on the currently selected edit color }
-  if FColorEditTarget = 0 then
-    EditColor := FPrimaryColor
-  else
-    EditColor := FSecondaryColor;
+  SwatchSize := Min(46, Max(26, PB.Height - 24));
+  BackRect := Rect(
+    SwatchMargin,
+    PB.Height - SwatchMargin - SwatchSize,
+    SwatchMargin + SwatchSize,
+    PB.Height - SwatchMargin
+  );
+  FrontRect := Rect(
+    SwatchMargin + SwatchOffset,
+    SwatchMargin,
+    SwatchMargin + SwatchOffset + SwatchSize,
+    SwatchMargin + SwatchSize
+  );
 
-  Radius := Min(W - 24, H - 36) div 2;
-  if Radius < 10 then Exit;
-  CenterX := W div 2;
-  CenterY := Radius + 2;
-
-  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
-
-  for Y := CenterY - Radius to CenterY + Radius do
-    for X := CenterX - Radius to CenterX + Radius do
+  for TileY := Max(0, BackRect.Top - 3) to Min(PB.Height - 1, BackRect.Bottom + 3) do
+    for TileX := Max(0, BackRect.Left - 3) to Min(PB.Width - 1, BackRect.Right + 3) do
     begin
-      DX := X - CenterX;
-      DY := Y - CenterY;
-      Dist := Sqrt(DX * DX + DY * DY);
-      if Dist > Radius then Continue;
-      Angle := ArcTan2(DY, DX);
-      if Angle < 0 then Angle := Angle + 2 * Pi;
-      Hue := Angle / (2 * Pi);
-      Sat := Dist / Radius;
-      HSVToRGB(Hue, Sat, CurV, R, G, B);
-      C.Pixels[X, Y] := RGBToColor(R, G, B);
+      if (((TileX - BackRect.Left) div TileSize) + ((TileY - BackRect.Top) div TileSize)) mod 2 = 0 then
+        C.Pixels[TileX, TileY] := RGBToColor(236, 238, 242)
+      else
+        C.Pixels[TileX, TileY] := RGBToColor(214, 217, 223);
+    end;
+  for TileY := Max(0, FrontRect.Top - 3) to Min(PB.Height - 1, FrontRect.Bottom + 3) do
+    for TileX := Max(0, FrontRect.Left - 3) to Min(PB.Width - 1, FrontRect.Right + 3) do
+    begin
+      if (((TileX - FrontRect.Left) div TileSize) + ((TileY - FrontRect.Top) div TileSize)) mod 2 = 0 then
+        C.Pixels[TileX, TileY] := RGBToColor(236, 238, 242)
+      else
+        C.Pixels[TileX, TileY] := RGBToColor(214, 217, 223);
     end;
 
-  { Current color marker on wheel }
-  MarkerX := CenterX + Round(CurS * Radius * Cos(CurH * 2 * Pi));
-  MarkerY := CenterY + Round(CurS * Radius * Sin(CurH * 2 * Pi));
-  C.Pen.Color := clWhite;
-  C.Pen.Width := 2;
-  C.Brush.Style := bsClear;
-  C.Ellipse(MarkerX - 5, MarkerY - 5, MarkerX + 5, MarkerY + 5);
-  C.Pen.Color := clBlack;
-  C.Pen.Width := 1;
-  C.Ellipse(MarkerX - 6, MarkerY - 6, MarkerX + 6, MarkerY + 6);
-
-  { Draw value (brightness) slider below the wheel }
-  SliderLeft := CenterX - Radius;
-  SliderTop := CenterY + Radius + 6;
-  SliderWidth := Radius * 2;
-  SliderHeight := 14;
-  for X := SliderLeft to SliderLeft + SliderWidth - 1 do
-  begin
-    HSVToRGB(CurH, CurS, (X - SliderLeft) / Max(1, SliderWidth - 1), R, G, B);
-    C.Pen.Color := RGBToColor(R, G, B);
-    C.MoveTo(X, SliderTop);
-    C.LineTo(X, SliderTop + SliderHeight);
-  end;
-  C.Brush.Style := bsClear;
-  C.Pen.Color := ChromeDividerColor;
-  C.Rectangle(SliderLeft, SliderTop, SliderLeft + SliderWidth, SliderTop + SliderHeight);
-  { Value position indicator }
-  ValY := SliderLeft + Round(CurV * Max(1, SliderWidth - 1));
-  C.Pen.Color := clWhite;
-  C.Pen.Width := 2;
-  C.MoveTo(ValY, SliderTop - 1);
-  C.LineTo(ValY, SliderTop + SliderHeight + 1);
-  C.Pen.Width := 1;
-
-  { Primary/secondary color preview rectangles }
-  C.Brush.Style := bsSolid;
-  C.Pen.Color := ChromeDividerColor;
   C.Brush.Color := RGBToColor(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B);
-  C.Rectangle(W - 30, SliderTop + SliderHeight + 6, W - 6, SliderTop + SliderHeight + 26);
-  C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
-  C.Rectangle(6, SliderTop + SliderHeight + 6, 30, SliderTop + SliderHeight + 26);
+  C.Pen.Color := ChromeDividerColor;
+  C.Rectangle(BackRect.Left, BackRect.Top, BackRect.Right, BackRect.Bottom);
 
-  { Active slot indicator notch (small triangle) }
-  C.Pen.Width := 1;
-  C.Brush.Style := bsSolid;
-  C.Brush.Color := PaletteSelectionTextColor;
-  if FColorEditTarget = 0 then
-  begin
-    { mark primary rectangle top-left corner }
-    C.Polygon([Point(6, SliderTop + SliderHeight + 6),
-               Point(12, SliderTop + SliderHeight + 6),
-               Point(6, SliderTop + SliderHeight + 12)]);
-  end
-  else
-  begin
-    { mark secondary rectangle top-left of its box }
-    C.Polygon([Point(W - 30, SliderTop + SliderHeight + 6),
-               Point(W - 24, SliderTop + SliderHeight + 6),
-               Point(W - 30, SliderTop + SliderHeight + 12)]);
-  end;
+  C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
+  C.Pen.Color := ChromeDividerColor;
+  C.Rectangle(FrontRect.Left, FrontRect.Top, FrontRect.Right, FrontRect.Bottom);
+
   C.Brush.Style := bsClear;
-  C.Pen.Color := clBlack;
-  { reset pen width if caller relies on default }
+  C.Pen.Width := 2;
+  C.Pen.Color := PaletteSelectionColor;
+  if FColorEditTarget = 0 then
+    C.Rectangle(FrontRect.Left - 2, FrontRect.Top - 2, FrontRect.Right + 2, FrontRect.Bottom + 2)
+  else
+    C.Rectangle(BackRect.Left - 2, BackRect.Top - 2, BackRect.Right + 2, BackRect.Bottom + 2);
   C.Pen.Width := 1;
+  C.Pen.Color := ChromeDividerColor;
+
+  TextLeft := FrontRect.Right + 18;
+  C.Font.Color := ChromeTextColor;
+  if FColorEditTarget = 0 then
+    C.TextOut(TextLeft, 18, 'Editing foreground')
+  else
+    C.TextOut(TextLeft, 18, 'Editing background');
+  C.Font.Color := ChromeMutedTextColor;
+  C.TextOut(TextLeft, 38, 'Click either swatch to switch');
+  C.TextOut(TextLeft, 56, 'System picker stays in sync');
 end;
 
 procedure TMainForm.ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+const
+  SwatchMargin = 10;
+  SwatchOffset = 16;
 var
   PB: TPaintBox;
-  W, H: Integer;
-  Radius: Integer;
-  CenterX, CenterY: Integer;
-  DX, DY, Dist, Angle: Double;
-  CurH, CurS, CurV: Double;
-  NewH, NewS, NewV: Double;
-  SliderLeft, SliderTop, SliderWidth, SliderHeight: Integer;
-  PickedR, PickedG, PickedB: Byte;
-  EditColor: TRGBA32;
+  SwatchSize: Integer;
+  FrontRect: TRect;
+  BackRect: TRect;
 begin
-  if not Assigned(Sender) then Exit;
+  if Button <> mbLeft then
+    Exit;
+  if not Assigned(Sender) then
+    Exit;
   PB := TPaintBox(Sender);
-  W := PB.Width;
-  H := PB.Height;
+  SwatchSize := Min(46, Max(26, PB.Height - 24));
+  BackRect := Rect(
+    SwatchMargin,
+    PB.Height - SwatchMargin - SwatchSize,
+    SwatchMargin + SwatchSize,
+    PB.Height - SwatchMargin
+  );
+  FrontRect := Rect(
+    SwatchMargin + SwatchOffset,
+    SwatchMargin,
+    SwatchMargin + SwatchOffset + SwatchSize,
+    SwatchMargin + SwatchSize
+  );
 
-  Radius := Min(W - 24, H - 36) div 2;
-  if Radius < 10 then Exit;
-  CenterX := W div 2;
-  CenterY := Radius + 2;
+  if (X >= FrontRect.Left) and (X < FrontRect.Right) and
+     (Y >= FrontRect.Top) and (Y < FrontRect.Bottom) then
+    FColorEditTarget := 0
+  else if (X >= BackRect.Left) and (X < BackRect.Right) and
+          (Y >= BackRect.Top) and (Y < BackRect.Bottom) then
+    FColorEditTarget := 1
+  else
+    Exit;
+  RefreshColorsPanel;
+end;
+
+procedure TMainForm.ColorsBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+begin
+  if ssLeft in Shift then
+    ColorsBoxMouseDown(Sender, mbLeft, Shift, X, Y);
+end;
+
+procedure TMainForm.ColorPickButtonChanged(Sender: TObject);
+var
+  PickedColor: TColor;
+begin
+  if FUpdatingColorSpins then
+    Exit;
+  if not Assigned(FColorPickButton) then
+    Exit;
+  PickedColor := ColorToRGB(FColorPickButton.ButtonColor);
+  if FColorEditTarget = 0 then
+    FPrimaryColor := RGBA(
+      Byte(PickedColor and $FF),
+      Byte((PickedColor shr 8) and $FF),
+      Byte((PickedColor shr 16) and $FF),
+      FPrimaryColor.A
+    )
+  else
+    FSecondaryColor := RGBA(
+      Byte(PickedColor and $FF),
+      Byte((PickedColor shr 8) and $FF),
+      Byte((PickedColor shr 16) and $FF),
+      FSecondaryColor.A
+    );
+  RefreshColorsPanel;
+end;
+
+procedure TMainForm.ColorSliderBoxPaint(Sender: TObject);
+var
+  PB: TPaintBox;
+  BarIndex: Integer;
+  BarTop: Integer;
+  BarHeight: Integer;
+  BarGap: Integer;
+  BarLeft: Integer;
+  BarWidth: Integer;
+  X: Integer;
+  CurH: Double;
+  CurS: Double;
+  CurV: Double;
+  R: Byte;
+  G: Byte;
+  B: Byte;
+  EditColor: TRGBA32;
+  MarkerX: Integer;
+  LabelText: string;
+  AlphaShade: Byte;
+begin
+  if not Assigned(Sender) then
+    Exit;
+  PB := TPaintBox(Sender);
+  PB.Canvas.Brush.Color := PaletteSurfaceColor(pkColors, False);
+  PB.Canvas.FillRect(Rect(0, 0, PB.Width, PB.Height));
 
   if FColorEditTarget = 0 then
     EditColor := FPrimaryColor
   else
     EditColor := FSecondaryColor;
-
   RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
 
-  { Check if click is on the value slider }
-  SliderLeft := CenterX - Radius;
-  SliderTop := CenterY + Radius + 6;
-  SliderWidth := Radius * 2;
-  SliderHeight := 14;
-
-  if (Y >= SliderTop) and (Y <= SliderTop + SliderHeight) and
-     (X >= SliderLeft) and (X <= SliderLeft + SliderWidth) then
+  BarHeight := 13;
+  BarGap := 3;
+  BarLeft := 18;
+  BarWidth := Max(24, PB.Width - BarLeft - 6);
+  for BarIndex := 0 to 3 do
   begin
-    { Adjust value/brightness for whichever color is currently selected }
-    NewV := EnsureRange((X - SliderLeft) / Max(1, SliderWidth - 1), 0.0, 1.0);
-    HSVToRGB(CurH, CurS, NewV, PickedR, PickedG, PickedB);
-    if FColorEditTarget = 0 then
-      FPrimaryColor := RGBA(PickedR, PickedG, PickedB, FPrimaryColor.A)
+    BarTop := 2 + BarIndex * (BarHeight + BarGap);
+    case BarIndex of
+      0:
+        for X := 0 to BarWidth - 1 do
+        begin
+          HSVToRGB(X / Max(1, BarWidth - 1), 1.0, 1.0, R, G, B);
+          PB.Canvas.Pen.Color := RGBToColor(R, G, B);
+          PB.Canvas.MoveTo(BarLeft + X, BarTop);
+          PB.Canvas.LineTo(BarLeft + X, BarTop + BarHeight);
+        end;
+      1:
+        for X := 0 to BarWidth - 1 do
+        begin
+          HSVToRGB(CurH, X / Max(1, BarWidth - 1), CurV, R, G, B);
+          PB.Canvas.Pen.Color := RGBToColor(R, G, B);
+          PB.Canvas.MoveTo(BarLeft + X, BarTop);
+          PB.Canvas.LineTo(BarLeft + X, BarTop + BarHeight);
+        end;
+      2:
+        for X := 0 to BarWidth - 1 do
+        begin
+          HSVToRGB(CurH, CurS, X / Max(1, BarWidth - 1), R, G, B);
+          PB.Canvas.Pen.Color := RGBToColor(R, G, B);
+          PB.Canvas.MoveTo(BarLeft + X, BarTop);
+          PB.Canvas.LineTo(BarLeft + X, BarTop + BarHeight);
+        end;
     else
-      FSecondaryColor := RGBA(PickedR, PickedG, PickedB, FSecondaryColor.A);
-    RefreshColorsPanel;
-    PB.Invalidate;
-    Exit;
-  end;
-
-  { Check if click is in the wheel area }
-  DX := X - CenterX;
-  DY := Y - CenterY;
-  Dist := Sqrt(DX * DX + DY * DY);
-  if Dist <= Radius then
-  begin
-    Angle := ArcTan2(DY, DX);
-    if Angle < 0 then Angle := Angle + 2 * Pi;
-    NewH := Angle / (2 * Pi);
-    NewS := EnsureRange(Dist / Radius, 0.0, 1.0);
-    HSVToRGB(NewH, NewS, CurV, PickedR, PickedG, PickedB);
-    if FColorEditTarget = 0 then
-      FPrimaryColor := RGBA(PickedR, PickedG, PickedB, FPrimaryColor.A)
+      for X := 0 to BarWidth - 1 do
+      begin
+        AlphaShade := EnsureRange(Round(X * 255.0 / Max(1, BarWidth - 1)), 0, 255);
+        PB.Canvas.Pen.Color := RGBToColor(AlphaShade, AlphaShade, AlphaShade);
+        PB.Canvas.MoveTo(BarLeft + X, BarTop);
+        PB.Canvas.LineTo(BarLeft + X, BarTop + BarHeight);
+      end;
+    end;
+    PB.Canvas.Brush.Style := bsClear;
+    PB.Canvas.Pen.Color := ChromeDividerColor;
+    PB.Canvas.Rectangle(BarLeft, BarTop, BarLeft + BarWidth, BarTop + BarHeight);
+    case BarIndex of
+      0: LabelText := 'H';
+      1: LabelText := 'S';
+      2: LabelText := 'V';
     else
-      FSecondaryColor := RGBA(PickedR, PickedG, PickedB, FSecondaryColor.A);
-    RefreshColorsPanel;
-    PB.Invalidate;
-  end;
-
-  { Check if click is on the primary preview rectangle (bottom left) }
-  SliderLeft := CenterX - Radius;
-  SliderTop := CenterY + Radius + 6;
-  SliderWidth := Radius * 2;
-  SliderHeight := 14;
-  if (X >= 6) and (X <= 30) and
-     (Y >= SliderTop + SliderHeight + 6) and (Y <= SliderTop + SliderHeight + 26) then
-  begin
-    FColorEditTarget := 0;
-    if Assigned(FColorTargetCombo) then FColorTargetCombo.ItemIndex := 0;
-    RefreshColorsPanel;
-    Exit;
-  end;
-  { Check if click is on the secondary preview rectangle (bottom right) }
-  if (X >= W - 30) and (X <= W - 6) and
-     (Y >= SliderTop + SliderHeight + 6) and (Y <= SliderTop + SliderHeight + 26) then
-  begin
-    FColorEditTarget := 1;
-    if Assigned(FColorTargetCombo) then FColorTargetCombo.ItemIndex := 1;
-    RefreshColorsPanel;
-    Exit;
+      LabelText := 'A';
+    end;
+    PB.Canvas.Font.Color := ChromeTextColor;
+    PB.Canvas.TextOut(4, BarTop, LabelText);
+    case BarIndex of
+      0:
+        MarkerX := BarLeft + Round(CurH * Max(1, BarWidth - 1));
+      1:
+        MarkerX := BarLeft + Round(CurS * Max(1, BarWidth - 1));
+      2:
+        MarkerX := BarLeft + Round(CurV * Max(1, BarWidth - 1));
+    else
+      MarkerX := BarLeft + Round(EditColor.A * Max(1, BarWidth - 1) / 255.0);
+    end;
+    PB.Canvas.Pen.Color := clWhite;
+    PB.Canvas.Pen.Width := 2;
+    PB.Canvas.MoveTo(MarkerX, BarTop - 1);
+    PB.Canvas.LineTo(MarkerX, BarTop + BarHeight + 1);
+    PB.Canvas.Pen.Width := 1;
+    PB.Canvas.Brush.Style := bsSolid;
   end;
 end;
 
+procedure TMainForm.ColorSliderBoxMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button <> mbLeft then
+    Exit;
+  FActiveColorSlider := EnsureRange(Y div 16, 0, 3);
+  ApplyColorSliderAt(X, Y);
+end;
+
+procedure TMainForm.ColorSliderBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+begin
+  if (ssLeft in Shift) and (FActiveColorSlider >= 0) then
+    ApplyColorSliderAt(X, Y);
+end;
+
+procedure TMainForm.ColorSliderBoxMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button = mbLeft then
+    FActiveColorSlider := -1;
+end;
+
 procedure TMainForm.SwatchBoxPaint(Sender: TObject);
-{ Draw 2 rows × 14 columns of colour swatches; separating gaps are 1 px. }
+{ Draw 8 rows × 12 columns of colour swatches; separating gaps are 1 px. }
 const
-  Cols = 14;
-  Rows = 2;
+  Cols = 12;
+  Rows = 8;
 var
   PB: TPaintBox;
   CellW, CellH, Gap, Row, Col, Idx: Integer;
@@ -2652,7 +2865,7 @@ begin
     for Col := 0 to Cols - 1 do
     begin
       Idx := Row * Cols + Col;
-      if (Idx < 0) or (Idx > 27) then Continue;
+      if (Idx < Low(FSwatchColors)) or (Idx > High(FSwatchColors)) then Continue;
       C := FSwatchColors[Idx];
       SR.Left   := Col * (CellW + Gap);
       SR.Top    := Row * (CellH + Gap);
@@ -2669,8 +2882,8 @@ procedure TMainForm.SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 { Left-click sets primary; right-click sets secondary. }
 const
-  Cols = 14;
-  Rows = 2;
+  Cols = 12;
+  Rows = 8;
 var
   PB: TPaintBox;
   CellW, CellH, Gap, Col, Row, Idx: Integer;
@@ -2685,7 +2898,7 @@ begin
   Col := EnsureRange(X div Max(1, CellW + Gap), 0, Cols - 1);
   Row := EnsureRange(Y div Max(1, CellH + Gap), 0, Rows - 1);
   Idx := Row * Cols + Col;
-  if (Idx < 0) or (Idx > 27) then Exit;
+  if (Idx < Low(FSwatchColors)) or (Idx > High(FSwatchColors)) then Exit;
   C := FSwatchColors[Idx];
   if Button = mbLeft then
   begin
@@ -2892,6 +3105,7 @@ begin
     FColorEditTarget := 0;
   if Assigned(FColorTargetCombo) then
     FColorTargetCombo.ItemIndex := FColorEditTarget;
+  SyncStrokeColorToActiveTarget;
   { Avoid triggering heavier UI/paint logic during headless tests; tests
     only need the state and combo to be updated. } 
 end;
@@ -3360,6 +3574,153 @@ begin
     ClampPaletteToWorkspace(ATarget);
 end;
 
+procedure TMainForm.ApplyColorSliderAt(X, Y: Integer);
+var
+  EditColor: TRGBA32;
+  BarIndex: Integer;
+  BarLeft: Integer;
+  BarWidth: Integer;
+  HueValue: Double;
+  SatValue: Double;
+  ValValue: Double;
+  AlphaValue: Integer;
+  NewR: Byte;
+  NewG: Byte;
+  NewB: Byte;
+begin
+  if not Assigned(FColorSliderBox) then
+    Exit;
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, HueValue, SatValue, ValValue);
+  if FActiveColorSlider >= 0 then
+    BarIndex := FActiveColorSlider
+  else
+    BarIndex := EnsureRange(Y div 16, 0, 3);
+  BarLeft := 18;
+  BarWidth := Max(24, FColorSliderBox.Width - BarLeft - 6);
+  case BarIndex of
+    0:
+      HueValue := EnsureRange((X - BarLeft) / Max(1, BarWidth - 1), 0.0, 1.0);
+    1:
+      SatValue := EnsureRange((X - BarLeft) / Max(1, BarWidth - 1), 0.0, 1.0);
+    2:
+      ValValue := EnsureRange((X - BarLeft) / Max(1, BarWidth - 1), 0.0, 1.0);
+  else
+    AlphaValue := EnsureRange(Round((X - BarLeft) * 255.0 / Max(1, BarWidth - 1)), 0, 255);
+    EditColor := RGBA(EditColor.R, EditColor.G, EditColor.B, AlphaValue);
+  end;
+  if BarIndex <> 3 then
+  begin
+    HSVToRGB(HueValue, SatValue, ValValue, NewR, NewG, NewB);
+    EditColor := RGBA(NewR, NewG, NewB, EditColor.A);
+  end;
+  if FColorEditTarget = 0 then
+    FPrimaryColor := EditColor
+  else
+    FSecondaryColor := EditColor;
+  RefreshColorsPanel;
+end;
+
+procedure TMainForm.LayoutColorsPanel;
+const
+  Margin = 12;
+  Gap = 6;
+  BottomMargin = 12;
+  ButtonHeight = 26;
+  SwatchHeight = 84;
+  SliderHeight = 68;
+  ContentTop = 30;
+begin
+  if not Assigned(FColorsPanel) then
+    Exit;
+  if Assigned(FColorPickButton) then
+  begin
+    FColorPickButton.Left := Margin;
+    FColorPickButton.Top := ContentTop;
+    FColorPickButton.Width := 56;
+    FColorPickButton.Height := ButtonHeight;
+  end;
+  if Assigned(FColorPickButton) and Assigned(FColorsBox) then
+  begin
+    FColorsBox.Left := Margin;
+    FColorsBox.Top := FColorPickButton.Top + ButtonHeight + Gap;
+    FColorsBox.Width := FColorsPanel.Width - Margin * 2;
+    FColorsBox.Height := SwatchHeight;
+  end;
+  if Assigned(FActiveColorHexLabel) and Assigned(FColorsBox) then
+  begin
+    FActiveColorHexLabel.Left := Margin;
+    FActiveColorHexLabel.Top := FColorsBox.Top + FColorsBox.Height + 4;
+    FActiveColorHexLabel.Width := FColorsPanel.Width - Margin * 2;
+  end;
+  if Assigned(FColorsValueLabel) then
+  begin
+    FColorsValueLabel.Left := Margin;
+    if Assigned(FActiveColorHexLabel) then
+      FColorsValueLabel.Top := FActiveColorHexLabel.Top + FActiveColorHexLabel.Height + 2
+    else
+      FColorsValueLabel.Top := ContentTop + ButtonHeight + Gap + SwatchHeight + 22;
+    FColorsValueLabel.Width := FColorsPanel.Width - Margin * 2;
+  end;
+  if Assigned(FColorSliderBox) then
+  begin
+    FColorSliderBox.Left := Margin;
+    FColorSliderBox.Top := FColorsValueLabel.Top + FColorsValueLabel.Height + Gap;
+    FColorSliderBox.Width := FColorsPanel.Width - Margin * 2;
+    FColorSliderBox.Height := Min(
+      SliderHeight,
+      Max(48, FColorsPanel.Height - FColorSliderBox.Top - BottomMargin)
+    );
+  end;
+  if Assigned(FSwatchBox) then
+  begin
+    FSwatchBox.Left := Margin;
+    if Assigned(FColorSliderBox) then
+      FSwatchBox.Top := FColorSliderBox.Top + FColorSliderBox.Height + Gap
+    else
+      FSwatchBox.Top := ContentTop + ButtonHeight + Gap + SwatchHeight + Gap + SliderHeight;
+    FSwatchBox.Width := FColorsPanel.Width - Margin * 2;
+    FSwatchBox.Height := 0;
+    FSwatchBox.Visible := False;
+  end;
+end;
+
+procedure TMainForm.LayoutLayersPanel;
+const
+  Margin = 12;
+  ContentTop = 30;
+  ListTop = ContentTop + 118;
+  BottomMargin = 12;
+begin
+  if not Assigned(FRightPanel) or not Assigned(FLayerList) then
+    Exit;
+  FLayerList.Left := Margin;
+  FLayerList.Top := ListTop;
+  FLayerList.Width := FRightPanel.Width - Margin * 2;
+  FLayerList.Height := Max(80, FRightPanel.Height - ListTop - BottomMargin);
+end;
+
+procedure TMainForm.ColorsPanelResize(Sender: TObject);
+begin
+  LayoutColorsPanel;
+  if Assigned(FColorsBox) then
+    FColorsBox.Invalidate;
+  if Assigned(FColorSliderBox) then
+    FColorSliderBox.Invalidate;
+  if Assigned(FSwatchBox) then
+    FSwatchBox.Invalidate;
+end;
+
+procedure TMainForm.LayersPanelResize(Sender: TObject);
+begin
+  LayoutLayersPanel;
+  if Assigned(FLayerList) then
+    FLayerList.Invalidate;
+end;
+
 function TMainForm.ConfirmDocumentReplacement(const AAction: string): Boolean;
 var
   Choice: Integer;
@@ -3590,6 +3951,11 @@ end;
 procedure TMainForm.ApplyImmediateTool(const APoint: TPoint);
 var
   CompositeSurface: TRasterSurface;
+  Radius: Integer;
+  DestX: Integer;
+  DestY: Integer;
+  SourceX: Integer;
+  SourceY: Integer;
 begin
   case FCurrentTool of
     tkPencil:
@@ -3659,20 +4025,33 @@ begin
         APoint.X,
         APoint.Y,
         Max(1, FBrushSize div 2),
-        FPrimaryColor,
-        FSecondaryColor,
-        EnsureRange(FWandTolerance, 0, 255)
+        ColorForActiveTarget(not FPickSecondaryTarget),
+        ActivePaintColor,
+        EnsureRange(FWandTolerance, 0, 255),
+        FBrushOpacity * 255 div 100
       );
     tkCloneStamp:
       if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
       begin
-        { Paint from snapshot at the offset relative to source point }
-        FDocument.ActiveLayer.Surface.PasteSurface(
-          FCloneStampSnapshot,
-          FCloneStampSource.X + (APoint.X - FDragStart.X) - Max(1, FBrushSize div 2),
-          FCloneStampSource.Y + (APoint.Y - FDragStart.Y) - Max(1, FBrushSize div 2),
-          255
-        );
+        { Clone only within the active brush radius, keeping the source offset stable
+          across the stroke. }
+        Radius := Max(1, FBrushSize div 2);
+        for DestY := Max(0, APoint.Y - Radius) to Min(FDocument.Height - 1, APoint.Y + Radius) do
+          for DestX := Max(0, APoint.X - Radius) to Min(FDocument.Width - 1, APoint.X + Radius) do
+          begin
+            if Round(Sqrt(Sqr(DestX - APoint.X) + Sqr(DestY - APoint.Y))) > Radius then
+              Continue;
+            SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
+            SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
+            if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
+              Continue;
+            FDocument.ActiveLayer.Surface.BlendPixel(
+              DestX,
+              DestY,
+              FCloneStampSnapshot[SourceX, SourceY],
+              FBrushOpacity * 255 div 100
+            );
+          end;
       end;
   end;
   FLastImagePoint := APoint;
@@ -3785,12 +4164,17 @@ begin
             Max(1, FBrushSize div 3), ActivePaintColor, False);
       end;
     tkFreeformShape:
-      FDocument.ActiveLayer.Surface.DrawPolygon(
-        FLassoPoints,
-        Max(1, FBrushSize div 3),
-        ActivePaintColor,
-        True
-      );
+      begin
+        if DoFill then
+          FDocument.ActiveLayer.Surface.FillPolygon(FLassoPoints, FillColor);
+        if DoOutline then
+          FDocument.ActiveLayer.Surface.DrawPolygon(
+            FLassoPoints,
+            Max(1, FBrushSize div 3),
+            ActivePaintColor,
+            True
+          );
+      end;
   end;
 end;
 
@@ -4692,38 +5076,17 @@ begin
 end;
 
 procedure TMainForm.PrimaryColorClick(Sender: TObject);
-var
-  Dialog: TColorDialog;
-  SelectedColor: TRGBA32;
 begin
-  Dialog := TColorDialog.Create(Self);
-  try
-    if FColorEditTarget = 0 then
-      SelectedColor := FPrimaryColor
-    else
-      SelectedColor := FSecondaryColor;
-    Dialog.Color := RGBToColor(SelectedColor.R, SelectedColor.G, SelectedColor.B);
-    if Dialog.Execute then
-    begin
-      if FColorEditTarget = 0 then
-        FPrimaryColor := UIToRGBA(Dialog.Color)
-      else
-        FSecondaryColor := UIToRGBA(Dialog.Color);
-    end;
-  finally
-    Dialog.Free;
-  end;
-  RefreshColorsPanel;
+  if Assigned(FColorPickButton) then
+    FColorPickButton.Click;
 end;
 
 procedure TMainForm.SecondaryColorClick(Sender: TObject);
 begin
-  { Legacy handler — now unused; color selection uses the combo dropdown }
-  if Assigned(FColorTargetCombo) then
-  begin
-    FColorTargetCombo.ItemIndex := 1;
-    ColorTargetComboChanged(FColorTargetCombo);
-  end;
+  FColorEditTarget := 1;
+  RefreshColorsPanel;
+  if Assigned(FColorPickButton) then
+    FColorPickButton.Click;
 end;
 
 procedure TMainForm.ZoomInClick(Sender: TObject);
@@ -5054,7 +5417,8 @@ begin
   case FCurrentTool of
     tkMagicWand:
       FWandTolerance := EnsureRange(FBrushSpin.Value, 0, 255);
-    tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
+    tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
+    tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
       FBrushSize := Max(1, FBrushSpin.Value);
   end;
 end;
@@ -5094,6 +5458,11 @@ begin
   begin
     BgCol  := PaletteSelectionColor;
     TextCol := PaletteSelectionTextColor;
+  end
+  else if (FLayerDragIndex >= 0) and (FLayerDragTargetIndex = Index) then
+  begin
+    BgCol := PaletteActiveRowColor;
+    TextCol := ChromeTextColor;
   end
   else
   begin
@@ -5199,6 +5568,79 @@ end;
 procedure TMainForm.LayerListDblClick(Sender: TObject);
 begin
   ToggleLayerVisibilityClick(Sender);
+end;
+
+procedure TMainForm.LayerListMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+var
+  HitIndex: Integer;
+begin
+  if (Button <> mbLeft) or not Assigned(FLayerList) then
+    Exit;
+  HitIndex := FLayerList.ItemAtPos(Point(4, Y), True);
+  if (HitIndex < 0) or (HitIndex >= FDocument.LayerCount) then
+    Exit;
+  FLayerDragIndex := HitIndex;
+  FLayerDragTargetIndex := HitIndex;
+  FLayerList.ItemIndex := HitIndex;
+  LayerListClick(Sender);
+  FLayerList.Invalidate;
+end;
+
+procedure TMainForm.LayerListMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  HoverIndex: Integer;
+begin
+  if not Assigned(FLayerList) then
+    Exit;
+  if (FLayerDragIndex >= 0) and not (ssLeft in Shift) then
+  begin
+    FLayerDragIndex := -1;
+    FLayerDragTargetIndex := -1;
+    FLayerList.Invalidate;
+    Exit;
+  end;
+  if (FLayerDragIndex < 0) or not (ssLeft in Shift) then
+    Exit;
+  HoverIndex := FLayerList.ItemAtPos(Point(4, Y), True);
+  if HoverIndex < 0 then
+  begin
+    if Y < 0 then
+      HoverIndex := 0
+    else
+      HoverIndex := FDocument.LayerCount - 1;
+  end;
+  HoverIndex := EnsureRange(HoverIndex, 0, FDocument.LayerCount - 1);
+  if HoverIndex = FLayerDragTargetIndex then
+    Exit;
+  FLayerDragTargetIndex := HoverIndex;
+  FLayerList.Invalidate;
+end;
+
+procedure TMainForm.LayerListMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+var
+  DropIndex: Integer;
+begin
+  if (Button <> mbLeft) or not Assigned(FLayerList) then
+    Exit;
+  if FLayerDragIndex < 0 then
+    Exit;
+  DropIndex := FLayerList.ItemAtPos(Point(4, Y), True);
+  if DropIndex < 0 then
+    DropIndex := FLayerDragTargetIndex;
+  DropIndex := EnsureRange(DropIndex, 0, FDocument.LayerCount - 1);
+  if (DropIndex <> FLayerDragIndex) and (DropIndex >= 0) then
+  begin
+    FDocument.PushHistory('Reorder Layer');
+    FDocument.MoveLayer(FLayerDragIndex, DropIndex);
+    SetDirty(True);
+    RefreshLayers;
+    RefreshCanvas;
+  end;
+  FLayerDragIndex := -1;
+  FLayerDragTargetIndex := -1;
+  FLayerList.Invalidate;
 end;
 
 procedure TMainForm.PaletteMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -5310,16 +5752,9 @@ begin
   case UpCase(Char(Key)) of
     'C':
       begin
-        { toggle which color the wheel edits }
-        if FColorEditTarget = 0 then
-          FColorEditTarget := 1
-        else
-          FColorEditTarget := 0;
-        if Assigned(FColorTargetCombo) then
-          FColorTargetCombo.ItemIndex := FColorEditTarget;
+        { toggle which color the active paint tools use }
+        ToggleColorEditTarget;
         RefreshColorsPanel;
-        if Assigned(FColorsBox) then
-          FColorsBox.Invalidate;
         Key := 0;
       end;
     'X':
@@ -5424,15 +5859,25 @@ begin
   begin
     ActivateTempPan;
     FPickSecondaryTarget := False;
-    FStrokeColor := FPrimaryColor;
+    FStrokeColor := ColorForActiveTarget(False);
   end
   else
   begin
-    FPickSecondaryTarget := Button = mbRight;
-    if FPickSecondaryTarget then
-      FStrokeColor := FSecondaryColor
+    FStrokeColor := ColorForActiveTarget(Button = mbRight);
+    case FCurrentTool of
+      tkColorPicker:
+        begin
+          FPickSecondaryTarget := FColorEditTarget = 1;
+          if Button = mbRight then
+            FPickSecondaryTarget := not FPickSecondaryTarget;
+        end;
+      tkRecolor:
+        FPickSecondaryTarget := Button = mbRight;
+      tkCloneStamp, tkZoom:
+        FPickSecondaryTarget := Button = mbRight;
     else
-      FStrokeColor := FPrimaryColor;
+      FPickSecondaryTarget := False;
+    end;
   end;
 
   ImagePoint := CanvasToImage(X, Y);
@@ -5487,7 +5932,7 @@ begin
         if RunTextDialog(Self, FTextLastResult) then
         begin
           FDocument.PushHistory('Text');
-          PlaceTextAtPoint(FTextLastResult, ImagePoint, FPrimaryColor);
+          PlaceTextAtPoint(FTextLastResult, ImagePoint, ActivePaintColor);
           SetDirty(True);
           InvalidatePreparedBitmap;
           RefreshCanvas;
@@ -5550,8 +5995,9 @@ begin
     tkColorPicker:
       begin
         ApplyImmediateTool(ImagePoint);
-        RefreshStatus(ImagePoint);
         FPointerDown := False;
+        RefreshColorsPanel;
+        RefreshStatus(ImagePoint);
       end;
     tkMoveSelection, tkMovePixels:
       begin
@@ -6276,84 +6722,270 @@ begin
   UpdateCaption;
 end;
 
+function TMainForm.PointToTabStrip(AControl: TControl; X, Y: Integer): TPoint;
+begin
+  Result := Point(X, Y);
+  while Assigned(AControl) and (AControl <> FTabStrip) do
+  begin
+    Inc(Result.X, AControl.Left);
+    Inc(Result.Y, AControl.Top);
+    AControl := AControl.Parent;
+  end;
+end;
+
+procedure TMainForm.BuildTabThumbnail(AIndex: Integer; AImage: TImage);
+var
+  CompositeSurf: TRasterSurface;
+  ThumbSurf: TRasterSurface;
+  ThumbBmp: TBitmap;
+  DrawW: Integer;
+  DrawH: Integer;
+begin
+  if not Assigned(AImage) then
+    Exit;
+  AImage.Picture.Clear;
+  if (AIndex < 0) or (AIndex >= Length(FTabDocuments)) then
+    Exit;
+  if not Assigned(FTabDocuments[AIndex]) then
+    Exit;
+
+  CompositeSurf := FTabDocuments[AIndex].Composite;
+  try
+    if (CompositeSurf.Width <= 0) or (CompositeSurf.Height <= 0) then
+      Exit;
+    if CompositeSurf.Width * TabThumbnailHeight > CompositeSurf.Height * TabThumbnailWidth then
+    begin
+      DrawW := TabThumbnailWidth;
+      DrawH := Max(1, CompositeSurf.Height * TabThumbnailWidth div CompositeSurf.Width);
+    end
+    else
+    begin
+      DrawH := TabThumbnailHeight;
+      DrawW := Max(1, CompositeSurf.Width * TabThumbnailHeight div CompositeSurf.Height);
+    end;
+    ThumbSurf := CompositeSurf.ResizeBilinear(DrawW, DrawH);
+    try
+      ThumbBmp := SurfaceToBitmap(ThumbSurf);
+      try
+        AImage.Picture.Assign(ThumbBmp);
+      finally
+        ThumbBmp.Free;
+      end;
+    finally
+      ThumbSurf.Free;
+    end;
+  finally
+    CompositeSurf.Free;
+  end;
+end;
+
+procedure TMainForm.MoveDocumentTab(AFromIndex, AToIndex: Integer);
+var
+  DocTemp: TImageDocument;
+  NameTemp: string;
+  DirtyTemp: Boolean;
+  I: Integer;
+begin
+  if Length(FTabDocuments) <= 1 then
+    Exit;
+  if (AFromIndex < 0) or (AFromIndex >= Length(FTabDocuments)) then
+    Exit;
+  AToIndex := EnsureRange(AToIndex, 0, Length(FTabDocuments) - 1);
+  if AFromIndex = AToIndex then
+    Exit;
+
+  if Length(FTabFileNames) > FActiveTabIndex then
+    FTabFileNames[FActiveTabIndex] := FCurrentFileName;
+  if Length(FTabDirtyFlags) > FActiveTabIndex then
+    FTabDirtyFlags[FActiveTabIndex] := FDirty;
+
+  DocTemp := FTabDocuments[AFromIndex];
+  NameTemp := FTabFileNames[AFromIndex];
+  DirtyTemp := FTabDirtyFlags[AFromIndex];
+
+  if AFromIndex < AToIndex then
+  begin
+    for I := AFromIndex to AToIndex - 1 do
+    begin
+      FTabDocuments[I] := FTabDocuments[I + 1];
+      FTabFileNames[I] := FTabFileNames[I + 1];
+      FTabDirtyFlags[I] := FTabDirtyFlags[I + 1];
+    end;
+  end
+  else
+  begin
+    for I := AFromIndex downto AToIndex + 1 do
+    begin
+      FTabDocuments[I] := FTabDocuments[I - 1];
+      FTabFileNames[I] := FTabFileNames[I - 1];
+      FTabDirtyFlags[I] := FTabDirtyFlags[I - 1];
+    end;
+  end;
+
+  FTabDocuments[AToIndex] := DocTemp;
+  FTabFileNames[AToIndex] := NameTemp;
+  FTabDirtyFlags[AToIndex] := DirtyTemp;
+
+  FActiveTabIndex := MoveIndexAfterReorder(FActiveTabIndex, AFromIndex, AToIndex);
+  FDocument := FTabDocuments[FActiveTabIndex];
+  FCurrentFileName := FTabFileNames[FActiveTabIndex];
+  FDirty := FTabDirtyFlags[FActiveTabIndex];
+
+  RefreshTabStrip;
+  UpdateCaption;
+end;
+
 procedure TMainForm.RefreshTabStrip;
 var
   I: Integer;
-  Btn: TButton;
-  CloseBtn: TButton;
-  BtnLeft: Integer;
-  TabW: Integer;
+  Card: TPanel;
+  Thumb: TImage;
+  TitleLabel: TLabel;
+  InfoLabel: TLabel;
+  AddBtn: TSpeedButton;
+  CloseBtn: TSpeedButton;
+  CardLeftPos: Integer;
   TabCaption: string;
+  TabHint: string;
 begin
   if not Assigned(FTabStrip) then Exit;
   if FUpdatingTabs then Exit;
   FUpdatingTabs := True;
   try
-    { Remove all existing tab buttons }
+    { Remove all existing tab controls }
     while FTabStrip.ControlCount > 0 do
       FTabStrip.Controls[0].Free;
 
-    BtnLeft := 4;
-    TabW := 130;
-
+    CardLeftPos := TabStripInset;
     for I := 0 to Length(FTabDocuments) - 1 do
     begin
       TabCaption := TabDocumentDisplayName(I);
       if FTabDirtyFlags[I] then
         TabCaption := TabCaption + ' *';
-
-      Btn := TButton.Create(FTabStrip);
-      Btn.Parent := FTabStrip;
-      Btn.Left := BtnLeft;
-      Btn.Top := 4;
-      Btn.Width := TabW - 26;
-      Btn.Height := 24;
-      Btn.Caption := TabCaption;
-      Btn.Tag := I;
-      Btn.OnClick := @TabButtonClick;
-      Btn.PopupMenu := FTabPopupMenu;
-      Btn.Hint := FTabFileNames[I];
-      Btn.ShowHint := True;
-      Btn.ParentFont := False;
-      Btn.Font.Size := 9;
-      Btn.Font.Color := ChromeTextColor;
-      if I = FActiveTabIndex then
-        Btn.Font.Style := [fsBold]
+      if FTabFileNames[I] <> '' then
+        TabHint := FTabFileNames[I]
       else
-        Btn.Font.Style := [];
+        TabHint := TabCaption;
 
-      CloseBtn := TButton.Create(FTabStrip);
-      CloseBtn.Parent := FTabStrip;
-      CloseBtn.Left := BtnLeft + TabW - 24;
+      Card := TPanel.Create(FTabStrip);
+      Card.Parent := FTabStrip;
+      Card.Left := CardLeftPos;
+      Card.Top := 4;
+      Card.Width := TabCardWidth;
+      Card.Height := TabCardHeight;
+      Card.BevelOuter := bvNone;
+      Card.Caption := '';
+      Card.Tag := I;
+      Card.ParentColor := False;
+      if I = FActiveTabIndex then
+        Card.Color := PaletteActiveRowColor
+      else
+        Card.Color := PaletteListBackgroundColor;
+      Card.PopupMenu := FTabPopupMenu;
+      Card.Hint := TabHint;
+      Card.ShowHint := True;
+      Card.OnMouseDown := @TabCardMouseDown;
+      Card.OnMouseMove := @TabCardMouseMove;
+      Card.OnMouseUp := @TabCardMouseUp;
+
+      Thumb := TImage.Create(Card);
+      Thumb.Parent := Card;
+      Thumb.Left := 6;
+      Thumb.Top := 8;
+      Thumb.Width := TabThumbnailWidth;
+      Thumb.Height := TabThumbnailHeight;
+      Thumb.Center := True;
+      Thumb.Proportional := True;
+      Thumb.Stretch := True;
+      Thumb.Tag := I;
+      Thumb.PopupMenu := FTabPopupMenu;
+      Thumb.Hint := TabHint;
+      Thumb.ShowHint := True;
+      Thumb.OnMouseDown := @TabCardMouseDown;
+      Thumb.OnMouseMove := @TabCardMouseMove;
+      Thumb.OnMouseUp := @TabCardMouseUp;
+      BuildTabThumbnail(I, Thumb);
+
+      TitleLabel := TLabel.Create(Card);
+      TitleLabel.Parent := Card;
+      TitleLabel.Left := 52;
+      TitleLabel.Top := 7;
+      TitleLabel.Width := 92;
+      TitleLabel.Height := 14;
+      TitleLabel.AutoSize := False;
+      TitleLabel.Caption := TabCaption;
+      TitleLabel.Transparent := True;
+      TitleLabel.Tag := I;
+      TitleLabel.PopupMenu := FTabPopupMenu;
+      TitleLabel.Hint := TabHint;
+      TitleLabel.ShowHint := True;
+      TitleLabel.ParentFont := False;
+      TitleLabel.Font.Size := 9;
+      TitleLabel.Font.Color := ChromeTextColor;
+      if I = FActiveTabIndex then
+        TitleLabel.Font.Style := [fsBold]
+      else
+        TitleLabel.Font.Style := [];
+      TitleLabel.OnMouseDown := @TabCardMouseDown;
+      TitleLabel.OnMouseMove := @TabCardMouseMove;
+      TitleLabel.OnMouseUp := @TabCardMouseUp;
+
+      InfoLabel := TLabel.Create(Card);
+      InfoLabel.Parent := Card;
+      InfoLabel.Left := 52;
+      InfoLabel.Top := 24;
+      InfoLabel.Width := 98;
+      InfoLabel.Height := 12;
+      InfoLabel.AutoSize := False;
+      InfoLabel.Caption := Format(
+        '%d x %d px',
+        [FTabDocuments[I].Width, FTabDocuments[I].Height]
+      );
+      InfoLabel.Transparent := True;
+      InfoLabel.Tag := I;
+      InfoLabel.PopupMenu := FTabPopupMenu;
+      InfoLabel.Hint := TabHint;
+      InfoLabel.ShowHint := True;
+      InfoLabel.ParentFont := False;
+      InfoLabel.Font.Size := 8;
+      InfoLabel.Font.Color := ChromeMutedTextColor;
+      InfoLabel.OnMouseDown := @TabCardMouseDown;
+      InfoLabel.OnMouseMove := @TabCardMouseMove;
+      InfoLabel.OnMouseUp := @TabCardMouseUp;
+
+      CloseBtn := TSpeedButton.Create(Card);
+      CloseBtn.Parent := Card;
+      CloseBtn.Left := Card.Width - 22;
       CloseBtn.Top := 4;
-      CloseBtn.Width := 22;
-      CloseBtn.Height := 24;
+      CloseBtn.Width := 18;
+      CloseBtn.Height := 18;
+      CloseBtn.Flat := True;
       CloseBtn.Caption := 'x';
       CloseBtn.Tag := I;
       CloseBtn.ParentFont := False;
-      CloseBtn.Font.Size := 9;
+      CloseBtn.Font.Size := 8;
       CloseBtn.Font.Color := ChromeTextColor;
       CloseBtn.OnClick := @TabCloseButtonClick;
       CloseBtn.Hint := 'Close document';
       CloseBtn.ShowHint := True;
 
-      BtnLeft := BtnLeft + TabW + 2;
+      CardLeftPos := CardLeftPos + TabCardWidth + TabCardSpacing;
     end;
 
-    { "+" button to create a new document }
-    Btn := TButton.Create(FTabStrip);
-    Btn.Parent := FTabStrip;
-    Btn.Left := BtnLeft;
-    Btn.Top := 4;
-    Btn.Width := 26;
-    Btn.Height := 24;
-    Btn.Caption := '+';
-    Btn.ParentFont := False;
-    Btn.Font.Size := 11;
-    Btn.Font.Color := ChromeTextColor;
-    Btn.Hint := 'New document';
-    Btn.ShowHint := True;
-    Btn.OnClick := @NewDocumentClick;
+    AddBtn := TSpeedButton.Create(FTabStrip);
+    AddBtn.Parent := FTabStrip;
+    AddBtn.Left := CardLeftPos;
+    AddBtn.Top := 14;
+    AddBtn.Width := 24;
+    AddBtn.Height := 24;
+    AddBtn.Flat := True;
+    AddBtn.Caption := '+';
+    AddBtn.ParentFont := False;
+    AddBtn.Font.Size := 11;
+    AddBtn.Font.Color := ChromeTextColor;
+    AddBtn.Hint := 'New document';
+    AddBtn.ShowHint := True;
+    AddBtn.OnClick := @NewDocumentClick;
   finally
     FUpdatingTabs := False;
   end;
@@ -6361,16 +6993,72 @@ end;
 
 procedure TMainForm.TabButtonClick(Sender: TObject);
 begin
-  if not (Sender is TButton) then Exit;
-  SwitchToTab(TButton(Sender).Tag);
+  if not (Sender is TControl) then Exit;
+  SwitchToTab(TControl(Sender).Tag);
+end;
+
+procedure TMainForm.TabCardMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+begin
+  if Button <> mbLeft then
+    Exit;
+  if not (Sender is TControl) then
+    Exit;
+  FTabPressedIndex := TControl(Sender).Tag;
+  FTabDragOrigin := PointToTabStrip(TControl(Sender), X, Y);
+  FTabDragging := False;
+end;
+
+procedure TMainForm.TabCardMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  CurrentPoint: TPoint;
+begin
+  if (FTabPressedIndex < 0) or not (ssLeft in Shift) then
+    Exit;
+  if Sender is TControl then
+    CurrentPoint := PointToTabStrip(TControl(Sender), X, Y)
+  else
+    CurrentPoint := Point(X, Y);
+  if Abs(CurrentPoint.X - FTabDragOrigin.X) >= 6 then
+    FTabDragging := True;
+end;
+
+procedure TMainForm.TabCardMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  ReleasePoint: TPoint;
+  TargetIndex: Integer;
+begin
+  if Button <> mbLeft then
+  begin
+    FTabPressedIndex := -1;
+    FTabDragging := False;
+    Exit;
+  end;
+  if FTabPressedIndex < 0 then
+    Exit;
+
+  if Sender is TControl then
+    ReleasePoint := PointToTabStrip(TControl(Sender), X, Y)
+  else
+    ReleasePoint := Point(X, Y);
+
+  if FTabDragging then
+  begin
+    TargetIndex := TabDropIndexAtX(ReleasePoint.X, Length(FTabDocuments));
+    MoveDocumentTab(FTabPressedIndex, TargetIndex);
+  end
+  else
+    SwitchToTab(FTabPressedIndex);
+
+  FTabPressedIndex := -1;
+  FTabDragging := False;
 end;
 
 procedure TMainForm.TabCloseButtonClick(Sender: TObject);
 var
   Idx: Integer;
 begin
-  if not (Sender is TButton) then Exit;
-  Idx := TButton(Sender).Tag;
+  if not (Sender is TControl) then Exit;
+  Idx := TControl(Sender).Tag;
   if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
   if FTabDirtyFlags[Idx] then
   begin
@@ -6510,6 +7198,8 @@ begin
       EditColor := FPrimaryColor
     else
       EditColor := FSecondaryColor;
+    if Assigned(FColorPickButton) then
+      FColorPickButton.ButtonColor := RGBToColor(EditColor.R, EditColor.G, EditColor.B);
     if Assigned(FColorRSpin) then FColorRSpin.Value := EditColor.R;
     if Assigned(FColorGSpin) then FColorGSpin.Value := EditColor.G;
     if Assigned(FColorBSpin) then FColorBSpin.Value := EditColor.B;
@@ -6675,7 +7365,12 @@ procedure TMainForm.FillTolSpinChanged(Sender: TObject);
 begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FFillTolSpin) then Exit;
-  FFillTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
+  case FCurrentTool of
+    tkRecolor:
+      FWandTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
+  else
+    FFillTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
+  end;
 end;
 
 procedure TMainForm.GradientTypeComboChanged(Sender: TObject);

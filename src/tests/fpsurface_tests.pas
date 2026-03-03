@@ -18,9 +18,11 @@ type
     procedure ResizeBilinearBlendsNeighborPixels;
     procedure RoundedRectangleLeavesHardCornersOpen;
     procedure PolygonOutlineClosesLastSegmentAndKeepsInteriorOpen;
+    procedure FilledPolygonPaintsInterior;
     procedure EmbossShiftsPixelsRelativeToNeighbors;
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
+    procedure RecolorBrushOpacityBlendsTowardTarget;
     procedure RenderCloudsWritesNonTransparentPixels;
     procedure PixelateBlursPixelsIntoBlocks;
     procedure VignetteDarkensEdges;
@@ -213,6 +215,27 @@ begin
   end;
 end;
 
+procedure TFPSurfaceTests.FilledPolygonPaintsInterior;
+var
+  Surface: TRasterSurface;
+  Points: array[0..2] of TPoint;
+begin
+  Surface := TRasterSurface.Create(15, 15);
+  try
+    Surface.Clear(TransparentColor);
+    Points[0] := Point(2, 2);
+    Points[1] := Point(2, 12);
+    Points[2] := Point(12, 12);
+
+    Surface.FillPolygon(Points, RGBA(255, 0, 0, 255));
+
+    AssertEquals('interior is filled', 255, Surface[6, 9].A);
+    AssertEquals('outside stays clear', 0, Surface[11, 4].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
 procedure TFPSurfaceTests.EmbossShiftsPixelsRelativeToNeighbors;
 var
   Surface: TRasterSurface;
@@ -265,6 +288,29 @@ begin
     Surface.RecolorBrush(5, 5, 4, Source, Target, 10);
     AssertEquals('center pixel recolored R', 50, Surface[5, 5].R);
     AssertEquals('center pixel recolored G', 200, Surface[5, 5].G);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushOpacityBlendsTowardTarget;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(200, 50, 50, 255));
+    Source := RGBA(200, 50, 50, 255);
+    Target := RGBA(50, 200, 50, 255);
+
+    Surface.RecolorBrush(2, 2, 2, Source, Target, 10, 128);
+
+    AssertTrue('red channel moves toward target', Surface[2, 2].R < 200);
+    AssertTrue('red channel does not jump fully to target', Surface[2, 2].R > 50);
+    AssertTrue('green channel moves toward target', Surface[2, 2].G > 50);
+    AssertTrue('green channel does not jump fully to target', Surface[2, 2].G < 200);
   finally
     Surface.Free;
   end;

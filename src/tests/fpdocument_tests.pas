@@ -20,6 +20,7 @@ type
     procedure MagicWandIntersectKeepsOnlySharedRegion;
     procedure LayerBlendModeDefaultsToNormal;
     procedure LayerBlendModePreservedInClone;
+    procedure MoveLayerReordersAndTracksActiveLayer;
     procedure StoredSelectionRoundtrips;
     procedure NewToolKindCountIsCorrect;
   end;
@@ -289,6 +290,34 @@ begin
     finally
       Layer2.Free;
     end;
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.MoveLayerReordersAndTracksActiveLayer;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(4, 4);
+  try
+    Document.ActiveLayer.Name := 'Base';
+    Document.AddLayer('Mid');
+    Document.AddLayer('Top');
+    AssertEquals('top starts active', 2, Document.ActiveLayerIndex);
+
+    Document.MoveLayer(2, 0);
+    AssertEquals('dragged layer becomes first', 'Top', Document.Layers[0].Name);
+    AssertEquals('middle layer shifts down', 'Base', Document.Layers[1].Name);
+    AssertEquals('last layer stays last', 'Mid', Document.Layers[2].Name);
+    AssertEquals('active index follows moved layer', 0, Document.ActiveLayerIndex);
+
+    Document.ActiveLayerIndex := 2;
+    Document.MoveLayer(0, 2);
+    AssertEquals('base moves to top after second reorder', 'Base', Document.Layers[0].Name);
+    AssertEquals('mid stays in the middle', 'Mid', Document.Layers[1].Name);
+    AssertEquals('top moves back to the end', 'Top', Document.Layers[2].Name);
+    AssertEquals('active index shifts when a lower layer crosses it', 1, Document.ActiveLayerIndex);
   finally
     Document.Free;
   end;

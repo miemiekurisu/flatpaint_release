@@ -36,6 +36,7 @@ type
     procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
     procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255);
     procedure DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean = True; Opacity: Byte = 255);
+    procedure FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure FloodFill(X, Y: Integer; const AColor: TRGBA32; Tolerance: Byte = 0);
     procedure FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32);
     procedure FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32);
@@ -80,7 +81,7 @@ type
     procedure RadialBlur(Amount: Integer);
     procedure Twist(Amount: Integer);
     procedure Fragment(Offset: Integer);
-    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
+    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255);
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
     function CopySelection(ASelection: TSelectionMask): TRasterSurface;
@@ -648,6 +649,74 @@ begin
       AColor,
       Opacity
     );
+end;
+
+procedure TRasterSurface.FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte);
+var
+  MinY: Integer;
+  MaxY: Integer;
+  Y: Integer;
+  PointIndex: Integer;
+  NextIndex: Integer;
+  X1: Integer;
+  Y1: Integer;
+  X2: Integer;
+  Y2: Integer;
+  CrossX: Integer;
+  FillX: Integer;
+  InsertAt: Integer;
+  SwapValue: Integer;
+  Intersections: array of Integer;
+begin
+  if High(APoints) < 2 then
+    Exit;
+
+  MinY := APoints[0].Y;
+  MaxY := APoints[0].Y;
+  for PointIndex := 1 to High(APoints) do
+  begin
+    if APoints[PointIndex].Y < MinY then
+      MinY := APoints[PointIndex].Y;
+    if APoints[PointIndex].Y > MaxY then
+      MaxY := APoints[PointIndex].Y;
+  end;
+
+  for Y := Max(0, MinY) to Min(FHeight - 1, MaxY) do
+  begin
+    SetLength(Intersections, 0);
+    for PointIndex := 0 to High(APoints) do
+    begin
+      NextIndex := PointIndex + 1;
+      if NextIndex > High(APoints) then
+        NextIndex := 0;
+      X1 := APoints[PointIndex].X;
+      Y1 := APoints[PointIndex].Y;
+      X2 := APoints[NextIndex].X;
+      Y2 := APoints[NextIndex].Y;
+      if Y1 = Y2 then
+        Continue;
+      if (Y < Min(Y1, Y2)) or (Y >= Max(Y1, Y2)) then
+        Continue;
+      CrossX := X1 + Round((Y - Y1) * (X2 - X1) / (Y2 - Y1));
+      InsertAt := Length(Intersections);
+      SetLength(Intersections, InsertAt + 1);
+      while (InsertAt > 0) and (Intersections[InsertAt - 1] > CrossX) do
+      begin
+        SwapValue := Intersections[InsertAt - 1];
+        Intersections[InsertAt] := SwapValue;
+        Dec(InsertAt);
+      end;
+      Intersections[InsertAt] := CrossX;
+    end;
+
+    PointIndex := 0;
+    while PointIndex + 1 < Length(Intersections) do
+    begin
+      for FillX := Max(0, Intersections[PointIndex]) to Min(FWidth - 1, Intersections[PointIndex + 1]) do
+        BlendPixel(FillX, Y, AColor, Opacity);
+      Inc(PointIndex, 2);
+    end;
+  end;
 end;
 
 procedure TRasterSurface.FloodFill(X, Y: Integer; const AColor: TRGBA32; Tolerance: Byte);
@@ -1978,7 +2047,7 @@ begin
     end;
 end;
 
-procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte);
+procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte);
 var
   BX, BY: Integer;
   Dist: Integer;
@@ -1999,9 +2068,18 @@ begin
       ColorDist := (Abs(DR) + Abs(DG) + Abs(DB)) div 3;
       if ColorDist <= Tolerance then
       begin
-        Pix.R := NewColor.R;
-        Pix.G := NewColor.G;
-        Pix.B := NewColor.B;
+        if Opacity >= 255 then
+        begin
+          Pix.R := NewColor.R;
+          Pix.G := NewColor.G;
+          Pix.B := NewColor.B;
+        end
+        else
+        begin
+          Pix.R := (Pix.R * (255 - Opacity) + NewColor.R * Opacity + 127) div 255;
+          Pix.G := (Pix.G * (255 - Opacity) + NewColor.G * Opacity + 127) div 255;
+          Pix.B := (Pix.B * (255 - Opacity) + NewColor.B * Opacity + 127) div 255;
+        end;
         FPixels[IndexOf(BX, BY)] := Pix;
       end;
     end;

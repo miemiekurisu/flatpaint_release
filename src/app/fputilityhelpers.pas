@@ -1,6 +1,7 @@
 unit FPUtilityHelpers;
 
 {$mode objfpc}{$H+}
+{$codepage utf8}
 
 interface
 
@@ -49,15 +50,15 @@ function UtilityCommandGlyph(ACommand: TUtilityCommandKind): string;
 begin
   case ACommand of
     ucTools:
-      Result := 'T';
+      Result := '▦';
     ucHistory:
-      Result := 'H';
+      Result := '↺';
     ucLayers:
-      Result := 'L';
+      Result := '▤';
     ucColors:
-      Result := 'C';
+      Result := '◍';
     ucSettings:
-      Result := 'S';
+      Result := '⚙';
     ucHelp:
       Result := '?';
   else

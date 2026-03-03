@@ -5,7 +5,7 @@ unit ui_prototype_tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, Process, FPPaletteHelpers, FPUtilityHelpers;
+  Classes, SysUtils, fpcunit, testregistry, Process, LazUTF8, FPPaletteHelpers, FPUtilityHelpers;
 
 type
   TUIPrototypeTests = class(TTestCase)
@@ -78,7 +78,7 @@ begin
   begin
     Command := UtilityCommandAtDisplayIndex(Index);
     Glyph := UtilityCommandGlyph(Command);
-    AssertTrue('utility glyph should be compact', Length(Glyph) <= 1);
+    AssertTrue('utility glyph should be compact', UTF8Length(Glyph) <= 1);
     AssertTrue('utility hint should stay present', UtilityCommandHint(Command) <> '');
   end;
 end;

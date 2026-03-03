@@ -238,7 +238,6 @@ Based on thorough analysis of https://www.getpaint.net/doc/latest/, the followin
 | **Viewport** | Missing middle-mouse-button drag pan | Medium |
 | **Toolbar** | Missing Finish/Commit button for multi-step tools | Low |
 | **Toolbar** | Missing per-tool blend mode selector | Low |
-| **Toolbar** | Missing recolor tolerance control | Low |
 | **Effects** | ~16 effects missing (Gaussian, Surface/Radial Blur, Fragment, Unfocus, Red Eye, Relief, Tile Reflection, Twist, Bulge, Dents, Crystallize, Ink Sketch, Julia/Mandelbrot Fractal, etc.) | Medium |
 | **Effects** | No sub-menu categorization (Blurs, Distort, Noise, Photo, Render, Stylize) | Low |
 | **Image List** | Missing drag-to-reorder tabs | Low |
