@@ -667,10 +667,10 @@ begin
   FTabStrip := TPanel.Create(Self);
   FTabStrip.Parent := Self;
   FTabStrip.Align := alTop;
-  FTabStrip.Height := 28;
+  FTabStrip.Height := 32;
   FTabStrip.BevelOuter := bvNone;
   FTabStrip.Caption := '';
-  FTabStrip.Color := $00252C35;
+  FTabStrip.Color := TabStripBackgroundColor;
   FTabStrip.ParentColor := False;
 
   FWorkspacePanel := TPanel.Create(Self);
@@ -738,7 +738,7 @@ begin
   FStatusBar.Parent := Self;
   FStatusBar.Align := alBottom;
   FStatusBar.Height := 24;
-  FStatusBar.Color := $00EFEFEF;
+  FStatusBar.Color := StatusBarBackgroundColor;
   FStatusBar.ParentColor := False;
   FStatusBar.BevelOuter := bvNone;
   FStatusBar.OnResize := @LayoutStatusBarControls;
@@ -749,7 +749,7 @@ begin
     FStatusLabels[I].Parent := FStatusBar;
     FStatusLabels[I].Layout := tlCenter;
     FStatusLabels[I].Font.Size := 9;
-    FStatusLabels[I].Font.Color := clBlack;
+    FStatusLabels[I].Font.Color := ChromeTextColor;
     FStatusLabels[I].Transparent := True;
     FStatusLabels[I].AutoSize := False;
   end;
@@ -1402,35 +1402,35 @@ begin
   FTopPanel.Color := ToolbarBackgroundColor;
   FTopPanel.ParentColor := False;
 
-  { Toolbar row 1: File | Edit | Undo/Redo | Zoom  (~730 px total, all <= 1280-wide windows) }
-  Btn := CreateButton('📄 New',   10,  8, 62, @NewDocumentClick,  FTopPanel); Btn.Hint := 'New document (Cmd+N)';
-  Btn := CreateButton('📂 Open',  76,  8, 66, @OpenDocumentClick,  FTopPanel); Btn.Hint := 'Open document (Cmd+O)';
-  Btn := CreateButton('💾 Save', 146,  8, 62, @SaveDocumentClick,  FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
-  Btn := CreateButton('✂️ Cut',  220,  8, 56, @CutClick,           FTopPanel); Btn.Hint := 'Cut selection (Cmd+X)';
-  Btn := CreateButton('📋 Copy', 280,  8, 62, @CopyClick,          FTopPanel); Btn.Hint := 'Copy selection (Cmd+C)';
-  Btn := CreateButton('📌 Paste',346,  8, 66, @PasteClick,         FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
-  Btn := CreateButton('↩ Undo',  424,  8, 62, @UndoClick,          FTopPanel); Btn.Hint := 'Undo last action (Cmd+Z)';
-  Btn := CreateButton('↪ Redo',  490,  8, 62, @RedoClick,          FTopPanel); Btn.Hint := 'Redo (Cmd+Shift+Z)';
-  Btn := CreateButton('🔎-',     560,  8, 42, @ZoomOutClick,       FTopPanel); Btn.Hint := 'Zoom out';
+  { Toolbar row 1: quick actions + zoom; the tool-options row stays separate below it. }
+  Btn := CreateButton('New',   10,  8, 52, @NewDocumentClick,  FTopPanel); Btn.Hint := 'New document (Cmd+N)';
+  Btn := CreateButton('Open',  66,  8, 58, @OpenDocumentClick,  FTopPanel); Btn.Hint := 'Open document (Cmd+O)';
+  Btn := CreateButton('Save', 128,  8, 54, @SaveDocumentClick,  FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
+  Btn := CreateButton('Cut',  196,  8, 48, @CutClick,           FTopPanel); Btn.Hint := 'Cut selection (Cmd+X)';
+  Btn := CreateButton('Copy', 248,  8, 54, @CopyClick,          FTopPanel); Btn.Hint := 'Copy selection (Cmd+C)';
+  Btn := CreateButton('Paste',306,  8, 56, @PasteClick,         FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
+  Btn := CreateButton('Undo', 374,  8, 54, @UndoClick,          FTopPanel); Btn.Hint := 'Undo last action (Cmd+Z)';
+  Btn := CreateButton('Redo', 432,  8, 54, @RedoClick,          FTopPanel); Btn.Hint := 'Redo (Cmd+Shift+Z)';
+  Btn := CreateButton('-',    498,  8, 28, @ZoomOutClick,       FTopPanel); Btn.Hint := 'Zoom out';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
-  FZoomCombo.Left := 606;
+  FZoomCombo.Left := 530;
   FZoomCombo.Top := 8;
-  FZoomCombo.Width := 74;
+  FZoomCombo.Width := 82;
   FZoomCombo.Style := csDropDownList;
   for ZoomIndex := 0 to ZoomPresetCount - 1 do
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
 
-  Btn := CreateButton('🔎+', 684, 8, 42, @ZoomInClick, FTopPanel); Btn.Hint := 'Zoom in';
+  Btn := CreateButton('+', 616, 8, 28, @ZoomInClick, FTopPanel); Btn.Hint := 'Zoom in';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
-  UtilityPanel.Left := 1194;
+  UtilityPanel.Left := 1180;
   UtilityPanel.Top := 8;
-  UtilityPanel.Width := 158;
-  UtilityPanel.Height := 24;
+  UtilityPanel.Width := 172;
+  UtilityPanel.Height := 26;
   UtilityPanel.BevelOuter := bvNone;
   UtilityPanel.Caption := '';
   UtilityPanel.Color := ToolbarBackgroundColor;
@@ -1440,12 +1440,15 @@ begin
     UtilityCommand := UtilityCommandAtDisplayIndex(UtilityIndex);
     UtilityButton := TButton.Create(UtilityPanel);
     UtilityButton.Parent := UtilityPanel;
-    UtilityButton.Left := UtilityIndex * 26;
+    UtilityButton.Left := UtilityIndex * 28;
     UtilityButton.Top := 0;
-    UtilityButton.Width := 24;
-    UtilityButton.Height := 24;
+    UtilityButton.Width := 26;
+    UtilityButton.Height := 26;
     UtilityButton.Caption := UtilityCommandGlyph(UtilityCommand);
     UtilityButton.Tag := Ord(UtilityCommand);
+    UtilityButton.ParentFont := False;
+    UtilityButton.Font.Size := 9;
+    UtilityButton.Font.Color := ChromeTextColor;
     UtilityButton.Hint := UtilityCommandHint(UtilityCommand);
     UtilityButton.ShowHint := True;
     UtilityButton.OnClick := @UtilityButtonClick;
@@ -1454,7 +1457,7 @@ begin
   LabelCtrl := TLabel.Create(FTopPanel);
   LabelCtrl.Parent := FTopPanel;
   LabelCtrl.Caption := 'Tool:';
-  LabelCtrl.Font.Color := clWhite;
+  LabelCtrl.Font.Color := ChromeTextColor;
   LabelCtrl.Left := 10;
   LabelCtrl.Top := 41;
 
@@ -1480,7 +1483,7 @@ begin
   FOptionLabel := TLabel.Create(FTopPanel);
   FOptionLabel.Parent := FTopPanel;
   FOptionLabel.Caption := 'Size:';
-  FOptionLabel.Font.Color := clWhite;
+  FOptionLabel.Font.Color := ChromeTextColor;
   FOptionLabel.Left := 220;
   FOptionLabel.Top := 41;
 
@@ -1497,7 +1500,7 @@ begin
   FOpacityLabel := TLabel.Create(FTopPanel);
   FOpacityLabel.Parent := FTopPanel;
   FOpacityLabel.Caption := 'Opacity:';
-  FOpacityLabel.Font.Color := clWhite;
+  FOpacityLabel.Font.Color := ChromeTextColor;
   FOpacityLabel.Left := 348;
   FOpacityLabel.Top := 41;
   FOpacityLabel.Visible := False;
@@ -1518,7 +1521,7 @@ begin
   FHardnessLabel := TLabel.Create(FTopPanel);
   FHardnessLabel.Parent := FTopPanel;
   FHardnessLabel.Caption := 'Hardness:';
-  FHardnessLabel.Font.Color := clWhite;
+  FHardnessLabel.Font.Color := ChromeTextColor;
   FHardnessLabel.Left := 480;
   FHardnessLabel.Top := 41;
   FHardnessLabel.Visible := False;
@@ -1539,7 +1542,7 @@ begin
   FSelModeLabel := TLabel.Create(FTopPanel);
   FSelModeLabel.Parent := FTopPanel;
   FSelModeLabel.Caption := 'Mode:';
-  FSelModeLabel.Font.Color := clWhite;
+  FSelModeLabel.Font.Color := ChromeTextColor;
   FSelModeLabel.Left := 348;
   FSelModeLabel.Top := 41;
   FSelModeLabel.Visible := False;
@@ -1564,7 +1567,7 @@ begin
   FShapeStyleLabel := TLabel.Create(FTopPanel);
   FShapeStyleLabel.Parent := FTopPanel;
   FShapeStyleLabel.Caption := 'Draw:';
-  FShapeStyleLabel.Font.Color := clWhite;
+  FShapeStyleLabel.Font.Color := ChromeTextColor;
   FShapeStyleLabel.Left := 348;
   FShapeStyleLabel.Top := 41;
   FShapeStyleLabel.Visible := False;
@@ -1588,7 +1591,7 @@ begin
   FBucketModeLabel := TLabel.Create(FTopPanel);
   FBucketModeLabel.Parent := FTopPanel;
   FBucketModeLabel.Caption := 'Fill:';
-  FBucketModeLabel.Font.Color := clWhite;
+  FBucketModeLabel.Font.Color := ChromeTextColor;
   FBucketModeLabel.Left := 348;
   FBucketModeLabel.Top := 41;
   FBucketModeLabel.Visible := False;
@@ -1611,7 +1614,7 @@ begin
   FWandSampleLabel := TLabel.Create(FTopPanel);
   FWandSampleLabel.Parent := FTopPanel;
   FWandSampleLabel.Caption := 'Sample:';
-  FWandSampleLabel.Font.Color := clWhite;
+  FWandSampleLabel.Font.Color := ChromeTextColor;
   FWandSampleLabel.Left := 348;
   FWandSampleLabel.Top := 41;
   FWandSampleLabel.Visible := False;
@@ -1647,7 +1650,7 @@ begin
   FFillTolLabel := TLabel.Create(FTopPanel);
   FFillTolLabel.Parent := FTopPanel;
   FFillTolLabel.Caption := 'Tolerance:';
-  FFillTolLabel.Font.Color := clWhite;
+  FFillTolLabel.Font.Color := ChromeTextColor;
   FFillTolLabel.Left := 348;
   FFillTolLabel.Top := 41;
   FFillTolLabel.Visible := False;
@@ -1669,7 +1672,7 @@ begin
   FGradientTypeLabel := TLabel.Create(FTopPanel);
   FGradientTypeLabel.Parent := FTopPanel;
   FGradientTypeLabel.Caption := 'Type:';
-  FGradientTypeLabel.Font.Color := clWhite;
+  FGradientTypeLabel.Font.Color := ChromeTextColor;
   FGradientTypeLabel.Left := 348;
   FGradientTypeLabel.Top := 41;
   FGradientTypeLabel.Visible := False;
@@ -1705,7 +1708,7 @@ begin
   FPickerSampleLabel := TLabel.Create(FTopPanel);
   FPickerSampleLabel.Parent := FTopPanel;
   FPickerSampleLabel.Caption := 'Sample:';
-  FPickerSampleLabel.Font.Color := clWhite;
+  FPickerSampleLabel.Font.Color := ChromeTextColor;
   FPickerSampleLabel.Left := 348;
   FPickerSampleLabel.Top := 41;
   FPickerSampleLabel.Visible := False;
@@ -1792,7 +1795,7 @@ begin
 
   { R/G/B row }
   with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'R:'; Font.Color := clWhite; Left := 12; Top := ContentTop + 62; end;
+    Caption := 'R:'; Font.Color := ChromeTextColor; Left := 12; Top := ContentTop + 62; end;
   FColorRSpin := TSpinEdit.Create(FColorsPanel);
   FColorRSpin.Parent := FColorsPanel;
   FColorRSpin.Left := 28; FColorRSpin.Top := ContentTop + 59;
@@ -1800,7 +1803,7 @@ begin
   FColorRSpin.OnChange := @ColorSpinChanged;
 
   with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'G:'; Font.Color := clWhite; Left := 90; Top := ContentTop + 62; end;
+    Caption := 'G:'; Font.Color := ChromeTextColor; Left := 90; Top := ContentTop + 62; end;
   FColorGSpin := TSpinEdit.Create(FColorsPanel);
   FColorGSpin.Parent := FColorsPanel;
   FColorGSpin.Left := 106; FColorGSpin.Top := ContentTop + 59;
@@ -1808,7 +1811,7 @@ begin
   FColorGSpin.OnChange := @ColorSpinChanged;
 
   with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'B:'; Font.Color := clWhite; Left := 168; Top := ContentTop + 62; end;
+    Caption := 'B:'; Font.Color := ChromeTextColor; Left := 168; Top := ContentTop + 62; end;
   FColorBSpin := TSpinEdit.Create(FColorsPanel);
   FColorBSpin.Parent := FColorsPanel;
   FColorBSpin.Left := 184; FColorBSpin.Top := ContentTop + 59;
@@ -1817,7 +1820,7 @@ begin
 
   { Alpha row }
   with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := 'A:'; Font.Color := clWhite; Left := 12; Top := ContentTop + 90; end;
+    Caption := 'A:'; Font.Color := ChromeTextColor; Left := 12; Top := ContentTop + 90; end;
   FColorASpin := TSpinEdit.Create(FColorsPanel);
   FColorASpin.Parent := FColorsPanel;
   FColorASpin.Left := 28; FColorASpin.Top := ContentTop + 87;
@@ -1826,12 +1829,12 @@ begin
 
   { Hex field }
   with TLabel.Create(FColorsPanel) do begin Parent := FColorsPanel;
-    Caption := '#:'; Font.Color := clWhite; Left := 90; Top := ContentTop + 90; end;
+    Caption := '#:'; Font.Color := ChromeTextColor; Left := 90; Top := ContentTop + 90; end;
   FColorHexEdit := TEdit.Create(FColorsPanel);
   FColorHexEdit.Parent := FColorsPanel;
   FColorHexEdit.Left := 108; FColorHexEdit.Top := ContentTop + 87;
   FColorHexEdit.Width := 130; FColorHexEdit.MaxLength := 8;
-  FColorHexEdit.Font.Color := clBlack;
+  FColorHexEdit.Font.Color := ChromeTextColor;
   FColorHexEdit.OnChange := @ColorHexChanged;
   FColorHexEdit.Hint := 'Selected color as RRGGBBAA hex';
   FColorHexEdit.ShowHint := True;
@@ -1843,7 +1846,7 @@ begin
   FColorsValueLabel.Top := ContentTop + 118;
   FColorsValueLabel.Width := 226;
   FColorsValueLabel.Height := 14;
-  FColorsValueLabel.Font.Color := clSilver;
+  FColorsValueLabel.Font.Color := ChromeMutedTextColor;
   FColorsValueLabel.Font.Size := 8;
 
   RefreshColorsPanel;
@@ -1874,15 +1877,15 @@ begin
 
   FHistoryPanel := TPanel.Create(Self);
   CreatePalette(FHistoryPanel, pkHistory);
-  CreateButton('↩ Undo', 12, ContentTop, 104, @UndoClick, FHistoryPanel);
-  CreateButton('↪ Redo', 120, ContentTop, 104, @RedoClick, FHistoryPanel);
+  CreateButton('Undo', 12, ContentTop, 104, @UndoClick, FHistoryPanel);
+  CreateButton('Redo', 120, ContentTop, 104, @RedoClick, FHistoryPanel);
   FHistoryValueLabel := TLabel.Create(FHistoryPanel);
   FHistoryValueLabel.Parent := FHistoryPanel;
   FHistoryValueLabel.Left := 12;
   FHistoryValueLabel.Top := ContentTop + 30;
   FHistoryValueLabel.Width := 212;
   FHistoryValueLabel.Height := 14;
-  FHistoryValueLabel.Font.Color := clSilver;
+  FHistoryValueLabel.Font.Color := ChromeMutedTextColor;
   FHistoryValueLabel.Font.Size := 8;
   FHistoryList := TListBox.Create(FHistoryPanel);
   FHistoryList.Parent := FHistoryPanel;
@@ -1891,8 +1894,8 @@ begin
   FHistoryList.Width := 212;
   FHistoryList.Height := FHistoryPanel.Height - (ContentTop + 60);
   FHistoryList.Anchors := [akTop, akLeft, akRight, akBottom];
-  FHistoryList.Color := $00353D4A;
-  FHistoryList.Font.Color := clWhite;
+  FHistoryList.Color := PaletteListBackgroundColor;
+  FHistoryList.Font.Color := ChromeTextColor;
   FHistoryList.Font.Size := 9;
   FHistoryList.Style := lbOwnerDrawFixed;
   FHistoryList.ItemHeight := 20;
@@ -1943,8 +1946,8 @@ begin
   FLayerList.Width := 220;
   FLayerList.Height := FRightPanel.Height - (ContentTop + 96);
   FLayerList.Anchors := [akTop, akLeft, akRight, akBottom];
-  FLayerList.Color := $00353D4A;
-  FLayerList.Font.Color := clWhite;
+  FLayerList.Color := PaletteListBackgroundColor;
+  FLayerList.Font.Color := ChromeTextColor;
   FLayerList.Font.Size := 9;
   FLayerList.Style := lbOwnerDrawFixed;
   FLayerList.ItemHeight := 36;
@@ -1961,9 +1964,12 @@ begin
   Result.Left := ALeft;
   Result.Top := ATop;
   Result.Width := AWidth;
-  Result.Height := 24;
+  Result.Height := 26;
   Result.Tag := ATag;
   Result.OnClick := AHandler;
+  Result.ParentFont := False;
+  Result.Font.Size := 9;
+  Result.Font.Color := ChromeTextColor;
   Result.Hint := ACaption;
   Result.ShowHint := True;
 end;
@@ -2421,7 +2427,7 @@ begin
     C.LineTo(X, SliderTop + SliderHeight);
   end;
   C.Brush.Style := bsClear;
-  C.Pen.Color := clGray;
+  C.Pen.Color := ChromeDividerColor;
   C.Rectangle(SliderLeft, SliderTop, SliderLeft + SliderWidth, SliderTop + SliderHeight);
   { Value position indicator }
   ValY := SliderLeft + Round(CurV * Max(1, SliderWidth - 1));
@@ -2433,7 +2439,7 @@ begin
 
   { Primary/secondary color preview rectangles }
   C.Brush.Style := bsSolid;
-  C.Pen.Color := clGray;
+  C.Pen.Color := ChromeDividerColor;
   C.Brush.Color := RGBToColor(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B);
   C.Rectangle(W - 30, SliderTop + SliderHeight + 6, W - 6, SliderTop + SliderHeight + 26);
   C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
@@ -2442,7 +2448,7 @@ begin
   { Active slot indicator notch (small triangle) }
   C.Pen.Width := 1;
   C.Brush.Style := bsSolid;
-  C.Brush.Color := clWhite;
+  C.Brush.Color := PaletteSelectionTextColor;
   if FColorEditTarget = 0 then
   begin
     { mark primary rectangle top-left corner }
@@ -2644,23 +2650,23 @@ begin
   CurrentIndex := FDocument.UndoDepth;
   if odSelected in State then
   begin
-    BgCol := $00705848;  { warm selection highlight }
-    TextCol := clWhite;
+    BgCol := PaletteSelectionColor;
+    TextCol := PaletteSelectionTextColor;
   end
   else if Index > CurrentIndex then
   begin
     BgCol := LB.Color;
-    TextCol := $00666666;  { future / redo items: dimmed }
+    TextCol := ChromeFaintTextColor;
   end
   else if Index = CurrentIndex then
   begin
-    BgCol := $00454D5A;  { current state: slightly lighter background }
-    TextCol := clWhite;
+    BgCol := PaletteActiveRowColor;
+    TextCol := ChromeTextColor;
   end
   else
   begin
     BgCol := LB.Color;
-    TextCol := $00AAAAAA;  { past states: readable but subdued }
+    TextCol := ChromeMutedTextColor;
   end;
   LB.Canvas.Brush.Color := BgCol;
   LB.Canvas.FillRect(ARect);
@@ -3241,7 +3247,7 @@ begin
   TitleLabel.Caption := PaletteTitle(AKind);
   TitleLabel.Left := 8;
   TitleLabel.Top := 4;
-  TitleLabel.Font.Color := clWhite;
+  TitleLabel.Font.Color := ChromeTextColor;
   TitleLabel.Font.Style := [fsBold];
 
   CloseButton := TButton.Create(HeaderPanel);
@@ -3253,6 +3259,9 @@ begin
   CloseButton.Top := 2;
   CloseButton.Anchors := [akTop, akRight];
   CloseButton.Tag := Ord(AKind);
+  CloseButton.ParentFont := False;
+  CloseButton.Font.Size := 8;
+  CloseButton.Font.Color := ChromeTextColor;
   CloseButton.OnClick := @HidePaletteClick;
 end;
 
@@ -3269,7 +3278,7 @@ begin
     PaletteRect := PaletteDefaultRect(AKind);
   ATarget.Parent := FWorkspacePanel;
   ATarget.Caption := '';
-  ATarget.BevelOuter := bvRaised;
+  ATarget.BevelOuter := bvNone;
   ATarget.ParentColor := False;
   ATarget.Tag := Ord(AKind);
   ATarget.Left := PaletteRect.Left;
@@ -4979,13 +4988,13 @@ begin
   { Background }
   if odSelected in State then
   begin
-    BgCol  := $00554A40;
-    TextCol := clWhite;
+    BgCol  := PaletteSelectionColor;
+    TextCol := PaletteSelectionTextColor;
   end
   else
   begin
     BgCol  := LB.Color;
-    TextCol := $00CCCCCC;
+    TextCol := ChromeTextColor;
   end;
   LB.Canvas.Brush.Color := BgCol;
   LB.Canvas.FillRect(ARect);
@@ -4995,7 +5004,7 @@ begin
   TY := ARect.Top  + ThumbMarginY;
   ThumbR := Rect(TX, TY, TX + ThumbW, TY + ThumbH);
   { Draw a grey/white checker for transparency }
-  LB.Canvas.Brush.Color := clGray;
+  LB.Canvas.Brush.Color := ChromeDividerColor;
   LB.Canvas.FillRect(ThumbR);
 
   Src := Layer.Surface;
@@ -5029,7 +5038,7 @@ begin
   end;
   { Thumbnail border }
   LB.Canvas.Brush.Style := bsClear;
-  LB.Canvas.Pen.Color := $00606060;
+  LB.Canvas.Pen.Color := ChromeDividerColor;
   LB.Canvas.Rectangle(ThumbR.Left, ThumbR.Top, ThumbR.Right, ThumbR.Bottom);
   LB.Canvas.Brush.Style := bsSolid;
 
@@ -6178,15 +6187,18 @@ begin
       Btn := TButton.Create(FTabStrip);
       Btn.Parent := FTabStrip;
       Btn.Left := BtnLeft;
-      Btn.Top := 3;
-      Btn.Width := TabW - 24;
-      Btn.Height := 22;
+      Btn.Top := 4;
+      Btn.Width := TabW - 26;
+      Btn.Height := 24;
       Btn.Caption := TabCaption;
       Btn.Tag := I;
       Btn.OnClick := @TabButtonClick;
       Btn.PopupMenu := FTabPopupMenu;
       Btn.Hint := FTabFileNames[I];
       Btn.ShowHint := True;
+      Btn.ParentFont := False;
+      Btn.Font.Size := 9;
+      Btn.Font.Color := ChromeTextColor;
       if I = FActiveTabIndex then
         Btn.Font.Style := [fsBold]
       else
@@ -6194,12 +6206,15 @@ begin
 
       CloseBtn := TButton.Create(FTabStrip);
       CloseBtn.Parent := FTabStrip;
-      CloseBtn.Left := BtnLeft + TabW - 22;
-      CloseBtn.Top := 3;
-      CloseBtn.Width := 20;
-      CloseBtn.Height := 22;
+      CloseBtn.Left := BtnLeft + TabW - 24;
+      CloseBtn.Top := 4;
+      CloseBtn.Width := 22;
+      CloseBtn.Height := 24;
       CloseBtn.Caption := 'x';
       CloseBtn.Tag := I;
+      CloseBtn.ParentFont := False;
+      CloseBtn.Font.Size := 9;
+      CloseBtn.Font.Color := ChromeTextColor;
       CloseBtn.OnClick := @TabCloseButtonClick;
       CloseBtn.Hint := 'Close document';
       CloseBtn.ShowHint := True;
@@ -6211,10 +6226,13 @@ begin
     Btn := TButton.Create(FTabStrip);
     Btn.Parent := FTabStrip;
     Btn.Left := BtnLeft;
-    Btn.Top := 3;
+    Btn.Top := 4;
     Btn.Width := 26;
-    Btn.Height := 22;
+    Btn.Height := 24;
     Btn.Caption := '+';
+    Btn.ParentFont := False;
+    Btn.Font.Size := 11;
+    Btn.Font.Color := ChromeTextColor;
     Btn.Hint := 'New document';
     Btn.ShowHint := True;
     Btn.OnClick := @NewDocumentClick;

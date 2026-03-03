@@ -12,6 +12,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-03 (Theme pass)
+- Problem: moving the app from the older dark chrome to the new light Figma-derived style risked leaving a mixed dark/light UI because the old theme values were spread across several unrelated code paths
+- Core error: color and chrome decisions were duplicated across `mainform.pas` labels, list surfaces, owner-draw handlers, tab rebuilding, and palette creation, so a surface-level restyle could easily miss secondary controls
+- Investigation: traced the theme-facing code through `FPPaletteHelpers`, toolbar/palette construction, history/layer owner-draw paths, and tab-strip rebuild logic, then added tests around shared chrome values before touching the form code
+- Root cause: the earlier dark theme grew incrementally inside the form instead of being expressed as a reusable theme token set, so style changes depended on scattered literals
+- Fix: centralized the reusable light-theme tokens in `FPPaletteHelpers`, rewired the main form to consume those shared values for chrome/list surfaces/text, and added both backend and UI-side theme assertions before rerunning the full test/build flow
+- Reuse note: when restyling a desktop UI, centralize reusable theme tokens first and test them before editing control construction; otherwise the form code becomes a brittle patchwork of stale visual constants
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-02 (Test infrastructure)
 - Problem: two test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) failed on every clean checkout with `CLI binary exists` / `Executable not found` errors
 - Core error: `run_tests_ci.sh` compiled only the test runner and never compiled `flatpaint_cli`, so the binary was absent unless manually pre-built

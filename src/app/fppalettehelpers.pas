@@ -24,6 +24,16 @@ function PaletteHeaderHeight: Integer;
 function WorkspaceBackgroundColor: LongInt;
 function CanvasBackgroundColor: LongInt;
 function ToolbarBackgroundColor: LongInt;
+function TabStripBackgroundColor: LongInt;
+function StatusBarBackgroundColor: LongInt;
+function ChromeTextColor: LongInt;
+function ChromeMutedTextColor: LongInt;
+function ChromeFaintTextColor: LongInt;
+function ChromeDividerColor: LongInt;
+function PaletteListBackgroundColor: LongInt;
+function PaletteSelectionColor: LongInt;
+function PaletteActiveRowColor: LongInt;
+function PaletteSelectionTextColor: LongInt;
 function PaletteSurfaceColor(APalette: TPaletteKind; ADragging: Boolean = False): LongInt;
 function PaletteHeaderColor(APalette: TPaletteKind; ADragging: Boolean = False): LongInt;
 function SnapPaletteRect(const ARect, AWorkspaceRect: TRect; AThreshold: Integer = 18): TRect;
@@ -44,6 +54,11 @@ const
   HistoryPaletteHeight = 220;
   LayersPaletteWidth = 236;
   LayersPaletteHeight = 242;
+
+function RgbColor(ARed, AGreen, ABlue: Byte): LongInt; inline;
+begin
+  Result := ARed or (AGreen shl 8) or (ABlue shl 16);
+end;
 
 function PaletteTitle(APalette: TPaletteKind): string;
 begin
@@ -193,17 +208,67 @@ end;
 
 function WorkspaceBackgroundColor: LongInt;
 begin
-  Result := $00313842;
+  Result := RgbColor(241, 243, 246);
 end;
 
 function CanvasBackgroundColor: LongInt;
 begin
-  Result := $00262B33;
+  Result := RgbColor(228, 231, 235);
 end;
 
 function ToolbarBackgroundColor: LongInt;
 begin
-  Result := $003B4452;
+  Result := RgbColor(248, 249, 251);
+end;
+
+function TabStripBackgroundColor: LongInt;
+begin
+  Result := RgbColor(234, 237, 241);
+end;
+
+function StatusBarBackgroundColor: LongInt;
+begin
+  Result := RgbColor(241, 243, 246);
+end;
+
+function ChromeTextColor: LongInt;
+begin
+  Result := RgbColor(39, 39, 42);
+end;
+
+function ChromeMutedTextColor: LongInt;
+begin
+  Result := RgbColor(82, 82, 91);
+end;
+
+function ChromeFaintTextColor: LongInt;
+begin
+  Result := RgbColor(113, 113, 122);
+end;
+
+function ChromeDividerColor: LongInt;
+begin
+  Result := RgbColor(212, 212, 216);
+end;
+
+function PaletteListBackgroundColor: LongInt;
+begin
+  Result := RgbColor(255, 255, 255);
+end;
+
+function PaletteSelectionColor: LongInt;
+begin
+  Result := RgbColor(219, 234, 254);
+end;
+
+function PaletteActiveRowColor: LongInt;
+begin
+  Result := RgbColor(239, 246, 255);
+end;
+
+function PaletteSelectionTextColor: LongInt;
+begin
+  Result := RgbColor(30, 41, 59);
 end;
 
 function PaletteSurfaceColor(APalette: TPaletteKind; ADragging: Boolean): LongInt;
@@ -211,29 +276,29 @@ begin
   case APalette of
     pkTools:
       if ADragging then
-        Result := $00505B6A
+        Result := RgbColor(240, 245, 255)
       else
-        Result := $00404754;
+        Result := RgbColor(252, 252, 253);
     pkColors:
       if ADragging then
-        Result := $00525970
+        Result := RgbColor(238, 246, 255)
       else
-        Result := $0041485A;
+        Result := RgbColor(251, 252, 254);
     pkHistory:
       if ADragging then
-        Result := $00545E68
+        Result := RgbColor(240, 244, 251)
       else
-        Result := $00424A52;
+        Result := RgbColor(251, 251, 252);
     pkLayers:
       if ADragging then
-        Result := $00525C70
+        Result := RgbColor(238, 244, 255)
       else
-        Result := $0041495D;
+        Result := RgbColor(250, 251, 253);
   else
     if ADragging then
-      Result := $00505A68
+      Result := RgbColor(240, 245, 255)
     else
-      Result := $00404754;
+      Result := RgbColor(252, 252, 253);
   end;
 end;
 
@@ -242,29 +307,29 @@ begin
   case APalette of
     pkTools:
       if ADragging then
-        Result := $00626F82
+        Result := RgbColor(226, 236, 252)
       else
-        Result := $00525D70;
+        Result := RgbColor(243, 244, 246);
     pkColors:
       if ADragging then
-        Result := $0067728A
+        Result := RgbColor(227, 238, 252)
       else
-        Result := $0058657A;
+        Result := RgbColor(244, 245, 247);
     pkHistory:
       if ADragging then
-        Result := $00656F79
+        Result := RgbColor(228, 234, 246)
       else
-        Result := $00545E66;
+        Result := RgbColor(242, 243, 245);
     pkLayers:
       if ADragging then
-        Result := $00667388
+        Result := RgbColor(226, 235, 251)
       else
-        Result := $0058657D;
+        Result := RgbColor(243, 244, 246);
   else
     if ADragging then
-      Result := $00626F82
+      Result := RgbColor(226, 236, 252)
     else
-      Result := $00525D70;
+      Result := RgbColor(243, 244, 246);
   end;
 end;
 

@@ -16,6 +16,8 @@ type
     procedure WorkspaceAwareDefaultRectsStaySeparated;
     procedure PaletteShortcutsFollowShortcutPolicy;
     procedure PaletteChromeMetricsStayCompact;
+    procedure LightThemeUsesBrightMacOSChrome;
+    procedure ChromeAccentBandsStayDistinct;
     procedure PaletteDragTintDiffersFromRestTint;
     procedure ToolsPaletteUsesNarrowTwoColumnLayout;
     procedure SnapPaletteRectAlignsToNearbyWorkspaceEdges;
@@ -23,6 +25,15 @@ type
   end;
 
 implementation
+
+function ColorBrightness(AColor: LongInt): Integer;
+begin
+  Result := (
+    (AColor and $FF) +
+    ((AColor shr 8) and $FF) +
+    ((AColor shr 16) and $FF)
+  ) div 3;
+end;
 
 procedure TFPPaletteHelpersTests.PaletteTitlesAreNonEmpty;
 var
@@ -109,6 +120,38 @@ begin
   AssertEquals('header height', 22, PaletteHeaderHeight);
   AssertTrue('toolbar should differ from canvas', ToolbarBackgroundColor <> CanvasBackgroundColor);
   AssertTrue('workspace should differ from canvas', WorkspaceBackgroundColor <> CanvasBackgroundColor);
+end;
+
+procedure TFPPaletteHelpersTests.LightThemeUsesBrightMacOSChrome;
+begin
+  AssertTrue('toolbar should be bright', ColorBrightness(ToolbarBackgroundColor) >= 235);
+  AssertTrue('workspace should be bright', ColorBrightness(WorkspaceBackgroundColor) >= 230);
+  AssertTrue(
+    'canvas should stay darker than workspace',
+    ColorBrightness(CanvasBackgroundColor) < ColorBrightness(WorkspaceBackgroundColor)
+  );
+  AssertTrue(
+    'palette cards should stay brighter than canvas',
+    ColorBrightness(PaletteSurfaceColor(pkTools, False)) > ColorBrightness(CanvasBackgroundColor)
+  );
+  AssertTrue(
+    'palette header should stay distinct from body',
+    PaletteHeaderColor(pkTools, False) <> PaletteSurfaceColor(pkTools, False)
+  );
+end;
+
+procedure TFPPaletteHelpersTests.ChromeAccentBandsStayDistinct;
+begin
+  AssertTrue('tab strip should differ from toolbar', TabStripBackgroundColor <> ToolbarBackgroundColor);
+  AssertTrue('status bar should differ from tab strip', StatusBarBackgroundColor <> TabStripBackgroundColor);
+  AssertTrue(
+    'selection accent should differ from list background',
+    PaletteSelectionColor <> PaletteListBackgroundColor
+  );
+  AssertTrue(
+    'selection text should differ from regular text',
+    PaletteSelectionTextColor <> ChromeTextColor
+  );
 end;
 
 procedure TFPPaletteHelpersTests.PaletteDragTintDiffersFromRestTint;

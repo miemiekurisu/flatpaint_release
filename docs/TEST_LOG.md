@@ -1,5 +1,11 @@
 # Test Log
 
+## 2026-03-03 (light theme refresh)
+- Full CI verification after the global chrome/theme pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 146 tests, 0 errors, 0 failures, including the new palette-theme helper coverage and UI chrome-contract assertions
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-03
 - Full CI verification after the documentation-sync audit: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 142 tests, 0 errors, 0 failures

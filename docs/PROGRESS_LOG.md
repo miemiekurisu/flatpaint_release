@@ -1,5 +1,14 @@
 # Development Progress Log
 
+## 2026-03-03 (light macOS chrome pass)
+
+- This pass maps primarily to the `Workspace visual parity` row in `docs/FEATURE_MATRIX.md`.
+- The live app now moves materially closer to the local `flatpaint_design` baseline on overall look-and-feel: the older dark slate chrome has been replaced with a lighter macOS-style layered theme across the top toolbar, tab strip, floating palettes, list surfaces, and status strip.
+- The active UI-architecture constraints were preserved during the restyle: the quick-action row remains separate from the tool-options row, the document tab strip still sits between the toolbar stack and workspace, and the four utility surfaces remain floating, overlap-capable, and semi-transparent while dragging.
+- This was intentionally a visual/system pass, not a feature-cutting pass: existing commands and tool options were preserved, the most obvious emoji-heavy top-row buttons were converted to compact text labels, and the reusable chrome colors now live in `src/app/fppalettehelpers.pas` so future style changes stop depending on scattered literals inside `mainform.pas`.
+- Added new theme-regression coverage in `src/tests/fppalettehelpers_tests.pas` plus UI-side chrome assertions in `src/tests/ui_prototype_tests.pas`; `bash ./scripts/run_tests_ci.sh` now passes at **146 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed the runnable app bundle successfully.
+- Honest progress update after this pass: the visual/style slice is clearly stronger, but this is still parity polish rather than a new feature family, so the overall completion estimate only moves slightly to **~85%**; the biggest remaining gaps are still image-list parity, broader effect coverage, fuller color/layer depth, and iconography polish.
+
 ## 2026-03-03 (UI baseline reset to local Figma export)
 
 - The active UI visual authority has been switched from the older paint.net-style workspace spec to the local `flatpaint_design/` bundle.
@@ -19,7 +28,7 @@
 | Workspace shell | ~78% | Tab strip and floating palettes are live; image-list strip, denser chrome, and icon polish still lag paint.net |
 | Document tabs | ~73% | Real multi-document tab strip exists; missing image-list thumbnails, drag-to-reorder, and richer tab chrome |
 | Command surface parity | ~80% | The previously cited missing routes are now live; the biggest remaining visible gap is still the missing image-list surface |
-| Workspace visual parity | ~55% | Toolbar density, palette compactness, and icon language remain below target |
+| Workspace visual parity | ~60% | Lighter macOS-style chrome is now live; image-list strip, fuller icon language, and denser panel parity still remain below target |
 | File workflow | ~85% | `.pdn` is only partial flattened fallback and `.kra` is still friendly-fail only; `Save All Images` still maps to the current shell |
 | Undo/redo | ~90% | Undo/redo labels and redo rows are visible; grey-out / comparison-polish remains open |
 | Layers | ~80% | Properties dialog, rotate/zoom, blend-mode picker, and import-as-layer are live; thumbnails and drag reorder are still missing |
@@ -38,7 +47,7 @@
 | Tool/Config Options | ~85% | Most visible controls now affect output; selection anti-alias remains the main UI-only option |
 | Hidden sheet options | ~70% | Export/save-sheet options remain partial |
 | Compatibility IO | ~55% | `.psd` / `.xcf` flattened import is live, `.pdn` has partial flattened fallback, and `.kra` remains descriptive unsupported |
-| **Overall** | **~84%** | Biggest remaining gaps are image-list parity, broader effect coverage, fuller color/layer panels, and iconography polish |
+| **Overall** | **~85%** | Biggest remaining gaps are image-list parity, broader effect coverage, fuller color/layer panels, and iconography polish |
 
 ## 2026-03-02 (test infrastructure fix)
 - `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.
