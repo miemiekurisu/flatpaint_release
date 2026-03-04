@@ -152,11 +152,18 @@ stage_app_bundle() {
   local executable_name="$2"
   local bundle_name="$3"
   local source_binary="$4"
+  local icon_source_dir="$ROOT_DIR/assets/icons/rendered"
+  local icon_dest_dir="$bundle_dir/Contents/Resources/icons/rendered"
 
   mkdir -p -- "$bundle_dir/Contents/MacOS" "$bundle_dir/Contents/Resources"
   write_info_plist "$bundle_dir/Contents/Info.plist" "$executable_name" "$bundle_name"
   printf 'APPLflat' >"$bundle_dir/Contents/PkgInfo"
   copy_with_retry "$source_binary" "$bundle_dir/Contents/MacOS/$executable_name"
+  if [[ -d "$icon_source_dir" ]]; then
+    mkdir -p -- "$(dirname -- "$icon_dest_dir")"
+    rm -rf -- "$icon_dest_dir"
+    cp -R -- "$icon_source_dir" "$icon_dest_dir"
+  fi
 }
 
 run_lazbuild() {
@@ -236,9 +243,22 @@ clean_generated_artifacts() {
   mkdir -p -- "$ROOT_DIR/dist" "$ROOT_DIR/lib"
 }
 
+prepare_icon_assets() {
+  local rendered_dir="$ROOT_DIR/assets/icons/rendered"
+
+  if compgen -G "$rendered_dir/*.svg.png" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  printf 'Pre-rendered Lucide icon assets were not found under %s.\n' "$rendered_dir" >&2
+  printf 'This build now expects checked-in icon assets and will fall back to generated glyphs until the assets are refreshed manually.\n' >&2
+  return 0
+}
+
 build_default_artifacts() {
   kill_running_flatpaint
   compile_native_modules
+  prepare_icon_assets
   run_lazbuild "$PROJECT_FILE"
 
   if [[ ! -f "$DEFAULT_BINARY" ]]; then
@@ -254,6 +274,7 @@ build_release_artifacts() {
   clean_generated_artifacts
   kill_running_flatpaint
   compile_native_modules
+  prepare_icon_assets
   # -CX: smartlink each compiled unit (FPC guide: dead-code removal at unit level)
   # -XX: smartlink the final linked program
   # -O2 is already set in the project file; listed here explicitly for release traceability

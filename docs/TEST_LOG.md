@@ -1,5 +1,116 @@
 # Test Log
 
+## 2026-03-04 (passive button-overlay interaction fix)
+- Full CI verification after returning button icon overlays to a display-only role, sizing command/utility buttons to their final height before overlay placement, and explicitly realigning tool-button overlays after their final palette height is applied: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 218 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint` and refreshed `dist/FlatPaint.app`
+
+## 2026-03-04 (document-mutating command seal pass)
+- Full CI verification after extending pending-stroke sealing to resize/canvas operations, rotations/flips, adjustment commands, effect commands, and `Repeat Last Effect`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 218 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint` and refreshed `dist/FlatPaint.app`
+
+## 2026-03-04 (pending-stroke UI interaction seal pass)
+- Full CI verification after sealing pending brush-like strokes before history jumps, undo/redo, tool switches, layer/color UI mutations, palette toggles, and close/quit flows, plus adding tracked history behavior for layer blend-mode changes: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 218 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint` and refreshed `dist/FlatPaint.app`
+
+## 2026-03-04 (pending brush-stroke sealing fix)
+- Full CI verification after sealing pending brush-like strokes on a fresh mouse-down, preserving the in-flight stroke tool label, and adding the new helper-level regression check: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 218 tests, 0 errors, 0 failures, including the new `TMainFormIntegrationTests.NewMouseDownCommitsPendingBrushStroke`
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint` and refreshed `dist/FlatPaint.app`
+
+## 2026-03-04 (low-risk toolbar/palette chrome correction pass)
+- Full CI verification after widening `New / Open / Save`, tightening the overlay-icon placement on wide command buttons, vertically re-centering the zoom combo, switching palette-header icons to the built-in line-glyph path, and adding the new toolbar/icon regression assertions: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite with the added `TFPToolbarHelpersTests.FileGroupStaysWideEnoughForIconLabels` coverage and the tightened zoom-center alignment assertion
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint` and refreshed `dist/FlatPaint.app`
+
+## 2026-03-04 (Cocoa icon-overlay stabilization + right-cluster visibility pass)
+- Full CI verification after moving the visible button-icon path to overlay images, switching palette-header icons to direct picture loading, widening `New / Open / Save`, and anchoring the top-right utility/zoom cluster to `FTopPanel.ClientWidth`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 216 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and the live screenshot check confirmed the top-right utility cluster and zoom controls were visible again
+- Manual interaction verification after the same pass: screenshot-based UAT plus live click-through confirmed `New / Open / Save`, the top-right utility cluster, palette header icons, and the history-row before/after toggle behavior all stayed visible and interactive together
+
+## 2026-03-04 (canonical Lucide runtime render pass)
+- Full CI verification after restoring asset-backed rendering for command/tool/utility buttons, widening representative rendered-asset coverage across those surfaces, and locking the canonical SVG source set to the local `./icons` Lucide drop: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 215 tests, 0 errors, 0 failures
+
+## 2026-03-04 (canonical icon source set synced from local `./icons`)
+- Full CI verification after mirroring the local `./icons` Lucide stroke SVG set into `assets/icons/lucide` and adding direct source-asset coverage in `TFPIconHelpersTests`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite with the added `RepresentativeLucideSourceAssetsExist` coverage
+
+## 2026-03-04 (tool/utility icon fidelity rollback to stable line glyphs)
+- Full CI verification after restricting rendered icon assets to command-button surfaces and moving tool/utility buttons back to the built-in line glyph path: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite with the updated `TFPIconHelpersTests.RepresentativeRenderedCommandAssetsExist` coverage
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (toolbar layout metrics + position regression pass)
+- Full CI verification after extracting top-toolbar geometry into `FPToolbarHelpers`, wiring `mainform` to the shared metric layer, normalizing the left command-group spacing, and adding direct toolbar-position tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 214 tests, 0 errors, 0 failures, including the new `TFPToolbarHelpersTests` coverage for top-row geometry
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, rebuilt `flatpaint`, and refreshed `dist/FlatPaint.app`
+
+## 2026-03-04 (icon refresh decoupled from normal build)
+- GUI build verification after removing automatic Lucide icon regeneration from the normal build path and switching the build back to the checked-in rendered icon assets: `bash ./scripts/build.sh`
+- Result: passed; the build completed without the old `Refreshing Lucide icon assets` phase and still rebuilt `dist/FlatPaint.app`
+- Full CI verification after adding a direct asset-presence regression for representative extracted/rendered Lucide files so the checked-in icon set is explicitly covered by tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 210 tests, 0 errors, 0 failures
+
+## 2026-03-04 (Lucide symbol extraction + full icon replacement pass)
+- GUI build verification after extracting the required Lucide symbols from `lucide.symbol.svg`, regenerating normalized transparent rendered icon assets, expanding the runtime icon map across the visible button surfaces, and rebundling the app: `bash ./scripts/build.sh`
+- Result: passed; the build regenerated `assets/icons/extracted/*.svg`, regenerated `assets/icons/rendered/*.svg.png`, linked `flatpaint`, and refreshed `dist/FlatPaint.app`
+- Full CI verification after the same pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 209 tests, 0 errors, 0 failures
+
+## 2026-03-04 (runtime icon-asset hookup pass)
+- GUI build verification after wiring `FPIconHelpers` to load rendered PNG assets first, rasterizing the local Lucide SVG set into checked-in PNGs, and copying those rendered icons into the app bundle resources: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and the rebuilt bundle now contains `Contents/Resources/icons/rendered/*.png`
+- Full CI verification after the same pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 209 tests, 0 errors, 0 failures
+
+## 2026-03-04 (tool-glyph restoration + palette-header icon pass)
+- Full CI verification after re-enabling shared glyph rendering for tool buttons, resizing the two-column tools palette around icon-first buttons, switching palette headers to shared utility glyphs, and correcting palette-toggle shortcut hints: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 209 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (lucide-source asset seeding + top-toolbar realignment pass)
+- GUI build verification after right-aligning the top zoom cluster, regrouping the four palette-toggle buttons into the top row, switching shared glyphs to transparent-backed bitmaps, and adding the new top-toolbar icon-source assets: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+- Full CI verification after the same pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 209 tests, 0 errors, 0 failures, including the new `TFPIconHelpersTests.TopToolbarCaptionAliasesStayMapped` coverage for the top-toolbar icon alias paths
+
+## 2026-03-04 (toolbar click-surface recovery + visible zoom-tool removal pass)
+- GUI build verification after moving the top quick-action strip to stable symbol/text command buttons, keeping the title centered via symmetric title-band rails, and removing `Zoom` from the visible tool selectors: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+- Full CI verification after the same pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 208 tests, 0 errors, 0 failures
+
+## 2026-03-04 (palette-drag root fix + tool/utility symbol pass)
+- GUI build verification after fixing palette drag-root resolution, restoring larger symbol-based tool/utility buttons, and switching tab/palette close affordances back to stable text symbols: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+- Full CI verification after the same pass: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 208 tests, 0 errors, 0 failures
+
+## 2026-03-04 (icon-surface de-whiteboxing + host-tinted glyph pass)
+- Full CI verification after switching shared glyph generation to host-surface-aware backgrounds, removing forced raised `TSpeedButton` chrome from the visible toolbar/utility controls, and routing tab add/close glyphs through the same host-aware path: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 208 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (title-band + toolbar rhythm + tool-button polish pass)
+- Full CI verification after adding the in-window title band, re-spacing the top toolbar into shared title/command/option rows, and switching the tool buttons to ghost-vs-active styling without changing their handlers: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 208 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-04 (Photoshop/GIMP-style background-layer semantics pass)
 - Full CI verification after introducing a real `IsBackground` document flag, persisting it through native save/load, locking the background layer to the bottom slot, and routing destructive background-layer edits through opaque replacement color semantics: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 208 tests, 0 errors, 0 failures, including the new `TFPDocumentTests` coverage for background-layer lock behavior and opacity-preserving erase/move semantics plus the native round-trip regression for the saved background flag

@@ -5,7 +5,8 @@ unit mainform_integration_tests;
 interface
 
 uses
-  Classes, Controls, Types, fpcunit, testregistry, FPColor, FPDocument, FPSelection, FPSurface, FPUIHelpers;
+  Classes, Controls, Types, fpcunit, testregistry, FPColor, FPDocument, FPSelection,
+  FPSurface, FPUIHelpers;
 
 type
   TMainFormIntegrationTests = class(TTestCase)
@@ -16,6 +17,7 @@ type
     procedure ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel;
     procedure DefaultLineToolCommitsStraightSegmentOnRelease;
     procedure DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp;
+    procedure NewMouseDownCommitsPendingBrushStroke;
   end;
 
 implementation
@@ -166,6 +168,18 @@ begin
   AssertFalse(
     'right-button drags should also finalize once the right-button flag disappears',
     DragButtonIsStillPressed(mbRight, [])
+  );
+end;
+
+procedure TMainFormIntegrationTests.NewMouseDownCommitsPendingBrushStroke;
+begin
+  AssertFalse(
+    'a fresh mouse-down should do nothing special when no stroke is pending',
+    ShouldCommitPendingStrokeOnMouseDown(False)
+  );
+  AssertTrue(
+    'a fresh mouse-down should seal the previous brush-like stroke before starting a new one',
+    ShouldCommitPendingStrokeOnMouseDown(True)
   );
 end;
 

@@ -47,8 +47,8 @@ uses
 const
   PaletteMargin = 12;
   PaletteGap = 14;
-  ToolsPaletteWidth = 100;
-  ToolsPaletteHeight = 380;
+  ToolsPaletteWidth = 108;
+  ToolsPaletteHeight = 414;
   ColorsPaletteWidth = 254;
   ColorsPaletteHeight = 300;
   HistoryPaletteWidth = 236;

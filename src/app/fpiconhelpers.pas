@@ -17,7 +17,24 @@ type
   );
 
 function ButtonIconSupported(const ACaption: string; AContext: TButtonIconContext): Boolean;
-function TryBuildButtonGlyph(const ACaption: string; AContext: TButtonIconContext; AGlyph: TBitmap): Boolean;
+function ButtonIconCanLoadRenderedAsset(const ACaption: string; AContext: TButtonIconContext): Boolean;
+function TryLoadButtonIconPicture(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  APicture: TPicture
+): Boolean;
+function TryBuildButtonGlyph(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  AGlyph: TBitmap;
+  ABackgroundColor: TColor = clBtnFace
+): Boolean;
+function TryBuildLineButtonGlyph(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  AGlyph: TBitmap;
+  ABackgroundColor: TColor = clBtnFace
+): Boolean;
 
 implementation
 
@@ -82,28 +99,235 @@ type
   );
 
 const
-  IconBitmapSize = 16;
-  IconBackgroundColor = clFuchsia;
+  IconBitmapSize = 20;
   IconForegroundColor = TColor($00323232);
+  MaxIconRootSearchDepth = 6;
+
+var
+  GCachedRenderedIconDir: string = '';
+  GCachedRenderedIconDirKnown: Boolean = False;
 
 function NormalizeCaption(const ACaption: string): string;
 begin
   Result := UpperCase(Trim(ACaption));
 end;
 
-procedure PrepareGlyphBitmap(AGlyph: TBitmap);
+function RenderedIconAssetName(AKind: TButtonIconKind): string;
+begin
+  case AKind of
+    bikNew:
+      Result := 'file-plus-2.svg.png';
+    bikOpen:
+      Result := 'folder-open.svg.png';
+    bikSave:
+      Result := 'save.svg.png';
+    bikCut:
+      Result := 'scissors.svg.png';
+    bikCopy:
+      Result := 'copy.svg.png';
+    bikPaste:
+      Result := 'clipboard-paste.svg.png';
+    bikUndo:
+      Result := 'undo.svg.png';
+    bikRedo:
+      Result := 'redo.svg.png';
+    bikZoomIn:
+      Result := 'zoom-in.svg.png';
+    bikZoomOut:
+      Result := 'zoom-out.svg.png';
+    bikAdd:
+      Result := 'plus.svg.png';
+    bikDuplicate:
+      Result := 'copy-plus.svg.png';
+    bikDelete:
+      Result := 'trash-2.svg.png';
+    bikMerge:
+      Result := 'combine.svg.png';
+    bikVisibility:
+      Result := 'eye.svg.png';
+    bikArrowUp:
+      Result := 'arrow-up.svg.png';
+    bikArrowDown:
+      Result := 'arrow-down.svg.png';
+    bikFade:
+      Result := 'blend.svg.png';
+    bikFlatten:
+      Result := 'layers-2.svg.png';
+    bikRename:
+      Result := 'pen.svg.png';
+    bikProperties:
+      Result := 'sliders-horizontal.svg.png';
+    bikSwap:
+      Result := 'arrow-left-right.svg.png';
+    bikMono:
+      Result := 'contrast.svg.png';
+    bikTools:
+      Result := 'wrench.svg.png';
+    bikHistory:
+      Result := 'history.svg.png';
+    bikLayers:
+      Result := 'layers.svg.png';
+    bikColors:
+      Result := 'palette.svg.png';
+    bikSettings:
+      Result := 'settings.svg.png';
+    bikHelp:
+      Result := 'circle-help.svg.png';
+    bikSelectRect:
+      Result := 'square-dashed.svg.png';
+    bikSelectEllipse:
+      Result := 'circle-dashed.svg.png';
+    bikSelectLasso:
+      Result := 'lasso.svg.png';
+    bikMagicWand:
+      Result := 'wand.svg.png';
+    bikMoveSelection:
+      Result := 'move.svg.png';
+    bikMovePixels:
+      Result := 'pointer.svg.png';
+    bikZoomTool:
+      Result := 'search.svg.png';
+    bikPan:
+      Result := 'hand.svg.png';
+    bikFill:
+      Result := 'paint-bucket.svg.png';
+    bikGradient:
+      Result := 'blend.svg.png';
+    bikPencil:
+      Result := 'pencil.svg.png';
+    bikBrush:
+      Result := 'paintbrush.svg.png';
+    bikEraser:
+      Result := 'eraser.svg.png';
+    bikPicker:
+      Result := 'pipette.svg.png';
+    bikClone:
+      Result := 'stamp.svg.png';
+    bikRecolor:
+      Result := 'droplets.svg.png';
+    bikLine:
+      Result := 'slash.svg.png';
+    bikRectangle:
+      Result := 'square.svg.png';
+    bikRoundedRect:
+      Result := 'square-round-corner.svg.png';
+    bikEllipse:
+      Result := 'circle.svg.png';
+    bikFreeform:
+      Result := 'spline.svg.png';
+    bikCrop:
+      Result := 'crop.svg.png';
+    bikText:
+      Result := 'type.svg.png';
+  else
+    Result := '';
+  end;
+end;
+
+function ResolveRenderedIconDir: string;
+var
+  BaseDir: string;
+  ParentDir: string;
+  Candidate: string;
+  Depth: Integer;
+begin
+  if GCachedRenderedIconDirKnown then
+    Exit(GCachedRenderedIconDir);
+
+  GCachedRenderedIconDirKnown := True;
+  GCachedRenderedIconDir := '';
+  BaseDir := ExpandFileName(ExtractFileDir(ParamStr(0)));
+
+  Candidate := ExpandFileName(
+    BaseDir + PathDelim + '..' + PathDelim + 'Resources' + PathDelim + 'icons' + PathDelim + 'rendered'
+  );
+  if DirectoryExists(Candidate) then
+  begin
+    GCachedRenderedIconDir := Candidate;
+    Exit(GCachedRenderedIconDir);
+  end;
+
+  Candidate := ExpandFileName(GetCurrentDir + PathDelim + 'assets' + PathDelim + 'icons' + PathDelim + 'rendered');
+  if DirectoryExists(Candidate) then
+  begin
+    GCachedRenderedIconDir := Candidate;
+    Exit(GCachedRenderedIconDir);
+  end;
+
+  for Depth := 0 to MaxIconRootSearchDepth do
+  begin
+    Candidate := IncludeTrailingPathDelimiter(BaseDir) + 'assets' + PathDelim + 'icons' + PathDelim + 'rendered';
+    if DirectoryExists(Candidate) then
+    begin
+      GCachedRenderedIconDir := Candidate;
+      Exit(GCachedRenderedIconDir);
+    end;
+    ParentDir := ExpandFileName(BaseDir + PathDelim + '..');
+    if ParentDir = BaseDir then
+      Break;
+    BaseDir := ParentDir;
+  end;
+
+  Result := GCachedRenderedIconDir;
+end;
+
+procedure PrepareGlyphBitmap(AGlyph: TBitmap; ABackgroundColor: TColor);
+const
+  TransparentGlyphColor = TColor($00FF00FF);
 begin
   AGlyph.SetSize(IconBitmapSize, IconBitmapSize);
-  AGlyph.Canvas.Brush.Color := IconBackgroundColor;
+  AGlyph.Canvas.Brush.Color := TransparentGlyphColor;
   AGlyph.Canvas.FillRect(0, 0, IconBitmapSize, IconBitmapSize);
+  AGlyph.TransparentColor := TransparentGlyphColor;
   AGlyph.Transparent := True;
-  AGlyph.TransparentColor := IconBackgroundColor;
   AGlyph.Canvas.Pen.Color := IconForegroundColor;
   AGlyph.Canvas.Pen.Width := 1;
   AGlyph.Canvas.Brush.Style := bsClear;
   AGlyph.Canvas.Font.Color := IconForegroundColor;
   AGlyph.Canvas.Font.Size := 8;
   AGlyph.Canvas.Font.Style := [fsBold];
+  if ABackgroundColor = clNone then
+    AGlyph.Canvas.Pen.Color := IconForegroundColor;
+end;
+
+function TryLoadRenderedIcon(AKind: TButtonIconKind; AGlyph: TBitmap): Boolean;
+var
+  AssetName: string;
+  AssetPath: string;
+  RenderedIcon: TPortableNetworkGraphic;
+begin
+  Result := False;
+  if AGlyph = nil then
+    Exit;
+
+  AssetName := RenderedIconAssetName(AKind);
+  if AssetName = '' then
+    Exit;
+
+  AssetPath := ResolveRenderedIconDir;
+  if AssetPath = '' then
+    Exit;
+
+  AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
+  if not FileExists(AssetPath) then
+    Exit;
+
+  RenderedIcon := TPortableNetworkGraphic.Create;
+  try
+    try
+      RenderedIcon.LoadFromFile(AssetPath);
+      PrepareGlyphBitmap(AGlyph, clNone);
+      if (RenderedIcon.Width = IconBitmapSize) and (RenderedIcon.Height = IconBitmapSize) then
+        AGlyph.Canvas.Draw(0, 0, RenderedIcon)
+      else
+        AGlyph.Canvas.StretchDraw(Rect(0, 0, IconBitmapSize, IconBitmapSize), RenderedIcon);
+      Result := True;
+    except
+      Result := False;
+    end;
+  finally
+    RenderedIcon.Free;
+  end;
 end;
 
 procedure DrawArrow(ACanvas: TCanvas; const APoints: array of TPoint);
@@ -131,6 +355,8 @@ var
   Key: string;
 begin
   Key := NormalizeCaption(ACaption);
+  if Key = 'ZOOM+' then Exit(bikZoomIn);
+  if Key = 'ZOOM-' then Exit(bikZoomOut);
   if Key = 'NEW' then Exit(bikNew);
   if Key = 'OPEN' then Exit(bikOpen);
   if Key = 'SAVE' then Exit(bikSave);
@@ -158,13 +384,16 @@ begin
 end;
 
 function ResolveUtilityIconKind(const ACaption: string): TButtonIconKind;
+var
+  Key: string;
 begin
-  if ACaption = '▦' then Exit(bikTools);
-  if ACaption = '↺' then Exit(bikHistory);
-  if ACaption = '▤' then Exit(bikLayers);
-  if ACaption = '◍' then Exit(bikColors);
-  if ACaption = '⚙' then Exit(bikSettings);
-  if ACaption = '?' then Exit(bikHelp);
+  Key := NormalizeCaption(ACaption);
+  if (ACaption = '▦') or (Key = 'TOOLS') then Exit(bikTools);
+  if (ACaption = '↺') or (Key = 'HISTORY') then Exit(bikHistory);
+  if (ACaption = '▤') or (Key = 'LAYERS') then Exit(bikLayers);
+  if (ACaption = '◍') or (Key = 'COLORS') then Exit(bikColors);
+  if (ACaption = '⚙') or (Key = 'SETTINGS') then Exit(bikSettings);
+  if (ACaption = '?') or (Key = 'HELP') then Exit(bikHelp);
   Result := bikNone;
 end;
 
@@ -223,71 +452,75 @@ begin
   case AKind of
     bikNew:
       begin
-        C.Rectangle(3, 2, 12, 14);
-        C.Line(9, 2, 12, 5);
-        C.Line(9, 2, 9, 5);
-        C.Line(6, 8, 9, 8);
-        C.Line(7, 7, 7, 10);
+        C.Pen.Width := 2;
+        C.Polyline([Point(5, 2), Point(10, 2), Point(13, 5), Point(13, 14), Point(5, 14), Point(5, 2)]);
+        C.Line(10, 2, 10, 5);
+        C.Line(10, 5, 13, 5);
+        C.Line(9, 9, 9, 12);
+        C.Line(7, 11, 11, 11);
       end;
     bikOpen:
       begin
-        C.Line(2, 6, 5, 6);
-        C.Line(5, 6, 6, 4);
-        C.Line(6, 4, 13, 4);
-        C.Rectangle(2, 6, 13, 12);
+        C.Pen.Width := 2;
+        C.Polyline([Point(3, 6), Point(3, 4), Point(7, 4), Point(9, 6), Point(13, 6)]);
+        C.Polyline([Point(3, 8), Point(13, 8), Point(11, 13), Point(4, 13), Point(3, 8)]);
       end;
     bikSave:
       begin
-        C.Rectangle(2, 2, 14, 14);
-        C.Line(4, 4, 10, 4);
-        C.Rectangle(5, 8, 11, 12);
-        C.Line(10, 2, 10, 6);
+        C.Pen.Width := 2;
+        C.Polyline([Point(3, 2), Point(12, 2), Point(14, 4), Point(14, 14), Point(3, 14), Point(3, 2)]);
+        C.Line(5, 4, 11, 4);
+        C.Polyline([Point(6, 9), Point(11, 9), Point(11, 14)]);
+        C.Line(11, 2, 11, 6);
       end;
     bikCut:
       begin
-        C.Ellipse(2, 9, 6, 13);
-        C.Ellipse(6, 9, 10, 13);
-        C.Line(4, 10, 12, 3);
-        C.Line(8, 10, 13, 13);
+        C.Pen.Width := 2;
+        C.Ellipse(2, 2, 7, 7);
+        C.Ellipse(2, 9, 7, 14);
+        C.Line(7, 6, 13, 2);
+        C.Line(8, 9, 13, 14);
       end;
     bikCopy:
       begin
-        C.Rectangle(3, 4, 11, 12);
-        C.Rectangle(6, 2, 14, 10);
+        C.Pen.Width := 2;
+        C.RoundRect(4, 5, 11, 12, 2, 2);
+        C.RoundRect(7, 2, 14, 9, 2, 2);
       end;
     bikPaste:
       begin
-        C.Rectangle(3, 4, 13, 14);
-        C.Rectangle(5, 2, 11, 5);
-        C.Line(6, 7, 10, 7);
-        C.Line(6, 9, 10, 9);
+        C.Pen.Width := 2;
+        C.RoundRect(4, 4, 13, 14, 2, 2);
+        C.RoundRect(6, 2, 11, 5, 2, 2);
+        C.Line(7, 8, 11, 8);
+        C.Line(7, 11, 10, 11);
       end;
     bikUndo:
       begin
-        DrawArrow(C, [Point(10, 4), Point(5, 4), Point(3, 6)]);
-        DrawArrow(C, [Point(5, 4), Point(7, 2)]);
-        DrawArrow(C, [Point(5, 4), Point(7, 6)]);
-        C.Line(10, 4, 12, 6);
+        C.Pen.Width := 2;
+        C.Polyline([Point(7, 4), Point(3, 8), Point(7, 12)]);
+        C.Polyline([Point(4, 8), Point(10, 8), Point(13, 11)]);
       end;
     bikRedo:
       begin
-        DrawArrow(C, [Point(5, 4), Point(10, 4), Point(12, 6)]);
-        DrawArrow(C, [Point(10, 4), Point(8, 2)]);
-        DrawArrow(C, [Point(10, 4), Point(8, 6)]);
-        C.Line(5, 4, 3, 6);
+        C.Pen.Width := 2;
+        C.Polyline([Point(9, 4), Point(13, 8), Point(9, 12)]);
+        C.Polyline([Point(12, 8), Point(6, 8), Point(3, 11)]);
       end;
     bikZoomIn, bikZoomTool:
       begin
-        C.Ellipse(2, 2, 10, 10);
-        C.Line(8, 8, 13, 13);
-        C.Line(4, 6, 8, 6);
-        C.Line(6, 4, 6, 8);
+        C.Pen.Width := 2;
+        C.Ellipse(2, 2, 11, 11);
+        C.Line(9, 9, 14, 14);
+        C.Line(5, 6, 8, 6);
+        C.Line(6, 5, 6, 8);
       end;
     bikZoomOut:
       begin
-        C.Ellipse(2, 2, 10, 10);
-        C.Line(8, 8, 13, 13);
-        C.Line(4, 6, 8, 6);
+        C.Pen.Width := 2;
+        C.Ellipse(2, 2, 11, 11);
+        C.Line(9, 9, 14, 14);
+        C.Line(5, 6, 8, 6);
       end;
     bikAdd:
       begin
@@ -380,42 +613,62 @@ begin
       end;
     bikTools:
       begin
-        C.Rectangle(2, 2, 6, 6);
-        C.Rectangle(8, 2, 12, 6);
-        C.Rectangle(2, 8, 6, 12);
-        C.Rectangle(8, 8, 12, 12);
+        C.Pen.Width := 2;
+        C.Line(11, 3, 13, 5);
+        C.Line(9, 5, 11, 3);
+        C.Line(9, 5, 11, 7);
+        C.Line(8, 6, 4, 10);
+        C.Line(4, 10, 6, 12);
+        C.Line(3, 11, 5, 13);
       end;
     bikHistory:
       begin
-        C.Arc(2, 2, 13, 13, 4, 3, 2, 8);
-        C.Line(2, 8, 5, 6);
-        C.Line(2, 8, 5, 10);
+        C.Pen.Width := 2;
+        C.Arc(2, 2, 14, 14, 4, 4, 3, 9);
+        C.Line(3, 9, 5, 7);
+        C.Line(3, 9, 5, 11);
+        C.Line(8, 5, 8, 8);
+        C.Line(8, 8, 10, 10);
       end;
     bikLayers:
       begin
+        C.Pen.Width := 2;
         C.Polygon([Point(8, 2), Point(13, 5), Point(8, 8), Point(3, 5)]);
         C.Polygon([Point(8, 6), Point(13, 9), Point(8, 12), Point(3, 9)]);
+        C.Polygon([Point(8, 10), Point(13, 13), Point(8, 15), Point(3, 13)]);
       end;
     bikColors:
       begin
-        C.Ellipse(2, 4, 9, 11);
-        C.Ellipse(7, 4, 14, 11);
+        C.Pen.Width := 2;
+        C.Ellipse(2, 3, 13, 13);
+        C.Ellipse(8, 8, 11, 11);
+        C.Ellipse(5, 5, 7, 7);
+        C.Ellipse(8, 4, 10, 6);
+        C.Ellipse(10, 7, 12, 9);
       end;
     bikHelp:
       DrawCenteredText(C, '?');
     bikSelectRect:
       begin
+        C.Pen.Width := 2;
         C.Rectangle(5, 4, 13, 12);
-        C.Line(2, 2, 6, 10);
+        C.Line(2, 2, 6, 9);
         C.Line(2, 2, 5, 3);
         C.Line(2, 2, 3, 5);
       end;
     bikSelectEllipse:
-      C.Ellipse(3, 3, 13, 12);
+      begin
+        C.Pen.Width := 2;
+        C.Ellipse(3, 3, 13, 12);
+      end;
     bikSelectLasso:
-      C.Polyline([Point(3, 9), Point(5, 4), Point(9, 3), Point(12, 6), Point(10, 11), Point(6, 12), Point(3, 9)]);
+      begin
+        C.Pen.Width := 2;
+        C.Polyline([Point(3, 10), Point(5, 4), Point(9, 3), Point(12, 6), Point(10, 11), Point(6, 12), Point(3, 10)]);
+      end;
     bikMagicWand:
       begin
+        C.Pen.Width := 2;
         C.Line(4, 12, 10, 6);
         C.Line(9, 2, 9, 4);
         C.Line(9, 8, 9, 10);
@@ -426,6 +679,7 @@ begin
       end;
     bikMoveSelection:
       begin
+        C.Pen.Width := 2;
         C.Rectangle(5, 5, 11, 11);
         C.Line(8, 2, 8, 14);
         C.Line(2, 8, 14, 8);
@@ -440,9 +694,17 @@ begin
       end;
     bikMovePixels:
       begin
-        C.Rectangle(4, 4, 8, 8);
-        C.Rectangle(8, 8, 12, 12);
+        C.Pen.Width := 2;
+        C.Line(8, 2, 8, 14);
         C.Line(2, 8, 14, 8);
+        C.Line(8, 2, 6, 4);
+        C.Line(8, 2, 10, 4);
+        C.Line(8, 14, 6, 12);
+        C.Line(8, 14, 10, 12);
+        C.Line(2, 8, 4, 6);
+        C.Line(2, 8, 4, 10);
+        C.Line(14, 8, 12, 6);
+        C.Line(14, 8, 12, 10);
       end;
     bikPan:
       begin
@@ -455,35 +717,41 @@ begin
       end;
     bikFill:
       begin
-        C.Polygon([Point(3, 5), Point(8, 2), Point(12, 6), Point(7, 9)]);
+        C.Pen.Width := 2;
+        C.Polyline([Point(3, 5), Point(8, 2), Point(12, 6), Point(7, 9), Point(3, 5)]);
         C.Line(8, 9, 12, 9);
-        C.Ellipse(10, 10, 13, 14);
+        C.Ellipse(10, 10, 13, 13);
       end;
     bikGradient:
       begin
+        C.Pen.Width := 2;
         C.Rectangle(2, 4, 13, 11);
-        C.Line(4, 5, 11, 10);
+        C.Line(4, 10, 11, 5);
       end;
     bikPencil:
       begin
+        C.Pen.Width := 2;
         C.Line(3, 12, 11, 4);
         C.Line(10, 3, 12, 5);
         C.Line(3, 12, 5, 12);
       end;
     bikBrush:
       begin
-        C.Line(4, 12, 8, 8);
-        C.Line(8, 8, 11, 4);
-        C.Line(10, 3, 12, 5);
-        C.Line(7, 9, 9, 11);
-        C.Line(5, 11, 8, 14);
+        C.Pen.Width := 2;
+        C.Line(5, 12, 8, 9);
+        C.Line(8, 9, 11, 5);
+        C.Line(10, 4, 12, 6);
+        C.Line(6, 11, 8, 13);
+        C.Line(4, 13, 7, 15);
       end;
     bikEraser:
       begin
+        C.Pen.Width := 2;
         C.Polygon([Point(4, 11), Point(8, 5), Point(12, 9), Point(8, 13)]);
       end;
     bikPicker:
       begin
+        C.Pen.Width := 2;
         C.Ellipse(7, 2, 11, 6);
         C.Line(10, 5, 5, 10);
         C.Line(5, 10, 3, 12);
@@ -491,18 +759,21 @@ begin
       end;
     bikClone:
       begin
+        C.Pen.Width := 2;
         C.Rectangle(3, 5, 8, 10);
         C.Rectangle(7, 3, 12, 8);
         C.Line(9, 9, 13, 13);
       end;
     bikRecolor:
       begin
+        C.Pen.Width := 2;
         C.Ellipse(3, 3, 12, 12);
         C.Line(7, 3, 7, 12);
         C.Line(7, 8, 12, 8);
       end;
     bikLine:
       begin
+        C.Pen.Width := 2;
         C.Line(3, 12, 13, 4);
         C.Ellipse(2, 11, 5, 14);
         C.Ellipse(11, 2, 14, 5);
@@ -516,9 +787,13 @@ begin
     bikEllipse:
       C.Ellipse(3, 4, 13, 12);
     bikFreeform:
-      C.Polyline([Point(2, 10), Point(4, 5), Point(7, 7), Point(10, 3), Point(13, 8)]);
+      begin
+        C.Pen.Width := 2;
+        C.Polyline([Point(2, 10), Point(4, 5), Point(7, 7), Point(10, 3), Point(13, 8)]);
+      end;
     bikCrop:
       begin
+        C.Pen.Width := 2;
         C.Line(4, 2, 4, 10);
         C.Line(4, 10, 12, 10);
         C.Line(8, 4, 8, 12);
@@ -527,6 +802,7 @@ begin
     bikText:
       begin
         DrawCenteredText(C, 'T', -1);
+        C.Pen.Width := 2;
         C.Line(4, 13, 12, 13);
       end;
   end;
@@ -537,7 +813,94 @@ begin
   Result := ResolveButtonIconKind(ACaption, AContext) <> bikNone;
 end;
 
-function TryBuildButtonGlyph(const ACaption: string; AContext: TButtonIconContext; AGlyph: TBitmap): Boolean;
+function ButtonIconCanLoadRenderedAsset(const ACaption: string; AContext: TButtonIconContext): Boolean;
+var
+  IconKind: TButtonIconKind;
+  AssetName: string;
+  AssetPath: string;
+  RenderedIcon: TPortableNetworkGraphic;
+begin
+  Result := False;
+  IconKind := ResolveButtonIconKind(ACaption, AContext);
+  if IconKind = bikNone then
+    Exit;
+
+  AssetName := RenderedIconAssetName(IconKind);
+  if AssetName = '' then
+    Exit;
+
+  AssetPath := ResolveRenderedIconDir;
+  if AssetPath = '' then
+    Exit;
+
+  AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
+  if not FileExists(AssetPath) then
+    Exit;
+
+  RenderedIcon := TPortableNetworkGraphic.Create;
+  try
+    try
+      RenderedIcon.LoadFromFile(AssetPath);
+      Result := (RenderedIcon.Width > 0) and (RenderedIcon.Height > 0);
+    except
+      Result := False;
+    end;
+  finally
+    RenderedIcon.Free;
+  end;
+end;
+
+function TryLoadButtonIconPicture(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  APicture: TPicture
+): Boolean;
+var
+  IconKind: TButtonIconKind;
+  AssetName: string;
+  AssetPath: string;
+  RenderedIcon: TPortableNetworkGraphic;
+begin
+  Result := False;
+  if APicture = nil then
+    Exit;
+
+  IconKind := ResolveButtonIconKind(ACaption, AContext);
+  if IconKind = bikNone then
+    Exit;
+
+  AssetName := RenderedIconAssetName(IconKind);
+  if AssetName = '' then
+    Exit;
+
+  AssetPath := ResolveRenderedIconDir;
+  if AssetPath = '' then
+    Exit;
+
+  AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
+  if not FileExists(AssetPath) then
+    Exit;
+
+  RenderedIcon := TPortableNetworkGraphic.Create;
+  try
+    try
+      RenderedIcon.LoadFromFile(AssetPath);
+      APicture.Assign(RenderedIcon);
+      Result := True;
+    except
+      Result := False;
+    end;
+  finally
+    RenderedIcon.Free;
+  end;
+end;
+
+function TryBuildButtonGlyph(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  AGlyph: TBitmap;
+  ABackgroundColor: TColor
+): Boolean;
 var
   IconKind: TButtonIconKind;
 begin
@@ -547,7 +910,31 @@ begin
   Result := IconKind <> bikNone;
   if not Result then
     Exit;
-  PrepareGlyphBitmap(AGlyph);
+  { Prefer the pre-rendered asset-backed icon set generated from the canonical
+    local Lucide stroke SVGs. If an asset is missing, fall back to the built-in
+    line glyph so the UI remains usable. }
+  if TryLoadRenderedIcon(IconKind, AGlyph) then
+    Exit(True);
+  PrepareGlyphBitmap(AGlyph, ABackgroundColor);
+  DrawIcon(IconKind, AGlyph);
+end;
+
+function TryBuildLineButtonGlyph(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  AGlyph: TBitmap;
+  ABackgroundColor: TColor
+): Boolean;
+var
+  IconKind: TButtonIconKind;
+begin
+  if AGlyph = nil then
+    Exit(False);
+  IconKind := ResolveButtonIconKind(ACaption, AContext);
+  Result := IconKind <> bikNone;
+  if not Result then
+    Exit;
+  PrepareGlyphBitmap(AGlyph, ABackgroundColor);
   DrawIcon(IconKind, AGlyph);
 end;
 

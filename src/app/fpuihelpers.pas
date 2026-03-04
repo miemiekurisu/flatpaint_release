@@ -25,6 +25,7 @@ function DefaultStartupTool: TToolKind;
 function ToolShortcutUsesPlainKeyOnly(const AShift: TShiftState): Boolean;
 function AdoptSampledRGBPreservingAlpha(const ACurrentColor, ASampledColor: TRGBA32): TRGBA32;
 function DragButtonIsStillPressed(AButton: TMouseButton; const AShift: TShiftState): Boolean;
+function ShouldCommitPendingStrokeOnMouseDown(AHasPendingStroke: Boolean): Boolean;
 function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEndPoint: TPoint): Boolean;
 
 { Given a key and a reverse-flag (Shift held), compute the new tool.  }
@@ -360,6 +361,12 @@ begin
   else
     Result := ssLeft in AShift;
   end;
+end;
+
+function ShouldCommitPendingStrokeOnMouseDown(AHasPendingStroke: Boolean): Boolean;
+begin
+  { A fresh press should never silently discard an unfinished brush-like stroke. }
+  Result := AHasPendingStroke;
 end;
 
 function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEndPoint: TPoint): Boolean;

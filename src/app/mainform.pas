@@ -10,7 +10,7 @@ uses
   Buttons,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
-  FPUtilityHelpers;
+  FPUtilityHelpers, FPToolbarHelpers;
 
 type
   TMainForm = class;
@@ -100,6 +100,7 @@ type
     FPixelGridMenuItem: TMenuItem;
     FRulersMenuItem: TMenuItem;
     FTopPanel: TPanel;
+    FChromeTitleLabel: TLabel;
     FWorkspacePanel: TPanel;
     FRulerTopBand: TPanel;
     FRulerCorner: TPanel;
@@ -170,6 +171,7 @@ type
     FPreStrokeSnapshot: TRasterSurface;
     FStrokeDirtyRect: TRect;
     FStrokeLayerIndex: Integer;
+    FStrokeTool: TToolKind;
     { Document tab management }
     FTabDocuments: array of TImageDocument;
     FTabFileNames: array of string;
@@ -302,6 +304,23 @@ type
     procedure UpdateToolOptionControl;
     procedure SyncToolButtonSelection;
     procedure SyncUtilityButtonStates;
+    procedure ButtonIconOverlayClick(Sender: TObject);
+    function FindButtonIconOverlay(AButton: TSpeedButton): TImage;
+    procedure PositionButtonIconOverlay(
+      AButton: TSpeedButton;
+      AIconImage: TImage;
+      AContext: TButtonIconContext
+    );
+    procedure RealignButtonIconOverlay(
+      AButton: TSpeedButton;
+      AContext: TButtonIconContext
+    );
+    function AttachButtonIconOverlay(
+      AButton: TSpeedButton;
+      const ACaption: string;
+      AContext: TButtonIconContext;
+      ABackgroundColor: TColor
+    ): Boolean;
     procedure RefreshUnitsMenu;
     procedure BuildMenus;
     procedure BuildTabPopupMenu;
@@ -348,6 +367,9 @@ type
     function PaletteControl(AKind: TPaletteKind): TPanel;
     function PaletteKindForControl(AControl: TControl): TPaletteKind;
     function PaletteHeaderControl(APalette: TControl): TPanel;
+    function PaletteRootForControl(AControl: TControl): TControl;
+    function ControlBelongsToPalette(AControl, APalette: TControl): Boolean;
+    function PointRelativeToControl(AControl, ATarget: TControl; const APoint: TPoint): TPoint;
     procedure ApplyPaletteVisualState(APalette: TControl; ADragging: Boolean);
     procedure CreatePaletteHeader(ATarget: TPanel; AKind: TPaletteKind);
     procedure RefreshPaletteMenuChecks;
@@ -535,6 +557,7 @@ type
     procedure HidePaletteClick(Sender: TObject);
     procedure ToolButtonClick(Sender: TObject);
     procedure ToolComboChange(Sender: TObject);
+    procedure SyncToolComboSelection;
     procedure ZoomComboChange(Sender: TObject);
     procedure StatusZoomTrackChange(Sender: TObject);
     procedure HistoryListClick(Sender: TObject);
@@ -563,6 +586,7 @@ type
     procedure PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseLeave(Sender: TObject);
     { Stroke history helpers }
+    procedure SealPendingStrokeHistory;
     procedure BeginStrokeHistory;
     procedure ExpandStrokeDirty(const APoint: TPoint);
     procedure CommitStrokeHistory(const ALabel: string);
@@ -669,6 +693,7 @@ begin
   FZoomScale := 1.0;
   FDisplayUnit := duPixels;
   FCurrentTool := DefaultStartupTool;
+  FStrokeTool := FCurrentTool;
   FPointerButton := mbLeft;
   FBrushSize := 8;
   FWandTolerance := 32;
@@ -780,6 +805,7 @@ begin
   FZoomScale := 1.0;
   FDisplayUnit := duPixels;
   FCurrentTool := DefaultStartupTool;
+  FStrokeTool := FCurrentTool;
   FPointerButton := mbLeft;
   FBrushSize := 8;
   FWandTolerance := 32;
@@ -1770,36 +1796,55 @@ begin
       Continue;
     IsActive := ToolKind = FCurrentTool;
     FToolButtons[ToolKind].Down := IsActive;
+    FToolButtons[ToolKind].Flat := not IsActive;
     if IsActive then
-      FToolButtons[ToolKind].Font.Style := [fsBold]
+    begin
+      FToolButtons[ToolKind].Font.Style := [fsBold];
+      FToolButtons[ToolKind].Font.Color := PaletteSelectionTextColor;
+    end
     else
+    begin
       FToolButtons[ToolKind].Font.Style := [];
+      FToolButtons[ToolKind].Font.Color := ChromeTextColor;
+    end;
   end;
 end;
 
 procedure TMainForm.SyncUtilityButtonStates;
 var
   PaletteHost: TPanel;
+  procedure ApplyButtonState(AButton: TSpeedButton; AActive: Boolean);
+  begin
+    if not Assigned(AButton) then
+      Exit;
+    AButton.Down := False;
+    AButton.Flat := not AActive;
+    AButton.Font.Style := [fsBold];
+    if AActive then
+      AButton.Font.Color := ChromeTextColor
+    else
+      AButton.Font.Color := ChromeMutedTextColor;
+  end;
 begin
   if Assigned(FUtilityButtons[ucTools]) then
   begin
     PaletteHost := PaletteControl(pkTools);
-    FUtilityButtons[ucTools].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+    ApplyButtonState(FUtilityButtons[ucTools], Assigned(PaletteHost) and PaletteHost.Visible);
   end;
   if Assigned(FUtilityButtons[ucHistory]) then
   begin
     PaletteHost := PaletteControl(pkHistory);
-    FUtilityButtons[ucHistory].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+    ApplyButtonState(FUtilityButtons[ucHistory], Assigned(PaletteHost) and PaletteHost.Visible);
   end;
   if Assigned(FUtilityButtons[ucLayers]) then
   begin
     PaletteHost := PaletteControl(pkLayers);
-    FUtilityButtons[ucLayers].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+    ApplyButtonState(FUtilityButtons[ucLayers], Assigned(PaletteHost) and PaletteHost.Visible);
   end;
   if Assigned(FUtilityButtons[ucColors]) then
   begin
     PaletteHost := PaletteControl(pkColors);
-    FUtilityButtons[ucColors].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+    ApplyButtonState(FUtilityButtons[ucColors], Assigned(PaletteHost) and PaletteHost.Visible);
   end;
 end;
 
@@ -2077,82 +2122,214 @@ var
   ToolIndex: Integer;
   ToolKind: TToolKind;
   UtilityPanel: TPanel;
-  UtilityButton: TSpeedButton;
-  UtilityIndex: Integer;
+  FileGroupPanel: TPanel;
+  EditGroupPanel: TPanel;
+  UndoGroupPanel: TPanel;
+  PaletteGroupPanel: TPanel;
+  ZoomGroupPanel: TPanel;
+  TitleLeadPanel: TPanel;
+  TitleTailPanel: TPanel;
   UtilityCommand: TUtilityCommandKind;
   ZoomIndex: Integer;
   Btn: TSpeedButton;
-  GroupPanel: TPanel;
+  TitleBand: TPanel;
+  DotShape: TShape;
+  DividerShape: TShape;
+  FileGroupRect: TRect;
+  EditGroupRect: TRect;
+  UndoGroupRect: TRect;
+  PaletteGroupRect: TRect;
+  ZoomGroupRect: TRect;
+  DividerRect: TRect;
+  ZoomButtonRect: TRect;
+  ZoomComboRect: TRect;
+  HostWidth: Integer;
 begin
   FTopPanel := TPanel.Create(Self);
   FTopPanel.Parent := Self;
   FTopPanel.Align := alTop;
-  FTopPanel.Height := 66;
+  FTopPanel.Height := TopToolbarHeight;
   FTopPanel.BevelOuter := bvNone;
   FTopPanel.Caption := '';
   FTopPanel.Color := ToolbarBackgroundColor;
   FTopPanel.ParentColor := False;
 
+  TitleBand := TPanel.Create(FTopPanel);
+  TitleBand.Parent := FTopPanel;
+  TitleBand.Align := alTop;
+  TitleBand.Height := ToolbarTitleBandHeight;
+  TitleBand.BevelOuter := bvNone;
+  TitleBand.Caption := '';
+  TitleBand.Color := ToolbarBackgroundColor;
+  TitleBand.ParentColor := False;
+
+  TitleLeadPanel := TPanel.Create(TitleBand);
+  TitleLeadPanel.Parent := TitleBand;
+  TitleLeadPanel.Align := alLeft;
+  TitleLeadPanel.Width := ToolbarTitleRailWidth;
+  TitleLeadPanel.BevelOuter := bvNone;
+  TitleLeadPanel.Caption := '';
+  TitleLeadPanel.Color := ToolbarBackgroundColor;
+  TitleLeadPanel.ParentColor := False;
+
+  TitleTailPanel := TPanel.Create(TitleBand);
+  TitleTailPanel.Parent := TitleBand;
+  TitleTailPanel.Align := alRight;
+  TitleTailPanel.Width := ToolbarTitleRailWidth;
+  TitleTailPanel.BevelOuter := bvNone;
+  TitleTailPanel.Caption := '';
+  TitleTailPanel.Color := ToolbarBackgroundColor;
+  TitleTailPanel.ParentColor := False;
+
+  DotShape := TShape.Create(TitleLeadPanel);
+  DotShape.Parent := TitleLeadPanel;
+  DotShape.Left := ToolbarTitleDotLeft;
+  DotShape.Top := ToolbarTitleDotTop;
+  DotShape.Width := ToolbarTitleDotSize;
+  DotShape.Height := ToolbarTitleDotSize;
+  DotShape.Shape := stCircle;
+  DotShape.Pen.Style := psClear;
+  DotShape.Brush.Color := $005F5CF6;
+
+  DotShape := TShape.Create(TitleLeadPanel);
+  DotShape.Parent := TitleLeadPanel;
+  DotShape.Left := ToolbarTitleDotLeft + ToolbarTitleDotStride;
+  DotShape.Top := ToolbarTitleDotTop;
+  DotShape.Width := ToolbarTitleDotSize;
+  DotShape.Height := ToolbarTitleDotSize;
+  DotShape.Shape := stCircle;
+  DotShape.Pen.Style := psClear;
+  DotShape.Brush.Color := $0059D5F9;
+
+  DotShape := TShape.Create(TitleLeadPanel);
+  DotShape.Parent := TitleLeadPanel;
+  DotShape.Left := ToolbarTitleDotLeft + (ToolbarTitleDotStride * 2);
+  DotShape.Top := ToolbarTitleDotTop;
+  DotShape.Width := ToolbarTitleDotSize;
+  DotShape.Height := ToolbarTitleDotSize;
+  DotShape.Shape := stCircle;
+  DotShape.Pen.Style := psClear;
+  DotShape.Brush.Color := $0068C85B;
+
+  FChromeTitleLabel := TLabel.Create(TitleBand);
+  FChromeTitleLabel.Parent := TitleBand;
+  FChromeTitleLabel.Align := alClient;
+  FChromeTitleLabel.Alignment := taCenter;
+  FChromeTitleLabel.Layout := tlCenter;
+  FChromeTitleLabel.Caption := WindowCaptionForDocument(DisplayFileName, FDirty);
+  FChromeTitleLabel.Font.Color := ChromeTextColor;
+  FChromeTitleLabel.Font.Style := [fsBold];
+  FChromeTitleLabel.Font.Size := 9;
+
   { Toolbar row 1: quick actions + zoom; the tool-options row stays separate below it. }
-  GroupPanel := TPanel.Create(FTopPanel);
-  GroupPanel.Parent := FTopPanel;
-  GroupPanel.Left := 8;
-  GroupPanel.Top := 6;
-  GroupPanel.Width := 190;
-  GroupPanel.Height := 30;
-  GroupPanel.BevelOuter := bvNone;
-  GroupPanel.Caption := '';
-  GroupPanel.Color := PaletteListBackgroundColor;
-  GroupPanel.ParentColor := False;
+  HostWidth := FTopPanel.ClientWidth;
+  if HostWidth <= 0 then
+    HostWidth := ClientWidth;
+  if HostWidth <= 0 then
+    HostWidth := FPToolbarHelpers.DefaultToolbarHostWidth;
+  FileGroupRect := FPToolbarHelpers.ToolbarFileGroupRect;
+  EditGroupRect := FPToolbarHelpers.ToolbarEditGroupRect;
+  UndoGroupRect := FPToolbarHelpers.ToolbarUndoGroupRect;
+  PaletteGroupRect := FPToolbarHelpers.ToolbarPaletteGroupRect(HostWidth);
+  ZoomGroupRect := FPToolbarHelpers.ToolbarZoomGroupRect(HostWidth);
 
-  GroupPanel := TPanel.Create(FTopPanel);
-  GroupPanel.Parent := FTopPanel;
-  GroupPanel.Left := 206;
-  GroupPanel.Top := 6;
-  GroupPanel.Width := 92;
-  GroupPanel.Height := 30;
-  GroupPanel.BevelOuter := bvNone;
-  GroupPanel.Caption := '';
-  GroupPanel.Color := PaletteListBackgroundColor;
-  GroupPanel.ParentColor := False;
+  FileGroupPanel := TPanel.Create(FTopPanel);
+  FileGroupPanel.Parent := FTopPanel;
+  FileGroupPanel.SetBounds(
+    FileGroupRect.Left,
+    FileGroupRect.Top,
+    FileGroupRect.Right - FileGroupRect.Left,
+    FileGroupRect.Bottom - FileGroupRect.Top
+  );
+  FileGroupPanel.BevelOuter := bvNone;
+  FileGroupPanel.Caption := '';
+  FileGroupPanel.Color := PaletteListBackgroundColor;
+  FileGroupPanel.ParentColor := False;
 
-  GroupPanel := TPanel.Create(FTopPanel);
-  GroupPanel.Parent := FTopPanel;
-  GroupPanel.Left := 304;
-  GroupPanel.Top := 6;
-  GroupPanel.Width := 64;
-  GroupPanel.Height := 30;
-  GroupPanel.BevelOuter := bvNone;
-  GroupPanel.Caption := '';
-  GroupPanel.Color := PaletteListBackgroundColor;
-  GroupPanel.ParentColor := False;
+  EditGroupPanel := TPanel.Create(FTopPanel);
+  EditGroupPanel.Parent := FTopPanel;
+  EditGroupPanel.SetBounds(
+    EditGroupRect.Left,
+    EditGroupRect.Top,
+    EditGroupRect.Right - EditGroupRect.Left,
+    EditGroupRect.Bottom - EditGroupRect.Top
+  );
+  EditGroupPanel.BevelOuter := bvNone;
+  EditGroupPanel.Caption := '';
+  EditGroupPanel.Color := PaletteListBackgroundColor;
+  EditGroupPanel.ParentColor := False;
 
-  GroupPanel := TPanel.Create(FTopPanel);
-  GroupPanel.Parent := FTopPanel;
-  GroupPanel.Left := 388;
-  GroupPanel.Top := 6;
-  GroupPanel.Width := 150;
-  GroupPanel.Height := 30;
-  GroupPanel.BevelOuter := bvNone;
-  GroupPanel.Caption := '';
-  GroupPanel.Color := PaletteListBackgroundColor;
-  GroupPanel.ParentColor := False;
+  UndoGroupPanel := TPanel.Create(FTopPanel);
+  UndoGroupPanel.Parent := FTopPanel;
+  UndoGroupPanel.SetBounds(
+    UndoGroupRect.Left,
+    UndoGroupRect.Top,
+    UndoGroupRect.Right - UndoGroupRect.Left,
+    UndoGroupRect.Bottom - UndoGroupRect.Top
+  );
+  UndoGroupPanel.BevelOuter := bvNone;
+  UndoGroupPanel.Caption := '';
+  UndoGroupPanel.Color := PaletteListBackgroundColor;
+  UndoGroupPanel.ParentColor := False;
 
-  Btn := CreateButton('New',   12,  8, 56, @NewDocumentClick,   FTopPanel, 0, bicCommand); Btn.Hint := 'New document (Cmd+N)';
-  Btn := CreateButton('Open',  72,  8, 58, @OpenDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Open document (Cmd+O)';
-  Btn := CreateButton('Save', 134,  8, 56, @SaveDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Save document (Cmd+S)';
-  Btn := CreateButton('Cut',  210,  8, 26, @CutClick,           FTopPanel, 0, bicCommand); Btn.Hint := 'Cut selection (Cmd+X)';
-  Btn := CreateButton('Copy', 240,  8, 26, @CopyClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Copy selection (Cmd+C)';
-  Btn := CreateButton('Paste',270,  8, 26, @PasteClick,         FTopPanel, 0, bicCommand); Btn.Hint := 'Paste (Cmd+V)';
-  Btn := CreateButton('Undo', 308,  8, 26, @UndoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Undo last action (Cmd+Z)';
-  Btn := CreateButton('Redo', 338,  8, 26, @RedoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Redo (Cmd+Shift+Z)';
-  Btn := CreateButton('-',    392,  8, 26, @ZoomOutClick,       FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom out (Cmd+-)';
+  PaletteGroupPanel := TPanel.Create(FTopPanel);
+  PaletteGroupPanel.Parent := FTopPanel;
+  PaletteGroupPanel.SetBounds(
+    PaletteGroupRect.Left,
+    PaletteGroupRect.Top,
+    PaletteGroupRect.Right - PaletteGroupRect.Left,
+    PaletteGroupRect.Bottom - PaletteGroupRect.Top
+  );
+  PaletteGroupPanel.BevelOuter := bvNone;
+  PaletteGroupPanel.Caption := '';
+  PaletteGroupPanel.Color := PaletteListBackgroundColor;
+  PaletteGroupPanel.ParentColor := False;
+  PaletteGroupPanel.Anchors := [akTop, akRight];
 
-  FZoomCombo := TComboBox.Create(FTopPanel);
-  FZoomCombo.Parent := FTopPanel;
-  FZoomCombo.Left := 422;
-  FZoomCombo.Top := 8;
-  FZoomCombo.Width := 82;
+  ZoomGroupPanel := TPanel.Create(FTopPanel);
+  ZoomGroupPanel.Parent := FTopPanel;
+  ZoomGroupPanel.SetBounds(
+    ZoomGroupRect.Left,
+    ZoomGroupRect.Top,
+    ZoomGroupRect.Right - ZoomGroupRect.Left,
+    ZoomGroupRect.Bottom - ZoomGroupRect.Top
+  );
+  ZoomGroupPanel.BevelOuter := bvNone;
+  ZoomGroupPanel.Caption := '';
+  ZoomGroupPanel.Color := PaletteListBackgroundColor;
+  ZoomGroupPanel.ParentColor := False;
+  ZoomGroupPanel.Anchors := [akTop, akRight];
+
+  Btn := CreateButton('New',   4, 2, 72, @NewDocumentClick,   FileGroupPanel, 0, bicCommand); Btn.Hint := 'New document (Cmd+N)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Open',  80, 2, 78, @OpenDocumentClick, FileGroupPanel, 0, bicCommand); Btn.Hint := 'Open document (Cmd+O)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Save', 162, 2, 72, @SaveDocumentClick, FileGroupPanel, 0, bicCommand); Btn.Hint := 'Save document (Cmd+S)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Cut',    4, 2, ToolbarCompactButtonWidth, @CutClick,          EditGroupPanel, 0, bicCommand); Btn.Hint := 'Cut selection (Cmd+X)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Copy',  34, 2, ToolbarCompactButtonWidth, @CopyClick,         EditGroupPanel, 0, bicCommand); Btn.Hint := 'Copy selection (Cmd+C)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Paste', 64, 2, ToolbarCompactButtonWidth, @PasteClick,        EditGroupPanel, 0, bicCommand); Btn.Hint := 'Paste (Cmd+V)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Undo',   4, 2, ToolbarCompactButtonWidth, @UndoClick,         UndoGroupPanel, 0, bicCommand); Btn.Hint := 'Undo last action (Cmd+Z)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Redo',  34, 2, ToolbarCompactButtonWidth, @RedoClick,         UndoGroupPanel, 0, bicCommand); Btn.Hint := 'Redo (Cmd+Shift+Z)'; Btn.Height := ToolbarButtonHeight;
+
+  Btn := CreateButton('Tools',  6, 2, ToolbarUtilityButtonWidth, @UtilityButtonClick, PaletteGroupPanel, Ord(ucTools),  bicUtility); Btn.Hint := UtilityCommandHint(ucTools) + ' (' + UtilityCommandShortcutLabel(ucTools) + ')'; Btn.Height := ToolbarButtonHeight;
+  FUtilityButtons[ucTools] := Btn;
+  Btn := CreateButton('Colors', 34, 2, ToolbarUtilityButtonWidth, @UtilityButtonClick, PaletteGroupPanel, Ord(ucColors), bicUtility); Btn.Hint := UtilityCommandHint(ucColors) + ' (' + UtilityCommandShortcutLabel(ucColors) + ')'; Btn.Height := ToolbarButtonHeight;
+  FUtilityButtons[ucColors] := Btn;
+  Btn := CreateButton('History', 62, 2, ToolbarUtilityButtonWidth, @UtilityButtonClick, PaletteGroupPanel, Ord(ucHistory), bicUtility); Btn.Hint := UtilityCommandHint(ucHistory) + ' (' + UtilityCommandShortcutLabel(ucHistory) + ')'; Btn.Height := ToolbarButtonHeight;
+  FUtilityButtons[ucHistory] := Btn;
+  Btn := CreateButton('Layers', 90, 2, ToolbarUtilityButtonWidth, @UtilityButtonClick, PaletteGroupPanel, Ord(ucLayers), bicUtility); Btn.Hint := UtilityCommandHint(ucLayers) + ' (' + UtilityCommandShortcutLabel(ucLayers) + ')'; Btn.Height := ToolbarButtonHeight;
+  FUtilityButtons[ucLayers] := Btn;
+
+  ZoomButtonRect := FPToolbarHelpers.ToolbarZoomOutButtonRect(ZoomGroupRect);
+  Btn := CreateButton('Zoom-',  ZoomButtonRect.Left - ZoomGroupRect.Left, ZoomButtonRect.Top - ZoomGroupRect.Top, ToolbarZoomButtonWidth, @ZoomOutClick, ZoomGroupPanel, 0, bicCommand); Btn.Hint := 'Zoom out (Cmd+-)'; Btn.Height := ToolbarButtonHeight;
+
+  FZoomCombo := TComboBox.Create(ZoomGroupPanel);
+  FZoomCombo.Parent := ZoomGroupPanel;
+  ZoomComboRect := FPToolbarHelpers.ToolbarZoomComboRect(ZoomGroupRect);
+  FZoomCombo.SetBounds(
+    ZoomComboRect.Left - ZoomGroupRect.Left,
+    ZoomComboRect.Top - ZoomGroupRect.Top,
+    ZoomComboRect.Right - ZoomComboRect.Left,
+    ZoomComboRect.Bottom - ZoomComboRect.Top
+  );
   FZoomCombo.Style := csDropDownList;
   for ZoomIndex := 0 to ZoomPresetCount - 1 do
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
@@ -2160,70 +2337,133 @@ begin
   FZoomCombo.Hint := 'Zoom preset';
   FZoomCombo.ShowHint := True;
 
-  Btn := CreateButton('+', 508, 8, 26, @ZoomInClick, FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom in (Cmd+=)';
+  ZoomButtonRect := FPToolbarHelpers.ToolbarZoomInButtonRect(ZoomGroupRect);
+  Btn := CreateButton('Zoom+', ZoomButtonRect.Left - ZoomGroupRect.Left, ZoomButtonRect.Top - ZoomGroupRect.Top, ToolbarZoomButtonWidth, @ZoomInClick, ZoomGroupPanel, 0, bicCommand); Btn.Hint := 'Zoom in (Cmd+=)'; Btn.Height := ToolbarButtonHeight;
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
-  UtilityPanel.Left := 1180;
-  UtilityPanel.Top := 6;
-  UtilityPanel.Width := 172;
-  UtilityPanel.Height := 30;
+  UtilityPanel.Left := 0;
+  UtilityPanel.Top := ToolbarRowTop;
+  UtilityPanel.Width := 0;
+  UtilityPanel.Height := 0;
   UtilityPanel.BevelOuter := bvNone;
   UtilityPanel.Caption := '';
-  UtilityPanel.Color := PaletteListBackgroundColor;
-  UtilityPanel.ParentColor := False;
-  UtilityPanel.Anchors := [akTop, akRight];
-  for UtilityIndex := 0 to UtilityCommandDisplayCount - 1 do
+  UtilityPanel.Visible := False;
+
+  UtilityCommand := ucTools;
+  if Assigned(FUtilityButtons[UtilityCommand]) then
   begin
-    UtilityCommand := UtilityCommandAtDisplayIndex(UtilityIndex);
-    UtilityButton := CreateButton(
-      UtilityCommandGlyph(UtilityCommand),
-      UtilityIndex * 28,
-      2,
-      26,
-      @UtilityButtonClick,
-      UtilityPanel,
-      Ord(UtilityCommand),
-      bicUtility
-    );
-    FUtilityButtons[UtilityCommand] := UtilityButton;
-    if UtilityCommand in [ucTools, ucHistory, ucLayers, ucColors] then
-    begin
-      UtilityButton.Flat := False;
-      UtilityButton.GroupIndex := 20 + UtilityIndex;
-      UtilityButton.AllowAllUp := True;
-    end;
-    if UtilityCommandShortcutLabel(UtilityCommand) <> '' then
-      UtilityButton.Hint := Format(
-        '%s (%s)',
-        [UtilityCommandHint(UtilityCommand), UtilityCommandShortcutLabel(UtilityCommand)]
-      )
-    else
-      UtilityButton.Hint := UtilityCommandHint(UtilityCommand);
+    FUtilityButtons[UtilityCommand].Font.Size := 12;
+    FUtilityButtons[UtilityCommand].Margin := 4;
+    FUtilityButtons[UtilityCommand].Spacing := 0;
+    FUtilityButtons[UtilityCommand].GroupIndex := 0;
+    FUtilityButtons[UtilityCommand].AllowAllUp := False;
   end;
+  UtilityCommand := ucColors;
+  if Assigned(FUtilityButtons[UtilityCommand]) then
+  begin
+    FUtilityButtons[UtilityCommand].Font.Size := 12;
+    FUtilityButtons[UtilityCommand].Margin := 4;
+    FUtilityButtons[UtilityCommand].Spacing := 0;
+    FUtilityButtons[UtilityCommand].GroupIndex := 0;
+    FUtilityButtons[UtilityCommand].AllowAllUp := False;
+  end;
+  UtilityCommand := ucHistory;
+  if Assigned(FUtilityButtons[UtilityCommand]) then
+  begin
+    FUtilityButtons[UtilityCommand].Font.Size := 12;
+    FUtilityButtons[UtilityCommand].Margin := 4;
+    FUtilityButtons[UtilityCommand].Spacing := 0;
+    FUtilityButtons[UtilityCommand].GroupIndex := 0;
+    FUtilityButtons[UtilityCommand].AllowAllUp := False;
+  end;
+  UtilityCommand := ucLayers;
+  if Assigned(FUtilityButtons[UtilityCommand]) then
+  begin
+    FUtilityButtons[UtilityCommand].Font.Size := 12;
+    FUtilityButtons[UtilityCommand].Margin := 4;
+    FUtilityButtons[UtilityCommand].Spacing := 0;
+    FUtilityButtons[UtilityCommand].GroupIndex := 0;
+    FUtilityButtons[UtilityCommand].AllowAllUp := False;
+  end;
+
+  DividerShape := TShape.Create(FTopPanel);
+  DividerShape.Parent := FTopPanel;
+  DividerShape.Shape := stRectangle;
+  DividerShape.Brush.Color := ChromeDividerColor;
+  DividerShape.Pen.Style := psClear;
+  DividerRect := FPToolbarHelpers.ToolbarDividerAfterRect(FileGroupRect);
+  DividerShape.SetBounds(
+    DividerRect.Left,
+    DividerRect.Top,
+    DividerRect.Right - DividerRect.Left,
+    DividerRect.Bottom - DividerRect.Top
+  );
+
+  DividerShape := TShape.Create(FTopPanel);
+  DividerShape.Parent := FTopPanel;
+  DividerShape.Shape := stRectangle;
+  DividerShape.Brush.Color := ChromeDividerColor;
+  DividerShape.Pen.Style := psClear;
+  DividerRect := FPToolbarHelpers.ToolbarDividerAfterRect(EditGroupRect);
+  DividerShape.SetBounds(
+    DividerRect.Left,
+    DividerRect.Top,
+    DividerRect.Right - DividerRect.Left,
+    DividerRect.Bottom - DividerRect.Top
+  );
+
+  DividerShape := TShape.Create(FTopPanel);
+  DividerShape.Parent := FTopPanel;
+  DividerShape.Shape := stRectangle;
+  DividerShape.Brush.Color := ChromeDividerColor;
+  DividerShape.Pen.Style := psClear;
+  DividerRect := FPToolbarHelpers.ToolbarDividerAfterRect(UndoGroupRect);
+  DividerShape.SetBounds(
+    DividerRect.Left,
+    DividerRect.Top,
+    DividerRect.Right - DividerRect.Left,
+    DividerRect.Bottom - DividerRect.Top
+  );
+
+  DividerShape := TShape.Create(FTopPanel);
+  DividerShape.Parent := FTopPanel;
+  DividerShape.Shape := stRectangle;
+  DividerShape.Brush.Color := ChromeDividerColor;
+  DividerShape.Pen.Style := psClear;
+  DividerRect := FPToolbarHelpers.ToolbarDividerAfterRect(PaletteGroupRect);
+  DividerShape.SetBounds(
+    DividerRect.Left,
+    DividerRect.Top,
+    DividerRect.Right - DividerRect.Left,
+    DividerRect.Bottom - DividerRect.Top
+  );
+  DividerShape.Anchors := [akTop, akRight];
 
   LabelCtrl := TLabel.Create(FTopPanel);
   LabelCtrl.Parent := FTopPanel;
   LabelCtrl.Caption := 'Tool:';
   LabelCtrl.Font.Color := ChromeTextColor;
   LabelCtrl.Left := 10;
-  LabelCtrl.Top := 41;
+  LabelCtrl.Top := ToolbarOptionLabelTop;
 
   FToolCombo := TComboBox.Create(FTopPanel);
   FToolCombo.Parent := FTopPanel;
   FToolCombo.Left := 46;
-  FToolCombo.Top := 36;
+  FToolCombo.Top := ToolbarOptionRowTop;
   FToolCombo.Width := 164;
   FToolCombo.Style := csDropDownList;
   for ToolIndex := 0 to PaintToolDisplayCount - 1 do
   begin
     ToolKind := PaintToolAtDisplayIndex(ToolIndex);
+    if ToolKind = tkZoom then
+      Continue;
     FToolCombo.Items.AddObject(
       PaintToolDisplayLabel(ToolKind),
       TObject(PtrInt(Ord(ToolKind)))
     );
   end;
-  FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+  SyncToolComboSelection;
   FToolCombo.OnChange := @ToolComboChange;
   FToolCombo.Hint := 'Choose the active tool (single-letter shortcuts work when Command, Control, and Option are not held)';
   FToolCombo.ShowHint := True;
@@ -2233,12 +2473,12 @@ begin
   FOptionLabel.Caption := 'Size:';
   FOptionLabel.Font.Color := ChromeTextColor;
   FOptionLabel.Left := 220;
-  FOptionLabel.Top := 41;
+  FOptionLabel.Top := ToolbarOptionLabelTop;
 
   FBrushSpin := TSpinEdit.Create(FTopPanel);
   FBrushSpin.Parent := FTopPanel;
   FBrushSpin.Left := 272;
-  FBrushSpin.Top := 36;
+  FBrushSpin.Top := ToolbarOptionRowTop;
   FBrushSpin.Width := 66;
   FBrushSpin.MinValue := 1;
   FBrushSpin.MaxValue := 255;
@@ -2250,13 +2490,13 @@ begin
   FOpacityLabel.Caption := 'Opacity:';
   FOpacityLabel.Font.Color := ChromeTextColor;
   FOpacityLabel.Left := 348;
-  FOpacityLabel.Top := 41;
+  FOpacityLabel.Top := ToolbarOptionLabelTop;
   FOpacityLabel.Visible := False;
 
   FOpacitySpin := TSpinEdit.Create(FTopPanel);
   FOpacitySpin.Parent := FTopPanel;
   FOpacitySpin.Left := 408;
-  FOpacitySpin.Top := 36;
+  FOpacitySpin.Top := ToolbarOptionRowTop;
   FOpacitySpin.Width := 60;
   FOpacitySpin.MinValue := 1;
   FOpacitySpin.MaxValue := 100;
@@ -2271,13 +2511,13 @@ begin
   FHardnessLabel.Caption := 'Hardness:';
   FHardnessLabel.Font.Color := ChromeTextColor;
   FHardnessLabel.Left := 480;
-  FHardnessLabel.Top := 41;
+  FHardnessLabel.Top := ToolbarOptionLabelTop;
   FHardnessLabel.Visible := False;
 
   FHardnessSpin := TSpinEdit.Create(FTopPanel);
   FHardnessSpin.Parent := FTopPanel;
   FHardnessSpin.Left := 554;
-  FHardnessSpin.Top := 36;
+  FHardnessSpin.Top := ToolbarOptionRowTop;
   FHardnessSpin.Width := 60;
   FHardnessSpin.MinValue := 1;
   FHardnessSpin.MaxValue := 100;
@@ -2292,13 +2532,13 @@ begin
   FEraserShapeLabel.Caption := 'Shape:';
   FEraserShapeLabel.Font.Color := ChromeTextColor;
   FEraserShapeLabel.Left := 628;
-  FEraserShapeLabel.Top := 41;
+  FEraserShapeLabel.Top := ToolbarOptionLabelTop;
   FEraserShapeLabel.Visible := False;
 
   FEraserShapeCombo := TComboBox.Create(FTopPanel);
   FEraserShapeCombo.Parent := FTopPanel;
   FEraserShapeCombo.Left := 676;
-  FEraserShapeCombo.Top := 36;
+  FEraserShapeCombo.Top := ToolbarOptionRowTop;
   FEraserShapeCombo.Width := 92;
   FEraserShapeCombo.Style := csDropDownList;
   FEraserShapeCombo.Items.Add('Round');
@@ -2314,13 +2554,13 @@ begin
   FSelModeLabel.Caption := 'Mode:';
   FSelModeLabel.Font.Color := ChromeTextColor;
   FSelModeLabel.Left := 348;
-  FSelModeLabel.Top := 41;
+  FSelModeLabel.Top := ToolbarOptionLabelTop;
   FSelModeLabel.Visible := False;
 
   FSelModeCombo := TComboBox.Create(FTopPanel);
   FSelModeCombo.Parent := FTopPanel;
   FSelModeCombo.Left := 394;
-  FSelModeCombo.Top := 36;
+  FSelModeCombo.Top := ToolbarOptionRowTop;
   FSelModeCombo.Width := 96;
   FSelModeCombo.Style := csDropDownList;
   FSelModeCombo.Items.Add('Replace');
@@ -2339,13 +2579,13 @@ begin
   FShapeStyleLabel.Caption := 'Draw:';
   FShapeStyleLabel.Font.Color := ChromeTextColor;
   FShapeStyleLabel.Left := 348;
-  FShapeStyleLabel.Top := 41;
+  FShapeStyleLabel.Top := ToolbarOptionLabelTop;
   FShapeStyleLabel.Visible := False;
 
   FShapeStyleCombo := TComboBox.Create(FTopPanel);
   FShapeStyleCombo.Parent := FTopPanel;
   FShapeStyleCombo.Left := 394;
-  FShapeStyleCombo.Top := 36;
+  FShapeStyleCombo.Top := ToolbarOptionRowTop;
   FShapeStyleCombo.Width := 116;
   FShapeStyleCombo.Style := csDropDownList;
   FShapeStyleCombo.Items.Add('Outline');
@@ -2360,7 +2600,7 @@ begin
   FLineBezierCheck := TCheckBox.Create(FTopPanel);
   FLineBezierCheck.Parent := FTopPanel;
   FLineBezierCheck.Left := 348;
-  FLineBezierCheck.Top := 38;
+  FLineBezierCheck.Top := ToolbarOptionCheckTop;
   FLineBezierCheck.Width := 100;
   FLineBezierCheck.Caption := 'Bezier';
   FLineBezierCheck.Checked := FLineBezierMode;
@@ -2375,13 +2615,13 @@ begin
   FBucketModeLabel.Caption := 'Fill:';
   FBucketModeLabel.Font.Color := ChromeTextColor;
   FBucketModeLabel.Left := 348;
-  FBucketModeLabel.Top := 41;
+  FBucketModeLabel.Top := ToolbarOptionLabelTop;
   FBucketModeLabel.Visible := False;
 
   FBucketModeCombo := TComboBox.Create(FTopPanel);
   FBucketModeCombo.Parent := FTopPanel;
   FBucketModeCombo.Left := 384;
-  FBucketModeCombo.Top := 36;
+  FBucketModeCombo.Top := ToolbarOptionRowTop;
   FBucketModeCombo.Width := 110;
   FBucketModeCombo.Style := csDropDownList;
   FBucketModeCombo.Items.Add('Contiguous');
@@ -2398,13 +2638,13 @@ begin
   FFillSampleLabel.Caption := 'Sample:';
   FFillSampleLabel.Font.Color := ChromeTextColor;
   FFillSampleLabel.Left := 500;
-  FFillSampleLabel.Top := 41;
+  FFillSampleLabel.Top := ToolbarOptionLabelTop;
   FFillSampleLabel.Visible := False;
 
   FFillSampleCombo := TComboBox.Create(FTopPanel);
   FFillSampleCombo.Parent := FTopPanel;
   FFillSampleCombo.Left := 552;
-  FFillSampleCombo.Top := 36;
+  FFillSampleCombo.Top := ToolbarOptionRowTop;
   FFillSampleCombo.Width := 120;
   FFillSampleCombo.Style := csDropDownList;
   FFillSampleCombo.Items.Add('Current Layer');
@@ -2421,13 +2661,13 @@ begin
   FWandSampleLabel.Caption := 'Sample:';
   FWandSampleLabel.Font.Color := ChromeTextColor;
   FWandSampleLabel.Left := 348;
-  FWandSampleLabel.Top := 41;
+  FWandSampleLabel.Top := ToolbarOptionLabelTop;
   FWandSampleLabel.Visible := False;
 
   FWandSampleCombo := TComboBox.Create(FTopPanel);
   FWandSampleCombo.Parent := FTopPanel;
   FWandSampleCombo.Left := 400;
-  FWandSampleCombo.Top := 36;
+  FWandSampleCombo.Top := ToolbarOptionRowTop;
   FWandSampleCombo.Width := 120;
   FWandSampleCombo.Style := csDropDownList;
   FWandSampleCombo.Items.Add('Current Layer');
@@ -2442,7 +2682,7 @@ begin
   FWandContiguousCheck := TCheckBox.Create(FTopPanel);
   FWandContiguousCheck.Parent := FTopPanel;
   FWandContiguousCheck.Left := 529;
-  FWandContiguousCheck.Top := 38;
+  FWandContiguousCheck.Top := ToolbarOptionCheckTop;
   FWandContiguousCheck.Width := 100;
   FWandContiguousCheck.Caption := 'Contiguous';
   FWandContiguousCheck.Checked := FWandContiguous;
@@ -2457,13 +2697,13 @@ begin
   FFillTolLabel.Caption := 'Tolerance:';
   FFillTolLabel.Font.Color := ChromeTextColor;
   FFillTolLabel.Left := 348;
-  FFillTolLabel.Top := 41;
+  FFillTolLabel.Top := ToolbarOptionLabelTop;
   FFillTolLabel.Visible := False;
 
   FFillTolSpin := TSpinEdit.Create(FTopPanel);
   FFillTolSpin.Parent := FTopPanel;
   FFillTolSpin.Left := 420;
-  FFillTolSpin.Top := 36;
+  FFillTolSpin.Top := ToolbarOptionRowTop;
   FFillTolSpin.Width := 66;
   FFillTolSpin.MinValue := 0;
   FFillTolSpin.MaxValue := 255;
@@ -2479,13 +2719,13 @@ begin
   FGradientTypeLabel.Caption := 'Type:';
   FGradientTypeLabel.Font.Color := ChromeTextColor;
   FGradientTypeLabel.Left := 348;
-  FGradientTypeLabel.Top := 41;
+  FGradientTypeLabel.Top := ToolbarOptionLabelTop;
   FGradientTypeLabel.Visible := False;
 
   FGradientTypeCombo := TComboBox.Create(FTopPanel);
   FGradientTypeCombo.Parent := FTopPanel;
   FGradientTypeCombo.Left := 384;
-  FGradientTypeCombo.Top := 36;
+  FGradientTypeCombo.Top := ToolbarOptionRowTop;
   FGradientTypeCombo.Width := 90;
   FGradientTypeCombo.Style := csDropDownList;
   FGradientTypeCombo.Items.Add('Linear');
@@ -2500,7 +2740,7 @@ begin
   FGradientReverseCheck := TCheckBox.Create(FTopPanel);
   FGradientReverseCheck.Parent := FTopPanel;
   FGradientReverseCheck.Left := 480;
-  FGradientReverseCheck.Top := 38;
+  FGradientReverseCheck.Top := ToolbarOptionCheckTop;
   FGradientReverseCheck.Width := 80;
   FGradientReverseCheck.Caption := 'Reverse';
   FGradientReverseCheck.Checked := FGradientReverse;
@@ -2513,7 +2753,7 @@ begin
   FCloneAlignedCheck := TCheckBox.Create(FTopPanel);
   FCloneAlignedCheck.Parent := FTopPanel;
   FCloneAlignedCheck.Left := 480;
-  FCloneAlignedCheck.Top := 38;
+  FCloneAlignedCheck.Top := ToolbarOptionCheckTop;
   FCloneAlignedCheck.Width := 80;
   FCloneAlignedCheck.Caption := 'Aligned';
   FCloneAlignedCheck.Checked := FCloneAligned;
@@ -2526,7 +2766,7 @@ begin
   FRecolorPreserveValueCheck := TCheckBox.Create(FTopPanel);
   FRecolorPreserveValueCheck.Parent := FTopPanel;
   FRecolorPreserveValueCheck.Left := 628;
-  FRecolorPreserveValueCheck.Top := 38;
+  FRecolorPreserveValueCheck.Top := ToolbarOptionCheckTop;
   FRecolorPreserveValueCheck.Width := 120;
   FRecolorPreserveValueCheck.Caption := 'Preserve Value';
   FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
@@ -2541,13 +2781,13 @@ begin
   FPickerSampleLabel.Caption := 'Sample:';
   FPickerSampleLabel.Font.Color := ChromeTextColor;
   FPickerSampleLabel.Left := 348;
-  FPickerSampleLabel.Top := 41;
+  FPickerSampleLabel.Top := ToolbarOptionLabelTop;
   FPickerSampleLabel.Visible := False;
 
   FPickerSampleCombo := TComboBox.Create(FTopPanel);
   FPickerSampleCombo.Parent := FTopPanel;
   FPickerSampleCombo.Left := 400;
-  FPickerSampleCombo.Top := 36;
+  FPickerSampleCombo.Top := ToolbarOptionRowTop;
   FPickerSampleCombo.Width := 120;
   FPickerSampleCombo.Style := csDropDownList;
   FPickerSampleCombo.Items.Add('Current Layer');
@@ -2562,7 +2802,7 @@ begin
   FSelAntiAliasCheck := TCheckBox.Create(FTopPanel);
   FSelAntiAliasCheck.Parent := FTopPanel;
   FSelAntiAliasCheck.Left := 500;
-  FSelAntiAliasCheck.Top := 38;
+  FSelAntiAliasCheck.Top := ToolbarOptionCheckTop;
   FSelAntiAliasCheck.Width := 90;
   FSelAntiAliasCheck.Caption := 'Anti-alias';
   FSelAntiAliasCheck.Checked := FSelAntiAlias;
@@ -2575,14 +2815,14 @@ begin
   FSelFeatherLabel.Parent := FTopPanel;
   FSelFeatherLabel.Caption := 'Feather:';
   FSelFeatherLabel.Left := 596;
-  FSelFeatherLabel.Top := 40;
+  FSelFeatherLabel.Top := ToolbarOptionLabelTop;
   FSelFeatherLabel.Font.Color := ChromeTextColor;
   FSelFeatherLabel.Visible := False;
 
   FSelFeatherSpin := TSpinEdit.Create(FTopPanel);
   FSelFeatherSpin.Parent := FTopPanel;
   FSelFeatherSpin.Left := 656;
-  FSelFeatherSpin.Top := 34;
+  FSelFeatherSpin.Top := ToolbarOptionRowTop;
   FSelFeatherSpin.Width := 52;
   FSelFeatherSpin.MinValue := 0;
   FSelFeatherSpin.MaxValue := 128;
@@ -2597,45 +2837,58 @@ end;
 procedure TMainForm.BuildSidePanel;
 var
   ToolIndex: Integer;
+  VisibleToolIndex: Integer;
   ToolKind: TToolKind;
   ColumnIndex: Integer;
   RowIndex: Integer;
   ContentTop: Integer;
   ToolButton: TSpeedButton;
+const
+  ToolButtonWidth = 44;
+  ToolButtonHeight = 40;
+  ToolColumnStride = 46;
+  ToolRowStride = 42;
 begin
   ContentTop := PaletteHeaderHeight + 8;
+  VisibleToolIndex := 0;
 
   FToolsPanel := TPanel.Create(Self);
   CreatePalette(FToolsPanel, pkTools);
   for ToolIndex := 0 to PaintToolDisplayCount - 1 do
   begin
     ToolKind := PaintToolAtDisplayIndex(ToolIndex);
-    ColumnIndex := ToolIndex mod ToolsPaletteColumnCount;
-    RowIndex := ToolIndex div ToolsPaletteColumnCount;
+    if ToolKind = tkZoom then
+      Continue;
+    ColumnIndex := VisibleToolIndex mod ToolsPaletteColumnCount;
+    RowIndex := VisibleToolIndex div ToolsPaletteColumnCount;
     ToolButton := CreateButton(
       PaintToolGlyph(ToolKind),
-      8 + ColumnIndex * 46,
-      ContentTop + RowIndex * 29,
-      40,
+      8 + ColumnIndex * ToolColumnStride,
+      ContentTop + RowIndex * ToolRowStride,
+      ToolButtonWidth,
       @ToolButtonClick,
       FToolsPanel,
       Ord(ToolKind),
       bicTool
     );
     FToolButtons[ToolKind] := ToolButton;
-    ToolButton.Height := 29;
-    ToolButton.Flat := False;
+    ToolButton.Height := ToolButtonHeight;
+    ToolButton.Flat := True;
     ToolButton.GroupIndex := 1;
     ToolButton.AllowAllUp := False;
-    ToolButton.Layout := blGlyphTop;
-    ToolButton.Margin := 1;
-    ToolButton.Spacing := 0;
-    ToolButton.Caption := PaintToolShortcutKey(ToolKind);
-    ToolButton.Font.Size := 6;
+    if AttachButtonIconOverlay(ToolButton, PaintToolGlyph(ToolKind), bicTool, ColorToRGB(FToolsPanel.Color)) then
+    begin
+      RealignButtonIconOverlay(ToolButton, bicTool);
+      ToolButton.Caption := ''
+    end
+    else
+      ToolButton.Caption := PaintToolGlyph(ToolKind);
+    ToolButton.Font.Size := 9;
     ToolButton.Hint := Format(
-      '%s — %s. %s',
-      [PaintToolDisplayLabel(ToolKind), PaintToolHint(ToolKind), PaintToolShortcutHint(ToolKind)]
+      '%s (%s) — %s',
+      [PaintToolDisplayLabel(ToolKind), PaintToolShortcutHint(ToolKind), PaintToolHint(ToolKind)]
     );
+    Inc(VisibleToolIndex);
   end;
   SyncToolButtonSelection;
 
@@ -2879,44 +3132,209 @@ begin
     Result := '⚙';
 end;
 
+procedure TMainForm.ButtonIconOverlayClick(Sender: TObject);
+var
+  TargetButton: TSpeedButton;
+begin
+  if not (Sender is TControl) then
+    Exit;
+  if TControl(Sender).Tag = 0 then
+    Exit;
+  TargetButton := TSpeedButton(Pointer(PtrUInt(TControl(Sender).Tag)));
+  if not Assigned(TargetButton) then
+    Exit;
+  TargetButton.Click;
+end;
+
+function TMainForm.FindButtonIconOverlay(AButton: TSpeedButton): TImage;
+var
+  ControlIndex: Integer;
+  ParentControl: TWinControl;
+begin
+  Result := nil;
+  if (AButton = nil) or not Assigned(AButton.Parent) then
+    Exit;
+  ParentControl := AButton.Parent;
+  for ControlIndex := ParentControl.ControlCount - 1 downto 0 do
+    if (ParentControl.Controls[ControlIndex] is TImage) and
+       (ParentControl.Controls[ControlIndex].Tag = PtrInt(AButton)) then
+      Exit(TImage(ParentControl.Controls[ControlIndex]));
+end;
+
+procedure TMainForm.PositionButtonIconOverlay(
+  AButton: TSpeedButton;
+  AIconImage: TImage;
+  AContext: TButtonIconContext
+);
+var
+  IconLeft: Integer;
+  IconTop: Integer;
+begin
+  if (AButton = nil) or (AIconImage = nil) then
+    Exit;
+  if (AContext = bicCommand) and (AButton.Width >= 54) then
+  begin
+    AIconImage.Stretch := True;
+    AIconImage.Proportional := True;
+    AIconImage.Center := True;
+    AIconImage.Width := 14;
+    AIconImage.Height := 14;
+    IconLeft := AButton.Left + 8;
+  end
+  else
+  begin
+    AIconImage.Stretch := False;
+    AIconImage.Proportional := False;
+    AIconImage.Center := False;
+    IconLeft := AButton.Left + Max(0, (AButton.Width - AIconImage.Width) div 2);
+  end;
+  IconTop := AButton.Top + Max(0, (AButton.Height - AIconImage.Height) div 2);
+  AIconImage.SetBounds(IconLeft, IconTop, AIconImage.Width, AIconImage.Height);
+end;
+
+procedure TMainForm.RealignButtonIconOverlay(
+  AButton: TSpeedButton;
+  AContext: TButtonIconContext
+);
+var
+  IconImage: TImage;
+begin
+  IconImage := FindButtonIconOverlay(AButton);
+  if not Assigned(IconImage) then
+    Exit;
+  PositionButtonIconOverlay(AButton, IconImage, AContext);
+end;
+
+function TMainForm.AttachButtonIconOverlay(
+  AButton: TSpeedButton;
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  ABackgroundColor: TColor
+): Boolean;
+var
+  IconBitmap: TBitmap;
+  IconImage: TImage;
+begin
+  Result := False;
+  if (AButton = nil) or not Assigned(AButton.Parent) then
+    Exit;
+  IconBitmap := nil;
+  IconImage := TImage.Create(AButton.Parent);
+  try
+    IconImage.Parent := AButton.Parent;
+    IconImage.AutoSize := False;
+    IconImage.Stretch := False;
+    IconImage.Center := False;
+    IconImage.Transparent := True;
+    if TryLoadButtonIconPicture(ACaption, AContext, IconImage.Picture) then
+    begin
+      IconImage.Width := IconImage.Picture.Width;
+      IconImage.Height := IconImage.Picture.Height;
+    end
+    else
+    begin
+      IconBitmap := TBitmap.Create;
+      if not TryBuildButtonGlyph(ACaption, AContext, IconBitmap, ABackgroundColor) then
+        Exit;
+      IconImage.Picture.Bitmap.Assign(IconBitmap);
+      IconImage.Width := IconBitmap.Width;
+      IconImage.Height := IconBitmap.Height;
+    end;
+    PositionButtonIconOverlay(AButton, IconImage, AContext);
+    IconImage.Tag := PtrInt(AButton);
+    IconImage.Hint := AButton.Hint;
+    IconImage.ShowHint := AButton.ShowHint;
+    IconImage.OnClick := nil;
+    IconImage.OnDblClick := nil;
+    IconImage.Enabled := False;
+    Result := True;
+  finally
+    IconBitmap.Free;
+    if not Result then
+      IconImage.Free;
+  end;
+end;
+
 function TMainForm.CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer; AIconContext: TButtonIconContext): TSpeedButton;
+  function HostSurfaceColor: TColor;
+  begin
+    Result := ToolbarBackgroundColor;
+    if (AParent = FTopPanel) and (AIconContext in [bicCommand, bicUtility]) then
+      Exit(PaletteListBackgroundColor);
+    if AParent is TCustomControl then
+      Result := ColorToRGB(TCustomControl(AParent).Color);
+  end;
+var
+  ShowIconOverlay: Boolean;
 begin
   Result := TSpeedButton.Create(AParent);
   Result.Parent := AParent;
   Result.Left := ALeft;
   Result.Top := ATop;
   Result.Width := AWidth;
-  Result.Height := 26;
+  if AIconContext in [bicCommand, bicUtility] then
+    Result.Height := ToolbarButtonHeight
+  else
+    Result.Height := 26;
   Result.Flat := True;
+  if (AIconContext = bicCommand) and (AWidth >= 54) then
+    Result.Flat := False;
   Result.Tag := ATag;
   Result.OnClick := AHandler;
   Result.ParentFont := False;
-  if TryBuildButtonGlyph(ACaption, AIconContext, Result.Glyph) then
+  ShowIconOverlay := False;
+  if AIconContext in [bicCommand, bicUtility] then
+    ShowIconOverlay := AttachButtonIconOverlay(Result, ACaption, AIconContext, HostSurfaceColor);
+  if ShowIconOverlay then
   begin
-    Result.NumGlyphs := 1;
     if (AIconContext = bicCommand) and (AWidth >= 54) then
     begin
-      Result.Caption := ACaption;
-      Result.Layout := blGlyphLeft;
-      Result.Margin := 4;
-      Result.Spacing := 4;
-      Result.Font.Size := 8;
-      Result.Flat := False;
+      Result.Caption := '      ' + ACaption;
+      Result.Font.Size := 9;
+      Result.Font.Style := [fsBold];
+      Result.Margin := 0;
+      Result.Spacing := 0;
     end
     else
     begin
       Result.Caption := '';
-      Result.Margin := 4;
-      Result.Spacing := 0;
       Result.Font.Size := 9;
     end;
   end
   else
   begin
-    Result.Caption := CompactButtonCaption(ACaption);
-    if Length(Result.Caption) <= 4 then
-      Result.Font.Size := 10
+    if (AIconContext = bicCommand) and (AWidth >= 54) then
+    begin
+      Result.Caption := ACaption;
+      Result.Font.Size := 9;
+      Result.Font.Style := [fsBold];
+      Result.Margin := 0;
+      Result.Spacing := 0;
+    end
+    else if (AIconContext = bicCommand) and (AWidth > ToolbarCompactButtonWidth) then
+    begin
+      Result.Caption := ACaption;
+      Result.Font.Size := 9;
+    end
     else
+    begin
+      Result.Caption := CompactButtonCaption(ACaption);
+      if AIconContext = bicTool then
+        Result.Font.Size := 14
+      else if AIconContext = bicUtility then
+        Result.Font.Size := 12
+      else if Length(Result.Caption) <= 4 then
+        Result.Font.Size := 10
+      else
+        Result.Font.Size := 9;
+    end;
+    if AIconContext = bicTool then
+      Result.Font.Size := 14
+    else if (AIconContext = bicUtility) and (AWidth < 54) then
+      Result.Font.Size := 12
+    else if (AIconContext <> bicCommand) and (Length(Result.Caption) <= 4) then
+      Result.Font.Size := 10
+    else if AIconContext <> bicCommand then
       Result.Font.Size := 9;
   end;
   Result.Font.Color := ChromeTextColor;
@@ -3735,6 +4153,11 @@ var
   LeftOffset: Integer;
   TopOffset: Integer;
 begin
+  if not Assigned(FPaintBox) then
+  begin
+    UpdateInlineTextEditBounds;
+    Exit;
+  end;
   FPaintBox.Width := Max(1, Round(FDocument.Width * FZoomScale));
   FPaintBox.Height := Max(1, Round(FDocument.Height * FZoomScale));
   if Assigned(FCanvasHost) then
@@ -4420,15 +4843,30 @@ begin
   RefreshStatus(Point(-1, -1));
 end;
 
+procedure TMainForm.SyncToolComboSelection;
+var
+  ToolIndex: Integer;
+begin
+  if not Assigned(FToolCombo) then
+    Exit;
+  FToolCombo.ItemIndex := -1;
+  for ToolIndex := 0 to FToolCombo.Items.Count - 1 do
+    if TToolKind(PtrInt(FToolCombo.Items.Objects[ToolIndex])) = FCurrentTool then
+    begin
+      FToolCombo.ItemIndex := ToolIndex;
+      Exit;
+    end;
+end;
+
 procedure TMainForm.ActivateTempPan;
 begin
+  SealPendingStrokeHistory;
   if not FTempToolActive then
   begin
     FTempToolActive := True;
     FPreviousTool := FCurrentTool;
     FCurrentTool := tkPan;
-    if Assigned(FToolCombo) then
-      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    SyncToolComboSelection;
     UpdateToolOptionControl;
     UpdateStatusForTool;
   end;
@@ -4440,8 +4878,7 @@ begin
   begin
     FTempToolActive := False;
     FCurrentTool := FPreviousTool;
-    if Assigned(FToolCombo) then
-      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    SyncToolComboSelection;
     UpdateToolOptionControl;
     UpdateStatusForTool;
   end;
@@ -4449,6 +4886,7 @@ end;
 
 procedure TMainForm.ToggleColorEditTarget;
 begin
+  SealPendingStrokeHistory;
   if FColorEditTarget = 0 then
     FColorEditTarget := 1
   else
@@ -4470,8 +4908,7 @@ begin
     FTempToolActive := True;
     FPreviousTool := FCurrentTool;
     FCurrentTool := tkPan;
-    if Assigned(FToolCombo) then
-      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    SyncToolComboSelection;
   end;
 end;
 
@@ -4481,8 +4918,7 @@ begin
   begin
     FTempToolActive := False;
     FCurrentTool := FPreviousTool;
-    if Assigned(FToolCombo) then
-      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    SyncToolComboSelection;
   end;
 end;
 
@@ -4554,13 +4990,24 @@ begin
 end;
 
 procedure TMainForm.MakeTestSafe;
+var
+  ToolIndex: Integer;
+  ToolKind: TToolKind;
 begin
   { Ensure minimal widgets for tests so they don't need to exercise full UI }
   if not Assigned(FToolCombo) then
   begin
     FToolCombo := TComboBox.Create(nil);
-    while FToolCombo.Items.Count < PaintToolDisplayCount do
-      FToolCombo.Items.Add('');
+    for ToolIndex := 0 to PaintToolDisplayCount - 1 do
+    begin
+      ToolKind := PaintToolAtDisplayIndex(ToolIndex);
+      if ToolKind = tkZoom then
+        Continue;
+      FToolCombo.Items.AddObject(
+        PaintToolDisplayLabel(ToolKind),
+        TObject(PtrInt(Ord(ToolKind)))
+      );
+    end;
   end;
   if not Assigned(FColorTargetCombo) then
   begin
@@ -4632,6 +5079,7 @@ var
   StepsDelta: Integer;
   I: Integer;
 begin
+  SealPendingStrokeHistory;
   if not Assigned(FDocument) then Exit;
   if not Assigned(FHistoryList) then Exit;
   ClickedIndex := FHistoryList.ItemIndex;
@@ -4639,7 +5087,17 @@ begin
   { Row layout: 0=(initial), 1..UndoDepth=(past ops), UndoDepth=(current), UndoDepth+1..=(redo)
     So the current position is always at index UndoDepth. }
   CurrentIndex := FDocument.UndoDepth;
-  if ClickedIndex = CurrentIndex then Exit;
+  if ClickedIndex = CurrentIndex then
+  begin
+    { paint.net-style before/after toggle: clicking the current entry jumps to the
+      state just before it, so clicking that same row again immediately redoes it. }
+    if CurrentIndex > 0 then
+    begin
+      FDocument.Undo;
+      SyncImageMutationUI(True, False);
+    end;
+    Exit;
+  end;
   StepsDelta := ClickedIndex - CurrentIndex;
   if StepsDelta < 0 then
   begin
@@ -4665,6 +5123,8 @@ end;
 procedure TMainForm.UpdateCaption;
 begin
   Caption := WindowCaptionForDocument(DisplayFileName, FDirty);
+  if Assigned(FChromeTitleLabel) then
+    FChromeTitleLabel.Caption := Caption;
   UpdateSaveCommandCaption;
 end;
 
@@ -4808,6 +5268,42 @@ begin
   Result := TPanel(TWinControl(APalette).Controls[0]);
 end;
 
+function TMainForm.PaletteRootForControl(AControl: TControl): TControl;
+begin
+  Result := AControl;
+  while Result <> nil do
+  begin
+    if (Result = FToolsPanel) or
+       (Result = FColorsPanel) or
+       (Result = FHistoryPanel) or
+       (Result = FRightPanel) then
+      Exit;
+    Result := Result.Parent;
+  end;
+end;
+
+function TMainForm.ControlBelongsToPalette(AControl, APalette: TControl): Boolean;
+begin
+  Result := False;
+  while AControl <> nil do
+  begin
+    if AControl = APalette then
+      Exit(True);
+    AControl := AControl.Parent;
+  end;
+end;
+
+function TMainForm.PointRelativeToControl(AControl, ATarget: TControl; const APoint: TPoint): TPoint;
+begin
+  Result := APoint;
+  while (AControl <> nil) and (AControl <> ATarget) do
+  begin
+    Inc(Result.X, AControl.Left);
+    Inc(Result.Y, AControl.Top);
+    AControl := AControl.Parent;
+  end;
+end;
+
 procedure TMainForm.ApplyPaletteVisualState(APalette: TControl; ADragging: Boolean);
 const
   DragAlpha   = 0.60;  { semi-transparent while dragging }
@@ -4895,10 +5391,9 @@ procedure TMainForm.CreatePaletteHeader(ATarget: TPanel; AKind: TPaletteKind);
 var
   HeaderPanel: TPanel;
   TitleLabel: TLabel;
-  GlyphLabel: TLabel;
+  HeaderIcon: TImage;
   ShortcutLabel: TLabel;
   CloseButton: TSpeedButton;
-  HeaderGlyph: string;
 begin
   HeaderPanel := TPanel.Create(ATarget);
   HeaderPanel.Parent := ATarget;
@@ -4912,37 +5407,32 @@ begin
   HeaderPanel.OnMouseMove := @PaletteMouseMove;
   HeaderPanel.OnMouseUp := @PaletteMouseUp;
 
-  case AKind of
-    pkTools:
-      HeaderGlyph := UtilityCommandGlyph(ucTools);
-    pkColors:
-      HeaderGlyph := UtilityCommandGlyph(ucColors);
-    pkHistory:
-      HeaderGlyph := UtilityCommandGlyph(ucHistory);
-    pkLayers:
-      HeaderGlyph := UtilityCommandGlyph(ucLayers);
-  else
-    HeaderGlyph := '';
-  end;
-
-  GlyphLabel := TLabel.Create(HeaderPanel);
-  GlyphLabel.Parent := HeaderPanel;
-  GlyphLabel.Caption := HeaderGlyph;
-  GlyphLabel.Left := 8;
-  GlyphLabel.Top := 4;
-  GlyphLabel.Font.Color := ChromeMutedTextColor;
-  GlyphLabel.Font.Size := 9;
-  GlyphLabel.Transparent := True;
-  GlyphLabel.OnMouseDown := @PaletteMouseDown;
-  GlyphLabel.OnMouseMove := @PaletteMouseMove;
-  GlyphLabel.OnMouseUp := @PaletteMouseUp;
+  HeaderIcon := TImage.Create(HeaderPanel);
+  HeaderIcon.Parent := HeaderPanel;
+  HeaderIcon.Left := 6;
+  HeaderIcon.Top := 5;
+  HeaderIcon.Width := 12;
+  HeaderIcon.Height := 12;
+  HeaderIcon.Stretch := True;
+  HeaderIcon.Proportional := True;
+  HeaderIcon.Center := True;
+  HeaderIcon.Transparent := True;
+  TryBuildLineButtonGlyph(
+    PaletteTitle(AKind),
+    bicUtility,
+    HeaderIcon.Picture.Bitmap,
+    clNone
+  );
+  HeaderIcon.OnMouseDown := @PaletteMouseDown;
+  HeaderIcon.OnMouseMove := @PaletteMouseMove;
+  HeaderIcon.OnMouseUp := @PaletteMouseUp;
 
   TitleLabel := TLabel.Create(HeaderPanel);
   TitleLabel.Parent := HeaderPanel;
   TitleLabel.Caption := PaletteTitle(AKind);
-  TitleLabel.Left := 22;
+  TitleLabel.Left := 24;
   TitleLabel.Top := 4;
-  TitleLabel.Width := Max(24, ATarget.Width - 56);
+  TitleLabel.Width := Max(24, ATarget.Width - 54);
   TitleLabel.AutoSize := False;
   TitleLabel.Anchors := [akLeft, akTop, akRight];
   TitleLabel.Transparent := True;
@@ -4970,7 +5460,7 @@ begin
   ShortcutLabel.OnMouseUp := @PaletteMouseUp;
 
   CloseButton := CreateButton(
-    'X',
+    '×',
     ATarget.Width - 28,
     2,
     24,
@@ -5303,6 +5793,7 @@ var
   ResolvedFileName: string;
 begin
   ResolvedFileName := ExpandFileName(AFileName);
+  SealPendingStrokeHistory;
   if SameText(ExtractFileExt(ResolvedFileName), '.fpd') then
   begin
     LoadedDocument := LoadNativeDocumentFromFile(ResolvedFileName);
@@ -5799,6 +6290,7 @@ end;
 
 procedure TMainForm.ResetDocument(AWidth, AHeight: Integer);
 begin
+  SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
   FDocument.NewBlank(AWidth, AHeight);
   FCurrentFileName := '';
@@ -5989,6 +6481,7 @@ begin
       begin
         if not ConfirmDocumentReplacement('replace the current document from the clipboard') then
           Exit;
+        SealPendingStrokeHistory;
         ClipboardPicture := TPicture.Create;
         try
           Clipboard.AssignTo(ClipboardPicture);
@@ -6048,12 +6541,14 @@ end;
 
 procedure TMainForm.UndoClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.Undo;
   SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.RedoClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.Redo;
   SyncImageMutationUI(True, True);
 end;
@@ -6062,6 +6557,7 @@ procedure TMainForm.CutClick(Sender: TObject);
 var
   Bounds: TRect;
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Cut');
   FreeAndNil(FClipboardSurface);
   if FDocument.HasSelection then
@@ -6082,6 +6578,7 @@ procedure TMainForm.CopyClick(Sender: TObject);
 var
   Bounds: TRect;
 begin
+  SealPendingStrokeHistory;
   FreeAndNil(FClipboardSurface);
   if FDocument.HasSelection then
   begin
@@ -6125,6 +6622,7 @@ end;
 
 procedure TMainForm.PasteClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FClipboardSurface = nil then
     Exit;
   FDocument.PushHistory('Paste');
@@ -6141,6 +6639,7 @@ procedure TMainForm.PasteIntoNewImageClick(Sender: TObject);
 begin
   if FClipboardSurface = nil then
     Exit;
+  SealPendingStrokeHistory;
   FDocument.ReplaceWithSingleLayer(FClipboardSurface, 'Pasted Layer');
   FCurrentFileName := '';
   ResetTransientCanvasState;
@@ -6149,6 +6648,7 @@ end;
 
 procedure TMainForm.AddLayerClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Add Layer');
   FDocument.AddLayer;
   SyncImageMutationUI(True, True);
@@ -6156,6 +6656,7 @@ end;
 
 procedure TMainForm.DuplicateLayerClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Duplicate Layer');
   FDocument.DuplicateActiveLayer;
   SyncImageMutationUI(True, True);
@@ -6163,6 +6664,7 @@ end;
 
 procedure TMainForm.DeleteLayerClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Delete Layer');
   FDocument.DeleteActiveLayer;
   SyncImageMutationUI(True, True);
@@ -6172,6 +6674,7 @@ procedure TMainForm.RenameLayerClick(Sender: TObject);
 var
   ValueText: string;
 begin
+  SealPendingStrokeHistory;
   ValueText := FDocument.ActiveLayer.Name;
   if not InputQuery('Rename Layer', 'Layer name', ValueText) then
     Exit;
@@ -6186,6 +6689,7 @@ procedure TMainForm.MoveLayerUpClick(Sender: TObject);
 var
   TargetIndex: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount <= 1 then
     Exit;
   if FDocument.ActiveLayer.IsBackground then
@@ -6210,6 +6714,7 @@ procedure TMainForm.MoveLayerDownClick(Sender: TObject);
 var
   TargetIndex: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount <= 1 then
     Exit;
   if FDocument.ActiveLayer.IsBackground then
@@ -6234,6 +6739,7 @@ end;
 
 procedure TMainForm.MergeDownClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FDocument.ActiveLayerIndex = 0 then
     Exit;
   FDocument.PushHistory('Merge Down');
@@ -6243,6 +6749,7 @@ end;
 
 procedure TMainForm.FlattenClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Flatten');
   FDocument.Flatten;
   SyncImageMutationUI(True, True);
@@ -6250,6 +6757,7 @@ end;
 
 procedure TMainForm.ToggleLayerVisibilityClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Toggle Layer Visibility');
   FDocument.SetLayerVisibility(
     FDocument.ActiveLayerIndex,
@@ -6262,6 +6770,7 @@ procedure TMainForm.LayerOpacityClick(Sender: TObject);
 var
   ValueText: string;
 begin
+  SealPendingStrokeHistory;
   ValueText := IntToStr(LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity));
   if not InputQuery('Layer Opacity', 'Opacity (0 to 100%)', ValueText) then
     Exit;
@@ -6277,6 +6786,7 @@ end;
 
 procedure TMainForm.LayerVisibleCheckChanged(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FUpdatingLayerControls then
     Exit;
   if not Assigned(FLayerVisibleCheck) or (FDocument.LayerCount = 0) then
@@ -6292,6 +6802,7 @@ procedure TMainForm.LayerOpacitySpinChanged(Sender: TObject);
 var
   NewOpacity: Byte;
 begin
+  SealPendingStrokeHistory;
   if FUpdatingLayerControls then
     Exit;
   if not Assigned(FLayerOpacitySpin) or (FDocument.LayerCount = 0) then
@@ -6310,6 +6821,7 @@ var
   TargetHeight: Integer;
   ResampleMode: TResampleMode;
 begin
+  SealPendingStrokeHistory;
   TargetWidth := FDocument.Width;
   TargetHeight := FDocument.Height;
   ResampleMode := rmNearestNeighbor;
@@ -6325,6 +6837,7 @@ var
   TargetWidth: Integer;
   TargetHeight: Integer;
 begin
+  SealPendingStrokeHistory;
   if not PromptForSize('Resize Canvas', TargetWidth, TargetHeight) then
     Exit;
   FDocument.PushHistory('Resize Canvas');
@@ -6334,6 +6847,7 @@ end;
 
 procedure TMainForm.RotateClockwiseClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Rotate 90 Right');
   FDocument.Rotate90Clockwise;
   SyncImageMutationUI(False, True);
@@ -6341,6 +6855,7 @@ end;
 
 procedure TMainForm.RotateCounterClockwiseClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Rotate 90 Left');
   FDocument.Rotate90CounterClockwise;
   SyncImageMutationUI(False, True);
@@ -6348,6 +6863,7 @@ end;
 
 procedure TMainForm.Rotate180Click(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Rotate 180');
   FDocument.Rotate180;
   SyncImageMutationUI(False, True);
@@ -6355,6 +6871,7 @@ end;
 
 procedure TMainForm.FlipHorizontalClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Flip Horizontal');
   FDocument.FlipHorizontal;
   SyncImageMutationUI(False, True);
@@ -6362,6 +6879,7 @@ end;
 
 procedure TMainForm.FlipVerticalClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Flip Vertical');
   FDocument.FlipVertical;
   SyncImageMutationUI(False, True);
@@ -6369,6 +6887,7 @@ end;
 
 procedure TMainForm.AutoLevelClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   BeginStatusProgress('Applying Auto-Level...');
   try
     FDocument.PushHistory('Auto-Level');
@@ -6381,6 +6900,7 @@ end;
 
 procedure TMainForm.InvertColorsClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   BeginStatusProgress('Applying Invert Colors...');
   try
     FDocument.PushHistory('Invert Colors');
@@ -6393,6 +6913,7 @@ end;
 
 procedure TMainForm.GrayscaleClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   BeginStatusProgress('Applying Grayscale...');
   try
     FDocument.PushHistory('Grayscale');
@@ -6407,6 +6928,7 @@ procedure TMainForm.CurvesClick(Sender: TObject);
 var
   GammaValue: Double;
 begin
+  SealPendingStrokeHistory;
   GammaValue := 1.0;
   if not RunCurvesDialog(Self, GammaValue) then
     Exit;
@@ -6425,6 +6947,7 @@ var
   HueDelta: Integer;
   SaturationDelta: Integer;
 begin
+  SealPendingStrokeHistory;
   HueDelta := 0;
   SaturationDelta := 0;
   if not RunHueSaturationDialog(Self, HueDelta, SaturationDelta) then
@@ -6446,6 +6969,7 @@ var
   OutputLow: Integer;
   OutputHigh: Integer;
 begin
+  SealPendingStrokeHistory;
   InputLow := 0;
   InputHigh := 255;
   OutputLow := 0;
@@ -6472,6 +6996,7 @@ var
   Brightness: Integer;
   Contrast: Integer;
 begin
+  SealPendingStrokeHistory;
   Brightness := 0;
   Contrast := 0;
   if not RunBrightnessContrastDialog(Self, Brightness, Contrast) then
@@ -6489,6 +7014,7 @@ end;
 
 procedure TMainForm.SepiaClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   BeginStatusProgress('Applying Sepia...');
   try
     FDocument.PushHistory('Sepia');
@@ -6503,6 +7029,7 @@ procedure TMainForm.BlackAndWhiteClick(Sender: TObject);
 var
   ValueText: string;
 begin
+  SealPendingStrokeHistory;
   ValueText := '127';
   if not InputQuery('Black and White', 'Threshold (0 to 255)', ValueText) then
     Exit;
@@ -6520,6 +7047,7 @@ procedure TMainForm.PosterizeClick(Sender: TObject);
 var
   Levels: Integer;
 begin
+  SealPendingStrokeHistory;
   Levels := 6;
   if not RunPosterizeDialog(Self, Levels) then
     Exit;
@@ -6537,6 +7065,7 @@ procedure TMainForm.BlurClick(Sender: TObject);
 var
   Radius: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   Radius := 2;
   if not RunBlurDialog(Self, Radius) then
@@ -6560,6 +7089,7 @@ end;
 
 procedure TMainForm.SharpenClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Sharpen...');
   try
@@ -6582,6 +7112,7 @@ procedure TMainForm.AddNoiseClick(Sender: TObject);
 var
   Amount: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   Amount := 24;
   if not RunNoiseDialog(Self, Amount) then
@@ -6605,6 +7136,7 @@ end;
 
 procedure TMainForm.OutlineClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Detect Edges...');
   try
@@ -6628,6 +7160,7 @@ var
   AStr: string;
   ThresholdVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AStr := '10';
   if not InputQuery('Outline Effect', 'Alpha threshold (0–255):', AStr) then Exit;
@@ -6651,6 +7184,7 @@ end;
 
 procedure TMainForm.DeselectClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Deselect');
   FDocument.Deselect;
   SyncSelectionOverlayUI(True);
@@ -6658,6 +7192,7 @@ end;
 
 procedure TMainForm.SelectAllClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Select All');
   FDocument.SelectAll;
   SyncSelectionOverlayUI(True);
@@ -6665,6 +7200,7 @@ end;
 
 procedure TMainForm.InvertSelectionClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FDocument.PushHistory('Invert Selection');
   FDocument.InvertSelection;
   SyncSelectionOverlayUI(True);
@@ -6672,6 +7208,7 @@ end;
 
 procedure TMainForm.FillSelectionClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
   FDocument.PushHistory('Fill Selection');
@@ -6681,6 +7218,7 @@ end;
 
 procedure TMainForm.EraseSelectionClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
   FDocument.PushHistory('Erase Selection');
@@ -6690,6 +7228,7 @@ end;
 
 procedure TMainForm.CropToSelectionClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
   FDocument.PushHistory('Crop to Selection');
@@ -6701,6 +7240,7 @@ procedure TMainForm.SwapColorsClick(Sender: TObject);
 var
   TempColor: TRGBA32;
 begin
+  SealPendingStrokeHistory;
   TempColor := FPrimaryColor;
   FPrimaryColor := FSecondaryColor;
   FSecondaryColor := TempColor;
@@ -6710,6 +7250,7 @@ end;
 
 procedure TMainForm.ResetColorsClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FPrimaryColor := RGBA(0, 0, 0, 255);
   FSecondaryColor := RGBA(255, 255, 255, 255);
   RefreshColorsPanel;
@@ -6718,12 +7259,14 @@ end;
 
 procedure TMainForm.PrimaryColorClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if Assigned(FColorPickButton) then
     FColorPickButton.Click;
 end;
 
 procedure TMainForm.SecondaryColorClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   FColorEditTarget := 1;
   RefreshColorsPanel;
   if Assigned(FColorPickButton) then
@@ -6829,6 +7372,7 @@ var
   UtilityCommand: TUtilityCommandKind;
   PaletteKind: TPaletteKind;
 begin
+  SealPendingStrokeHistory;
   if not (Sender is TControl) then
     Exit;
   UtilityCommand := TUtilityCommandKind(TControl(Sender).Tag);
@@ -6857,6 +7401,7 @@ procedure TMainForm.SettingsClick(Sender: TObject);
 var
   DisplayUnitIndex: Integer;
 begin
+  SealPendingStrokeHistory;
   DisplayUnitIndex := Ord(FDisplayUnit);
   if not RunSettingsDialog(Self, FNewImageResolutionDPI, DisplayUnitIndex) then
     Exit;
@@ -6947,6 +7492,7 @@ var
   DirtyCount: Integer;
   Choice: Integer;
 begin
+  SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
   { Sync current tab dirty flag }
   if Length(FTabDirtyFlags) > FActiveTabIndex then
@@ -6985,6 +7531,7 @@ var
   PaletteKind: TPaletteKind;
   PaletteHost: TPanel;
 begin
+  SealPendingStrokeHistory;
   if Sender is TMenuItem then
     PaletteKind := TPaletteKind(TMenuItem(Sender).Tag)
   else if Sender is TControl then
@@ -7015,6 +7562,7 @@ var
   PaletteKind: TPaletteKind;
   PaletteHost: TPanel;
 begin
+  SealPendingStrokeHistory;
   if not (Sender is TControl) then
     Exit;
   PaletteKind := TPaletteKind(TControl(Sender).Tag);
@@ -7027,11 +7575,12 @@ end;
 
 procedure TMainForm.ToolButtonClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
   FCurrentTool := TToolKind(TControl(Sender).Tag);
-  FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+  SyncToolComboSelection;
   UpdateToolOptionControl;
   RefreshCanvas;
   RefreshStatus(FLastImagePoint);
@@ -7039,6 +7588,7 @@ end;
 
 procedure TMainForm.ToolComboChange(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
@@ -7196,6 +7746,7 @@ end;
 
 procedure TMainForm.LayerListClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FLayerList.ItemIndex >= 0 then
     FDocument.ActiveLayerIndex := FLayerList.ItemIndex;
   if FDocument.LayerCount > 0 then
@@ -7308,23 +7859,25 @@ begin
   if (Button <> mbLeft) or not (Sender is TControl) then
     Exit;
   DragControl := TControl(Sender);
-  if (DragControl.Parent <> nil) and (DragControl.Parent is TPanel) then
-    FDraggingPalette := TControl(DragControl.Parent)
-  else
-    FDraggingPalette := DragControl;
-  FPaletteDragOffset := Point(X, Y);
+  FDraggingPalette := PaletteRootForControl(DragControl);
+  if FDraggingPalette = nil then
+    Exit;
+  FPaletteDragOffset := PointRelativeToControl(DragControl, FDraggingPalette, Point(X, Y));
   FDraggingPalette.BringToFront;
   ApplyPaletteVisualState(FDraggingPalette, True);
 end;
 
 procedure TMainForm.PaletteMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+var
+  LocalPoint: TPoint;
 begin
   if (FDraggingPalette = nil) or not (Sender is TControl) then
     Exit;
-  if (TControl(Sender) <> FDraggingPalette) and (TControl(Sender).Parent <> FDraggingPalette) then
+  if not ControlBelongsToPalette(TControl(Sender), FDraggingPalette) then
     Exit;
-  FDraggingPalette.Left := FDraggingPalette.Left + X - FPaletteDragOffset.X;
-  FDraggingPalette.Top := FDraggingPalette.Top + Y - FPaletteDragOffset.Y;
+  LocalPoint := PointRelativeToControl(TControl(Sender), FDraggingPalette, Point(X, Y));
+  FDraggingPalette.Left := FDraggingPalette.Left + LocalPoint.X - FPaletteDragOffset.X;
+  FDraggingPalette.Top := FDraggingPalette.Top + LocalPoint.Y - FPaletteDragOffset.Y;
   ClampPaletteToWorkspace(FDraggingPalette);
 end;
 
@@ -7333,7 +7886,7 @@ var
   SnappedRect: TRect;
 begin
   if (FDraggingPalette <> nil) and (Sender is TControl) and
-     ((TControl(Sender) = FDraggingPalette) or (TControl(Sender).Parent = FDraggingPalette)) then
+     ControlBelongsToPalette(TControl(Sender), FDraggingPalette) then
   begin
     SnappedRect := SnapPaletteRect(
       Rect(
@@ -7423,11 +7976,11 @@ begin
     NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
     if NewTool <> FCurrentTool then
     begin
+      SealPendingStrokeHistory;
       CommitInlineTextEdit(True);
       ResetLineCurveState;
       FCurrentTool := NewTool;
-      if Assigned(FToolCombo) then
-        FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+      SyncToolComboSelection;
       UpdateToolOptionControl;
       UpdateStatusForTool; { refresh label/hint etc }
       Key := 0;
@@ -7490,9 +8043,21 @@ begin
   PaintBoxMouseUp(nil, Button, Shift, X, Y);
 end;
 
+procedure TMainForm.SealPendingStrokeHistory;
+begin
+  if not Assigned(FPreStrokeSnapshot) then
+    Exit;
+  if Assigned(FPaintBox) then
+    FPaintBox.MouseCapture := False;
+  FPointerDown := False;
+  CommitStrokeHistory(PaintToolName(FStrokeTool));
+end;
+
 procedure TMainForm.BeginStrokeHistory;
 begin
-  FreeAndNil(FPreStrokeSnapshot);  { defensive: discard any incomplete previous stroke }
+  if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
+    SealPendingStrokeHistory;
+  FStrokeTool := FCurrentTool;
   FStrokeLayerIndex := FDocument.ActiveLayerIndex;
   FPreStrokeSnapshot := FDocument.ActiveLayer.Surface.Clone;
   FStrokeDirtyRect := Rect(MaxInt, MaxInt, 0, 0);  { empty sentinel: Left > Right }
@@ -7547,6 +8112,8 @@ procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shi
 var
   ImagePoint: TPoint;
 begin
+  if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
+    SealPendingStrokeHistory;
   if Button = mbMiddle then
   begin
     ActivateTempPan;
@@ -7907,7 +8474,7 @@ begin
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
   if Assigned(FPreStrokeSnapshot) then
-    CommitStrokeHistory(PaintToolName(FCurrentTool));
+    CommitStrokeHistory(PaintToolName(FStrokeTool));
   ImagePoint := CanvasToImage(X, Y);
   FLastImagePoint := ImagePoint;
 
@@ -8034,6 +8601,7 @@ end;
 
 procedure TMainForm.EmbossClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Emboss...');
   try
@@ -8054,6 +8622,7 @@ end;
 
 procedure TMainForm.SoftenClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Soften...');
   try
@@ -8074,6 +8643,7 @@ end;
 
 procedure TMainForm.RenderCloudsClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Render Clouds...');
   try
@@ -8097,6 +8667,7 @@ var
   AStr: string;
   Val: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AStr := '10';
   if not InputQuery('Pixelate', 'Block Size (1 to 100)', AStr) then Exit;
@@ -8124,6 +8695,7 @@ var
   Val: Integer;
   Strength: Double;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AStr := '50';
   if not InputQuery('Vignette', 'Strength (0 to 100)', AStr) then Exit;
@@ -8151,6 +8723,7 @@ var
   AStr: string;
   AngleVal, DistVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AStr := '0';
   if not InputQuery('Motion Blur', 'Angle in degrees (0-359)', AStr) then Exit;
@@ -8180,6 +8753,7 @@ var
   AStr: string;
   RadiusVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AStr := '1';
   if not InputQuery('Median Filter (Denoise)', 'Radius (1=3x3, 2=5x5)', AStr) then Exit;
@@ -8206,6 +8780,7 @@ var
   RadStr, IntStr: string;
   RadVal, IntVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadStr := '3';
   if not InputQuery('Glow Effect', 'Radius (1–10):', RadStr) then Exit;
@@ -8235,6 +8810,7 @@ var
   RadStr: string;
   RadVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadStr := '4';
   if not InputQuery('Oil Paint', 'Brush radius (1–8):', RadStr) then Exit;
@@ -8261,6 +8837,7 @@ var
   AmtStr: string;
   AmtVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtStr := '4';
   if not InputQuery('Frosted Glass', 'Amount (1–20):', AmtStr) then Exit;
@@ -8287,6 +8864,7 @@ var
   AmtStr: string;
   AmtVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtStr := '8';
   if not InputQuery('Zoom Blur', 'Amount (1–30):', AmtStr) then Exit;
@@ -8313,6 +8891,7 @@ var
   RadStr: string;
   RadVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadStr := '3';
   if not InputQuery('Gaussian Blur', 'Radius (1–30):', RadStr) then Exit;
@@ -8339,6 +8918,7 @@ var
   RadiusText: string;
   RadiusValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadiusText := '4';
   if not InputQuery('Unfocus', 'Radius (1-24):', RadiusText) then Exit;
@@ -8367,6 +8947,7 @@ var
   RadiusValue: Integer;
   ThresholdValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadiusText := '3';
   if not InputQuery('Surface Blur', 'Radius (1-24):', RadiusText) then Exit;
@@ -8396,6 +8977,7 @@ var
   AmtStr: string;
   AmtVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtStr := '15';
   if not InputQuery('Radial Blur', 'Sweep angle in degrees (1–60):', AmtStr) then Exit;
@@ -8422,6 +9004,7 @@ var
   AmtStr: string;
   AmtVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtStr := '90';
   if not InputQuery('Twist', 'Angle in degrees (-360 to 360):', AmtStr) then Exit;
@@ -8448,6 +9031,7 @@ var
   OffStr: string;
   OffVal: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   OffStr := '8';
   if not InputQuery('Fragment', 'Offset in pixels (1–40):', OffStr) then Exit;
@@ -8474,6 +9058,7 @@ var
   AmountText: string;
   AmountValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmountText := '50';
   if not InputQuery('Bulge', 'Strength (1-100):', AmountText) then Exit;
@@ -8500,6 +9085,7 @@ var
   AmountText: string;
   AmountValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmountText := '50';
   if not InputQuery('Dents', 'Strength (1-100):', AmountText) then Exit;
@@ -8526,6 +9112,7 @@ var
   AngleText: string;
   AngleValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AngleText := '45';
   if not InputQuery('Relief', 'Light angle in degrees (0-359):', AngleText) then Exit;
@@ -8554,6 +9141,7 @@ var
   ThresholdValue: Integer;
   StrengthValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   ThresholdText := '48';
   if not InputQuery('Red Eye', 'Red threshold (0-255):', ThresholdText) then Exit;
@@ -8583,6 +9171,7 @@ var
   TileText: string;
   TileValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   TileText := '32';
   if not InputQuery('Tile Reflection', 'Tile size in pixels (2-256):', TileText) then Exit;
@@ -8609,6 +9198,7 @@ var
   CellText: string;
   CellValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   CellText := '24';
   if not InputQuery('Crystallize', 'Cell size in pixels (2-128):', CellText) then Exit;
@@ -8637,6 +9227,7 @@ var
   InkValue: Integer;
   ColorValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   InkText := '100';
   if not InputQuery('Ink Sketch', 'Ink strength (0-200):', InkText) then Exit;
@@ -8668,6 +9259,7 @@ var
   IterationValue: Integer;
   ZoomValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   IterationText := '64';
   if not InputQuery('Mandelbrot Fractal', 'Iterations (8-512):', IterationText) then Exit;
@@ -8699,6 +9291,7 @@ var
   IterationValue: Integer;
   ZoomValue: Integer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   IterationText := '64';
   if not InputQuery('Julia Fractal', 'Iterations (8-512):', IterationText) then Exit;
@@ -8725,6 +9318,7 @@ end;
 
 procedure TMainForm.RepeatLastEffectClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if Assigned(FLastEffectProc) then
     FLastEffectProc(Sender);
 end;
@@ -8734,6 +9328,7 @@ var
   DialogResult: TLayerPropertiesResult;
   Layer: TRasterLayer;
 begin
+  SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then
     Exit;
   Layer := FDocument.ActiveLayer;
@@ -8753,6 +9348,7 @@ end;
 
 procedure TMainForm.PasteSelectionClick(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if not FDocument.HasStoredSelection then
     Exit;
   FDocument.PasteStoredSelection;
@@ -8763,6 +9359,9 @@ procedure TMainForm.LayerBlendModeChanged(Sender: TObject);
 var
   NewMode: TBlendMode;
 begin
+  SealPendingStrokeHistory;
+  if FUpdatingLayerControls then
+    Exit;
   if not Assigned(FLayerBlendCombo) then
     Exit;
   if FDocument.LayerCount = 0 then
@@ -8771,6 +9370,9 @@ begin
      (FLayerBlendCombo.ItemIndex > Ord(High(TBlendMode))) then
     Exit;
   NewMode := TBlendMode(FLayerBlendCombo.ItemIndex);
+  if FDocument.ActiveLayer.BlendMode = NewMode then
+    Exit;
+  FDocument.PushHistory('Layer Blend Mode');
   FDocument.ActiveLayer.BlendMode := NewMode;
   SyncImageMutationUI;
 end;
@@ -8847,6 +9449,7 @@ procedure TMainForm.AddDocumentTab(ADoc: TImageDocument; const AFileName: string
 var
   N: Integer;
 begin
+  SealPendingStrokeHistory;
   { Flush current state to arrays }
   if Length(FTabDocuments) > 0 then
   begin
@@ -8876,6 +9479,7 @@ procedure TMainForm.SwitchToTab(AIndex: Integer);
 begin
   if AIndex = FActiveTabIndex then Exit;
   if (AIndex < 0) or (AIndex >= Length(FTabDocuments)) then Exit;
+  SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
 
   { Save current state }
@@ -8917,6 +9521,8 @@ var
   I, N: Integer;
 begin
   N := Length(FTabDocuments);
+  if AIndex = FActiveTabIndex then
+    SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
   if N <= 1 then
   begin
@@ -9274,17 +9880,11 @@ begin
       CloseBtn.Width := 18;
       CloseBtn.Height := 18;
       CloseBtn.Flat := True;
-      if TryBuildButtonGlyph('x', bicCommand, CloseBtn.Glyph) then
-      begin
-        CloseBtn.Caption := '';
-        CloseBtn.NumGlyphs := 1;
-        CloseBtn.Margin := 2;
-      end
-      else
-        CloseBtn.Caption := 'x';
+      CloseBtn.Caption := '×';
+      CloseBtn.Margin := 0;
       CloseBtn.Tag := I;
       CloseBtn.ParentFont := False;
-      CloseBtn.Font.Size := 8;
+      CloseBtn.Font.Size := 9;
       CloseBtn.Font.Color := ChromeTextColor;
       CloseBtn.OnClick := @TabCloseButtonClick;
       CloseBtn.Hint := 'Close document';
@@ -9300,16 +9900,10 @@ begin
     AddBtn.Width := 24;
     AddBtn.Height := 24;
     AddBtn.Flat := True;
-    if TryBuildButtonGlyph('+', bicCommand, AddBtn.Glyph) then
-    begin
-      AddBtn.Caption := '';
-      AddBtn.NumGlyphs := 1;
-      AddBtn.Margin := 4;
-    end
-    else
-      AddBtn.Caption := '+';
+    AddBtn.Caption := '+';
+    AddBtn.Margin := 0;
     AddBtn.ParentFont := False;
-    AddBtn.Font.Size := 11;
+    AddBtn.Font.Size := 13;
     AddBtn.Font.Color := ChromeTextColor;
     AddBtn.Hint := 'New document';
     AddBtn.ShowHint := True;
@@ -9657,6 +10251,7 @@ end;
 
 procedure TMainForm.ColorTargetComboChanged(Sender: TObject);
 begin
+  SealPendingStrokeHistory;
   if Assigned(FColorTargetCombo) then
     FColorEditTarget := FColorTargetCombo.ItemIndex;
   RefreshColorsPanel;

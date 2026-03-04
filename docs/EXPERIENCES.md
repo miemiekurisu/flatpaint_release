@@ -12,6 +12,222 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (a visual icon overlay must not become the real click surface)
+- Problem: after the icon-overlay pass, manual UAT could still make tools and panel actions feel dead or inconsistent even though the underlying handlers existed.
+- Core error: the UI had started treating the overlay image as the clickable control instead of keeping the real button as the interaction source.
+- Investigation: re-read the earlier “selected tool but nothing happens” issues, then re-audited the button chrome path and found that `AttachButtonIconOverlay(...)` placed a sibling `TImage` on top of the button and wired it as an active click proxy. That created a second, partially aligned hit surface that could drift from the real button bounds.
+- Root cause: the icon layer and the interaction layer had been collapsed together. A decorative overlay was promoted into a stateful input surface, which is brittle in Cocoa and easy to misalign when button sizes change after creation.
+- Fix: restored the proper split of responsibilities. Overlay images are now display-only again (`Enabled := False`), command/utility buttons get their final toolbar height before overlay placement, and tool-button overlays are explicitly realigned after the larger tool-button height is applied.
+- Reuse note: when adding UI chrome on top of an interactive control, keep the visual layer passive and let the original control remain the single click target. If an overlay must exist, bind its bounds to the final control geometry instead of assuming the creation-time size is final.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (command menus can interrupt stroke state just as badly as palette controls)
+- Problem: even after sealing pending strokes across the most obvious UI controls, document-mutating menu commands could still be triggered while a brush-like snapshot was live.
+- Core error: the first repair focused on visible interactive controls (`tools`, `layers`, `colors`, `history`), but the transform/adjustment/effect commands use the same document state and can cause the same mismatch if they run first.
+- Investigation: reviewed the remaining handlers that call `FDocument.PushHistory` or mutate pixels directly and found that resize, rotate, adjustments, effects, and repeat-effect handlers were still able to run without first sealing a pending stroke.
+- Root cause: the interruption rule had been applied by UI surface category instead of by the more correct rule: “any command that mutates the document must not run while a brush snapshot is still pending.”
+- Fix: extended the same `SealPendingStrokeHistory` preamble to the remaining transform, adjustment, and effect handlers, plus `RepeatLastEffectClick`.
+- Reuse note: when protecting in-flight drawing state, classify by mutation behavior, not by where the command lives in the UI. Menus, palette controls, toolbar buttons, and keyboard commands all belong to the same guard set if they mutate the document.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (pending-stroke fixes must cover UI mutations, not just pointer events)
+- Problem: after the first pending-stroke repair, manual UAT could still make brush-like edits feel inconsistent by interrupting the active stroke through UI actions such as changing layers, switching tools, using undo/history, or changing color targets.
+- Core error: the stroke state machine had been repaired for “new mouse-down” and document replacement, but other non-drawing UI paths could still mutate app state while a brush snapshot was live.
+- Investigation: re-audited handlers that change active layer, history position, tool, color target, palette state, or close state. The common pattern was simple: these handlers could alter what the UI was pointing at without first sealing the in-flight stroke.
+- Root cause: the original fix was scoped to pointer-driven continuation cases, while several UI-driven interruption paths were still missing the same pre-mutation guard.
+- Fix: standardized those handlers on the existing `SealPendingStrokeHistory` gate before they mutate state. `HistoryListClick`, `UndoClick`, `RedoClick`, tool switches, layer actions, layer property controls, color-target changes, palette toggles, and form close now all seal the stroke first. `LayerBlendModeChanged` was also corrected to behave like a tracked layer edit instead of a silent direct assignment.
+- Reuse note: if a tool has an in-flight snapshot, every UI path that can change the active target or rewind document state belongs in the same seal-before-mutate set. Do not stop at pointer events.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (a missing brush MouseUp can silently collapse many visible strokes into one history entry)
+- Problem: manual UAT exposed that repeated pencil strokes could stop reading as independent edits: pixels looked pending or inconsistent, and the History list only showed one new entry after multiple separate draws.
+- Core error: a fresh mouse-down could start a new brush-like stroke while the previous stroke's region-history snapshot was still pending, which let the new stroke overwrite the pending-stroke state instead of sealing it first.
+- Investigation: traced the pencil/brush/eraser path through `PaintBoxMouseDown`, `BeginStrokeHistory`, and `CommitStrokeHistory`, then compared that against the existing "button-state disappeared before MouseUp" safeguard. The gap was a new press with no intervening move: the old stroke could still be pending, and `BeginStrokeHistory` would previously discard that snapshot.
+- Root cause: the earlier fallback only finalized drag tools when a later `MouseMove` noticed the button flag had dropped. If the next event was a new `MouseDown` instead of a move, brush-like strokes had no equivalent seal-before-restart guard.
+- Fix: brush-like strokes now carry their own `FStrokeTool` label, and a new mouse-down first commits any pending stroke snapshot before starting the next one. `BeginStrokeHistory` also stopped silently throwing away an unfinished snapshot and now seals it instead. The same seal-before-discard rule now also applies before document replacement and tab switching, so an old pending stroke cannot leak across documents.
+- Reuse note: for stroke tools, "release" cannot be the only commit trigger. If a new press arrives while a stroke snapshot is still alive, seal the old stroke first or History and visible commit semantics will drift immediately.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (before touching tool logic again, separate “raster mutation failed” from “UI chrome is lying about state”)
+- Problem: manual UAT again produced the familiar “it looks like the tool or panel action did not really take effect” symptom after a UI-heavy pass, even though the earlier tool paths had already been repaired.
+- Core error: the old prepared-bitmap invalidation class of bug was treated as the default suspect before confirming that the current regression still lived in the raster path.
+- Investigation: re-read the existing visual-feedback lessons, then re-audited the live paint/shape/fill/effect commit paths and confirmed they still invalidate the prepared canvas and/or go through the shared mutation-sync helpers. The remaining breakage clustered around button chrome, overlay hit surfaces, and palette-header icon rendering instead.
+- Root cause: multiple visible UI issues can masquerade as “the tool is broken”: overlay icons can steal the button feel, command labels can overlap their icons, and palette header icons can render through the wrong asset path even while the underlying tool mutation code is still correct.
+- Fix: kept the tool logic untouched, tightened only the visible chrome: widened the file buttons, shrank and repositioned their overlay icons, aligned the zoom combo vertically with the zoom buttons, and forced palette-header icons onto the built-in line-glyph path instead of the problematic rendered-asset path.
+- Reuse note: when a fresh UI pass makes the app feel “not applied” again, first verify whether the raster mutation chain still invalidates the canvas before touching tool code. If that path is intact, fix the lying UI surface, not the already-working tool.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (Cocoa `TSpeedButton.Glyph` can report “icon path wired” while the live button still renders blank)
+- Problem: the icon asset chain was present and tests said the icons could load, but the live toolbar and visible button surfaces still showed empty buttons in manual UAT.
+- Core error: the code treated “glyph bitmap successfully built” as equivalent to “the Cocoa button will actually paint that glyph.”
+- Investigation: compared the running app screenshot against the icon-loading code and saw the contradiction directly: captions were being cleared because the glyph path returned success, but the visible button face still had no icon.
+- Root cause: on this Lazarus/Cocoa path, `TSpeedButton.Glyph` is not a trustworthy rendering surface for the most visible button chrome. It can succeed as data while still failing as a visible paint path.
+- Fix: moved the visible icon rendering for the main command/tool/utility button surfaces to dedicated overlay image controls that sit on top of the buttons and forward clicks back to the real button handlers.
+- Reuse note: on Cocoa, do not treat “glyph assigned” as proof of visible UI. Verify the live widget actually paints it; if not, keep the button for interaction and render the icon on a separate surface.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (a masked magenta glyph bitmap is not safe to reuse as a general-purpose overlay icon)
+- Problem: after the overlay icon pass, several palette icons still showed red/purple fringes even though the source SVGs and rendered PNGs were neutral dark icons.
+- Core error: the same masked bitmap prepared for `TSpeedButton.Glyph` was reused as if it were a clean image asset.
+- Investigation: the purple tint matched the transparency-key color rather than any color in the Lucide assets, which narrowed the bug to the masked bitmap path instead of the source SVG or rendered PNG files.
+- Root cause: the magenta transparency key is a control-specific bitmap trick. It is acceptable as a masked glyph source, but if that bitmap is reused in a plain overlay image path the key color can leak into the visible result.
+- Fix: the overlay path now loads the rendered PNG assets directly into `TPicture` first and only falls back to the masked bitmap path when a rendered asset is unavailable.
+- Reuse note: keep “masked bitmap for legacy button glyphs” and “plain image for overlay rendering” as separate paths. A transparency-key bitmap is not a generic reusable icon surface.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (right-aligned toolbar clusters should anchor to the actual toolbar host width, not a broader form width guess)
+- Problem: the top-right utility button cluster and zoom controls existed in code but could still launch partially or fully off-screen.
+- Core error: the right-cluster geometry was being calculated from a wider outer window measurement instead of the actual top-toolbar host width.
+- Investigation: the controls were present in code and created successfully, but they were absent in the live screenshot until the bounds calculation was rechecked against the real toolbar parent.
+- Root cause: anchoring math used a width that did not match the control host used for placement.
+- Fix: the right-side toolbar geometry now computes from `FTopPanel.ClientWidth` (with fallbacks only when that host is not yet sized), which restores the expected visible top-right cluster on first build.
+- Reuse note: for right-aligned clusters, derive placement from the actual parent surface that owns the controls. Using a broader container width is an easy way to create “control exists but is off-screen” bugs.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (small parity toggles are cheap wins when the state model already exists)
+- Problem: the History panel already tracked current, past, and future states, but one small paint.net-style interaction still remained missing: clicking the current row did nothing instead of toggling to the "before" state for a quick before/after comparison.
+- Core error: the UI had enough state to support the interaction, but the click handler exited early on the current row and left the behavior unimplemented.
+- Investigation: re-read the history-row index model and confirmed the current row is always `UndoDepth`, so “before current” is just one undo when `UndoDepth > 0`.
+- Root cause: the handler treated “clicked current row” as a no-op case instead of a parity shortcut case.
+- Fix: clicking the current history row now performs a single undo; the same row can then be clicked again immediately to redo back to the original state.
+- Reuse note: when the state model already distinguishes past/current/future, small comparison shortcuts are often one-condition handlers, not new subsystem work. Close them when they can be added without touching the data model.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (stable icon pipelines separate “source SVG truth” from “runtime icon format”)
+- Problem: the UI needed crisp Lucide-style icons without introducing a fragile runtime SVG stack or repeated on-build regeneration.
+- Core error: source-format correctness and runtime-format stability were treated as one decision, which caused churn between raw SVG ambitions, rough fallback glyphs, and bad font-outline assets.
+- Investigation: validated the local `./icons` drop as the correct Lucide stroke source, then tested the available local raster paths. Runtime SVG parsing still was not in place, but `qlmanage` plus post-normalization produced clean anti-aliased transparent glyphs when used as an explicit one-time render step.
+- Root cause: the project was missing a stable split between “authoritative editable source assets” and “boring runtime assets optimized for the current Lazarus shell.”
+- Fix: standardized on `./icons` as the canonical source set, mirrored the mapped subset into `assets/icons/lucide`, added a dedicated manual refresh script for the checked-in rendered PNG assets, and kept runtime on PNG loading with fallback glyphs instead of adding live SVG parsing.
+- Reuse note: for desktop UI chrome, the stable pattern is often source SVGs in-repo plus pre-rendered PNG runtime assets. Keep the vector source authoritative, but keep runtime on the simplest already-proven format until the GUI stack truly needs live SVG.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (a font-outline sprite is not a faithful substitute for a stroke-icon set)
+- Problem: the UI could technically show icon assets for tool and utility buttons, but the result still looked chunky and not genuinely "SVG-like" in UAT.
+- Core error: the rendered tool/palette assets were treated as if they were canonical Lucide icons, even though they were extracted from `lucide-font/lucide.symbol.svg`, which is a font-outline export.
+- Investigation: compared the checked-in `assets/icons/lucide/*.svg` files against the `lucide-font` sprite and re-read the runtime icon path in `FPIconHelpers`. The trusted local Lucide files are stroke icons (`fill=\"none\"`, `stroke=\"currentColor\"`), while the font sprite symbols are filled glyph outlines.
+- Root cause: "vector file exists" was conflated with "visual source fidelity is correct." A symbol/font sprite can still be valid SVG, but its outlines do not match the original icon family's stroke language.
+- Fix: stopped treating the font-derived rendered assets as the default for tool and utility chrome. The live app now limits rendered assets to command surfaces and keeps tool/utility buttons on the built-in line-glyph renderer until proper stroke SVG exports exist.
+- Reuse note: do not promote a font-conversion sprite into the main UI icon source just because it is convenient to extract. Verify that the source preserves the intended visual language, not just that it can be parsed.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (UI layout literals drift unless the live form and the tests share one metric layer)
+- Problem: the top toolbar could keep regressing in small but visible ways because positions, widths, and gaps were embedded as disconnected literals in `mainform`.
+- Core error: layout correctness depended on manual visual memory. Even when the UI still compiled, spacing could drift by a few pixels and there was no direct test that the live geometry still matched expectations.
+- Investigation: reviewed `BuildToolbar` and found separate hard-coded numbers for group positions, divider positions, row heights, and zoom-control bounds. Some gaps were already inconsistent (`Edit -> Undo` was narrower than the other top-row gaps).
+- Root cause: the code and the tests did not share one geometry source-of-truth, so layout invariants were implicit rather than encoded.
+- Fix: extracted toolbar geometry into `FPToolbarHelpers`, switched `mainform` to consume that helper, and added direct regression tests for row alignment, group spacing, right anchoring, and zoom-cluster fit.
+- Reuse note: for visible UI chrome, do not leave geometry as “just literals in the form builder.” Put repeatable metrics in one helper and test that helper, then build the form from it.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (one-time asset generation should not be a hard dependency of every local build)
+- Problem: a routine local build failed because the icon-refresh step tried to import `PIL`, but the local Python environment did not have Pillow installed.
+- Core error: the normal `build` path was made to depend on the temporary icon-generation toolchain instead of only on already-checked-in assets.
+- Investigation: traced the failure to `scripts/common.sh -> prepare_icon_assets()` and confirmed the build was invoking the Python extraction/normalization pipeline every time even though the rendered assets were already committed.
+- Root cause: asset preparation and ordinary compilation were coupled. The one-time resource-generation script had been promoted into a mandatory step of the normal build flow.
+- Fix: changed the build flow to treat Lucide extraction/normalization as a manual asset-prep path only, while routine builds simply reuse the checked-in rendered icon assets.
+- Reuse note: if a resource is already versioned in the repository, default builds should consume it directly. Regeneration should be explicit, not implicit, unless the project intentionally depends on that generator in every developer environment.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (Lucide sprite files can look blank even when they are valid icon sources)
+- Problem: the provided `lucide.symbol.svg` looked like an empty white file when opened directly, which made it look unusable at first glance.
+- Core error: the file was treated like a normal standalone SVG illustration instead of what it actually is: a hidden SVG symbol sprite.
+- Investigation: inspected the root tag and the symbol entries directly. The root had `width="0"`, `height="0"`, and `display:none`, while the required `icon-*` symbols were still present with real path data inside.
+- Root cause: a hidden symbol-sprite container is meant to be referenced or extracted, not viewed as a standalone picture. Opening it directly in a viewer produces a misleading “blank” result.
+- Fix: switched the icon pipeline to extract required `symbol` entries into standalone `assets/icons/extracted/*.svg` files first, then generated runtime assets from those extracted SVGs instead of treating the sprite file itself as a direct visual artifact.
+- Reuse note: when a design pack ships `*.symbol.svg`, check whether it is a sprite sheet before judging it by direct preview. A blank preview does not mean the icon data is missing.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (Quick Look thumbnail generation is not a reliable icon pipeline unless its output is normalized)
+- Problem: the first Quick Look based icon pass either produced tiny unusable shapes or white square tiles instead of stable toolbar glyphs.
+- Core error: `qlmanage` was treated as if it emitted ready-to-use transparent icons, but it actually emits document thumbnails with an opaque white page-style background and output behavior that is sensitive to how it is invoked.
+- Investigation: compared direct `qlmanage` runs against the produced PNGs, checked pixel bounds, and confirmed the raw thumbnail output was not a clean transparent icon asset. It also failed when stdout/stderr were fully redirected, which made the initial scripted calls look broken.
+- Root cause: Quick Look is a thumbnailer, not a purpose-built SVG icon rasterizer. Its raw output needs post-processing before it can be used as a button glyph.
+- Fix: kept Quick Look only as the rasterization step from the extracted standalone SVGs, then normalized the PNGs into a fixed transparent 18x18 black-on-alpha asset set before the app loads them.
+- Reuse note: if `qlmanage` is used as a fallback rasterizer, always validate the real pixel output and normalize it. Do not assume the raw thumbnail is directly suitable as a UI icon.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (having source SVGs in the repo is not the same as the app actually using them)
+- Problem: the project had a clean `assets/icons/lucide/` source set, but the running app could still show none of those icons because the runtime path never touched those files.
+- Core error: the repository asset layer and the Lazarus button-rendering path were treated as if they were already connected, when in reality the app was still using only generated fallback glyphs.
+- Investigation: re-read `TryBuildButtonGlyph(...)`, checked the runtime code paths, and confirmed there was no file-loading branch at all even though the SVG files were already checked in.
+- Root cause: the asset work stopped at source creation. There was no rendered runtime format, no runtime asset lookup, and no bundle-copy step, so the app had nothing concrete to load.
+- Fix: rendered the SVGs into checked-in PNGs, added a runtime asset resolver in `FPIconHelpers` that loads those PNGs before falling back to generated glyphs, and updated the bundle staging path to copy the rendered icon directory into `Contents/Resources`.
+- Reuse note: do not count design/source assets as “implemented” until the runtime path, the packaged path, and the fallback path are all wired. Source files alone do not change the visible product.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (tool buttons silently fell back to placeholder text because the shared icon helper excluded the tool context)
+- Problem: even after the shared icon pass improved the toolbar, the `Tools` palette could still look cheap and inconsistent because it was showing the old compact Unicode placeholders instead of the intended line icons.
+- Core error: the shared `CreateButton(...)` helper only enabled generated glyphs for command and utility buttons; `bicTool` still bypassed that path and then `BuildSidePanel` explicitly put the raw `PaintToolGlyph(...)` character back into the caption.
+- Investigation: re-read the tool-button creation path and compared it against the command/utility button path. The icon set already existed in `FPIconHelpers`; the live tool surface simply was not allowed to use it.
+- Root cause: the project had treated tool buttons as a special text-only surface long after the shared icon system was expanded enough to cover them, so the fallback placeholder route had become the de facto live UI.
+- Fix: re-enabled shared glyph generation for `bicTool`, removed the explicit Unicode caption overlay from the tool buttons, and resized the two-column tool grid around icon-first buttons instead of text surrogates.
+- Reuse note: once a shared icon pipeline exists, keep every visible button family on it unless there is a deliberate exception. Leaving one surface on a fallback placeholder path will make the UI look partially broken even though the icon system itself is present.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (opaque glyph backgrounds make otherwise-correct icons read like broken tiles)
+- Problem: even when the command buttons were wired and the icon shapes existed, the toolbar could still look broken because each glyph looked like it sat on a tiny square tile.
+- Core error: the shared glyph renderer filled the whole bitmap with a solid background color and then handed that opaque bitmap to `TSpeedButton`.
+- Investigation: re-read the shared `PrepareGlyphBitmap(...)` path and compared the visual effect of the bitmap-backed buttons against the symbol-only fallback path. The icon outlines were not the only issue; the bitmap itself was carrying an unwanted rectangle.
+- Root cause: the glyph path was treating the icon bitmap as a mini background plate, not as a transparent icon surface.
+- Fix: the shared glyph bitmap now renders on a transparent key color and marks that color as transparent before the glyph is attached to the button, so the host control background shows through instead of a visible square.
+- Reuse note: for toolbar glyphs, an icon bitmap should normally provide shape only, not its own background tile. If the host surface already owns the button background, opaque icon bitmaps will make the UI look broken even when the outline drawing is correct.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (asset-source SVGs and runtime icon rendering do not have to be the same layer)
+- Problem: the project needed better icon fidelity and a real reusable icon source, but adding a brand-new runtime SVG stack in the same pass would have raised regression risk in the GUI shell.
+- Core error: it is easy to conflate "we need SVG assets in the repository" with "the app must start parsing SVG files at runtime immediately."
+- Investigation: checked the current Lazarus shell for existing SVG runtime support, then weighed that against the user's explicit requirement to avoid fresh backend and GUI regressions during the same UI pass.
+- Root cause: the repo had no stable existing runtime SVG button path, but it also lacked a proper checked-in icon source set.
+- Fix: added a local `assets/icons/lucide/` SVG source set for the visible top-toolbar icons, while keeping the live UI on the already-tested Lazarus glyph pipeline for this pass.
+- Reuse note: separate asset-source modernization from runtime-rendering stack changes when stability matters. It is often safer to introduce source assets first and switch the renderer only after the UI contract is already stable.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (visible tool surfaces must share one filter, or the UI contradicts itself)
+- Problem: `Zoom` had already been removed from the floating `Tools` palette, but it was still present in the top `Tool:` combo, so the app simultaneously treated it as hidden and visible.
+- Core error: the left palette and the top combo were both built from the same display-order metadata, but only the palette path had the "skip `tkZoom`" rule.
+- Investigation: re-read `BuildSidePanel`, then compared it against `BuildToolbar`, `MakeTestSafe`, and every `FToolCombo.ItemIndex := PaintToolDisplayIndex(...)` sync path.
+- Root cause: the UI had no single "visible tools" synchronization rule; one surface filtered the tool list while the other still assumed raw display-order indexes.
+- Fix: the top `Tool:` combo now skips `tkZoom` during construction too, and tool-combo state is now synchronized by scanning the combo's actual object payloads instead of assuming raw display-order indexes.
+- Reuse note: if one visible surface filters a shared enum, every other visible selector must either use the same filter or switch to object-based synchronization. Shared raw indexes only stay valid while all surfaces expose the exact same subset.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (stability beats bitmap ambition on Cocoa command strips)
+- Problem: the top quick-action strip could degrade into white blocks or dead-feeling controls even though the handlers themselves were still wired.
+- Core error: the most visible command strip was still leaning on the fragile bitmap-glyph button path in the part of the UI where rendering glitches are most obvious.
+- Investigation: traced the top quick-action buttons through `BuildToolbar` and `CreateButton`, then compared the more stable symbol-first tool/utility buttons against the command-button rendering branch.
+- Root cause: the command strip was still paying the reliability cost of bitmap glyphs while the rest of the UI had already proven that text-symbol rendering was the safer fallback on this Cocoa/Lazarus shell.
+- Fix: the top grouped command buttons now prefer stable symbol/text captions instead of bitmap glyphs, while the deeper command surfaces can still keep bitmap support where it is less fragile.
+- Reuse note: for high-frequency chrome like a main toolbar, use the most boring reliable rendering path first. Fragile icon pipelines belong behind explicit validation, not on the most visible control strip.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (dragging floating UI must target the real panel root, not whichever child got the mouse event)
+- Problem: only some floating palettes could be moved reliably, even though all of them had the same visible title-bar drag affordance.
+- Core error: drag start was using the immediate parent panel of the clicked header control as the thing to move. For labels inside palette headers, that meant the code was dragging the aligned header strip instead of the outer palette window.
+- Investigation: re-read the shared palette drag handlers and traced the actual sender chain for header labels versus the outer palette panels. The drag path was using the sender's parent if it was a panel, which is correct for some shallow controls and wrong for nested header controls.
+- Root cause: the drag logic assumed one fixed control depth. Once the header gained nested labels, "parent panel" stopped meaning "palette root".
+- Fix: drag start now resolves the true owning palette by walking up the parent chain, and drag motion converts child-control coordinates into the palette's local coordinates before applying movement.
+- Reuse note: for draggable composite UI, always resolve an interaction to the true movable root and normalize coordinates into that root's space. Using the event sender or its immediate parent will break as soon as the chrome gets another wrapper control.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (generated glyphs must respect the host surface, or UI polish regresses into white boxes)
+- Problem: the UI had broader icon coverage, but multiple visible button surfaces still looked broken because the buttons read as white slabs or square blocks instead of integrated toolbar/palette controls.
+- Core error: icon work had focused on coverage and shape, but not on how those glyph bitmaps blended with their host controls. At the same time, some command/utility buttons were still being forced into raised native button chrome that visually fought the grouped toolbar/palette surfaces.
+- Investigation: re-read the shared `TryBuildButtonGlyph(...)` path and the main `CreateButton(...)` helper, then traced the remaining direct tab close/add glyph calls. The problem was not missing icons; it was the rendering assumptions around glyph background and button chrome.
+- Root cause: the glyph path still depended on transparent-mask assumptions instead of the actual host panel color, and the button helper still mixed otherwise-flat grouped surfaces with explicitly raised native buttons. That combination makes a partially polished UI look worse than an honestly plain one.
+- Fix: changed the glyph builder to render against an explicit host background color, routed the main visible button paths through host-aware glyph generation, and removed the forced raised-button styling from the visible toolbar/utility controls so the buttons stay visually integrated with the surfaces around them.
+- Reuse note: when adding bitmap-backed UI icons, treat host-surface blending and button chrome as part of the feature. “Icon exists” is not enough; if the glyph/background assumptions are wrong, the result regresses into white blocks even though coverage improved.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (UI polish is safest when it reuses existing controls and centralizes geometry)
+- Problem: the app needed a more finished toolbar/tool-palette look, but the highest risk path would have been replacing working controls or splitting event handling across new wrapper controls.
+- Core error: UI polish passes can easily create regressions when they mix visual goals with control-structure rewrites, especially in a form that already has many shortcut and sync paths.
+- Investigation: compared the React design reference against the current Lazarus `BuildToolbar` / `BuildSidePanel` code and separated "needs new visual structure" from "already working command wiring".
+- Root cause: the prototype feel mostly came from inconsistent layout rhythm and raw default control styling, not from missing handlers. The risky part was not functionality; it was the temptation to rebuild working widgets just to change their appearance.
+- Fix: the pass kept the same live controls and handlers, introduced shared row-position constants for toolbar geometry, added a separate title band, and adjusted tool-button visual state through the existing `SyncToolButtonSelection` path instead of inventing new wrapper logic.
+- Reuse note: when polishing a mature UI surface, change layout constants, grouping, and state styling first. Replacing working controls should be the later option, not the default.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (a white base layer that is not truly special will make multiple tools feel randomly wrong)
 - Problem: `Eraser`, `Cut`, `Erase Selection`, and move-selected-pixels could all appear inconsistent in UAT because the visible white base behaved like a normal transparent layer under destructive edits.
 - Core error: the app created a layer named `Background` and filled it white, but the document model still treated it as an ordinary alpha-capable `TRasterLayer`, so destructive operations kept erasing to transparency.

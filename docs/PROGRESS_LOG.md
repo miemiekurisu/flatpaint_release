@@ -1,5 +1,158 @@
 # Development Progress Log
 
+## 2026-03-04 (button icon overlays are now passive display layers again)
+
+- The button icon pass has been tightened to use a cleaner interaction model: overlay images no longer impersonate clickable controls. The underlying `TSpeedButton` remains the only click target, while the overlay stays purely visual.
+- Command and utility buttons now get their final toolbar height before overlay placement, which prevents the icon from being vertically positioned against a stale 26 px default. Tool buttons still use their larger palette height, but their overlays are explicitly realigned after that final height is applied.
+- This is aimed directly at the recurring “tool looks selected / icon is visible, but the UI acts dead or misaligned” class of regressions. It keeps the icon rendering work while reducing the chance that decorative chrome drifts away from the actual input surface.
+
+## 2026-03-04 (adjustments/effects/transform commands now honor pending-stroke sealing)
+
+- The pending-stroke interaction fix now also covers the remaining document-mutating command surfaces, not just direct tool/layer/color/history UI.
+- Resize/canvas operations, flips/rotations, adjustments, and the effect stack all now seal any in-flight brush-like stroke before they push history or mutate pixels. That removes another class of “the last stroke felt half-committed, then a filter or transform ran” state drift.
+- `Repeat Last Effect` also now follows the same rule before dispatching the remembered effect callback, so repeated effect application cannot skip over a live pending stroke snapshot either.
+
+## 2026-03-04 (UI interaction seal pass for pending brush-like strokes)
+
+- This pass continues the pending-stroke fix by widening the protection boundary from “new mouse-down and document swap” to the rest of the UI interactions that can interrupt a brush-like gesture.
+- `History`, `Undo/Redo`, tool switches, layer changes, layer property controls, selection commands, color-target changes, palette toggles, and close/quit now all seal any in-flight brush snapshot before they mutate visible state. That keeps the raster write, active-layer target, and history granularity aligned instead of letting a stale pending stroke linger behind the UI.
+- `LayerBlendModeChanged` also now behaves like a real layer edit: it ignores programmatic control sync, skips no-op changes, and pushes a dedicated `Layer Blend Mode` history entry before mutating the active layer.
+- The intent is not more hard-coded cleanup branches; it is the opposite. The pass reuses the existing `SealPendingStrokeHistory` gate as the single pre-mutation rule for non-drawing UI flows so the same state machine policy is applied consistently across tools, colors, layers, and history.
+
+## 2026-03-04 (pending brush-stroke sealing fix)
+
+- This pass fixes a real interaction bug in the paint pipeline rather than another toolbar-only issue. Repeated `Pencil` / brush-like strokes could collapse into one apparent edit when Cocoa failed to deliver a `MouseUp` and the next event was a fresh `MouseDown` instead of a `MouseMove`.
+- The brush-stroke path now preserves the tool label for the in-flight region snapshot and seals any pending stroke before the next press starts a new one. That keeps repeated pencil-style gestures as separate history entries instead of silently replacing the prior pending snapshot.
+- The protection now exists in both places that matter: `PaintBoxMouseDown` seals a pending stroke before beginning a new gesture, and `BeginStrokeHistory` no longer silently discards an unfinished snapshot if one still exists. The same pending-stroke seal is now also applied before tab switches, current-document replacement, and other document-swap flows so a stale stroke snapshot cannot cross into a different document.
+- A matching regression check was added at the helper-contract level so the intended policy is encoded in tests: a new press must commit a pending brush stroke instead of replacing it.
+
+## 2026-03-04 (low-risk toolbar/palette chrome correction pass)
+
+- This pass deliberately avoided tool logic and image-mutation code. The repeated “it looks like nothing applied” symptom was re-audited against the existing canvas-invalidation lessons first, and the current regression did not point to a fresh raster-write failure.
+- The visible fixes are limited to the UI chrome that was still misleading UAT: `New / Open / Save` were widened again, their overlaid icons were reduced and offset so the labels stop colliding with the icon area, and the top zoom combo now sits one pixel lower so its visual center aligns with the adjacent zoom buttons instead of riding high.
+- The floating palette title-bar icons were also corrected without changing palette behavior: those four small icons now render through the built-in line-glyph path at a smaller 12x12 size, which avoids the clipped/purple-tinted rendered-asset path and fits the existing 22px title bar cleanly.
+- A small test pass was added around the same contract: the toolbar metric tests now lock a minimum file-group width and vertical center alignment for the zoom combo, which gives this visual adjustment at least one shared geometry guard instead of leaving it as pure manual UAT.
+
+## 2026-03-04 (Cocoa icon-overlay stabilization + toolbar width pass)
+
+- Manual screenshot verification exposed that the checked-in Lucide-derived assets were present, but several visible controls still looked blank or wrong for two different reasons: Cocoa `TSpeedButton.Glyph` was not reliably painting on the most visible button surfaces, and the old masked-bitmap path leaked the magenta transparency key when the same icon data was reused in plain `TImage` overlays.
+- The runtime fix is now explicit and stable. Visible toolbar and palette buttons keep the real clickable button, but the icon is rendered through a separate overlay image surface that forwards clicks back to the underlying control. That removes the dependency on Cocoa's fragile `TSpeedButton.Glyph` paint path for the main command/tool/utility surfaces.
+- The overlay path now loads the rendered PNG asset directly into the overlay picture first, instead of reusing the masked magenta glyph bitmap. That eliminates the red/purple fringe that was still visible in palette header icons and compact utility buttons.
+- `New / Open / Save` were widened and their text padding was adjusted so the icon and caption sit cleanly together, and the top-right utility/zoom cluster now computes from `FTopPanel.ClientWidth` instead of the less reliable outer-form width so that cluster is visible immediately on launch instead of drifting off-screen.
+- A small remaining parity gap was also closed in the `History` palette: clicking the current history row now jumps to the “before” state, so clicking that same row again immediately redoes it for a quick before/after comparison.
+- Live screenshot checks confirm the visible result: `New / Open / Save`, the compact edit buttons, the left `Tools` palette, the palette header icons, the top-right palette-toggle cluster, and the zoom controls are all now visible in the running app at the same time instead of splitting between “resource exists” and “UI surface still looks blank.”
+
+## 2026-03-04 (canonical Lucide runtime render pass)
+
+- The app is no longer stuck between “correct SVG source exists” and “runtime still shows fallback glyphs.” The icon pipeline now uses the local `./icons` Lucide stroke set as the source-of-truth, mirrors the required mapped files into `assets/icons/lucide`, and refreshes the checked-in runtime PNG assets through a dedicated manual script: `scripts/refresh_lucide_rendered.sh`.
+- That refresh path uses `qlmanage` only as a one-time high-resolution rasterizer and then immediately normalizes each result to a transparent 18x18 icon with preserved anti-aliased alpha edges. Runtime still does not parse SVG directly, which keeps the Lazarus shell stable, but the visible icon surfaces are now backed by the correct SVG source family rather than the old font-outline sprite.
+- `FPIconHelpers` now again prefers the rendered asset path for command, tool, and utility buttons alike, with the built-in line glyph path retained only as a fallback if a specific asset is missing.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes, and the icon tests now cover representative source and rendered assets across command, tool, and utility surfaces.
+
+## 2026-03-04 (canonical icon source set synced from local `./icons`)
+
+- The local `./icons` drop is now confirmed as the correct source-quality set: it contains the full Lucide-style stroke SVG library, not the old font-outline sprite.
+- `assets/icons/lucide` has been repopulated from that local source so the project now carries a complete in-repo source set for every currently mapped button icon name, including the two alias cases where `file-plus-2` maps to `file-plus` and `circle-help` maps to `circle-question-mark`.
+- This is a source-of-truth cleanup step, not a claim that the Lazarus runtime is now directly rendering SVG. The live tool/utility surfaces still use the built-in line glyph path until a reliable SVG-to-runtime rendering path is in place.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes, and the icon tests now also assert representative source SVG presence under `assets/icons/lucide`.
+
+## 2026-03-04 (tool/utility icon fidelity rollback to stable line glyphs)
+
+- Manual UAT exposed that the currently checked-in tool and palette icon assets still looked chunky and raster-like instead of reading as clean Lucide-style strokes.
+- The root issue is source fidelity, not button wiring: the current generated tool/palette asset set comes from `lucide-font/lucide.symbol.svg`, which is a font-outline sprite, not the canonical Lucide stroke icon set. It is good enough as a temporary extraction source, but not good enough for dense `Tools` / `Colors` / `History` / `Layers` chrome.
+- The live icon policy is now stricter: only `bicCommand` buttons may use the checked-in rendered asset path for now. `bicTool` and `bicUtility` buttons intentionally stay on the built-in line-glyph renderer until proper stroke SVG exports exist, so the visible tool surfaces stop using the coarse pseudo-SVG assets.
+- The icon regression test was aligned to that policy too: it now only requires representative rendered assets for the command strip, instead of pretending tool/palette rendered assets are part of the trusted runtime contract.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes, and `bash ./scripts/build.sh` rebuilds `dist/FlatPaint.app`.
+
+## 2026-03-04 (toolbar layout metrics + position regression pass)
+
+- The top toolbar layout no longer depends on scattered literals in `mainform` alone. The shared geometry now lives in `src/app/fptoolbarhelpers.pas`, including the title band, left command groups, right palette/zoom clusters, divider placement, and zoom-control bounds.
+- `mainform` now builds the visible top row directly from that shared metric layer, so the live UI and the regression tests use the same source-of-truth for positions and sizes.
+- The left command groups were also normalized a little: the `Edit -> Undo` gap now matches the same 8px spacing used elsewhere, and the separators now sit in the center of their gaps instead of drifting by a couple of pixels.
+- A new `TFPToolbarHelpersTests` suite now locks the main layout invariants: vertical band alignment, consistent left-group spacing, right-cluster anchoring, and zoom-control fit inside the right-most cluster.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **214 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilds `dist/FlatPaint.app`.
+
+## 2026-03-04 (icon refresh decoupled from normal build)
+
+- The Lucide extraction/normalization pipeline is now treated as a one-time asset-prep step instead of a normal build-time dependency.
+- `scripts/common.sh` no longer regenerates icon assets during every `build`; it now simply uses the checked-in rendered icon set already present in the repository.
+- This removes the accidental hard dependency on local Python `Pillow` / host-side icon-refresh tooling during routine compiles, while keeping the pre-rendered assets usable by the app bundle.
+- The icon regression surface is also tighter now: `TFPIconHelpersTests` includes a direct representative asset-presence check for both extracted SVGs and rendered PNGs, so the repository can no longer silently lose the checked-in icon set while still passing the older caption-mapping tests.
+- Verification is green after the change: `bash ./scripts/build.sh` completes without the old `Refreshing Lucide icon assets` phase and still rebuilds `dist/FlatPaint.app`; `bash ./scripts/run_tests_ci.sh` now passes at **210 tests, 0 errors, 0 failures**.
+
+## 2026-03-04 (Lucide symbol extraction + full icon replacement pass)
+
+- This pass maps primarily to `Iconography`, `Workspace visual parity`, and the packaged macOS app surface rather than to backend image-editing behavior.
+- The previous icon work had two structural problems at the same time: the runtime was still relying on placeholder/fallback glyphs for much of the visible UI, and the earlier SVG-to-PNG path was not trustworthy because Quick Look was being used against the wrong source form.
+- The icon source-of-truth is now the local `lucide-font/lucide.symbol.svg` sprite the user provided. A new `scripts/extract_lucide_icons.py` pipeline extracts the required symbols into standalone `assets/icons/extracted/*.svg` files, and the normalized transparent 18x18 PNG runtime assets live in `assets/icons/rendered/*.svg.png` as checked-in resources for the bundle to consume.
+- `FPIconHelpers` was expanded so the rendered asset mapping now covers the top command strip, the tool palette, the palette headers/toggles, and the compact command buttons used in the colors/history/layers surfaces, instead of only a small top-toolbar subset. The visible UI is now pulling from one Lucide-derived asset family across the main button surfaces.
+- The glyph load path was also tightened so pre-sized rendered icons draw directly instead of being rescaled again, which keeps the final icons consistent and avoids the earlier “tiny / off-center / white tile” failure modes.
+- Verification is green after the pass: `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` against the generated asset set, and `bash ./scripts/run_tests_ci.sh` passes at **209 tests, 0 errors, 0 failures**.
+
+## 2026-03-04 (runtime icon-asset hookup pass)
+
+- This pass maps primarily to `Iconography`, `Workspace visual parity`, and the packaged app surface rather than to backend feature work.
+- The earlier icon work had produced local SVG source assets, but the live Lazarus app was still not actually consuming them at runtime. That meant the repository could contain Lucide-style assets while the visible app still fell back to generated placeholder-style glyphs.
+- The icon path is now truly connected. `FPIconHelpers` first resolves a real runtime icon directory, looks in the `.app` bundle resources or the repository `assets/icons/rendered` path, and loads the rendered PNG asset for the supported top-toolbar / palette icons before falling back to the built-in hand-drawn glyph path.
+- To make that runtime path real, the checked-in `assets/icons/lucide/*.svg` files were rasterized into `assets/icons/rendered/*.png`, and the build staging path now copies that rendered icon directory into `dist/FlatPaint.app/Contents/Resources/icons/rendered` so the packaged app can find the assets directly.
+- Verification is green after the pass: `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`, `bash ./scripts/run_tests_ci.sh` passes at **209 tests, 0 errors, 0 failures**, and the rebuilt bundle now contains the rendered icon assets under `Contents/Resources/icons/rendered`.
+
+## 2026-03-04 (tool-glyph restoration + palette-header icon pass)
+
+- This pass maps primarily to `Workspace visual parity`, `Iconography`, and the visible `Tool palette` / floating-palette chrome rather than to backend feature work.
+- The previous UI iterations had already improved the top toolbar, but the floating tool surface was still lagging badly: the `Tools` palette was still rendering the old Unicode placeholder characters instead of the shared vector glyphs, which made the panel feel much rougher than the newer toolbar surfaces.
+- The underlying issue is now fixed at the shared button level. `CreateButton(...)` once again allows the bitmap-glyph path for `bicTool`, so tool buttons no longer fall back to the raw compact-character captions that were only meant as a safety net.
+- The `Tools` palette itself was then re-laid out to suit icon-first buttons instead of text surrogates: the palette grew slightly, the two-column grid now uses taller 44x40 hit targets, and the buttons keep the icon centered without the old overlaid Unicode character. This keeps the working handlers intact while materially improving the visible tool surface.
+- The floating palette headers were also brought onto the same icon language. `Tools`, `Colors`, `History`, and `Layers` now render a shared utility glyph in the header itself instead of a text glyph surrogate, so palette chrome no longer mixes one icon style in the toolbar and another in the panel headers.
+- As part of the same cleanup, the top-row palette-toggle button hints now use the shared shortcut metadata instead of hard-coded strings, so the visible hints match the real `Cmd+1...4` mapping again.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **209 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
+## 2026-03-04 (lucide-source asset seeding + top-toolbar realignment pass)
+
+- This pass maps primarily to `Workspace visual parity`, `Iconography`, and the visible `Command surface parity` of the top toolbar.
+- The design target in `flatpaint_design` was still not reflected in the live Lazarus shell closely enough: the zoom cluster was not the right-most top control, the four palette-toggle buttons were not grouped where the design expected them, and the icon treatment still felt too rough even after the earlier stability rollback.
+- The top toolbar now follows the intended first-row structure more closely. The row is organized into file actions, edit actions, undo/redo, the four palette toggles (`Tools`, `Colors`, `History`, `Layers`), and a right-anchored zoom cluster, while the `Tool:` selector remains on the second row. The zoom percentage chooser is now explicitly in the far-right top cluster instead of living mid-strip.
+- The shared bitmap glyph path was also hardened instead of abandoned. Glyph bitmaps now render with a transparent background instead of an opaque tile, which removes the old "little square block" effect around command icons. With that in place, the top toolbar can safely use icon-bearing command buttons again without reintroducing the earlier white-box regression.
+- A local `assets/icons/lucide/` source set was added for the currently visible top-toolbar icons. These SVG files are the repository-side source-of-truth for the new icon language, but this pass intentionally does not add a runtime SVG dependency; the live app still renders through the existing Lazarus button/glyph path for stability.
+- Verification is green after the pass: `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`, and `bash ./scripts/run_tests_ci.sh` passes at **209 tests, 0 errors, 0 failures**.
+
+## 2026-03-04 (toolbar click-surface recovery + visible zoom-tool removal pass)
+
+- This pass maps primarily to `Workspace shell`, `Command surface parity`, `Workspace visual parity`, and the visible `Tool palette` contract.
+- Manual UAT exposed three linked UI regressions in the current shell: the top quick-action strip still read as white blocks, some of those controls could not be clicked reliably, and the visible tool surfaces were inconsistent because `Zoom` had been removed from the floating `Tools` palette but was still present in the top `Tool:` combo.
+- The fix deliberately moved the top toolbar farther away from the fragile bitmap-glyph path. The grouped top command strip now uses stable symbol/text button captions inside the grouped panels instead of relying on the earlier Cocoa-sensitive command glyph rendering, which removes the most visible "white block" failure mode while preserving the existing command handlers.
+- The top title strip is now centered structurally instead of by a single hard-coded left offset: the traffic-light area and the right spacer are symmetric, so the in-window title label stays visually centered even while the grouped quick-action strip changes width.
+- Visible tool selection surfaces now follow one rule: `Zoom` is no longer exposed in the floating `Tools` palette or the top `Tool:` combo, and zoom is left to the dedicated top zoom controls plus macOS pinch gestures. Internally the tool enum still exists for compatibility and tests, but the visible UI no longer advertises it as a primary tool.
+- Verification is green after the pass: `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`, and `bash ./scripts/run_tests_ci.sh` passes at **208 tests, 0 errors, 0 failures**.
+
+## 2026-03-04 (palette-drag root fix + tool/utility symbol pass)
+
+- This pass maps primarily to `Workspace shell`, `Workspace visual parity`, and `Iconography`, but it is really a correctness-and-usability recovery pass for the live UI shell rather than a new feature pass.
+- Manual UAT exposed two regressions in the previous UI iteration: only the `Tools` palette was reliably draggable, and the new icon treatment had made the tool buttons smaller/uglier while some shortcut-facing buttons still rendered as blank white blocks.
+- The palette-drag bug was in the drag root calculation, not in the palette rectangles themselves. Header labels inside `Colors`, `History`, and `Layers` were starting drags from the header child panel instead of the actual outer palette host, so moving the header did not move the real palette. Dragging now walks back up to the owning palette root and converts child-control coordinates into palette-local coordinates before applying movement, which restores consistent drag behavior across all four floating palettes.
+- The icon pass in this round deliberately chose the more robust path over the more ambitious one: tool buttons and the top-right utility strip now render as larger symbol-driven buttons again instead of relying on the tiny generated bitmap glyphs that were making the surface read worse than the design target. The tool palette no longer sacrifices the visible icon just to show a one-character shortcut, and the tab/palette close controls now use stable text symbols instead of fragile tiny glyph tiles.
+- The bitmap-backed command glyph path still remains available for the places where it is stable, but the most user-visible mode-switch and palette-toggle surfaces are now back on clearer, larger symbols while the app continues toward a better final asset-backed icon system.
+- Verification is green after the pass: `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`, and `bash ./scripts/run_tests_ci.sh` passes at **208 tests, 0 errors, 0 failures**.
+
+## 2026-03-04 (icon-surface de-whiteboxing + host-tinted glyph pass)
+
+- This pass maps primarily to `Iconography`, `Workspace visual parity`, and the remaining visible button surfaces in the live Lazarus shell.
+- The main UAT problem in this pass was that several visible buttons had crossed the line from "rough" to actively misleading: toolbar and palette controls could render as white blocks or obvious square tiles instead of reading as intentional icon buttons.
+- The root cause was twofold. First, command and utility buttons were still being forced into non-flat native `TSpeedButton` chrome, which produced stark white button slabs against the lighter grouped toolbar surfaces. Second, the shared glyph pipeline still assumed transparent-mask behavior and drew into a generic bitmap background instead of the real host surface color.
+- The icon pipeline now renders glyphs against the intended host surface color directly and the main visible button surfaces stay on the flatter grouped-button path instead of forcing native raised white chrome. Top toolbar command buttons, utility buttons, palette close buttons, and tab add/close buttons now all use the same host-aware glyph strategy, so the visible controls read as part of their surrounding panel instead of detached white blocks.
+- Coverage was tightened at the metadata layer too: the command-icon audit now explicitly includes the `Name` layer action, which keeps the visible layer-actions strip inside the same shared icon contract as the rest of the button surface.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **208 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
+## 2026-03-04 (title-band + toolbar rhythm + tool-button polish pass)
+
+- This pass maps primarily to `Workspace visual parity`, `Iconography`, and the visible `Tools` / top-toolbar chrome rather than to new document features.
+- The goal here was to move the live Cocoa/Lazarus shell closer to the `flatpaint_design` baseline without destabilizing event routing: keep the same controls and handlers, but improve the visible structure and product feel of the most-used surfaces.
+- The top chrome now has a dedicated in-window title band instead of dropping straight into controls. A lightweight macOS-style traffic-light strip was added on the left, and the centered title now mirrors the same live document caption used by the actual window title (`FlatPaint - <name>`, including the edited marker) so the content area reads more like a real designed workspace and less like a raw form.
+- The toolbar itself now has clearer vertical rhythm: the quick-action row and the tool-options row no longer visually collide, because all row-1 and row-2 controls were moved onto shared vertical offsets instead of independent hard-coded numbers. That keeps the title band, command row, and option row visually distinct while leaving the underlying command handlers untouched.
+- The `Tools` palette was also tightened into a less prototype-like control grid. The tool buttons now default to a flatter "ghost" state and only the active tool is raised, the shortcut glyph/caption spacing is less cramped, the visible shortcut character is slightly more legible, and the tool hints now lead with the explicit shortcut label before the behavior description.
+- This pass intentionally avoided deeper custom painting and did not replace live controls with owner-drawn stand-ins; the UI gain comes from layout/style changes on the existing working controls, which keeps regression risk low while still moving the app toward the design baseline.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **208 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
 ## 2026-03-04 (Photoshop/GIMP-style background-layer semantics pass)
 
 - This pass maps primarily to `Layers`, `Paint tools`, `Selection tools`, `Compatibility IO`, and the shared completion rule for visible destructive edits.
