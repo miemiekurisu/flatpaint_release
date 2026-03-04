@@ -1,6 +1,7 @@
 unit FPIconHelpers;
 
 {$mode objfpc}{$H+}
+{$codepage utf8}
 
 interface
 
@@ -154,47 +155,41 @@ end;
 
 function ResolveUtilityIconKind(const ACaption: string): TButtonIconKind;
 begin
-  case ACaption of
-    '▦': Result := bikTools;
-    '↺': Result := bikHistory;
-    '▤': Result := bikLayers;
-    '◍': Result := bikColors;
-    '⚙': Result := bikSettings;
-    '?': Result := bikHelp;
-  else
-    Result := bikNone;
-  end;
+  if ACaption = '▦' then Exit(bikTools);
+  if ACaption = '↺' then Exit(bikHistory);
+  if ACaption = '▤' then Exit(bikLayers);
+  if ACaption = '◍' then Exit(bikColors);
+  if ACaption = '⚙' then Exit(bikSettings);
+  if ACaption = '?' then Exit(bikHelp);
+  Result := bikNone;
 end;
 
 function ResolveToolIconKind(const ACaption: string): TButtonIconKind;
 begin
-  case ACaption of
-    '▭': Result := bikSelectRect;
-    '◌': Result := bikSelectEllipse;
-    '⌒': Result := bikSelectLasso;
-    '✦': Result := bikMagicWand;
-    '⊞': Result := bikMoveSelection;
-    '✣': Result := bikMovePixels;
-    '⌕': Result := bikZoomTool;
-    '↕': Result := bikPan;
-    '▧': Result := bikFill;
-    '◫': Result := bikGradient;
-    '✎': Result := bikPencil;
-    '◍': Result := bikBrush;
-    '⌫': Result := bikEraser;
-    '⌖': Result := bikPicker;
-    '⧉': Result := bikClone;
-    '◐': Result := bikRecolor;
-    '／': Result := bikLine;
-    '□': Result := bikRectangle;
-    '▢': Result := bikRoundedRect;
-    '○': Result := bikEllipse;
-    '〰': Result := bikFreeform;
-    '⌗': Result := bikCrop;
-    'T': Result := bikText;
-  else
-    Result := bikNone;
-  end;
+  if ACaption = '▭' then Exit(bikSelectRect);
+  if ACaption = '◌' then Exit(bikSelectEllipse);
+  if ACaption = '⌒' then Exit(bikSelectLasso);
+  if ACaption = '✦' then Exit(bikMagicWand);
+  if ACaption = '⊞' then Exit(bikMoveSelection);
+  if ACaption = '✣' then Exit(bikMovePixels);
+  if ACaption = '⌕' then Exit(bikZoomTool);
+  if ACaption = '↕' then Exit(bikPan);
+  if ACaption = '▧' then Exit(bikFill);
+  if ACaption = '◫' then Exit(bikGradient);
+  if ACaption = '✎' then Exit(bikPencil);
+  if ACaption = '◍' then Exit(bikBrush);
+  if ACaption = '⌫' then Exit(bikEraser);
+  if ACaption = '⌖' then Exit(bikPicker);
+  if ACaption = '⧉' then Exit(bikClone);
+  if ACaption = '◐' then Exit(bikRecolor);
+  if ACaption = '／' then Exit(bikLine);
+  if ACaption = '□' then Exit(bikRectangle);
+  if ACaption = '▢' then Exit(bikRoundedRect);
+  if ACaption = '○' then Exit(bikEllipse);
+  if ACaption = '〰' then Exit(bikFreeform);
+  if ACaption = '⌗' then Exit(bikCrop);
+  if ACaption = 'T' then Exit(bikText);
+  Result := bikNone;
 end;
 
 function ResolveAutoIconKind(const ACaption: string): TButtonIconKind;

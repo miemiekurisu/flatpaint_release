@@ -5,10 +5,12 @@ unit FPXCFIO;
 interface
 
 uses
-  Classes, SysUtils, FPSurface;
+  Classes, SysUtils, FPSurface, FPDocument;
 
 function LoadFlattenedXCFSurface(const AFileName: string): TRasterSurface;
 function TryLoadFlattenedXCFSurface(const AFileName: string; out ASurface: TRasterSurface): Boolean;
+function LoadXCFDocument(const AFileName: string): TImageDocument;
+function TryLoadXCFDocument(const AFileName: string; out ADocument: TImageDocument): Boolean;
 
 implementation
 
@@ -50,6 +52,7 @@ type
   end;
 
   TXCFLayerInfo = record
+    Name: string;
     Width: Integer;
     Height: Integer;
     LayerType: Cardinal;
@@ -280,10 +283,11 @@ var
   IgnoredPointer: Int64;
 begin
   AStream.Position := AOffset;
+  Result.Name := '';
   Result.Width := ReadUInt32BE(AStream);
   Result.Height := ReadUInt32BE(AStream);
   Result.LayerType := ReadUInt32BE(AStream);
-  ReadXCFString(AStream);
+  Result.Name := ReadXCFString(AStream);
   Result.OffsetX := 0;
   Result.OffsetY := 0;
   Result.Visible := True;
@@ -547,6 +551,26 @@ begin
   end;
 end;
 
+procedure StampSurfaceWithOffset(ATarget: TRasterSurface; ASource: TRasterSurface; AOffsetX, AOffsetY: Integer);
+var
+  X: Integer;
+  Y: Integer;
+  DestX: Integer;
+  DestY: Integer;
+begin
+  if (ATarget = nil) or (ASource = nil) then
+    Exit;
+  for Y := 0 to ASource.Height - 1 do
+    for X := 0 to ASource.Width - 1 do
+    begin
+      DestX := X + AOffsetX;
+      DestY := Y + AOffsetY;
+      if not ATarget.InBounds(DestX, DestY) then
+        Continue;
+      ATarget[DestX, DestY] := ASource[X, Y];
+    end;
+end;
+
 function TryLoadFlattenedXCFSurface(const AFileName: string; out ASurface: TRasterSurface): Boolean;
 var
   Stream: TFileStream;
@@ -633,6 +657,113 @@ end;
 function LoadFlattenedXCFSurface(const AFileName: string): TRasterSurface;
 begin
   if not TryLoadFlattenedXCFSurface(AFileName, Result) then
+    raise Exception.Create('Unsupported or unreadable XCF file');
+end;
+
+function TryLoadXCFDocument(const AFileName: string; out ADocument: TImageDocument): Boolean;
+var
+  Stream: TFileStream;
+  MagicBytes: array[0..Length(XCFMagic) - 1] of Byte;
+  MagicText: string;
+  Context: TXCFContext;
+  LayerOffsets: TInt64Array;
+  LayerIndex: Integer;
+  ImportedLayerIndex: Integer;
+  LayerInfo: TXCFLayerInfo;
+  LayerSurface: TRasterSurface;
+  TargetLayer: TRasterLayer;
+begin
+  Result := False;
+  ADocument := nil;
+  if not FileExists(AFileName) then
+    Exit;
+
+  Stream := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyWrite);
+  try
+    if Stream.Size < 32 then
+      Exit;
+
+    Stream.ReadBuffer(MagicBytes, SizeOf(MagicBytes));
+    SetString(MagicText, PChar(@MagicBytes[0]), Length(XCFMagic));
+    if MagicText <> XCFMagic then
+      Exit;
+
+    FillChar(Context, SizeOf(Context), 0);
+    Context.Version := ReadXCFVersion(Stream);
+    if Context.Version >= 11 then
+      Context.PointerSize := 8
+    else
+      Context.PointerSize := 4;
+    Context.Width := ReadUInt32BE(Stream);
+    Context.Height := ReadUInt32BE(Stream);
+    ReadUInt32BE(Stream);
+    if Context.Version >= 4 then
+      Context.Precision := ReadUInt32BE(Stream)
+    else
+      Context.Precision := 150;
+    if (Context.Precision <> 100) and (Context.Precision <> 150) then
+      raise Exception.CreateFmt('Unsupported XCF precision: %d', [Context.Precision]);
+
+    ReadImageProperties(Stream, Context);
+    LayerOffsets := ReadPointerArray(Stream, Context.PointerSize);
+    ReadPointerArray(Stream, Context.PointerSize);
+    if Context.Version >= 11 then
+      ReadPointerArray(Stream, Context.PointerSize);
+    if Length(LayerOffsets) = 0 then
+      Exit;
+
+    ADocument := TImageDocument.Create(Context.Width, Context.Height);
+    try
+      ImportedLayerIndex := 0;
+      for LayerIndex := High(LayerOffsets) downto Low(LayerOffsets) do
+      begin
+        LayerInfo := ReadLayerInfo(Stream, Context, LayerOffsets[LayerIndex]);
+        if LayerInfo.IsGroup or (LayerInfo.HierarchyOffset = 0) then
+          Continue;
+
+        LayerSurface := DecodeLayerSurface(Stream, Context, LayerInfo);
+        try
+          if ImportedLayerIndex = 0 then
+            TargetLayer := ADocument.Layers[0]
+          else
+            TargetLayer := ADocument.AddLayer;
+          TargetLayer.Surface.Clear(TransparentColor);
+          StampSurfaceWithOffset(TargetLayer.Surface, LayerSurface, LayerInfo.OffsetX, LayerInfo.OffsetY);
+          if Trim(LayerInfo.Name) <> '' then
+            TargetLayer.Name := LayerInfo.Name
+          else
+            TargetLayer.Name := Format('XCF Layer %d', [ImportedLayerIndex + 1]);
+          TargetLayer.Visible := LayerInfo.Visible;
+          TargetLayer.Opacity := LayerInfo.Opacity;
+          Inc(ImportedLayerIndex);
+        finally
+          LayerSurface.Free;
+        end;
+      end;
+
+      if ImportedLayerIndex = 0 then
+      begin
+        FreeAndNil(ADocument);
+        Exit;
+      end;
+
+      ADocument.ActiveLayerIndex := ADocument.LayerCount - 1;
+      ADocument.ClearHistory;
+      Result := True;
+    except
+      FreeAndNil(ADocument);
+      raise;
+    end;
+  except
+    FreeAndNil(ADocument);
+    Result := False;
+  end;
+  Stream.Free;
+end;
+
+function LoadXCFDocument(const AFileName: string): TImageDocument;
+begin
+  if not TryLoadXCFDocument(AFileName, Result) then
     raise Exception.Create('Unsupported or unreadable XCF file');
 end;
 

@@ -5,7 +5,7 @@ unit FPIO;
 interface
 
 uses
-  Classes, SysUtils, FPImage, FPColor, FPSurface;
+  Classes, SysUtils, FPImage, FPColor, FPSurface, FPDocument;
 
 type
   { Options passed to SaveSurfaceToFileWithOpts.
@@ -21,6 +21,7 @@ type
   end;
 
 function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
+function TryLoadDocumentFromFile(const AFileName: string; out ADocument: TImageDocument): Boolean;
 function LoadSurfaceFromFile(const AFileName: string): TRasterSurface;
 procedure SaveSurfaceToFile(const AFileName: string; ASurface: TRasterSurface);
 procedure SaveSurfaceToFileWithOpts(const AFileName: string; ASurface: TRasterSurface; const AOpts: TSaveSurfaceOptions);
@@ -199,6 +200,17 @@ end;
 function LoadSurfaceFromFile(const AFileName: string): TRasterSurface;
 begin
   Result := LoadSurfaceUsingKnownReaders(AFileName, LowerCase(ExtractFileExt(AFileName)));
+end;
+
+function TryLoadDocumentFromFile(const AFileName: string; out ADocument: TImageDocument): Boolean;
+var
+  Extension: string;
+begin
+  ADocument := nil;
+  Extension := LowerCase(ExtractFileExt(AFileName));
+  if SameText(Extension, '.xcf') then
+    Exit(TryLoadXCFDocument(AFileName, ADocument));
+  Result := False;
 end;
 
 function SupportedSurfaceOpenPattern: string;

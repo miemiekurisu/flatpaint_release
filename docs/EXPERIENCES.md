@@ -12,6 +12,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (iconography does not really move until the button factory emits actual glyphs)
+- Problem: the app had become more readable through shorter labels and symbol captions, but `Iconography` still stayed artificially low because the visible buttons were still fundamentally text-driven.
+- Core error: counting compact captions as "icon support" made the UI look improved in code review while still leaving the major button surfaces dependent on caption rendering instead of a real shared glyph path.
+- Investigation: re-read the current `Iconography` gap in `docs/FEATURE_MATRIX.md`, then traced `CreateButton(...)` in `mainform.pas` and confirmed the construction path still treated captions as the primary rendering surface even where the UI was supposed to be icon-first.
+- Root cause: the icon language had not been centralized into a shared bitmap/image pipeline; each button still started from text and only approximated icons through compact glyph-like captions.
+- Fix: added `FPIconHelpers`, made `CreateButton(...)` prefer generated bitmap glyphs, and routed the high-visibility button families through explicit icon contexts so the visible tool/action surfaces now share one real glyph path.
+- Reuse note: when a desktop UI needs to count as icon-driven, do not stop at shorter labels or Unicode symbols; first move the shared button factory onto a real bitmap/image path, then refine asset polish later.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (flattened foreign import stops being enough once the editor already has layers)
+- Problem: `.xcf` support looked practical because files could open, but the app still threw away layer structure in the main document flow even though the native document model already supported layers.
+- Core error: a flattened compatibility fallback was still being treated as the main success path for a layered foreign project format, which made the feature look more complete than it really was.
+- Investigation: re-audited the shared file-open path and confirmed that `.xcf` still ended at `LoadSurfaceFromFile(...)` in the main document flow, so the loader always collapsed the file into one raster before the tab/document shell ever saw it.
+- Root cause: compatibility IO had only a surface-return path; there was no document-return branch for foreign formats that could map onto the existing `TImageDocument` layer model.
+- Fix: added `TryLoadDocumentFromFile(...)`, implemented layered `.xcf` loading through `TryLoadXCFDocument(...)`, and routed the document open flow through that path while keeping flattened imports for surface-only cases such as import-as-layer.
+- Reuse note: once the app already has a stable layer model, foreign project support should try a document-return path first; flattened import should be the fallback, not the only success case.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (image-processing feedback still feels incomplete if the busy state is invisible)
 - Problem: even after routing mutations back into the canvas and preview surfaces, longer image-processing commands could still feel ambiguous in manual use because the UI had no explicit "rendering in progress" signal while the command was running.
 - Core error: the app could mutate pixels correctly and refresh the result afterward, but adjustments/effects still looked like synchronous black boxes from the user's point of view because the status bar kept showing static labels during processing.

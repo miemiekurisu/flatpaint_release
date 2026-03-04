@@ -5,7 +5,7 @@ unit fpio_tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPIO, FPKRAIO, FPPDNIO, Zipper;
+  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPDocument, FPIO, FPKRAIO, FPPDNIO, Zipper;
 
 type
   TFPIOTests = class(TTestCase)
@@ -21,6 +21,7 @@ type
     procedure PngRoundTripPreservesAlphaByDefault;
     procedure TargaRoundTripPreservesPixels;
     procedure LoaderCanReadMinimalXCFProject;
+    procedure XcfCanLoadLayeredDocument;
     procedure UnifiedOpenFilterIncludesProjectsAndPSD;
     procedure KraLoadRaisesDescriptiveError;
     procedure KraZipLoadExtractsMergedImage;
@@ -270,6 +271,37 @@ begin
     AssertTrue('xcf pixel 2', RGBAEqual(LoadedSurface[1, 0], RGBA(0, 255, 0, 128)));
   finally
     LoadedSurface.Free;
+    DeleteFile(XCFPath);
+  end;
+end;
+
+procedure TFPIOTests.XcfCanLoadLayeredDocument;
+var
+  XCFPath: string;
+  LoadedDocument: TImageDocument;
+begin
+  XCFPath := UniqueTempFile('.xcf');
+  CreateMinimalXCFFIle(XCFPath);
+  LoadedDocument := nil;
+  try
+    AssertTrue(
+      'xcf should load as a layered document',
+      TryLoadDocumentFromFile(XCFPath, LoadedDocument)
+    );
+    AssertNotNull('document should not be nil', LoadedDocument);
+    AssertEquals('xcf doc width', 2, LoadedDocument.Width);
+    AssertEquals('xcf doc height', 1, LoadedDocument.Height);
+    AssertEquals('xcf doc layer count', 1, LoadedDocument.LayerCount);
+    AssertTrue(
+      'xcf layer pixel should survive',
+      RGBAEqual(LoadedDocument.Layers[0].Surface[0, 0], RGBA(255, 0, 0, 255))
+    );
+    AssertTrue(
+      'xcf second pixel alpha should survive',
+      RGBAEqual(LoadedDocument.Layers[0].Surface[1, 0], RGBA(0, 255, 0, 128))
+    );
+  finally
+    LoadedDocument.Free;
     DeleteFile(XCFPath);
   end;
 end;

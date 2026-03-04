@@ -9,7 +9,7 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Buttons,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
-  FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers;
+  FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers;
 
 type
   TMainForm = class;
@@ -292,7 +292,7 @@ type
     procedure BuildTabPopupMenu;
     procedure BuildToolbar;
     procedure BuildSidePanel;
-    function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0): TSpeedButton;
+    function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0; AIconContext: TButtonIconContext = bicAuto): TSpeedButton;
     procedure CreateMenuItem(AParent: TMenuItem; const ACaption: string; AHandler: TNotifyEvent; AShortcut: TShortCut = 0);
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
     procedure DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
@@ -1970,15 +1970,15 @@ begin
   FTopPanel.ParentColor := False;
 
   { Toolbar row 1: quick actions + zoom; the tool-options row stays separate below it. }
-  Btn := CreateButton('New',   10,  8, 26, @NewDocumentClick,  FTopPanel); Btn.Hint := 'New document (Cmd+N)';
-  Btn := CreateButton('Open',  40,  8, 26, @OpenDocumentClick,  FTopPanel); Btn.Hint := 'Open document (Cmd+O)';
-  Btn := CreateButton('Save',  70,  8, 26, @SaveDocumentClick,  FTopPanel); Btn.Hint := 'Save document (Cmd+S)';
-  Btn := CreateButton('Cut',  110,  8, 26, @CutClick,           FTopPanel); Btn.Hint := 'Cut selection (Cmd+X)';
-  Btn := CreateButton('Copy', 140,  8, 26, @CopyClick,          FTopPanel); Btn.Hint := 'Copy selection (Cmd+C)';
-  Btn := CreateButton('Paste',170,  8, 26, @PasteClick,         FTopPanel); Btn.Hint := 'Paste (Cmd+V)';
-  Btn := CreateButton('Undo', 214,  8, 26, @UndoClick,          FTopPanel); Btn.Hint := 'Undo last action (Cmd+Z)';
-  Btn := CreateButton('Redo', 244,  8, 26, @RedoClick,          FTopPanel); Btn.Hint := 'Redo (Cmd+Shift+Z)';
-  Btn := CreateButton('-',    288,  8, 26, @ZoomOutClick,       FTopPanel); Btn.Hint := 'Zoom out';
+  Btn := CreateButton('New',   10,  8, 26, @NewDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'New document (Cmd+N)';
+  Btn := CreateButton('Open',  40,  8, 26, @OpenDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Open document (Cmd+O)';
+  Btn := CreateButton('Save',  70,  8, 26, @SaveDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Save document (Cmd+S)';
+  Btn := CreateButton('Cut',  110,  8, 26, @CutClick,           FTopPanel, 0, bicCommand); Btn.Hint := 'Cut selection (Cmd+X)';
+  Btn := CreateButton('Copy', 140,  8, 26, @CopyClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Copy selection (Cmd+C)';
+  Btn := CreateButton('Paste',170,  8, 26, @PasteClick,         FTopPanel, 0, bicCommand); Btn.Hint := 'Paste (Cmd+V)';
+  Btn := CreateButton('Undo', 214,  8, 26, @UndoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Undo last action (Cmd+Z)';
+  Btn := CreateButton('Redo', 244,  8, 26, @RedoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Redo (Cmd+Shift+Z)';
+  Btn := CreateButton('-',    288,  8, 26, @ZoomOutClick,       FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom out';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
@@ -1990,7 +1990,7 @@ begin
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
 
-  Btn := CreateButton('+', 404, 8, 26, @ZoomInClick, FTopPanel); Btn.Hint := 'Zoom in';
+  Btn := CreateButton('+', 404, 8, 26, @ZoomInClick, FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom in';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
@@ -2012,7 +2012,8 @@ begin
       26,
       @UtilityButtonClick,
       UtilityPanel,
-      Ord(UtilityCommand)
+      Ord(UtilityCommand),
+      bicUtility
     );
     UtilityButton.Hint := UtilityCommandHint(UtilityCommand);
   end;
@@ -2422,7 +2423,8 @@ begin
       40,
       @ToolButtonClick,
       FToolsPanel,
-      Ord(ToolKind)
+      Ord(ToolKind),
+      bicTool
     );
     ToolButton.Hint := PaintToolName(ToolKind) + ' — ' + PaintToolHint(ToolKind);
   end;
@@ -2510,8 +2512,8 @@ begin
 
   FHistoryPanel := TPanel.Create(Self);
   CreatePalette(FHistoryPanel, pkHistory);
-  CreateButton('Undo', 12, ContentTop, 26, @UndoClick, FHistoryPanel);
-  CreateButton('Redo', 42, ContentTop, 26, @RedoClick, FHistoryPanel);
+  CreateButton('Undo', 12, ContentTop, 26, @UndoClick, FHistoryPanel, 0, bicCommand);
+  CreateButton('Redo', 42, ContentTop, 26, @RedoClick, FHistoryPanel, 0, bicCommand);
   FHistoryValueLabel := TLabel.Create(FHistoryPanel);
   FHistoryValueLabel.Parent := FHistoryPanel;
   FHistoryValueLabel.Left := 12;
@@ -2540,20 +2542,20 @@ begin
   CreatePalette(FRightPanel, pkLayers);
 
   { Row 1: Add / Duplicate / Delete / Merge }
-  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel);
-  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel);
-  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel);
-  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel);
+  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel, 0, bicCommand);
+  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand);
+  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand);
+  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand);
   { Row 1 right: Vis / Up / Down }
-  CreateButton('Vis', 132, ContentTop, 26, @ToggleLayerVisibilityClick, FRightPanel);
-  CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel);
-  CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel);
+  CreateButton('Vis', 132, ContentTop, 26, @ToggleLayerVisibilityClick, FRightPanel, 0, bicCommand);
+  CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand);
+  CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand);
 
   { Row 2: Opacity / Flatten / Rename / Properties }
-  CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel);
-  CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel);
-  CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel);
-  FLayerPropsButton := CreateButton('Props', 102, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel);
+  CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel, 0, bicCommand);
+  CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand);
+  CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand);
+  FLayerPropsButton := CreateButton('Props', 102, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel, 0, bicCommand);
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
@@ -2665,11 +2667,10 @@ begin
     Result := '⚙';
 end;
 
-function TMainForm.CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer): TSpeedButton;
+function TMainForm.CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer; AIconContext: TButtonIconContext): TSpeedButton;
 begin
   Result := TSpeedButton.Create(AParent);
   Result.Parent := AParent;
-  Result.Caption := CompactButtonCaption(ACaption);
   Result.Left := ALeft;
   Result.Top := ATop;
   Result.Width := AWidth;
@@ -2678,10 +2679,22 @@ begin
   Result.Tag := ATag;
   Result.OnClick := AHandler;
   Result.ParentFont := False;
-  if Length(Result.Caption) <= 4 then
-    Result.Font.Size := 10
-  else
+  if TryBuildButtonGlyph(ACaption, AIconContext, Result.Glyph) then
+  begin
+    Result.Caption := '';
+    Result.NumGlyphs := 1;
+    Result.Margin := 4;
+    Result.Spacing := 0;
     Result.Font.Size := 9;
+  end
+  else
+  begin
+    Result.Caption := CompactButtonCaption(ACaption);
+    if Length(Result.Caption) <= 4 then
+      Result.Font.Size := 10
+    else
+      Result.Font.Size := 9;
+  end;
   Result.Font.Color := ChromeTextColor;
   Result.Hint := ACaption;
   Result.ShowHint := True;
@@ -4997,6 +5010,12 @@ begin
   begin
     LoadedDocument := LoadNativeDocumentFromFile(ResolvedFileName);
     { Replace active tab's document }
+    FTabDocuments[FActiveTabIndex].Free;
+    FTabDocuments[FActiveTabIndex] := LoadedDocument;
+    FDocument := LoadedDocument;
+  end
+  else if TryLoadDocumentFromFile(ResolvedFileName, LoadedDocument) then
+  begin
     FTabDocuments[FActiveTabIndex].Free;
     FTabDocuments[FActiveTabIndex] := LoadedDocument;
     FDocument := LoadedDocument;
@@ -8941,7 +8960,14 @@ begin
       CloseBtn.Width := 18;
       CloseBtn.Height := 18;
       CloseBtn.Flat := True;
-      CloseBtn.Caption := 'x';
+      if TryBuildButtonGlyph('x', bicCommand, CloseBtn.Glyph) then
+      begin
+        CloseBtn.Caption := '';
+        CloseBtn.NumGlyphs := 1;
+        CloseBtn.Margin := 2;
+      end
+      else
+        CloseBtn.Caption := 'x';
       CloseBtn.Tag := I;
       CloseBtn.ParentFont := False;
       CloseBtn.Font.Size := 8;
@@ -8960,7 +8986,14 @@ begin
     AddBtn.Width := 24;
     AddBtn.Height := 24;
     AddBtn.Flat := True;
-    AddBtn.Caption := '+';
+    if TryBuildButtonGlyph('+', bicCommand, AddBtn.Glyph) then
+    begin
+      AddBtn.Caption := '';
+      AddBtn.NumGlyphs := 1;
+      AddBtn.Margin := 4;
+    end
+    else
+      AddBtn.Caption := '+';
     AddBtn.ParentFont := False;
     AddBtn.Font.Size := 11;
     AddBtn.Font.Color := ChromeTextColor;
@@ -9151,6 +9184,8 @@ begin
       LoadedDocument := LoadNativeDocumentFromFile(ResolvedFileName);
       AddDocumentTab(LoadedDocument, ResolvedFileName, False);
     end
+    else if TryLoadDocumentFromFile(ResolvedFileName, LoadedDocument) then
+      AddDocumentTab(LoadedDocument, ResolvedFileName, False)
     else
     begin
       LoadedDocument := TImageDocument.Create(1, 1);

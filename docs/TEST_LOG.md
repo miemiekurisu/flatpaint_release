@@ -1,5 +1,11 @@
 # Test Log
 
+## 2026-03-04 (bitmap iconography + layered-xcf compatibility pass)
+- Full CI verification after moving the main visible button surfaces onto a shared bitmap-glyph path and adding layered `.xcf` document loading: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 194 tests, 0 errors, 0 failures, including the existing `TFPIconHelpersTests` coverage plus the new `XcfCanLoadLayeredDocument` regression
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-04 (status-progress visibility pass)
 - Full CI verification after adding a real status-bar progress region for adjustments/effects and extending the status-layout tests for the new progress slot: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 190 tests, 0 errors, 0 failures after the new status-progress helpers and layout assertions
