@@ -12,6 +12,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (a white base layer that is not truly special will make multiple tools feel randomly wrong)
+- Problem: `Eraser`, `Cut`, `Erase Selection`, and move-selected-pixels could all appear inconsistent in UAT because the visible white base behaved like a normal transparent layer under destructive edits.
+- Core error: the app created a layer named `Background` and filled it white, but the document model still treated it as an ordinary alpha-capable `TRasterLayer`, so destructive operations kept erasing to transparency.
+- Investigation: traced destructive edit paths across `ApplyImmediateTool`, `CutSelectionToSurface`, `EraseSelection`, and `MoveSelectedPixelsBy`, then compared that against the document constructor and confirmed the only "background" behavior was a one-time white fill in `NewBlank`.
+- Root cause: the project had implemented "background" as an initial pixel state, not as a persistent layer semantic. Once that happened, every tool path had to guess from pixels or names and none of them had a reliable contract for special-case behavior.
+- Fix: added a real `IsBackground` flag to `TRasterLayer`, persisted it through snapshots and native save/load, locked the background layer to the bottom of the stack, and updated destructive tool/edit routes so they restore an opaque replacement color on the background layer instead of punching transparency.
+- Reuse note: if the UX depends on a special base layer, represent that in the document model directly. A filled-white ordinary layer is not enough; destructive tools will drift into contradictory behavior unless the layer type is explicit.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (transparent-color sampling can make every later paint tool look broken)
 - Problem: multiple tools (`Pencil`, `Brush`, shapes, text) could all look like they had stopped committing even though the same previews still rendered correctly.
 - Core error: sampling a transparent pixel copied `A=0` into the active swatch, while the visible swatch UI still rendered only the RGB channels and looked like an opaque black/colored paint.

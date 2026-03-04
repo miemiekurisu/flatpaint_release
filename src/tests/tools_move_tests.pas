@@ -40,6 +40,8 @@ var
 begin
   Doc := TImageDocument.Create(4, 2);
   try
+    Doc.AddLayer('Paint');
+    Doc.ActiveLayerIndex := 1;
     // paint one pixel, select it, move pixels by +1 x
     C := RGBA(255, 0, 0, 255);
     Doc.ActiveLayer.Surface[1, 0] := C;

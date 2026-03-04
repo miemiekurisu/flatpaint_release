@@ -1,5 +1,11 @@
 # Test Log
 
+## 2026-03-04 (Photoshop/GIMP-style background-layer semantics pass)
+- Full CI verification after introducing a real `IsBackground` document flag, persisting it through native save/load, locking the background layer to the bottom slot, and routing destructive background-layer edits through opaque replacement color semantics: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 208 tests, 0 errors, 0 failures, including the new `TFPDocumentTests` coverage for background-layer lock behavior and opacity-preserving erase/move semantics plus the native round-trip regression for the saved background flag
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-04 (paint-visibility recovery + line-default interaction pass)
 - Full CI verification after fixing sampled-alpha visibility traps, adding dedicated erase-line/erase-brush raster paths, restoring straight-line-by-default behavior with opt-in Bezier staging, and hardening drag finalization against missing `MouseUp` delivery: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 206 tests, 0 errors, 0 failures, including the new eraser-alpha regression and the new helper-level interaction-contract coverage for sampled-color alpha preservation, line-release staging, and drag-button-state tracking

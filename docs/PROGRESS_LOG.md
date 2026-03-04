@@ -1,5 +1,15 @@
 # Development Progress Log
 
+## 2026-03-04 (Photoshop/GIMP-style background-layer semantics pass)
+
+- This pass maps primarily to `Layers`, `Paint tools`, `Selection tools`, `Compatibility IO`, and the shared completion rule for visible destructive edits.
+- The biggest remaining semantic mismatch in manual UAT was the bottom white `Background` behaving like an ordinary transparent paint layer. That made `Eraser`, `Cut`, `Erase Selection`, and move-selected-pixels behave more like Krita than Photoshop/GIMP, because they could punch checkerboard holes into the base layer.
+- `TRasterLayer` now carries a real `IsBackground` flag in the core document model instead of inferring "background" only from name or layer index. New blank documents create the bottom layer as a true background layer, full-document snapshots preserve that flag through undo/redo, and native `.fpd` save/load now persists the flag in the file format while keeping backward compatibility with older `FPDOC01` documents.
+- Background-layer behavior is now enforced in the core and UI instead of only in conventions: the background layer cannot be reordered away from the bottom, duplicating it creates a normal layer copy instead of a second background layer, and flatten now resolves to a single opaque white-backed `Background` layer instead of a transparent-ended result.
+- Destructive operations that used to create transparency now split on layer semantics. On ordinary layers they still erase to transparency; on the special background layer they restore an opaque fill instead. In the live UI, `Eraser`, `Cut`, `Erase Selection`, and move-selected-pixels now use the current secondary/background swatch color as the replacement color, which matches Photoshop/GIMP habits more closely than the prior always-transparent behavior.
+- The Layers UI now surfaces the semantics more clearly too: the layer list labels explicitly mark the special base layer as `[Background]`, and drag/drop or move-up/down paths no longer allow other layers to displace it from the bottom slot.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **208 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
 ## 2026-03-04 (paint-visibility recovery + line-default interaction pass)
 
 - This pass maps primarily to `Paint tools`, `Draw tools`, `Colors`, `Tool/Config Options`, and the shared canvas-feedback completion bar.

@@ -51,15 +51,17 @@ type
     FVisible: Boolean;
     FOpacity: Byte;
     FBlendMode: TBlendMode;
+    FIsBackground: Boolean;
     FSurface: TRasterSurface;
   public
-    constructor Create(const AName: string; AWidth, AHeight: Integer);
+    constructor Create(const AName: string; AWidth, AHeight: Integer; AIsBackground: Boolean = False);
     destructor Destroy; override;
     function Clone: TRasterLayer;
     property Name: string read FName write FName;
     property Visible: Boolean read FVisible write FVisible;
     property Opacity: Byte read FOpacity write FOpacity;
     property BlendMode: TBlendMode read FBlendMode write FBlendMode;
+    property IsBackground: Boolean read FIsBackground write FIsBackground;
     property Surface: TRasterSurface read FSurface;
   end;
 
@@ -114,6 +116,7 @@ type
     function GetLayer(AIndex: Integer): TRasterLayer;
     function PopSnapshot(AStack: TObjectList): TDocumentSnapshot;
     procedure ApplySnapshot(ASnapshot: TDocumentSnapshot);
+    function BackgroundReplacementColor(const AColor: TRGBA32): TRGBA32;
     procedure EnforceLayerInvariant;
   public
     constructor Create(AWidth, AHeight: Integer);
@@ -155,12 +158,15 @@ type
     procedure SelectMagicWand(X, Y: Integer; Tolerance: Byte = 0; AMode: TSelectionCombineMode = scReplace; UseAllLayers: Boolean = False; Contiguous: Boolean = True);
     function CopySelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface;
     function CopyMergedToSurface(ACropToBounds: Boolean = False): TRasterSurface;
-    function CutSelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface;
+    function CutSelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface; overload;
+    function CutSelectionToSurface(ACropToBounds: Boolean; const ABackgroundColor: TRGBA32): TRasterSurface; overload;
     procedure PasteAsNewLayer(ASurface: TRasterSurface; OffsetX: Integer = 0; OffsetY: Integer = 0; const ALayerName: string = 'Pasted Layer');
     procedure FillSelection(const AColor: TRGBA32; Opacity: Byte = 255);
-    procedure EraseSelection;
+    procedure EraseSelection; overload;
+    procedure EraseSelection(const ABackgroundColor: TRGBA32); overload;
     procedure MoveSelectionBy(DeltaX, DeltaY: Integer);
-    procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer);
+    procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer); overload;
+    procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer; const ABackgroundColor: TRGBA32); overload;
     procedure CropToSelection;
     procedure AutoLevel;
     procedure InvertColors;
@@ -229,12 +235,13 @@ implementation
 uses
   Math;
 
-constructor TRasterLayer.Create(const AName: string; AWidth, AHeight: Integer);
+constructor TRasterLayer.Create(const AName: string; AWidth, AHeight: Integer; AIsBackground: Boolean);
 begin
   inherited Create;
   FName := AName;
   FVisible := True;
   FOpacity := 255;
+  FIsBackground := AIsBackground;
   FSurface := TRasterSurface.Create(AWidth, AHeight);
 end;
 
@@ -246,7 +253,7 @@ end;
 
 function TRasterLayer.Clone: TRasterLayer;
 begin
-  Result := TRasterLayer.Create(FName, FSurface.Width, FSurface.Height);
+  Result := TRasterLayer.Create(FName, FSurface.Width, FSurface.Height, FIsBackground);
   Result.FVisible := FVisible;
   Result.FOpacity := FOpacity;
   Result.FBlendMode := FBlendMode;
@@ -383,10 +390,18 @@ begin
   EnforceLayerInvariant;
 end;
 
+function TImageDocument.BackgroundReplacementColor(const AColor: TRGBA32): TRGBA32;
+begin
+  Result := RGBA(AColor.R, AColor.G, AColor.B, 255);
+end;
+
 procedure TImageDocument.EnforceLayerInvariant;
 begin
   if FLayers.Count = 0 then
-    FLayers.Add(TRasterLayer.Create('Layer 1', FWidth, FHeight));
+  begin
+    FLayers.Add(TRasterLayer.Create('Background', FWidth, FHeight, True));
+    TRasterLayer(FLayers[0]).Surface.Clear(RGBA(255, 255, 255, 255));
+  end;
   FActiveLayerIndex := EnsureRange(FActiveLayerIndex, 0, FLayers.Count - 1);
 end;
 
@@ -395,7 +410,7 @@ begin
   FWidth := Max(1, AWidth);
   FHeight := Max(1, AHeight);
   FLayers.Clear;
-  FLayers.Add(TRasterLayer.Create('Background', FWidth, FHeight));
+  FLayers.Add(TRasterLayer.Create('Background', FWidth, FHeight, True));
   TRasterLayer(FLayers[0]).Surface.Clear(RGBA(255, 255, 255, 255));
   FSelection.SetSize(FWidth, FHeight);
   FSelection.Clear;
@@ -534,7 +549,11 @@ var
 begin
   if (AFromIndex < 0) or (AFromIndex >= FLayers.Count) then
     Exit;
+  if Layers[AFromIndex].IsBackground then
+    Exit;
   AToIndex := EnsureRange(AToIndex, 0, FLayers.Count - 1);
+  if (AToIndex = 0) and (FLayers.Count > 0) and Layers[0].IsBackground then
+    AToIndex := 1;
   if AFromIndex = AToIndex then
     Exit;
 
@@ -578,6 +597,7 @@ var
   LayerCopy: TRasterLayer;
 begin
   LayerCopy := ActiveLayer.Clone;
+  LayerCopy.IsBackground := False;
   LayerCopy.Name := ActiveLayer.Name + ' Copy';
   FLayers.Insert(FActiveLayerIndex + 1, LayerCopy);
   Inc(FActiveLayerIndex);
@@ -585,6 +605,8 @@ end;
 
 procedure TImageDocument.DeleteActiveLayer;
 begin
+  if ActiveLayer.IsBackground then
+    Exit;
   if FLayers.Count <= 1 then
   begin
     ActiveLayer.Surface.Clear(TransparentColor);
@@ -619,10 +641,26 @@ end;
 procedure TImageDocument.Flatten;
 var
   CompositeSurface: TRasterSurface;
+  FlattenedSurface: TRasterSurface;
 begin
   CompositeSurface := Composite;
   try
-    ReplaceWithSingleLayer(CompositeSurface, 'Flattened');
+    FlattenedSurface := TRasterSurface.Create(CompositeSurface.Width, CompositeSurface.Height);
+    try
+      FlattenedSurface.Clear(RGBA(255, 255, 255, 255));
+      FlattenedSurface.PasteSurface(CompositeSurface, 0, 0, 255);
+      FLayers.Clear;
+      FLayers.Add(TRasterLayer.Create('Background', FlattenedSurface.Width, FlattenedSurface.Height, True));
+      TRasterLayer(FLayers[0]).Surface.Assign(FlattenedSurface);
+      FWidth := FlattenedSurface.Width;
+      FHeight := FlattenedSurface.Height;
+      FSelection.SetSize(FWidth, FHeight);
+      FSelection.Clear;
+      FActiveLayerIndex := 0;
+      ClearHistory;
+    finally
+      FlattenedSurface.Free;
+    end;
   finally
     CompositeSurface.Free;
   end;
@@ -875,9 +913,21 @@ end;
 
 function TImageDocument.CutSelectionToSurface(ACropToBounds: Boolean): TRasterSurface;
 begin
+  Result := CutSelectionToSurface(ACropToBounds, RGBA(255, 255, 255, 255));
+end;
+
+function TImageDocument.CutSelectionToSurface(ACropToBounds: Boolean; const ABackgroundColor: TRGBA32): TRasterSurface;
+begin
   Result := CopySelectionToSurface(ACropToBounds);
   if FSelection.HasSelection then
-    ActiveLayer.Surface.EraseSelection(FSelection)
+  begin
+    if ActiveLayer.IsBackground then
+      ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255)
+    else
+      ActiveLayer.Surface.EraseSelection(FSelection);
+  end
+  else if ActiveLayer.IsBackground then
+    ActiveLayer.Surface.Clear(BackgroundReplacementColor(ABackgroundColor))
   else
     ActiveLayer.Surface.Clear(TransparentColor);
 end;
@@ -901,9 +951,17 @@ end;
 
 procedure TImageDocument.EraseSelection;
 begin
+  EraseSelection(RGBA(255, 255, 255, 255));
+end;
+
+procedure TImageDocument.EraseSelection(const ABackgroundColor: TRGBA32);
+begin
   if not FSelection.HasSelection then
     Exit;
-  ActiveLayer.Surface.EraseSelection(FSelection);
+  if ActiveLayer.IsBackground then
+    ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255)
+  else
+    ActiveLayer.Surface.EraseSelection(FSelection);
 end;
 
 procedure TImageDocument.MoveSelectionBy(DeltaX, DeltaY: Integer);
@@ -915,9 +973,41 @@ end;
 
 procedure TImageDocument.MoveSelectedPixelsBy(DeltaX, DeltaY: Integer);
 begin
+  MoveSelectedPixelsBy(DeltaX, DeltaY, RGBA(255, 255, 255, 255));
+end;
+
+procedure TImageDocument.MoveSelectedPixelsBy(DeltaX, DeltaY: Integer; const ABackgroundColor: TRGBA32);
+var
+  Copied: TRasterSurface;
+  X: Integer;
+  Y: Integer;
+  TargetX: Integer;
+  TargetY: Integer;
+begin
   if not FSelection.HasSelection then
     Exit;
-  ActiveLayer.Surface.MoveSelectedPixels(FSelection, DeltaX, DeltaY);
+  if not ActiveLayer.IsBackground then
+  begin
+    ActiveLayer.Surface.MoveSelectedPixels(FSelection, DeltaX, DeltaY);
+    FSelection.MoveBy(DeltaX, DeltaY);
+    Exit;
+  end;
+
+  Copied := ActiveLayer.Surface.CopySelection(FSelection);
+  try
+    ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255);
+    for Y := 0 to Min(ActiveLayer.Surface.Height, FSelection.Height) - 1 do
+      for X := 0 to Min(ActiveLayer.Surface.Width, FSelection.Width) - 1 do
+        if FSelection[X, Y] then
+        begin
+          TargetX := X + DeltaX;
+          TargetY := Y + DeltaY;
+          if ActiveLayer.Surface.InBounds(TargetX, TargetY) then
+            ActiveLayer.Surface[TargetX, TargetY] := Copied[X, Y];
+        end;
+  finally
+    Copied.Free;
+  end;
   FSelection.MoveBy(DeltaX, DeltaY);
 end;
 

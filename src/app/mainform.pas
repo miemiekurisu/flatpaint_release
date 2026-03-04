@@ -255,6 +255,7 @@ type
     FLayerDragTargetIndex: Integer;
     FMagnifyInstalled: Boolean;
     function ActivePaintColor: TRGBA32;
+    function BackgroundToolColor: TRGBA32;
     function ColorForActiveTarget(AAlternate: Boolean = False): TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
@@ -1111,6 +1112,11 @@ begin
   if FCurrentTool = tkEraser then
     Exit(TransparentColor);
   Result := FStrokeColor;
+end;
+
+function TMainForm.BackgroundToolColor: TRGBA32;
+begin
+  Result := RGBA(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B, 255);
 end;
 
 function TMainForm.ColorForActiveTarget(AAlternate: Boolean): TRGBA32;
@@ -3818,6 +3824,8 @@ begin
       else
         CaptionText := 'Off ';
       CaptionText := CaptionText + Layer.Name;
+      if Layer.IsBackground then
+        CaptionText := CaptionText + ' [Background]';
       if Layer.Opacity < 255 then
         CaptionText := CaptionText + Format(' (%d%%)', [LayerOpacityPercentFromByte(Layer.Opacity)]);
       FLayerList.Items.Add(CaptionText);
@@ -5466,7 +5474,34 @@ begin
         PaintSelection
       );
     tkEraser:
-      if FEraserSquareShape then
+      if FDocument.ActiveLayer.IsBackground then
+      begin
+        if FEraserSquareShape then
+          FDocument.ActiveLayer.Surface.DrawSquareLine(
+            FLastImagePoint.X,
+            FLastImagePoint.Y,
+            APoint.X,
+            APoint.Y,
+            Max(1, FBrushSize div 2),
+            BackgroundToolColor,
+            FBrushOpacity * 255 div 100,
+            FBrushHardness * 255 div 100,
+            PaintSelection
+          )
+        else
+          FDocument.ActiveLayer.Surface.DrawLine(
+            FLastImagePoint.X,
+            FLastImagePoint.Y,
+            APoint.X,
+            APoint.Y,
+            Max(1, FBrushSize div 2),
+            BackgroundToolColor,
+            FBrushOpacity * 255 div 100,
+            FBrushHardness * 255 div 100,
+            PaintSelection
+          );
+      end
+      else if FEraserSquareShape then
         FDocument.ActiveLayer.Surface.EraseSquareLine(
           FLastImagePoint.X,
           FLastImagePoint.Y,
@@ -6033,12 +6068,12 @@ begin
   begin
     Bounds := FDocument.Selection.BoundsRect;
     FClipboardOffset := Point(Bounds.Left, Bounds.Top);
-    FClipboardSurface := FDocument.CutSelectionToSurface(True);
+    FClipboardSurface := FDocument.CutSelectionToSurface(True, BackgroundToolColor);
   end
   else
   begin
     FClipboardOffset := Point(0, 0);
-    FClipboardSurface := FDocument.CutSelectionToSurface(False);
+    FClipboardSurface := FDocument.CutSelectionToSurface(False, BackgroundToolColor);
   end;
   SyncImageMutationUI(False, True);
 end;
@@ -6153,6 +6188,8 @@ var
 begin
   if FDocument.LayerCount <= 1 then
     Exit;
+  if FDocument.ActiveLayer.IsBackground then
+    Exit;
   if ssCtrl in GetKeyShiftState then
     TargetIndex := FDocument.LayerCount - 1
   else
@@ -6175,12 +6212,16 @@ var
 begin
   if FDocument.LayerCount <= 1 then
     Exit;
+  if FDocument.ActiveLayer.IsBackground then
+    Exit;
   if ssCtrl in GetKeyShiftState then
     TargetIndex := 0
   else
     TargetIndex := FDocument.ActiveLayerIndex - 1;
   if TargetIndex < 0 then
     TargetIndex := 0;
+  if (TargetIndex = 0) and (FDocument.LayerCount > 0) and FDocument.Layers[0].IsBackground then
+    TargetIndex := 1;
   if TargetIndex = FDocument.ActiveLayerIndex then
     Exit;
   if TargetIndex = 0 then
@@ -6643,7 +6684,7 @@ begin
   if not FDocument.HasSelection then
     Exit;
   FDocument.PushHistory('Erase Selection');
-  FDocument.EraseSelection;
+  FDocument.EraseSelection(BackgroundToolColor);
   SyncImageMutationUI;
 end;
 
@@ -7044,7 +7085,6 @@ const
 var
   LB: TListBox;
   Layer: TRasterLayer;
-  Surf: TRasterSurface;
   NameText: string;
   BgCol: TColor;
   TextCol: TColor;
@@ -7125,6 +7165,8 @@ begin
 
   { Layer name – bold for selected / active }
   NameText := Layer.Name;
+  if Layer.IsBackground then
+    NameText := NameText + ' [Background]';
   if Layer.Opacity < 255 then
     NameText := NameText + Format(' %d%%', [LayerOpacityPercentFromByte(Layer.Opacity)]);
   if not Layer.Visible then
@@ -7219,6 +7261,11 @@ begin
       HoverIndex := FDocument.LayerCount - 1;
   end;
   HoverIndex := EnsureRange(HoverIndex, 0, FDocument.LayerCount - 1);
+  if (FLayerDragIndex = 0) and (FDocument.LayerCount > 0) and FDocument.Layers[0].IsBackground then
+    HoverIndex := 0;
+  if (HoverIndex = 0) and (FLayerDragIndex > 0) and (FDocument.LayerCount > 0) and
+     FDocument.Layers[0].IsBackground then
+    HoverIndex := 1;
   if HoverIndex = FLayerDragTargetIndex then
     Exit;
   FLayerDragTargetIndex := HoverIndex;
@@ -7238,6 +7285,11 @@ begin
   if DropIndex < 0 then
     DropIndex := FLayerDragTargetIndex;
   DropIndex := EnsureRange(DropIndex, 0, FDocument.LayerCount - 1);
+  if (FLayerDragIndex = 0) and (FDocument.LayerCount > 0) and FDocument.Layers[0].IsBackground then
+    DropIndex := 0;
+  if (DropIndex = 0) and (FLayerDragIndex > 0) and (FDocument.LayerCount > 0) and
+     FDocument.Layers[0].IsBackground then
+    DropIndex := 1;
   if (DropIndex <> FLayerDragIndex) and (DropIndex >= 0) then
   begin
     FDocument.PushHistory('Reorder Layer');
@@ -7788,7 +7840,7 @@ begin
       tkMovePixels:
         if (DeltaX <> 0) or (DeltaY <> 0) then
         begin
-          FDocument.MoveSelectedPixelsBy(DeltaX, DeltaY);
+          FDocument.MoveSelectedPixelsBy(DeltaX, DeltaY, BackgroundToolColor);
           FLastImagePoint := ImagePoint;
           SyncSelectionOverlayUI(True);
         end;

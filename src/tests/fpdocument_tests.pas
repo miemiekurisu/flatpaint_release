@@ -21,6 +21,8 @@ type
     procedure LayerBlendModeDefaultsToNormal;
     procedure LayerBlendModePreservedInClone;
     procedure MoveLayerReordersAndTracksActiveLayer;
+    procedure BackgroundLayerStaysLockedAtBottom;
+    procedure BackgroundLayerEraseAndMovePreserveOpacity;
     procedure StoredSelectionRoundtrips;
     procedure NewBlankStartsWithWhiteBackground;
     procedure NewToolKindCountIsCorrect;
@@ -308,17 +310,72 @@ begin
     AssertEquals('top starts active', 2, Document.ActiveLayerIndex);
 
     Document.MoveLayer(2, 0);
-    AssertEquals('dragged layer becomes first', 'Top', Document.Layers[0].Name);
-    AssertEquals('middle layer shifts down', 'Base', Document.Layers[1].Name);
-    AssertEquals('last layer stays last', 'Mid', Document.Layers[2].Name);
-    AssertEquals('active index follows moved layer', 0, Document.ActiveLayerIndex);
+    AssertEquals('background stays pinned to bottom', 'Base', Document.Layers[0].Name);
+    AssertEquals('dragged layer becomes first movable layer', 'Top', Document.Layers[1].Name);
+    AssertEquals('middle layer shifts above moved layer', 'Mid', Document.Layers[2].Name);
+    AssertEquals('active index follows moved layer', 1, Document.ActiveLayerIndex);
 
     Document.ActiveLayerIndex := 2;
-    Document.MoveLayer(0, 2);
-    AssertEquals('base moves to top after second reorder', 'Base', Document.Layers[0].Name);
-    AssertEquals('mid stays in the middle', 'Mid', Document.Layers[1].Name);
+    Document.MoveLayer(1, 2);
+    AssertEquals('base stays pinned after second reorder', 'Base', Document.Layers[0].Name);
+    AssertEquals('mid stays in the first movable slot', 'Mid', Document.Layers[1].Name);
     AssertEquals('top moves back to the end', 'Top', Document.Layers[2].Name);
     AssertEquals('active index shifts when a lower layer crosses it', 1, Document.ActiveLayerIndex);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.BackgroundLayerStaysLockedAtBottom;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(4, 4);
+  try
+    AssertTrue('new blank starts with a background layer', Document.Layers[0].IsBackground);
+    Document.AddLayer('Top');
+    Document.MoveLayer(0, 1);
+    AssertTrue('background refuses upward move', Document.Layers[0].IsBackground);
+    AssertEquals('top layer stays above background', 'Top', Document.Layers[1].Name);
+
+    Document.ActiveLayerIndex := 1;
+    Document.MoveLayer(1, 0);
+    AssertTrue('background still occupies bottom slot', Document.Layers[0].IsBackground);
+    AssertEquals('ordinary layer cannot displace background', 'Top', Document.Layers[1].Name);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.BackgroundLayerEraseAndMovePreserveOpacity;
+var
+  Document: TImageDocument;
+  Pixel: TRGBA32;
+begin
+  Document := TImageDocument.Create(6, 6);
+  try
+    Document.ActiveLayer.Surface[1, 1] := RGBA(10, 20, 30, 255);
+    Document.SelectRectangle(1, 1, 1, 1);
+    Document.EraseSelection;
+    Pixel := Document.ActiveLayer.Surface[1, 1];
+    AssertEquals('erase restores opaque white red', 255, Pixel.R);
+    AssertEquals('erase restores opaque white green', 255, Pixel.G);
+    AssertEquals('erase restores opaque white blue', 255, Pixel.B);
+    AssertEquals('erase keeps background opaque', 255, Pixel.A);
+
+    Document.ActiveLayer.Surface[2, 2] := RGBA(200, 0, 0, 255);
+    Document.SelectRectangle(2, 2, 2, 2);
+    Document.MoveSelectedPixelsBy(1, 0);
+
+    Pixel := Document.ActiveLayer.Surface[2, 2];
+    AssertEquals('move leaves source filled white red', 255, Pixel.R);
+    AssertEquals('move leaves source filled white green', 255, Pixel.G);
+    AssertEquals('move leaves source filled white blue', 255, Pixel.B);
+    AssertEquals('move leaves source opaque', 255, Pixel.A);
+
+    Pixel := Document.ActiveLayer.Surface[3, 2];
+    AssertEquals('moved pixel arrives at new location', 200, Pixel.R);
+    AssertEquals('moved pixel keeps alpha', 255, Pixel.A);
   finally
     Document.Free;
   end;
@@ -350,6 +407,7 @@ var
 begin
   Document := TImageDocument.Create(8, 8);
   try
+    AssertTrue('first layer is marked as background', Document.ActiveLayer.IsBackground);
     Pixel := Document.ActiveLayer.Surface[0, 0];
     AssertEquals('background starts white red', 255, Pixel.R);
     AssertEquals('background starts white green', 255, Pixel.G);

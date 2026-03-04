@@ -13,7 +13,8 @@ function LoadNativeDocumentFromFile(const AFileName: string): TImageDocument;
 implementation
 
 const
-  NativeMagic: array[0..6] of Char = ('F', 'P', 'D', 'O', 'C', '0', '1');
+  NativeMagicV1: array[0..6] of Char = ('F', 'P', 'D', 'O', 'C', '0', '1');
+  NativeMagicV2: array[0..6] of Char = ('F', 'P', 'D', 'O', 'C', '0', '2');
 
 procedure WriteInt32(AStream: TStream; AValue: LongInt);
 begin
@@ -73,7 +74,7 @@ var
 begin
   Stream := TFileStream.Create(AFileName, fmCreate);
   try
-    Stream.WriteBuffer(NativeMagic, SizeOf(NativeMagic));
+    Stream.WriteBuffer(NativeMagicV2, SizeOf(NativeMagicV2));
     WriteInt32(Stream, ADocument.Width);
     WriteInt32(Stream, ADocument.Height);
     WriteInt32(Stream, ADocument.ActiveLayerIndex);
@@ -97,6 +98,10 @@ begin
       else
         WriteByteValue(Stream, 0);
       WriteByteValue(Stream, ADocument.Layers[LayerIndex].Opacity);
+      if ADocument.Layers[LayerIndex].IsBackground then
+        WriteByteValue(Stream, 1)
+      else
+        WriteByteValue(Stream, 0);
 
       for Y := 0 to ADocument.Height - 1 do
         for X := 0 to ADocument.Width - 1 do
@@ -124,12 +129,15 @@ var
   Pixel: TRGBA32;
   NewLayer: TRasterLayer;
   VisibleByte: Byte;
+  BackgroundByte: Byte;
   MaskByte: Byte;
+  UsesV2: Boolean;
 begin
   Stream := TFileStream.Create(AFileName, fmOpenRead or fmShareDenyWrite);
   try
     Stream.ReadBuffer(MagicRead, SizeOf(MagicRead));
-    if CompareMem(@MagicRead[0], @NativeMagic[0], SizeOf(NativeMagic)) = False then
+    UsesV2 := CompareMem(@MagicRead[0], @NativeMagicV2[0], SizeOf(NativeMagicV2));
+    if not UsesV2 and (CompareMem(@MagicRead[0], @NativeMagicV1[0], SizeOf(NativeMagicV1)) = False) then
       raise Exception.Create('Unsupported native document format');
 
     WidthValue := ReadInt32(Stream);
@@ -161,6 +169,11 @@ begin
         VisibleByte := ReadByteValue(Stream);
         NewLayer.Visible := VisibleByte <> 0;
         NewLayer.Opacity := ReadByteValue(Stream);
+        if UsesV2 then
+          BackgroundByte := ReadByteValue(Stream)
+        else
+          BackgroundByte := 0;
+        NewLayer.IsBackground := BackgroundByte <> 0;
 
         Pixel := TransparentColor;
         for Y := 0 to HeightValue - 1 do
@@ -170,6 +183,10 @@ begin
             NewLayer.Surface[X, Y] := Pixel;
           end;
       end;
+
+      if (not UsesV2) and (Result.LayerCount > 0) and
+         SameText(Result.Layers[0].Name, 'Background') then
+        Result.Layers[0].IsBackground := True;
 
       Result.ActiveLayerIndex := ActiveLayer;
       Result.ClearHistory;

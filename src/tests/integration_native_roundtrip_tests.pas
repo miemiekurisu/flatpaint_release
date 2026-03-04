@@ -46,6 +46,8 @@ begin
   Loaded := LoadNativeDocumentFromFile(TempPath);
   try
     AssertEquals('Layer count preserved', 2, Loaded.LayerCount);
+    AssertTrue('bottom layer keeps background flag', Loaded.Layers[0].IsBackground);
+    AssertFalse('upper layer stays a normal layer', Loaded.Layers[1].IsBackground);
     PixelBottom := Loaded.Layers[0].Surface[2,2];
     PixelTop := Loaded.Layers[1].Surface[7,7];
     AssertEquals('Bottom layer blue R', 0, PixelBottom.R);
