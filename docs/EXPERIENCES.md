@@ -12,6 +12,51 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-05 (OnKeyUp must always be wired when OnKeyDown is wired)
+- Problem: all tools unable to draw or interact after pressing Space once. History stuck at first entry; layer add appeared to do nothing.
+- Core error: pressing Space activated temporary pan mode via `FormKeyDown`, but releasing Space never called `FormKeyUp` because `OnKeyUp` was never assigned. The user was permanently trapped in pan mode, where all drawing/layer/history interactions are no-ops.
+- Investigation: traced `FormKeyDown` ($VK_SPACE → `ActivateTempPan`) and `FormKeyUp` ($VK_SPACE → `DeactivateTempPan`); searched the constructor for `OnKeyUp` and found it was missing while `OnKeyDown` was present.
+- Root cause: `OnKeyUp := @FormKeyUp` was omitted from the constructor. The handler existed but was dead code.
+- Fix: added `OnKeyUp := @FormKeyUp` immediately after `OnKeyDown := @FormKeyDown` in the constructor.
+- Reuse note: always wire both `OnKeyDown` and `OnKeyUp` together. If a key-down activates a temporary mode, the key-up MUST be wired to deactivate it. Add a unit test that asserts both properties are assigned.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (FTempToolActive must be cleared on any explicit tool change)
+- Problem: even after wiring OnKeyUp, explicit tool changes via toolbar click, combo box selection, or keyboard shortcut did not clear the FTempToolActive flag. After escaping a stuck pan via explicit tool switch, the next space-bar release could re-enter pan unexpectedly.
+- Core error: three distinct tool-switch code paths (`ToolButtonClick`, `ToolComboChange`, keyboard shortcut in `FormKeyDown`) all set `FCurrentTool` without clearing the `FTempToolActive` state flag.
+- Investigation: searched all code paths that modify `FCurrentTool` and checked each for `FTempToolActive := False`.
+- Root cause: the temporary-pan state was designed around the space-bar cycle only; explicit tool switches were added later and never updated to participate in the same state machine.
+- Fix: added `FTempToolActive := False` in all three paths.
+- Reuse note: when a state machine has both "temporary" and "permanent" transitions to the same target, all permanent-change paths must also reset the temporary flag. Audit for completeness whenever adding a new way to change a mode.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (history panel must be refreshed after every history-push path)
+- Problem: history listbox showed only the initial state even though undo data was accumulating correctly.
+- Core error: `CommitStrokeHistory` and `CommitPendingLineSegment` called `RefreshAuxiliaryImageViews(False)` which only invalidates the layer list, not `RefreshHistoryPanel`. The undo stack grew but the history listbox stayed stale.
+- Investigation: traced from `PushRegionHistory` → `RefreshAuxiliaryImageViews(False)` and found the `False` parameter skips full layer refresh but also means `RefreshHistoryPanel` is never called.
+- Root cause: `RefreshHistoryPanel` was only called via `RefreshCanvas`, which is not always invoked by the commit paths that push history.
+- Fix: added explicit `RefreshHistoryPanel` call at the end of `CommitStrokeHistory` and `CommitPendingLineSegment`.
+- Reuse note: any code path that pushes to the undo stack must also explicitly refresh the history UI. Do not rely on a downstream `RefreshCanvas` call that may or may not happen.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (PushHistory must be called BEFORE the mutation it protects)
+- Problem: `LayerRotateZoomClick` called `PushHistory('Rotate Layer')` after the rotation case block. Undo captured the already-rotated state, making undo a visual no-op.
+- Core error: the before-snapshot was taken after the mutation, so undo restored the post-mutation state.
+- Investigation: audited all `PushHistory` call sites and verified ordering. Only `LayerRotateZoomClick` had the bug.
+- Root cause: copy-paste from a flow where the push was correctly placed before the mutation, with the rotation-specific code inserted between push and mutation later.
+- Fix: moved `PushHistory('Rotate Layer')` before the case block.
+- Reuse note: PushHistory captures a snapshot of the current state. It must ALWAYS precede the mutation. Add a code-review checklist item for this ordering.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (LCL form creation crashes in headless test environments on macOS Cocoa)
+- Problem: `TMainForm.CreateNew(nil, 0)` and even `NewInstance` crash with Access Violation at $0000000000000000 in headless test runner on macOS.
+- Core error: LCL's `InitInstance` (called by `NewInstance`) triggers Cocoa widgetset initialisation that fails when no native event loop is running.
+- Investigation: added file-based debug logging; narrowed crash to `NewInstance` specifically. Raw `GetMem` + `FillChar` + manual VMT pointer setup works.
+- Root cause: FPC's `TObject.NewInstance` calls `InitInstance` which walks the VMT and initialises RTTI, but for LCL form subclasses this triggers widgetset calls via class registration or interface queries. On Cocoa without a running event loop, these nil-dereference.
+- Fix: `CreateForTesting` now uses raw `GetMem(InstanceSize)` + `FillChar` + manual VMT pointer assignment. The destructor skips `inherited Destroy` for test instances. UI methods (`UpdateCaption`, `RefreshCanvas`) early-exit when `FIsTestInstance` is true.
+- Reuse note: never use `TForm.Create` or `CreateNew` in headless Pascal tests on macOS Cocoa. Use the raw allocation pattern with `FIsTestInstance` guards on UI-touching methods.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (a visual icon overlay must not become the real click surface)
 - Problem: after the icon-overlay pass, manual UAT could still make tools and panel actions feel dead or inconsistent even though the underlying handlers existed.
 - Core error: the UI had started treating the overlay image as the clickable control instead of keeping the real button as the interaction source.

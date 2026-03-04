@@ -1,5 +1,12 @@
 # Test Log
 
+## 2026-03-05 (six bug fixes + 18 pipeline integration tests)
+- Full CI verification after fixing 6 bugs (OnKeyUp not wired, FTempToolActive not cleared, history panel not refreshed, GMainForm dangling pointer, PushHistory ordering in LayerRotateZoomClick, clone stamp state leak on tab switch) and adding 18 new pipeline integration tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; 236 tests, 0 errors, 0 failures (218 existing + 18 new in `TPipelineIntegrationTests`)
+- New tests cover: drawing pipeline (pencil/brush/eraser pixel verification), history pipeline (undo depth growth), layer pipeline (count and active index), temp-pan regression (space activate/deactivate, keyboard tool switch clears flag), render revision, dirty flag, and display pixel verification
+- `CreateForTesting` rewritten to use raw `GetMem` + manual VMT setup to bypass LCL widget creation that crashes in headless Cocoa test environments
+- GUI build verification: `bash ./scripts/build.sh` — passed, no FPC warnings
+
 ## 2026-03-04 (passive button-overlay interaction fix)
 - Full CI verification after returning button icon overlays to a display-only role, sizing command/utility buttons to their final height before overlay placement, and explicitly realigning tool-button overlays after their final palette height is applied: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 218 tests, 0 errors, 0 failures

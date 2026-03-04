@@ -146,6 +146,8 @@ type
     { Temporary-pan support }
     FPreviousTool: TToolKind;
     FTempToolActive: Boolean;
+    { Test-only flag: instance was created via NewInstance, bypass inherited Destroy }
+    FIsTestInstance: Boolean;
 
     { New tool and effect state }
     FLastEffectCaption: string;
@@ -613,6 +615,8 @@ type
     property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
     property TestDocument: TImageDocument read FDocument;
     property RenderRevisionForTest: QWord read FRenderRevision;
+    property TempToolActiveForTest: Boolean read FTempToolActive;
+    property DirtyForTest: Boolean read FDirty;
     function DisplayPixelForTest(X, Y: Integer): TRGBA32;
     procedure MakeTestSafe; { lightweight test-mode initialization }
   end;
@@ -680,12 +684,18 @@ end;
 
 procedure TMainForm.InitializeMinimalState;
 begin
-  Caption := 'FlatPaint (test)';
-  Width := 1360;
-  Height := 900;
-  Position := poScreenCenter;
-  DoubleBuffered := True;
-  KeyPreview := True;
+  { When created via NewInstance (test path), skip inherited TForm property
+    setters (Caption, Width, Height, etc.) which may call into an
+    uninitialised LCL/Cocoa widgetset.  Only set our own fields. }
+  if not FIsTestInstance then
+  begin
+    Caption := 'FlatPaint (test)';
+    Width := 1360;
+    Height := 900;
+    Position := poScreenCenter;
+    DoubleBuffered := True;
+    KeyPreview := True;
+  end;
 
   FPrimaryColor := RGBA(0, 0, 0, 255);
   FSecondaryColor := RGBA(255, 255, 255, 255);
@@ -736,23 +746,16 @@ begin
   FInlineTextColor := FPrimaryColor;
   FInlineTextCommitting := False;
   FClipboardOffset := Point(0, 0);
-  FPreparedBitmap := TBitmap.Create;
+  { TBitmap.Create may call into the LCL widgetset; skip for headless test
+    instances created via NewInstance. }
+  if not FIsTestInstance then
+    FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
   FPreparedRevision := 0;
   FStatusProgressActive := False;
 
   FDocument := TImageDocument.Create(1024, 768);
   SetLength(FTabDocuments, 1);
-  SetLength(FTabFileNames, 1);
-  SetLength(FTabDirtyFlags, 1);
-  FTabDocuments[0] := FDocument;
-  FTabFileNames[0] := '';
-  FTabDirtyFlags[0] := False;
-  FActiveTabIndex := 0;
-  FCurrentFileName := '';
-  FRecentFiles := TStringList.Create;
-  FRecentFiles.CaseSensitive := False;
-  FDirty := False;
   FNewImageResolutionDPI := 96.0;
   FShowPixelGrid := False;
   FShowRulers := True;
@@ -797,6 +800,7 @@ begin
   DoubleBuffered := True;
   KeyPreview := True;
   OnKeyDown := @FormKeyDown;
+  OnKeyUp := @FormKeyUp;
   OnCloseQuery := @FormCloseQuery;
 
   FPrimaryColor := RGBA(0, 0, 0, 255);
@@ -1109,8 +1113,19 @@ begin
 end;
 
 class function TMainForm.CreateForTesting: TMainForm;
+var
+  P: Pointer;
 begin
-  Result := TMainForm.CreateNew(nil, 0);
+  { Bypass all LCL constructors (TForm.Create, TWinControl.Create, etc.)
+    which attempt to allocate Cocoa native handles that crash in headless
+    test environments.  Raw GetMem + FillChar + VMT-set gives us a cleanly
+    zeroed object whose data-model fields we then initialise via
+    InitializeMinimalState. }
+  P := GetMem(TMainForm.InstanceSize);
+  FillChar(P^, TMainForm.InstanceSize, 0);
+  PPointer(P)^ := Pointer(TMainForm);
+  Result := TMainForm(P);
+  Result.FIsTestInstance := True;
   Result.InitializeMinimalState;
 end;
 
@@ -1118,6 +1133,7 @@ destructor TMainForm.Destroy;
 var
   I: Integer;
 begin
+  GMainForm := nil;
   if Assigned(Application) then
     Application.RemoveOnIdleHandler(@AppIdle);
   FRecentFiles.Free;
@@ -1130,7 +1146,10 @@ begin
   for I := 0 to Length(FTabDocuments) - 1 do
     FTabDocuments[I].Free;
   SetLength(FTabDocuments, 0);
-  inherited Destroy;
+  { Test instances were created via NewInstance (no inherited constructor ran),
+    so calling inherited Destroy would crash on uninitialised LCL state. }
+  if not FIsTestInstance then
+    inherited Destroy;
 end;
 
 function TMainForm.ActivePaintColor: TRGBA32;
@@ -1404,6 +1423,7 @@ begin
   FLinePathOpen := AContinuePath;
   RefreshTabCardVisuals(FActiveTabIndex);
   RefreshAuxiliaryImageViews(False);
+  RefreshHistoryPanel;
 end;
 
 procedure TMainForm.ApplySelectionFeather;
@@ -4202,6 +4222,7 @@ end;
 
 procedure TMainForm.RefreshCanvas;
 begin
+  if FIsTestInstance then Exit;
   if Assigned(FPaintBox) then
   begin
     UpdateCanvasSize;
@@ -5122,6 +5143,7 @@ end;
 
 procedure TMainForm.UpdateCaption;
 begin
+  if FIsTestInstance then Exit;
   Caption := WindowCaptionForDocument(DisplayFileName, FDirty);
   if Assigned(FChromeTitleLabel) then
     FChromeTitleLabel.Caption := Caption;
@@ -7579,6 +7601,7 @@ begin
   CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
+  FTempToolActive := False;
   FCurrentTool := TToolKind(TControl(Sender).Tag);
   SyncToolComboSelection;
   UpdateToolOptionControl;
@@ -7592,6 +7615,7 @@ begin
   CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
+  FTempToolActive := False;
   if FToolCombo.ItemIndex >= 0 then
     FCurrentTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
   UpdateToolOptionControl;
@@ -7979,6 +8003,7 @@ begin
       SealPendingStrokeHistory;
       CommitInlineTextEdit(True);
       ResetLineCurveState;
+      FTempToolActive := False;
       FCurrentTool := NewTool;
       SyncToolComboSelection;
       UpdateToolOptionControl;
@@ -8106,6 +8131,7 @@ begin
   FreeAndNil(FPreStrokeSnapshot);
   RefreshTabCardVisuals(FActiveTabIndex);
   RefreshAuxiliaryImageViews(False);
+  RefreshHistoryPanel;
 end;
 
 procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -9491,6 +9517,13 @@ begin
   FCurrentFileName := FTabFileNames[FActiveTabIndex];
   FDirty := FTabDirtyFlags[FActiveTabIndex];
 
+  { Reset transient tool state that doesn't belong to the new document }
+  FreeAndNil(FCloneStampSnapshot);
+  FCloneStampSampled := False;
+  FCloneAlignedOffsetValid := False;
+  SetLength(FLassoPoints, 0);
+  ResetLineCurveState;
+
   InvalidatePreparedBitmap;
   FLastImagePoint := Point(-1, -1);
   FPointerDown := False;
@@ -10431,6 +10464,9 @@ begin
     [mbYes, mbNo, mbOK, mbCancel],
     0
   );
+  if Choice = mrCancel then
+    Exit;
+  FDocument.PushHistory('Rotate Layer');
   case Choice of
     mrYes:
       FDocument.ActiveLayer.Surface.Rotate90Clockwise;
@@ -10438,10 +10474,7 @@ begin
       FDocument.ActiveLayer.Surface.Rotate90CounterClockwise;
     mrOK:
       FDocument.ActiveLayer.Surface.Rotate180;
-    mrCancel:
-      Exit;
   end;
-  FDocument.PushHistory('Rotate Layer');
   SyncImageMutationUI;
 end;
 

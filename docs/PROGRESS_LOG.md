@@ -1,5 +1,30 @@
 # Development Progress Log
 
+## 2026-03-05 (six critical/high/medium bugs fixed + 18 integration tests)
+
+### Bugs Found and Fixed
+
+Six bugs were identified through systematic trace of the three reported failure paths (all tools unable to draw, history stuck at first entry, layer add not working):
+
+1. **Bug 1 (CRITICAL): OnKeyUp not wired** — `FormKeyUp` handler existed but was never assigned to the form's `OnKeyUp` event. Pressing Space activated temporary pan mode permanently with no way to release it — all subsequent tool interactions were silently consumed by pan mode. **Fix**: Added `OnKeyUp := @FormKeyUp` in the constructor.
+
+2. **Bug 2 (CRITICAL): FTempToolActive not cleared on explicit tool change** — `ToolButtonClick`, `ToolComboChange`, and the keyboard tool‐switch path in `FormKeyDown` all changed `FCurrentTool` without clearing `FTempToolActive`. After Bug 1 trapped the user in pan mode, clicking another tool appeared to switch but the flag stayed set, so the next space‐bar release restored pan again. **Fix**: Added `FTempToolActive := False` in all three paths.
+
+3. **Bug 3 (MEDIUM): History panel not refreshed after stroke commit** — `CommitStrokeHistory` and `CommitPendingLineSegment` both called `RefreshAuxiliaryImageViews(False)` which only invalidates the layer list, not `RefreshHistoryPanel`. The undo stack grew correctly but the history listbox never updated until the next unrelated canvas refresh. **Fix**: Added `RefreshHistoryPanel` call after both commit paths.
+
+4. **Bug 4 (HIGH): GMainForm dangling pointer** — The destructor never set `GMainForm := nil`. The native Cocoa magnify callback could fire into freed memory after the form was destroyed. **Fix**: Added `GMainForm := nil` at the start of the destructor.
+
+5. **Bug 5 (HIGH): LayerRotateZoomClick PushHistory after mutation** — `PushHistory('Rotate Layer')` was called after the rotation case block, meaning the undo snapshot captured the already‐rotated state. Undo was a no‐op. **Fix**: Moved `PushHistory` before the case block.
+
+6. **Bug 6 (MEDIUM): Clone stamp state leaks across tabs** — `SwitchToTab` did not reset `FCloneStampSnapshot`, `FCloneStampSampled`, lasso points, or line/curve state. Switching tabs then stamping could use a stale source from a different document. **Fix**: Added cleanup for all five fields in `SwitchToTab`.
+
+### Test Infrastructure
+
+- `CreateForTesting` was rewritten to bypass all LCL constructors (which crash in headless test environments on macOS Cocoa) using raw `GetMem` + manual VMT setup. This allows headless integration tests to exercise the full TMainForm event pipeline without native widget creation.
+- `UpdateCaption` and `RefreshCanvas` now early‐exit for test instances (`FIsTestInstance` guard) to avoid TForm property setters on raw‐allocated objects.
+- 18 new integration tests in `pipeline_integration_tests.pas` covering: drawing pipeline (pencil/brush/eraser pixel verification), history pipeline (undo depth growth on mouse‐up, fill, add‐layer, multi‐stroke), layer pipeline (count and active index), temp‐pan regression (space activate/deactivate, keyboard switch clears flag), render revision tracking, dirty flag tracking, and display pixel verification.
+- Total tests: 236 (218 existing + 18 new), all passing.
+
 ## 2026-03-04 (button icon overlays are now passive display layers again)
 
 - The button icon pass has been tightened to use a cleaner interaction model: overlay images no longer impersonate clickable controls. The underlying `TSpeedButton` remains the only click target, while the overlay stays purely visual.
