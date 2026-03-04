@@ -1,5 +1,17 @@
 # Test Log
 
+## 2026-03-04 (pencil first-dab visibility + iconography extension pass)
+- Full CI verification after invalidating the prepared display bitmap on the initial mouse-down mutation path for the live paint tools and extending shared glyph coverage to Colors actions plus palette close buttons: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 198 tests, 0 errors, 0 failures, including the expanded `TFPIconHelpersTests` coverage for `Swap`, `Mono`, and shared close-button glyph support
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (canvas-feedback hardening + UI-adjacent integration pass)
+- Full CI verification after unifying more document-replacement/mutation refresh paths, tightening bucket-with-selection behavior, making single-key tool shortcuts yield to modified command chords, and adding stable UI-adjacent integration coverage: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 197 tests, 0 errors, 0 failures, including the new `TMainFormIntegrationTests` coverage for modifier-safe shortcut gating plus visible composite-output checks for pencil-style strokes and selection-masked bucket fills
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-04 (bitmap iconography + layered-xcf compatibility pass)
 - Full CI verification after moving the main visible button surfaces onto a shared bitmap-glyph path and adding layered `.xcf` document loading: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 194 tests, 0 errors, 0 failures, including the existing `TFPIconHelpersTests` coverage plus the new `XcfCanLoadLayeredDocument` regression

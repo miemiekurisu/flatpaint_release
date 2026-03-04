@@ -12,6 +12,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (live stroke tools still look broken if the first dab misses cache invalidation)
+- Problem: users could still report that `Pencil` "did not draw" even when the layer pixels had already changed, especially on a single click or the first dab of a stroke.
+- Core error: the mouse-down path for immediate paint tools wrote into the layer surface and refreshed the canvas, but it did not always invalidate the prepared display bitmap first, so the repaint could still show stale cached pixels.
+- Investigation: traced `PaintBoxMouseDown(...)` and compared it with the drag path in `PaintBoxMouseMove(...)`; the move path already called `InvalidatePreparedBitmap`, while the initial mouse-down path for `Pencil` / `Brush` / `Eraser` / `Clone Stamp` / `Recolor` did not.
+- Root cause: the live stroke logic was split across "initial dab" and "drag continuation", and only the continuation path had the full display-cache invalidation step.
+- Fix: added `InvalidatePreparedBitmap` to the immediate mouse-down mutation path for the affected live paint tools so the first visible dab uses the same cache-dirty contract as later stroke segments.
+- Reuse note: when a tool paints on both mouse-down and mouse-move, treat those as two mutation entry points that both need the full visible-refresh contract; it is easy to fix only the drag path and leave single-click behavior visually stale.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (shared iconography stalls if panel chrome keeps its own text-only buttons)
+- Problem: even after the main toolbars moved onto generated glyphs, parts of the live UI still looked inconsistent because floating palette chrome and some palette actions were still text buttons.
+- Core error: "icon support" was being counted on the major strips, but visible panel sub-actions like `Swap` / `Mono` and palette close controls still bypassed the shared glyph path.
+- Investigation: re-audited the remaining visible `CreateButton(...)` and non-`CreateButton(...)` controls and found that the Colors panel actions and palette header close buttons were still rendered as ad-hoc text/caption controls.
+- Root cause: iconography work had improved the shared button factory, but not all visible panel actions had been migrated onto it.
+- Fix: added dedicated `Swap` / `Mono` glyphs in `FPIconHelpers`, moved those Colors actions onto the command-glyph path, and converted palette close controls onto the same shared `TSpeedButton` glyph route.
+- Reuse note: once a shared icon pipeline exists, finish each visible UI band end-to-end; mixed "some glyph, some caption" chrome makes the app look less complete than the underlying icon work really is.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (document replacement still looks broken if old transient canvas state leaks through)
+- Problem: even when a new/open/replace-style command correctly swapped in a new document, the app could still feel visually unreliable because old drag state, hover state, or stale prepared-bitmap assumptions could survive longer than they should.
+- Core error: full-document replacement was being treated as "just swap the document pointer" in too many places, so the visible follow-up work was inconsistent and could make the fresh document look like it had not fully taken over the workspace.
+- Investigation: traced the user-facing replacement flows (`New`, `Open`, `Paste into New Image`, clipboard acquire replacement) and found several slightly different tails for viewport fitting, cache invalidation, layer refresh, and transient tool cleanup.
+- Root cause: document replacement had no single post-swap contract, so every route rebuilt only part of the required visible state.
+- Fix: added `ResetTransientCanvasState` and `SyncDocumentReplacementUI(...)`, then routed the replacement-family handlers through that shared path so transient tool state, viewport, cache invalidation, layer previews, and canvas repaint all converge on one predictable follow-up sequence.
+- Reuse note: in editors with a cached canvas and staged tool interactions, replacing the active document is a whole-workspace state transition, not just a pointer assignment; always centralize the reset + refresh contract.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (headless widget construction is a poor first choice for LCL UI verification)
+- Problem: the natural first attempt at stronger UI testing was to instantiate `TMainForm` and drive simulated events directly, but the current headless test harness still crashed before that path became reliable.
+- Core error: treating "real form construction in CI" as the only meaningful way to test UI-facing behavior would have produced unstable tests and delayed coverage for the actual user complaint: visible image feedback.
+- Investigation: added temporary test-oriented hooks in `TMainForm`, then tried form construction in the existing test runner and hit `EAccessViolation` during headless execution.
+- Root cause: the current LCL/widgetset test environment is good enough for helper-level and document-level assertions, but it is not yet a dependable full-form construction environment for this app.
+- Fix: kept the useful test hooks, but moved the new coverage to a stable `TMainFormIntegrationTests` layer that asserts shortcut gating and visible composite-pixel changes through document/composite contracts instead of forcing a brittle full-form path.
+- Reuse note: when desktop UI harnesses are unstable, do not abandon UI-facing coverage; move one layer down and test the visible-output contract (composite pixels, cache revision, command gating) until the widget harness is strong enough.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (iconography does not really move until the button factory emits actual glyphs)
 - Problem: the app had become more readable through shorter labels and symbol captions, but `Iconography` still stayed artificially low because the visible buttons were still fundamentally text-driven.
 - Core error: counting compact captions as "icon support" made the UI look improved in code review while still leaving the major button surfaces dependent on caption rendering instead of a real shared glyph path.

@@ -1,5 +1,31 @@
 # Development Progress Log
 
+## 2026-03-04 (pencil first-dab visibility + iconography extension pass)
+
+- This pass maps primarily to the `Paint tools`, `Command surface parity`, and `Iconography` rows in `docs/FEATURE_MATRIX.md`.
+- The most practical fix in this pass is for the same user-visible failure mode reported in UAT: hard-edge paint tools could mutate pixels on the active layer on mouse-down, but the first dab could still look missing because the prepared canvas bitmap was not being invalidated on that first mutation.
+- `Pencil`, `Brush`, `Eraser`, `Clone Stamp`, and `Recolor` now all invalidate the prepared render cache on their immediate mouse-down mutation path before the canvas refresh, so single-click dabs and the first stamp/brush sample become visible immediately instead of waiting for a later move event to force the cache dirty.
+- This was intentionally kept in the same live stroke path the user actually drives in the app, not only in the shared surface core, because the previous bug was a display-cache timing issue rather than a raster-math issue.
+- The icon pass also moved another visible slice off text-only controls: the `Swap` and `Mono` actions in the Colors palette now have dedicated glyphs, and the floating palette header close buttons now use the same shared glyph-backed button path as the rest of the toolbar/panel action surface.
+- The icon language is still not at final asset-pack quality, but more of the currently visible UI is now on one consistent glyph pipeline instead of mixing bitmap-backed controls with ad-hoc text buttons in panel chrome.
+- The UI-automation constraint remains the same as the previous pass: full headless `TMainForm` construction is still not stable enough for deterministic CI assertions, so the retained tests stay one layer down at visible-output contract level plus lightweight desktop smoke.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **198 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the most obvious single-click paint-feedback hole is closed, and `Iconography` is less patchy in daily-use panels; the remaining work is now broader asset polish and deeper manual-UAT edge cleanup rather than this specific "first stroke did not visibly land" defect.
+
+## 2026-03-04 (canvas-feedback hardening + UI-adjacent integration pass)
+
+- This pass maps primarily to the `Command surface parity`, `Menus/Shortcuts`, `Paint tools`, and `Selection tools` rows in `docs/FEATURE_MATRIX.md`.
+- The main focus was not adding another isolated tool, but closing more of the "the command ran, but the user cannot reliably see that it landed" gap that still showed up in manual testing.
+- `TMainForm` now has a shared full-document replacement follow-up path instead of several ad-hoc ones. New/open/replace-style routes now reset transient tool state, refit the viewport, invalidate the prepared bitmap, refresh layer surfaces, and repaint the canvas through one `ResetTransientCanvasState` + `SyncDocumentReplacementUI(...)` flow.
+- The same pass tightened more mutation-heavy layer/document paths onto the existing `SyncImageMutationUI(...)` route so canvas, layer thumbnails, and tab previews stay aligned more often after visible edits instead of each handler hand-rolling a partial refresh tail.
+- Shortcut handling is now less likely to fight the macOS command surface: the single-key tool-switch family and the `C` / `X` / `D` color shortcuts now explicitly yield whenever `Command`, `Control`, or `Option` is held, so modified menu/command chords are no longer accidentally consumed by tool logic.
+- `Paint Bucket` is more predictable with an active selection: clicking outside the selected region is now an explicit no-op instead of falling through a mutation-looking path that could still feel ambiguous in manual use.
+- Added a new `TMainFormIntegrationTests` unit, but kept it intentionally stable and non-flaky: it verifies modifier-safe shortcut gating plus visible composite-output contracts for a pencil-style stroke and selection-masked bucket fill without depending on full desktop automation.
+- The existing lightweight outer smoke layer remains in place as the third tier (`TUIPrototypeTests` / `TUIAppleScriptTests`): the test strategy is now deliberately split into stable contract tests for image feedback plus thin desktop smoke, rather than trying to force every assertion through brittle OS-level UI automation.
+- A true headless `TMainForm` widget-construction path was also evaluated in this pass, but the current LCL harness still hits `EAccessViolation` there. The retained test layer therefore targets document state plus visible composite output rather than forcing brittle form-instantiation tests.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **197 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the remaining feedback issues are increasingly route-level visual polish and manual-UAT edge cases, not the earlier broad class of "mutation path exists but obviously stale UI surfaces make it look broken."
+
 ## 2026-03-04 (bitmap iconography + layered-xcf compatibility pass)
 
 - This pass maps primarily to the `Iconography` and `Compatibility IO` rows in `docs/FEATURE_MATRIX.md`.

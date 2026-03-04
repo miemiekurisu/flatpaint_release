@@ -6,7 +6,7 @@ unit FPUIHelpers;
 interface
 
 uses
-  FPDocument;
+  Classes, FPDocument;
 
 function PaintToolName(ATool: TToolKind): string;
 function PaintToolHint(ATool: TToolKind): string;
@@ -19,6 +19,7 @@ function PaintToolDisplayCount: Integer;
 function PaintToolAtDisplayIndex(AIndex: Integer): TToolKind;
 function PaintToolDisplayIndex(ATool: TToolKind): Integer;
 function DefaultStartupTool: TToolKind;
+function ToolShortcutUsesPlainKeyOnly(const AShift: TShiftState): Boolean;
 
 { Given a key and a reverse-flag (Shift held), compute the new tool.  }
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
@@ -268,6 +269,11 @@ end;
 function DefaultStartupTool: TToolKind;
 begin
   Result := ToolDisplayOrder[0];
+end;
+
+function ToolShortcutUsesPlainKeyOnly(const AShift: TShiftState): Boolean;
+begin
+  Result := not ((ssMeta in AShift) or (ssCtrl in AShift) or (ssAlt in AShift));
 end;
 
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;

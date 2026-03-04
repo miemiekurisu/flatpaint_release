@@ -48,6 +48,8 @@ type
     bikFlatten,
     bikRename,
     bikProperties,
+    bikSwap,
+    bikMono,
     bikTools,
     bikHistory,
     bikLayers,
@@ -149,6 +151,8 @@ begin
   if Key = 'FLAT' then Exit(bikFlatten);
   if Key = 'NAME' then Exit(bikRename);
   if Key = 'PROPS' then Exit(bikProperties);
+  if Key = 'SWAP' then Exit(bikSwap);
+  if Key = 'MONO' then Exit(bikMono);
   if Key = 'X' then Exit(bikDelete);
   Result := bikNone;
 end;
@@ -355,6 +359,24 @@ begin
         C.Line(11, 11, 13, 13);
         C.Line(11, 5, 13, 3);
         C.Line(3, 13, 5, 11);
+      end;
+    bikSwap:
+      begin
+        C.Line(3, 5, 11, 5);
+        C.Line(9, 3, 11, 5);
+        C.Line(9, 7, 11, 5);
+        C.Line(13, 11, 5, 11);
+        C.Line(7, 9, 5, 11);
+        C.Line(7, 13, 5, 11);
+      end;
+    bikMono:
+      begin
+        C.Ellipse(3, 3, 13, 13);
+        C.Line(8, 3, 8, 13);
+        C.Brush.Style := bsSolid;
+        C.Brush.Color := IconForegroundColor;
+        C.Pie(3, 3, 13, 13, 8, 3, 8, 13);
+        C.Brush.Style := bsClear;
       end;
     bikTools:
       begin

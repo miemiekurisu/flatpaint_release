@@ -280,9 +280,12 @@ type
     procedure UpdateInlineTextEditBounds;
     procedure BeginInlineTextEdit(const APoint: TPoint);
     procedure CommitInlineTextEdit(ACommit: Boolean = True);
+    procedure InitializeMinimalState;
     procedure InvalidatePreparedBitmap;
     procedure RefreshAuxiliaryImageViews(ARefreshLayers: Boolean = False);
+    procedure ResetTransientCanvasState;
     procedure SyncImageMutationUI(ARefreshLayers: Boolean = False; AMarkDirty: Boolean = True);
+    procedure SyncDocumentReplacementUI(AMarkDirty: Boolean);
     procedure BeginStatusProgress(const ACaption: string);
     procedure UpdateStatusProgress(APercent: Integer; const ACaption: string = '');
     procedure EndStatusProgress;
@@ -553,6 +556,7 @@ type
   public
     { Public constructor / destructor }
     constructor Create(TheOwner: TComponent); override;
+    class function CreateForTesting: TMainForm; static;
     destructor Destroy; override;
 
     { Testing helpers - exposed so unit tests can drive the form without relying
@@ -571,6 +575,8 @@ type
     procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
     property TestDocument: TImageDocument read FDocument;
+    property RenderRevisionForTest: QWord read FRenderRevision;
+    function DisplayPixelForTest(X, Y: Integer): TRGBA32;
     procedure MakeTestSafe; { lightweight test-mode initialization }
   end;
 
@@ -635,6 +641,91 @@ begin
     FOwnerForm.PaintRuler(Canvas, ClientRect, FOrientation);
 end;
 
+procedure TMainForm.InitializeMinimalState;
+begin
+  Caption := 'FlatPaint (test)';
+  Width := 1360;
+  Height := 900;
+  Position := poScreenCenter;
+  DoubleBuffered := True;
+  KeyPreview := True;
+
+  FPrimaryColor := RGBA(0, 0, 0, 255);
+  FSecondaryColor := RGBA(255, 255, 255, 255);
+  FStrokeColor := FPrimaryColor;
+  FZoomScale := 1.0;
+  FDisplayUnit := duPixels;
+  FCurrentTool := DefaultStartupTool;
+  FBrushSize := 8;
+  FWandTolerance := 32;
+  FBrushOpacity := 100;
+  FBrushHardness := 100;
+  FEraserSquareShape := False;
+  FShapeStyle := 0;
+  FBucketFloodMode := 0;
+  FLinePathOpen := False;
+  FLineCurvePending := False;
+  FLineCurveSecondStage := False;
+  FLineCurveEndPoint := Point(0, 0);
+  FLineCurveControlPoint := Point(0, 0);
+  FLineCurveControlPoint2 := Point(0, 0);
+  FFillSampleSource := 0;
+  FWandSampleSource := 0;
+  FWandContiguous := True;
+  FJpegQuality := 90;
+  FJpegProgressive := False;
+  FPngCompressionLevel := 6;
+  FFillTolerance := 8;
+  FGradientType := 0;
+  FGradientReverse := False;
+  FCloneAligned := True;
+  FRecolorPreserveValue := True;
+  FCloneAlignedOffset := Point(0, 0);
+  FCloneAlignedOffsetValid := False;
+  FPickerSampleSource := 0;
+  FSelAntiAlias := True;
+  FSelFeather := 0;
+  FTextLastResult.Text := '';
+  FTextLastResult.FontName := '';
+  FTextLastResult.FontSize := 24;
+  FTextLastResult.Bold := False;
+  FTextLastResult.Italic := False;
+  FInlineTextEdit := nil;
+  FInlineTextAnchor := Point(0, 0);
+  FInlineTextColor := FPrimaryColor;
+  FInlineTextCommitting := False;
+  FClipboardOffset := Point(0, 0);
+  FPreparedBitmap := TBitmap.Create;
+  FRenderRevision := 1;
+  FPreparedRevision := 0;
+  FStatusProgressActive := False;
+
+  FDocument := TImageDocument.Create(1024, 768);
+  SetLength(FTabDocuments, 1);
+  SetLength(FTabFileNames, 1);
+  SetLength(FTabDirtyFlags, 1);
+  FTabDocuments[0] := FDocument;
+  FTabFileNames[0] := '';
+  FTabDirtyFlags[0] := False;
+  FActiveTabIndex := 0;
+  FCurrentFileName := '';
+  FRecentFiles := TStringList.Create;
+  FRecentFiles.CaseSensitive := False;
+  FDirty := False;
+  FNewImageResolutionDPI := 96.0;
+  FShowPixelGrid := False;
+  FShowRulers := True;
+  FDeferredLayoutPass := True;
+  FLastScrollPosition := Point(0, 0);
+  FActiveColorSlider := -1;
+  FTabPressedIndex := -1;
+  FTabDragOrigin := Point(0, 0);
+  FTabDragging := False;
+  FLayerDragIndex := -1;
+  FLayerDragTargetIndex := -1;
+  GMainForm := Self;
+end;
+
 constructor TMainForm.Create(TheOwner: TComponent);
 var
   ColIndex: Integer;
@@ -655,87 +746,7 @@ begin
     expect. }
   if not Assigned(Application) then
   begin
-    Caption := 'FlatPaint (test)';
-    Width := 1360;
-    Height := 900;
-    Position := poScreenCenter;
-    DoubleBuffered := True;
-    KeyPreview := True;
-
-    FPrimaryColor := RGBA(0, 0, 0, 255);
-    FSecondaryColor := RGBA(255, 255, 255, 255);
-    FStrokeColor := FPrimaryColor;
-    FZoomScale := 1.0;
-    FDisplayUnit := duPixels;
-    FCurrentTool := DefaultStartupTool;
-    FBrushSize := 8;
-    FWandTolerance := 32;
-    FBrushOpacity := 100;
-    FBrushHardness := 100;
-    FEraserSquareShape := False;
-    FShapeStyle := 0;
-    FBucketFloodMode := 0;
-    FLinePathOpen := False;
-    FLineCurvePending := False;
-    FLineCurveSecondStage := False;
-    FLineCurveEndPoint := Point(0, 0);
-    FLineCurveControlPoint := Point(0, 0);
-    FLineCurveControlPoint2 := Point(0, 0);
-    FFillSampleSource := 0;
-    FWandSampleSource := 0;
-    FWandContiguous := True;
-    FJpegQuality := 90;
-    FJpegProgressive := False;
-    FPngCompressionLevel := 6;
-    FFillTolerance := 8;
-    FGradientType := 0;
-    FGradientReverse := False;
-    FCloneAligned := True;
-    FRecolorPreserveValue := True;
-    FCloneAlignedOffset := Point(0, 0);
-    FCloneAlignedOffsetValid := False;
-    FPickerSampleSource := 0;
-    FSelAntiAlias := True;
-    FSelFeather := 0;
-    FTextLastResult.Text := '';
-    FTextLastResult.FontName := '';
-    FTextLastResult.FontSize := 24;
-    FTextLastResult.Bold := False;
-    FTextLastResult.Italic := False;
-    FInlineTextEdit := nil;
-    FInlineTextAnchor := Point(0, 0);
-    FInlineTextColor := FPrimaryColor;
-    FInlineTextCommitting := False;
-    FClipboardOffset := Point(0, 0);
-    FPreparedBitmap := TBitmap.Create;
-    FRenderRevision := 1;
-    FPreparedRevision := 0;
-    FStatusProgressActive := False;
-
-    FDocument := TImageDocument.Create(1024, 768);
-    SetLength(FTabDocuments, 1);
-    SetLength(FTabFileNames, 1);
-    SetLength(FTabDirtyFlags, 1);
-    FTabDocuments[0] := FDocument;
-    FTabFileNames[0] := '';
-    FTabDirtyFlags[0] := False;
-    FActiveTabIndex := 0;
-    FCurrentFileName := '';
-    FRecentFiles := TStringList.Create;
-    FRecentFiles.CaseSensitive := False;
-    FDirty := False;
-    FNewImageResolutionDPI := 96.0;
-    FShowPixelGrid := False;
-    FShowRulers := True;
-    FDeferredLayoutPass := True;
-    FLastScrollPosition := Point(0, 0);
-    FActiveColorSlider := -1;
-    FTabPressedIndex := -1;
-    FTabDragOrigin := Point(0, 0);
-    FTabDragging := False;
-    FLayerDragIndex := -1;
-    FLayerDragTargetIndex := -1;
-    GMainForm := Self;
+    InitializeMinimalState;
     Exit;
   end;
   Caption := 'FlatPaint';
@@ -1050,6 +1061,12 @@ begin
   if Assigned(Application) then
     Application.AddOnIdleHandler(@AppIdle);
   GMainForm := Self;
+end;
+
+class function TMainForm.CreateForTesting: TMainForm;
+begin
+  Result := TMainForm.CreateNew(nil, 0);
+  Result.InitializeMinimalState;
 end;
 
 destructor TMainForm.Destroy;
@@ -1459,6 +1476,14 @@ begin
     FLayerList.Invalidate;
 end;
 
+procedure TMainForm.ResetTransientCanvasState;
+begin
+  FPointerDown := False;
+  SetLength(FLassoPoints, 0);
+  ResetLineCurveState;
+  FPendingSelectionMode := scReplace;
+end;
+
 procedure TMainForm.SyncImageMutationUI(ARefreshLayers: Boolean; AMarkDirty: Boolean);
 begin
   if FStatusProgressActive then
@@ -1472,6 +1497,19 @@ begin
   RefreshCanvas;
   if FStatusProgressActive then
     UpdateStatusProgress(94);
+end;
+
+procedure TMainForm.SyncDocumentReplacementUI(AMarkDirty: Boolean);
+begin
+  FitDocumentToViewport(True);
+  InvalidatePreparedBitmap;
+  FLastImagePoint := Point(-1, -1);
+  if AMarkDirty then
+    SetDirty(True)
+  else
+    SetDirty(False);
+  RefreshLayers;
+  RefreshCanvas;
 end;
 
 procedure TMainForm.BeginStatusProgress(const ACaption: string);
@@ -2461,8 +2499,8 @@ begin
   FColorPickButton.OnColorChanged := @ColorPickButtonChanged;
   FColorPickButton.ButtonColor := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
 
-  CreateButton('Swap', 74, ContentTop, 40, @SwapColorsClick, FColorsPanel);
-  CreateButton('Mono', 120, ContentTop, 40, @ResetColorsClick, FColorsPanel);
+  CreateButton('Swap', 74, ContentTop, 40, @SwapColorsClick, FColorsPanel, 0, bicCommand);
+  CreateButton('Mono', 120, ContentTop, 40, @ResetColorsClick, FColorsPanel, 0, bicCommand);
 
   FColorsBox := TPaintBox.Create(FColorsPanel);
   FColorsBox.Parent := FColorsPanel;
@@ -4355,6 +4393,19 @@ begin
   end;
 end;
 
+function TMainForm.DisplayPixelForTest(X, Y: Integer): TRGBA32;
+var
+  DisplaySurface: TRasterSurface;
+begin
+  Result := TransparentColor;
+  if not Assigned(FDocument) then
+    Exit;
+  DisplaySurface := BuildDisplaySurface;
+  if not Assigned(DisplaySurface) or not DisplaySurface.InBounds(X, Y) then
+    Exit;
+  Result := DisplaySurface[X, Y];
+end;
+
 procedure TMainForm.UpdateZoomControls;
 var
   NearestIndex: Integer;
@@ -4653,7 +4704,7 @@ procedure TMainForm.CreatePaletteHeader(ATarget: TPanel; AKind: TPaletteKind);
 var
   HeaderPanel: TPanel;
   TitleLabel: TLabel;
-  CloseButton: TButton;
+  CloseButton: TSpeedButton;
 begin
   HeaderPanel := TPanel.Create(ATarget);
   HeaderPanel.Parent := ATarget;
@@ -4675,19 +4726,19 @@ begin
   TitleLabel.Font.Color := ChromeTextColor;
   TitleLabel.Font.Style := [fsBold];
 
-  CloseButton := TButton.Create(HeaderPanel);
-  CloseButton.Parent := HeaderPanel;
-  CloseButton.Caption := '×';
-  CloseButton.Width := 24;
+  CloseButton := CreateButton(
+    'X',
+    ATarget.Width - 28,
+    2,
+    24,
+    @HidePaletteClick,
+    HeaderPanel,
+    Ord(AKind),
+    bicCommand
+  );
   CloseButton.Height := 18;
-  CloseButton.Left := ATarget.Width - CloseButton.Width - 4;
-  CloseButton.Top := 2;
   CloseButton.Anchors := [akTop, akRight];
-  CloseButton.Tag := Ord(AKind);
-  CloseButton.ParentFont := False;
-  CloseButton.Font.Size := 8;
-  CloseButton.Font.Color := ChromeTextColor;
-  CloseButton.OnClick := @HidePaletteClick;
+  CloseButton.Hint := 'Close ' + PaletteTitle(AKind) + ' palette';
 end;
 
 procedure TMainForm.CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
@@ -5033,17 +5084,9 @@ begin
   FCurrentFileName := ResolvedFileName;
   if Length(FTabFileNames) > FActiveTabIndex then
     FTabFileNames[FActiveTabIndex] := FCurrentFileName;
-  FPointerDown := False;
-  SetLength(FLassoPoints, 0);
-  ResetLineCurveState;
-  FPendingSelectionMode := scReplace;
-  FitDocumentToViewport(True);
-  InvalidatePreparedBitmap;
-  FLastImagePoint := Point(-1, -1);
-  SetDirty(False);
+  ResetTransientCanvasState;
+  SyncDocumentReplacementUI(False);
   RegisterRecentFile(FCurrentFileName);
-  RefreshLayers;
-  RefreshCanvas;
   RefreshTabStrip;
 end;
 
@@ -5489,14 +5532,9 @@ procedure TMainForm.ResetDocument(AWidth, AHeight: Integer);
 begin
   CommitInlineTextEdit(True);
   FDocument.NewBlank(AWidth, AHeight);
-  ResetLineCurveState;
   FCurrentFileName := '';
-  FitDocumentToViewport(True);
-  InvalidatePreparedBitmap;
-  FLastImagePoint := Point(-1, -1);
-  SetDirty(False);
-  RefreshLayers;
-  RefreshCanvas;
+  ResetTransientCanvasState;
+  SyncDocumentReplacementUI(False);
 end;
 
 procedure TMainForm.NewDocumentClick(Sender: TObject);
@@ -5512,15 +5550,8 @@ begin
   CommitInlineTextEdit(True);
   NewDoc := TImageDocument.Create(TargetWidth, TargetHeight);
   AddDocumentTab(NewDoc, '', False);
-  FPointerDown := False;
-  SetLength(FLassoPoints, 0);
-  ResetLineCurveState;
-  FPendingSelectionMode := scReplace;
-  FitDocumentToViewport(True);
-  InvalidatePreparedBitmap;
-  FLastImagePoint := Point(-1, -1);
-  RefreshLayers;
-  RefreshCanvas;
+  ResetTransientCanvasState;
+  SyncDocumentReplacementUI(False);
 end;
 
 procedure TMainForm.OpenDocumentClick(Sender: TObject);
@@ -5710,12 +5741,8 @@ begin
           ClipboardPicture.Free;
         end;
         FCurrentFileName := '';
-        FitDocumentToViewport(True);
-        InvalidatePreparedBitmap;
-        FLastImagePoint := Point(-1, -1);
-        SetDirty(True);
-        RefreshLayers;
-        RefreshCanvas;
+        ResetTransientCanvasState;
+        SyncDocumentReplacementUI(True);
       end;
     amOpenFile:
       OpenDocumentClick(Sender);
@@ -5737,9 +5764,7 @@ begin
       try
         FDocument.PushHistory('Import Layer');
         FDocument.PasteAsNewLayer(Surface, 0, 0, ExtractFileName(Dialog.FileName));
-        SetDirty(True);
-        RefreshLayers;
-        RefreshCanvas;
+        SyncImageMutationUI(True, True);
       finally
         Surface.Free;
       end;
@@ -5849,39 +5874,29 @@ begin
     Exit;
   FDocument.ReplaceWithSingleLayer(FClipboardSurface, 'Pasted Layer');
   FCurrentFileName := '';
-  FitDocumentToViewport(True);
-  InvalidatePreparedBitmap;
-  FLastImagePoint := Point(-1, -1);
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  ResetTransientCanvasState;
+  SyncDocumentReplacementUI(True);
 end;
 
 procedure TMainForm.AddLayerClick(Sender: TObject);
 begin
   FDocument.PushHistory('Add Layer');
   FDocument.AddLayer;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.DuplicateLayerClick(Sender: TObject);
 begin
   FDocument.PushHistory('Duplicate Layer');
   FDocument.DuplicateActiveLayer;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.DeleteLayerClick(Sender: TObject);
 begin
   FDocument.PushHistory('Delete Layer');
   FDocument.DeleteActiveLayer;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.RenameLayerClick(Sender: TObject);
@@ -5895,9 +5910,7 @@ begin
     Exit;
   FDocument.PushHistory('Rename Layer');
   FDocument.RenameLayer(FDocument.ActiveLayerIndex, ValueText);
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.MoveLayerUpClick(Sender: TObject);
@@ -5919,9 +5932,7 @@ begin
   else
     FDocument.PushHistory('Move Layer Up');
   FDocument.MoveLayer(FDocument.ActiveLayerIndex, TargetIndex);
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.MoveLayerDownClick(Sender: TObject);
@@ -5943,9 +5954,7 @@ begin
   else
     FDocument.PushHistory('Move Layer Down');
   FDocument.MoveLayer(FDocument.ActiveLayerIndex, TargetIndex);
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.MergeDownClick(Sender: TObject);
@@ -5954,18 +5963,14 @@ begin
     Exit;
   FDocument.PushHistory('Merge Down');
   FDocument.MergeDown;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.FlattenClick(Sender: TObject);
 begin
   FDocument.PushHistory('Flatten');
   FDocument.Flatten;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.ToggleLayerVisibilityClick(Sender: TObject);
@@ -5975,9 +5980,7 @@ begin
     FDocument.ActiveLayerIndex,
     not FDocument.Layers[FDocument.ActiveLayerIndex].Visible
   );
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.LayerOpacityClick(Sender: TObject);
@@ -5994,9 +5997,7 @@ begin
       StrToIntDef(ValueText, LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity))
     )
   );
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.LayerVisibleCheckChanged(Sender: TObject);
@@ -6009,9 +6010,7 @@ begin
     Exit;
   FDocument.PushHistory('Toggle Layer Visibility');
   FDocument.SetLayerVisibility(FDocument.ActiveLayerIndex, FLayerVisibleCheck.Checked);
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.LayerOpacitySpinChanged(Sender: TObject);
@@ -6027,9 +6026,7 @@ begin
     Exit;
   FDocument.PushHistory('Layer Opacity');
   FDocument.SetLayerOpacity(FDocument.ActiveLayerIndex, NewOpacity);
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.ResizeImageClick(Sender: TObject);
@@ -7137,42 +7134,43 @@ begin
         end;
     end;
 
-  { Tool shortcuts and color swap/reset only; modifiers are allowed for
-    cycling (Shift reverses order) }  
-  NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
-  if NewTool <> FCurrentTool then
+  { Tool shortcuts and single-letter color shortcuts should only run on
+    plain keypresses (Shift is allowed for reverse-cycling). Command/Ctrl/Alt
+    combinations belong to menu shortcuts or tool-specific pointer gestures. }
+  if ToolShortcutUsesPlainKeyOnly(Shift) then
   begin
-    CommitInlineTextEdit(True);
-    ResetLineCurveState;
-    FCurrentTool := NewTool;
-    if Assigned(FToolCombo) then
-      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
-    UpdateToolOptionControl;
-    UpdateStatusForTool; { refresh label/hint etc }
-    Key := 0;
-    Exit;
-  end;
+    NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
+    if NewTool <> FCurrentTool then
+    begin
+      CommitInlineTextEdit(True);
+      ResetLineCurveState;
+      FCurrentTool := NewTool;
+      if Assigned(FToolCombo) then
+        FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+      UpdateToolOptionControl;
+      UpdateStatusForTool; { refresh label/hint etc }
+      Key := 0;
+      Exit;
+    end;
 
-  { Only handle the single-letter color shortcuts when no other tool key
-    consumed the event; modifiers are ignored above except for Shift }  
-  case UpCase(Char(Key)) of
-    'C':
-      begin
-        { toggle which color the active paint tools use }
-        ToggleColorEditTarget;
-        RefreshColorsPanel;
-        Key := 0;
-      end;
-    'X':
-      begin
-        SwapColorsClick(Sender);
-        Key := 0;
-      end;
-    'D':
-      begin
-        ResetColorsClick(Sender);
-        Key := 0;
-      end;
+    case UpCase(Char(Key)) of
+      'C':
+        begin
+          ToggleColorEditTarget;
+          RefreshColorsPanel;
+          Key := 0;
+        end;
+      'X':
+        begin
+          SwapColorsClick(Sender);
+          Key := 0;
+        end;
+      'D':
+        begin
+          ResetColorsClick(Sender);
+          Key := 0;
+        end;
+    end;
   end;
 end;
 
@@ -7355,11 +7353,18 @@ begin
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
         ExpandStrokeDirty(ImagePoint);
+        InvalidatePreparedBitmap;
         SetDirty(True);
         RefreshCanvas;
       end;
     tkFill:
       begin
+        if FDocument.HasSelection and not FDocument.Selection[ImagePoint.X, ImagePoint.Y] then
+        begin
+          FPointerDown := False;
+          RefreshStatus(ImagePoint);
+          Exit;
+        end;
         FDocument.PushHistory(PaintToolName(FCurrentTool));
         ApplyImmediateTool(ImagePoint);
         SyncImageMutationUI(False, True);
@@ -7429,6 +7434,7 @@ begin
           BeginStrokeHistory;
           ApplyImmediateTool(ImagePoint);
           ExpandStrokeDirty(ImagePoint);
+          InvalidatePreparedBitmap;
           SetDirty(True);
           RefreshCanvas;
         end
@@ -7440,6 +7446,7 @@ begin
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
         ExpandStrokeDirty(ImagePoint);
+        InvalidatePreparedBitmap;
         SetDirty(True);
         RefreshCanvas;
       end;

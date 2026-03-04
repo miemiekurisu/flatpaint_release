@@ -7,7 +7,7 @@ uses
   cwstring,
 {$endif}
   fpcunit, testregistry, consoletestrunner, SysUtils, Forms,
-  fpsurface_tests, fpuihelpers_tests, fpdocument_tests, tools_move_tests, tools_select_tests, fpselection_tests, fppalettehelpers_tests,
+  fpsurface_tests, fpuihelpers_tests, mainform_integration_tests, fpdocument_tests, tools_move_tests, tools_select_tests, fpselection_tests, fppalettehelpers_tests,
   fptabhelpers_tests,
   fpio_tests, fpnewimagehelpers_tests, fputilityhelpers_tests,
   cli_integration_tests, integration_document_flow_tests, integration_native_roundtrip_tests, format_compat_tests,

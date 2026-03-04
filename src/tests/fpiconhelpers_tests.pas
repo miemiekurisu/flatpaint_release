@@ -13,6 +13,7 @@ type
     procedure ToolIconsCoverEveryDisplayedTool;
     procedure UtilityIconsCoverEveryUtilityButton;
     procedure CommandIconsCoverMainToolbarAndLayerActions;
+    procedure CommandIconsCoverColorPanelAndPaletteChrome;
   end;
 
 implementation
@@ -50,6 +51,21 @@ const
   CommandCaptions: array[0..18] of string = (
     'New', 'Open', 'Save', 'Cut', 'Copy', 'Paste', 'Undo', 'Redo', '+', '-',
     'Dup', 'Del', 'Mrg', 'Vis', 'Up', 'Dn', 'Fade', 'Flat', 'Props'
+  );
+var
+  Index: Integer;
+begin
+  for Index := Low(CommandCaptions) to High(CommandCaptions) do
+    AssertTrue(
+      'command icon should exist for "' + CommandCaptions[Index] + '"',
+      ButtonIconSupported(CommandCaptions[Index], bicCommand)
+    );
+end;
+
+procedure TFPIconHelpersTests.CommandIconsCoverColorPanelAndPaletteChrome;
+const
+  CommandCaptions: array[0..2] of string = (
+    'Swap', 'Mono', 'X'
   );
 var
   Index: Integer;
