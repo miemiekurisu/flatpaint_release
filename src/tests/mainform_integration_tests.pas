@@ -5,7 +5,7 @@ unit mainform_integration_tests;
 interface
 
 uses
-  Classes, fpcunit, testregistry, FPColor, FPDocument, FPSelection, FPSurface, FPUIHelpers;
+  Classes, Controls, fpcunit, testregistry, MainForm, FPColor, FPDocument, FPSelection, FPSurface, FPUIHelpers;
 
 type
   TMainFormIntegrationTests = class(TTestCase)
@@ -13,6 +13,9 @@ type
     procedure MetaModifiedShortcutsStayReservedForCommands;
     procedure PencilStyleStrokeChangesVisibleCompositePixel;
     procedure BucketMaskIntersectedWithSelectionOnlyFillsInsideSelection;
+    procedure ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel;
+    procedure DefaultLineToolCommitsStraightSegmentOnRelease;
+    procedure DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp;
   end;
 
 implementation
@@ -118,6 +121,84 @@ begin
     );
   finally
     Doc.Free;
+  end;
+end;
+
+procedure TMainFormIntegrationTests.ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel;
+var
+  Form: TMainForm;
+  BeforePixel: TRGBA32;
+  AfterPixel: TRGBA32;
+begin
+  Form := TMainForm.Create(nil);
+  try
+    Form.TestDocument.ActiveLayer.Surface[5, 5] := TransparentColor;
+
+    Form.CurrentToolForTest := tkColorPicker;
+    Form.SimulateMouseDown(mbLeft, [], 5, 5);
+
+    BeforePixel := Form.DisplayPixelForTest(20, 20);
+    Form.CurrentToolForTest := tkPencil;
+    Form.SimulateMouseDown(mbLeft, [], 20, 20);
+    Form.SimulateMouseUp(mbLeft, [], 20, 20);
+    AfterPixel := Form.DisplayPixelForTest(20, 20);
+
+    AssertFalse(
+      'sampling a transparent pixel should not make the next pencil stroke invisible',
+      RGBAEqual(AfterPixel, BeforePixel)
+    );
+  finally
+    Form.Free;
+  end;
+end;
+
+procedure TMainFormIntegrationTests.DefaultLineToolCommitsStraightSegmentOnRelease;
+var
+  Form: TMainForm;
+  BeforePixel: TRGBA32;
+  AfterPixel: TRGBA32;
+begin
+  Form := TMainForm.Create(nil);
+  try
+    BeforePixel := Form.DisplayPixelForTest(24, 20);
+
+    Form.CurrentToolForTest := tkLine;
+    Form.SimulateMouseDown(mbLeft, [], 20, 20);
+    Form.SimulateMouseMove([ssLeft], 28, 20);
+    Form.SimulateMouseUp(mbLeft, [], 28, 20);
+    AfterPixel := Form.DisplayPixelForTest(24, 20);
+
+    AssertFalse(
+      'line should commit a straight segment on mouse release by default',
+      RGBAEqual(AfterPixel, BeforePixel)
+    );
+  finally
+    Form.Free;
+  end;
+end;
+
+procedure TMainFormIntegrationTests.DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp;
+var
+  Form: TMainForm;
+  BeforePixel: TRGBA32;
+  AfterPixel: TRGBA32;
+begin
+  Form := TMainForm.Create(nil);
+  try
+    BeforePixel := Form.DisplayPixelForTest(20, 20);
+
+    Form.CurrentToolForTest := tkRectangle;
+    Form.SimulateMouseDown(mbLeft, [], 20, 20);
+    Form.SimulateMouseMove([ssLeft], 28, 28);
+    Form.SimulateMouseMove([], 28, 28);
+    AfterPixel := Form.DisplayPixelForTest(20, 20);
+
+    AssertFalse(
+      'drag shapes should still commit when the widgetset stops reporting the button before a mouse-up event arrives',
+      RGBAEqual(AfterPixel, BeforePixel)
+    );
+  finally
+    Form.Free;
   end;
 end;
 

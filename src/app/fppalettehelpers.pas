@@ -17,6 +17,7 @@ type
 
 function PaletteTitle(APalette: TPaletteKind): string;
 function PaletteShortcutDigit(APalette: TPaletteKind): Char;
+function PaletteShortcutLabel(APalette: TPaletteKind): string;
 function PaletteDefaultRect(APalette: TPaletteKind): TRect;
 function PaletteDefaultRectForWorkspace(APalette: TPaletteKind; const AWorkspaceRect: TRect): TRect;
 function ToolsPaletteColumnCount: Integer;
@@ -90,6 +91,16 @@ begin
   else
     Result := '0';
   end;
+end;
+
+function PaletteShortcutLabel(APalette: TPaletteKind): string;
+var
+  ShortcutDigit: Char;
+begin
+  ShortcutDigit := PaletteShortcutDigit(APalette);
+  if ShortcutDigit = '0' then
+    Exit('');
+  Result := 'Cmd+' + ShortcutDigit;
 end;
 
 function PaletteDefaultRect(APalette: TPaletteKind): TRect;

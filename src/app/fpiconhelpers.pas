@@ -404,7 +404,12 @@ begin
     bikHelp:
       DrawCenteredText(C, '?');
     bikSelectRect:
-      C.Rectangle(3, 3, 13, 12);
+      begin
+        C.Rectangle(5, 4, 13, 12);
+        C.Line(2, 2, 6, 10);
+        C.Line(2, 2, 5, 3);
+        C.Line(2, 2, 3, 5);
+      end;
     bikSelectEllipse:
       C.Ellipse(3, 3, 13, 12);
     bikSelectLasso:
@@ -412,16 +417,26 @@ begin
     bikMagicWand:
       begin
         C.Line(4, 12, 10, 6);
-        C.Line(10, 2, 10, 4);
-        C.Line(10, 8, 10, 10);
-        C.Line(8, 6, 6, 6);
-        C.Line(12, 6, 14, 6);
+        C.Line(9, 2, 9, 4);
+        C.Line(9, 8, 9, 10);
+        C.Line(7, 6, 5, 6);
+        C.Line(11, 6, 13, 6);
+        C.Line(11, 3, 12, 4);
+        C.Line(11, 9, 12, 8);
       end;
     bikMoveSelection:
       begin
-        C.Rectangle(4, 4, 12, 12);
+        C.Rectangle(5, 5, 11, 11);
         C.Line(8, 2, 8, 14);
         C.Line(2, 8, 14, 8);
+        C.Line(8, 2, 6, 4);
+        C.Line(8, 2, 10, 4);
+        C.Line(8, 14, 6, 12);
+        C.Line(8, 14, 10, 12);
+        C.Line(2, 8, 4, 6);
+        C.Line(2, 8, 4, 10);
+        C.Line(14, 8, 12, 6);
+        C.Line(14, 8, 12, 10);
       end;
     bikMovePixels:
       begin
@@ -440,9 +455,9 @@ begin
       end;
     bikFill:
       begin
-        C.Polygon([Point(4, 4), Point(9, 2), Point(12, 7), Point(7, 9)]);
-        C.Line(8, 10, 12, 10);
-        C.Line(9, 12, 11, 12);
+        C.Polygon([Point(3, 5), Point(8, 2), Point(12, 6), Point(7, 9)]);
+        C.Line(8, 9, 12, 9);
+        C.Ellipse(10, 10, 13, 14);
       end;
     bikGradient:
       begin
@@ -457,8 +472,11 @@ begin
       end;
     bikBrush:
       begin
-        C.Ellipse(3, 3, 10, 10);
-        C.Line(8, 9, 12, 13);
+        C.Line(4, 12, 8, 8);
+        C.Line(8, 8, 11, 4);
+        C.Line(10, 3, 12, 5);
+        C.Line(7, 9, 9, 11);
+        C.Line(5, 11, 8, 14);
       end;
     bikEraser:
       begin
@@ -466,9 +484,10 @@ begin
       end;
     bikPicker:
       begin
-        C.Ellipse(4, 3, 9, 8);
-        C.Line(8, 7, 12, 11);
-        C.Line(12, 11, 10, 13);
+        C.Ellipse(7, 2, 11, 6);
+        C.Line(10, 5, 5, 10);
+        C.Line(5, 10, 3, 12);
+        C.Line(4, 13, 6, 11);
       end;
     bikClone:
       begin
@@ -483,7 +502,11 @@ begin
         C.Line(7, 8, 12, 8);
       end;
     bikLine:
-      C.Line(3, 12, 13, 4);
+      begin
+        C.Line(3, 12, 13, 4);
+        C.Ellipse(2, 11, 5, 14);
+        C.Ellipse(11, 2, 14, 5);
+      end;
     bikRectangle:
       C.Rectangle(3, 4, 13, 12);
     bikRoundedRect:
@@ -502,7 +525,10 @@ begin
         C.Line(8, 4, 14, 4);
       end;
     bikText:
-      DrawCenteredText(C, 'T', -1);
+      begin
+        DrawCenteredText(C, 'T', -1);
+        C.Line(4, 13, 12, 13);
+      end;
   end;
 end;
 

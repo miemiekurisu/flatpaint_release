@@ -32,8 +32,12 @@ type
     procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawSquareBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure EraseBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure EraseSquareBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure EraseLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure EraseSquareLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawQuadraticBezier(X1, Y1, ControlX, ControlY, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawCubicBezier(X1, Y1, Control1X, Control1Y, Control2X, Control2Y, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
@@ -404,6 +408,108 @@ begin
   FPixels[PixelIndex] := BlendNormal(AColor, FPixels[PixelIndex], Opacity);
 end;
 
+procedure TRasterSurface.EraseBrush(X, Y, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  DrawX: Integer;
+  DrawY: Integer;
+  RadiusSquared: Integer;
+  DeltaX: Integer;
+  DeltaY: Integer;
+  DistSquared: Integer;
+  EdgeRadius: Integer;
+  EdgeSquared: Integer;
+  EffectiveOpacity: Integer;
+  PixelIndex: Integer;
+  PixelColor: TRGBA32;
+  NewAlpha: Integer;
+begin
+  Radius := Max(0, Radius);
+  RadiusSquared := Radius * Radius;
+  EdgeRadius := Radius * Hardness div 255;
+  EdgeSquared := EdgeRadius * EdgeRadius;
+  for DrawY := Y - Radius to Y + Radius do
+  begin
+    for DrawX := X - Radius to X + Radius do
+    begin
+      DeltaX := DrawX - X;
+      DeltaY := DrawY - Y;
+      DistSquared := (DeltaX * DeltaX) + (DeltaY * DeltaY);
+      if DistSquared > RadiusSquared then
+        Continue;
+      if (Hardness >= 255) or (DistSquared <= EdgeSquared) then
+        EffectiveOpacity := Opacity
+      else if RadiusSquared > EdgeSquared then
+        EffectiveOpacity := Opacity * (RadiusSquared - DistSquared) div (RadiusSquared - EdgeSquared)
+      else
+        EffectiveOpacity := 0;
+      if EffectiveOpacity <= 0 then
+        Continue;
+      if not InBounds(DrawX, DrawY) then
+        Continue;
+      if Assigned(ASelection) and not ASelection[DrawX, DrawY] then
+        Continue;
+      PixelIndex := IndexOf(DrawX, DrawY);
+      PixelColor := FPixels[PixelIndex];
+      if PixelColor.A = 0 then
+        Continue;
+      NewAlpha := PixelColor.A * (255 - Min(255, EffectiveOpacity)) div 255;
+      if NewAlpha <= 0 then
+        FPixels[PixelIndex] := TransparentColor
+      else
+        FPixels[PixelIndex] := RGBA(PixelColor.R, PixelColor.G, PixelColor.B, ClampChannel(NewAlpha));
+    end;
+  end;
+end;
+
+procedure TRasterSurface.EraseSquareBrush(X, Y, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  DrawX: Integer;
+  DrawY: Integer;
+  DeltaX: Integer;
+  DeltaY: Integer;
+  EdgeRadius: Integer;
+  DistToEdge: Integer;
+  EffectiveOpacity: Integer;
+  PixelIndex: Integer;
+  PixelColor: TRGBA32;
+  NewAlpha: Integer;
+begin
+  Radius := Max(0, Radius);
+  EdgeRadius := Radius * Hardness div 255;
+  for DrawY := Y - Radius to Y + Radius do
+  begin
+    for DrawX := X - Radius to X + Radius do
+    begin
+      DeltaX := Abs(DrawX - X);
+      DeltaY := Abs(DrawY - Y);
+      DistToEdge := Max(DeltaX, DeltaY);
+      if DistToEdge > Radius then
+        Continue;
+      if (Hardness >= 255) or (DistToEdge <= EdgeRadius) then
+        EffectiveOpacity := Opacity
+      else if Radius > EdgeRadius then
+        EffectiveOpacity := Opacity * (Radius - DistToEdge) div (Radius - EdgeRadius)
+      else
+        EffectiveOpacity := 0;
+      if EffectiveOpacity <= 0 then
+        Continue;
+      if not InBounds(DrawX, DrawY) then
+        Continue;
+      if Assigned(ASelection) and not ASelection[DrawX, DrawY] then
+        Continue;
+      PixelIndex := IndexOf(DrawX, DrawY);
+      PixelColor := FPixels[PixelIndex];
+      if PixelColor.A = 0 then
+        Continue;
+      NewAlpha := PixelColor.A * (255 - Min(255, EffectiveOpacity)) div 255;
+      if NewAlpha <= 0 then
+        FPixels[PixelIndex] := TransparentColor
+      else
+        FPixels[PixelIndex] := RGBA(PixelColor.R, PixelColor.G, PixelColor.B, ClampChannel(NewAlpha));
+    end;
+  end;
+end;
+
 procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
 var
   DrawX: Integer;
@@ -538,6 +644,86 @@ begin
   while True do
   begin
     DrawSquareBrush(X1, Y1, Radius, AColor, Opacity, Hardness, ASelection);
+    if (X1 = X2) and (Y1 = Y2) then
+      Break;
+    DoubleError := ErrorValue * 2;
+    if DoubleError > -DY then
+    begin
+      ErrorValue := ErrorValue - DY;
+      X1 := X1 + StepX;
+    end;
+    if DoubleError < DX then
+    begin
+      ErrorValue := ErrorValue + DX;
+      Y1 := Y1 + StepY;
+    end;
+  end;
+end;
+
+procedure TRasterSurface.EraseLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  DX: Integer;
+  DY: Integer;
+  StepX: Integer;
+  StepY: Integer;
+  ErrorValue: Integer;
+  DoubleError: Integer;
+begin
+  DX := Abs(X2 - X1);
+  DY := Abs(Y2 - Y1);
+  if X1 < X2 then
+    StepX := 1
+  else
+    StepX := -1;
+  if Y1 < Y2 then
+    StepY := 1
+  else
+    StepY := -1;
+
+  ErrorValue := DX - DY;
+  while True do
+  begin
+    EraseBrush(X1, Y1, Radius, Opacity, Hardness, ASelection);
+    if (X1 = X2) and (Y1 = Y2) then
+      Break;
+    DoubleError := ErrorValue * 2;
+    if DoubleError > -DY then
+    begin
+      ErrorValue := ErrorValue - DY;
+      X1 := X1 + StepX;
+    end;
+    if DoubleError < DX then
+    begin
+      ErrorValue := ErrorValue + DX;
+      Y1 := Y1 + StepY;
+    end;
+  end;
+end;
+
+procedure TRasterSurface.EraseSquareLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
+var
+  DX: Integer;
+  DY: Integer;
+  StepX: Integer;
+  StepY: Integer;
+  ErrorValue: Integer;
+  DoubleError: Integer;
+begin
+  DX := Abs(X2 - X1);
+  DY := Abs(Y2 - Y1);
+  if X1 < X2 then
+    StepX := 1
+  else
+    StepX := -1;
+  if Y1 < Y2 then
+    StepY := 1
+  else
+    StepY := -1;
+
+  ErrorValue := DX - DY;
+  while True do
+  begin
+    EraseSquareBrush(X1, Y1, Radius, Opacity, Hardness, ASelection);
     if (X1 = X2) and (Y1 = Y2) then
       Break;
     DoubleError := ErrorValue * 2;

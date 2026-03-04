@@ -19,8 +19,12 @@ function UtilityCommandDisplayCount: Integer;
 function UtilityCommandAtDisplayIndex(AIndex: Integer): TUtilityCommandKind;
 function UtilityCommandGlyph(ACommand: TUtilityCommandKind): string;
 function UtilityCommandHint(ACommand: TUtilityCommandKind): string;
+function UtilityCommandShortcutLabel(ACommand: TUtilityCommandKind): string;
 
 implementation
+
+uses
+  FPPaletteHelpers;
 
 const
   UtilityDisplayOrder: array[0..5] of TUtilityCommandKind = (
@@ -83,6 +87,22 @@ begin
       Result := 'Show quick help and supported formats';
   else
     Result := 'Command';
+  end;
+end;
+
+function UtilityCommandShortcutLabel(ACommand: TUtilityCommandKind): string;
+begin
+  case ACommand of
+    ucTools:
+      Result := PaletteShortcutLabel(pkTools);
+    ucHistory:
+      Result := PaletteShortcutLabel(pkHistory);
+    ucLayers:
+      Result := PaletteShortcutLabel(pkLayers);
+    ucColors:
+      Result := PaletteShortcutLabel(pkColors);
+  else
+    Result := '';
   end;
 end;
 

@@ -11,6 +11,9 @@ uses
 function PaintToolName(ATool: TToolKind): string;
 function PaintToolHint(ATool: TToolKind): string;
 function PaintToolGlyph(ATool: TToolKind): string;
+function PaintToolShortcutKey(ATool: TToolKind): string;
+function PaintToolShortcutHint(ATool: TToolKind): string;
+function PaintToolDisplayLabel(ATool: TToolKind): string;
 function PaintToolHasCanvasHoverOverlay(ATool: TToolKind): Boolean;
 function PaintToolUsesBrushOverlay(ATool: TToolKind): Boolean;
 function LayerOpacityPercentFromByte(AOpacity: Byte): Integer;
@@ -121,7 +124,7 @@ begin
     tkGradient:
       Result := 'Gradient drags from primary toward secondary color';
     tkLine:
-      Result := 'Line drags endpoints, clicks to lock two handles, then keeps the path open so more segments can be chained until Enter or right-click';
+      Result := 'Line drags a straight segment by default; enable the Bezier option to stage handles and keep chaining segments until Enter or right-click';
     tkRectangle:
       Result := 'Rectangle drags an outlined rectangle';
     tkRoundedRectangle:
@@ -213,6 +216,69 @@ begin
   else
     Result := 'Tool';
   end;
+end;
+
+function PaintToolShortcutKey(ATool: TToolKind): string;
+begin
+  case ATool of
+    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand:
+      Result := 'S';
+    tkMoveSelection, tkMovePixels:
+      Result := 'M';
+    tkZoom:
+      Result := 'Z';
+    tkPan:
+      Result := 'H';
+    tkFill:
+      Result := 'F';
+    tkGradient:
+      Result := 'G';
+    tkPencil:
+      Result := 'P';
+    tkBrush:
+      Result := 'B';
+    tkEraser:
+      Result := 'E';
+    tkColorPicker:
+      Result := 'K';
+    tkCloneStamp:
+      Result := 'L';
+    tkRecolor:
+      Result := 'R';
+    tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
+      Result := 'O';
+    tkText:
+      Result := 'T';
+  else
+    Result := '';
+  end;
+end;
+
+function PaintToolShortcutHint(ATool: TToolKind): string;
+var
+  KeyLabel: string;
+begin
+  KeyLabel := PaintToolShortcutKey(ATool);
+  if KeyLabel = '' then
+    Exit('No single-key shortcut is assigned');
+
+  Result := 'Shortcut: ' + KeyLabel;
+  if ATool in [
+    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand,
+    tkMoveSelection, tkMovePixels,
+    tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape
+  ] then
+    Result := Result + ' (repeat to cycle related tools, Shift reverses)';
+end;
+
+function PaintToolDisplayLabel(ATool: TToolKind): string;
+var
+  KeyLabel: string;
+begin
+  Result := PaintToolName(ATool);
+  KeyLabel := PaintToolShortcutKey(ATool);
+  if KeyLabel <> '' then
+    Result := Result + ' (' + KeyLabel + ')';
 end;
 
 function PaintToolHasCanvasHoverOverlay(ATool: TToolKind): Boolean;

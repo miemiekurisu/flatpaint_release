@@ -1,5 +1,34 @@
 # Development Progress Log
 
+## 2026-03-04 (toolbar grouping + palette-header shortcut pass)
+
+- This pass maps primarily to `Workspace visual parity`, `Menus/Shortcuts`, and `Iconography`.
+- The top toolbar now reads more like the local design baseline instead of a row of bare hit targets: the first-row command surface has explicit grouped background bands, and `New` / `Open` / `Save` now render as wider icon-plus-text action buttons rather than only compact glyph buttons.
+- That change keeps the command handlers identical, but materially improves first-scan readability of the most common file actions and makes the toolbar feel less like an internal prototype row.
+- The floating palette title bars were also upgraded: each header now shows a compact palette glyph, a visible palette shortcut badge (`1`..`4`) near the close button, and the close-button hint now spells out the real `Cmd+1...4` palette toggle mapping.
+- Header labels now explicitly forward mouse drag events back to the shared palette drag handlers, so the added glyph/shortcut labels do not steal the drag affordance from the title bar.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **202 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
+## 2026-03-04 (tool-palette shortcut + active-state UI pass)
+
+- This pass maps primarily to `Workspace visual parity`, `Menus/Shortcuts`, `Iconography`, and the project-wide development-rule baseline.
+- The development rules now explicitly state that a tool/filter/edit route is not complete unless it invalidates the relevant visual surfaces and produces immediate on-screen feedback, so the "logic worked but nothing visibly changed" class of bug is now part of the written completion bar, not just an ad hoc review note.
+- The `Tools` palette itself was upgraded from a mostly static icon grid into a live stateful control surface: tool buttons now keep a pressed active state, surface visible one-key shortcut badges directly on the buttons, use the shared tool-shortcut metadata, and expose richer tooltips that combine tool purpose with the real shortcut behavior.
+- The top toolbar tool chooser now exposes the same shortcut metadata in its visible item labels, so the user can see the active mapping without relying only on memory or docs.
+- The top-right utility strip now also reflects palette visibility state for the four core windows and its hints now show the real `Cmd+1...4` palette shortcuts instead of generic "show window" text.
+- Shared glyphs also received another UI-quality pass for several high-frequency tool icons (`Select`, `Move`, `Wand`, `Fill`, `Brush`, `Picker`, `Line`, `Text`) so the visible palette reads less like placeholder chrome and more like a product surface.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **201 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
+## 2026-03-04 (real-interaction cache-audit pass)
+
+- This pass was a targeted audit of the live interaction chain rather than a new feature pass: every path was reviewed under the stricter rule that a tool/command is not "done" if the data changes but the user cannot immediately see that change on the canvas or in the nearby document surfaces.
+- The audit surfaced a real shared failure mode in the cached-canvas path: some selection-driven and staged interactive mutations were still changing document state without invalidating the prepared display bitmap first.
+- The concrete fixes in this pass are: selection-only commands (`Select All`, `Deselect`, `Invert Selection`), magic-wand picks, rectangle/ellipse/lasso selection commits, move-selection drags, move-selected-pixels drags, staged line-segment commits, and in-list layer drag reorder now all force the same visible cache-invalidating repaint path instead of relying on a later redraw to expose the change.
+- `Move Selected Pixels` also now refreshes the tab thumbnail + layer surface after the drag completes, so the canvas is no longer the only place where the change becomes visible after that gesture.
+- This pass did not change the core effect/adjustment math; those routes were rechecked and they are still consistently going through `SyncImageMutationUI(...)` with status-bar progress and canvas/thumbnail refresh.
+- Verification is green after the audit pass: `bash ./scripts/run_tests_ci.sh` passes at **198 tests, 0 errors, 0 failures**.
+- Honest progress update after this pass: the remaining gaps are increasingly parity/depth gaps, not the earlier class of "the operation really happened but the prepared display cache made it look like it did not."
+
 ## 2026-03-04 (tool-control logic audit + tolerance isolation pass)
 
 - This pass maps primarily to the `Tool/Config Options`, `Paint tools`, `Selection tools`, and `Draw tools` rows in `docs/FEATURE_MATRIX.md`.

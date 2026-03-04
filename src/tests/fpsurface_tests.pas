@@ -31,6 +31,7 @@ type
     procedure VignetteDarkensEdges;
     procedure DrawLineOpacityScalesAlphaChannel;
     procedure DrawLineFullOpacityMatchesDirectPaint;
+    procedure EraserLineReducesAlphaChannel;
     procedure DrawLineSoftHardnessProducesGradientEdge;
     procedure SquareLineBrushCoversCornerPixels;
     procedure QuadraticBezierBendsTowardControlPoint;
@@ -483,6 +484,22 @@ begin
     Surface.DrawLine(0, 0, 4, 0, 0, RGBA(200, 100, 50, 255), 255);
     AssertEquals('full opacity red', 200, Surface[2, 0].R);
     AssertEquals('full opacity alpha', 255, Surface[2, 0].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.EraserLineReducesAlphaChannel;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(5, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawLine(0, 0, 4, 0, 0, RGBA(20, 30, 40, 255), 255);
+    Surface.EraseLine(0, 0, 4, 0, 0, 255);
+
+    AssertEquals('eraser should clear alpha to zero at the touched pixel', 0, Surface[2, 0].A);
   finally
     Surface.Free;
   end;

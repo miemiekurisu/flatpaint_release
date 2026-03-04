@@ -9,7 +9,8 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Buttons,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
-  FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers;
+  FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
+  FPUtilityHelpers;
 
 type
   TMainForm = class;
@@ -71,7 +72,9 @@ type
     FPickSecondaryTarget: Boolean;
     FUpdatingToolOption: Boolean;
     FPointerDown: Boolean;
+    FPointerButton: TMouseButton;
     FDragStart: TPoint;
+    FLineBezierMode: Boolean;
     FLinePathOpen: Boolean;
     FLineCurvePending: Boolean;
     FLineCurveSecondStage: Boolean;
@@ -104,6 +107,8 @@ type
     FColorsPanel: TPanel;
     FHistoryPanel: TPanel;
     FRightPanel: TPanel;
+    FToolButtons: array[TToolKind] of TSpeedButton;
+    FUtilityButtons: array[TUtilityCommandKind] of TSpeedButton;
     FHorizontalRuler: TRulerView;
     FVerticalRuler: TRulerView;
     FCanvasHost: TScrollBox;
@@ -205,6 +210,7 @@ type
     FSelModeLabel: TLabel;
     FShapeStyleCombo: TComboBox;
     FShapeStyleLabel: TLabel;
+    FLineBezierCheck: TCheckBox;
     FBucketModeCombo: TComboBox;
     FBucketModeLabel: TLabel;
     FFillSampleCombo: TComboBox;
@@ -286,12 +292,15 @@ type
     procedure InvalidatePreparedBitmap;
     procedure RefreshAuxiliaryImageViews(ARefreshLayers: Boolean = False);
     procedure ResetTransientCanvasState;
+    procedure SyncSelectionOverlayUI(AMarkDirty: Boolean = True);
     procedure SyncImageMutationUI(ARefreshLayers: Boolean = False; AMarkDirty: Boolean = True);
     procedure SyncDocumentReplacementUI(AMarkDirty: Boolean);
     procedure BeginStatusProgress(const ACaption: string);
     procedure UpdateStatusProgress(APercent: Integer; const ACaption: string = '');
     procedure EndStatusProgress;
     procedure UpdateToolOptionControl;
+    procedure SyncToolButtonSelection;
+    procedure SyncUtilityButtonStates;
     procedure RefreshUnitsMenu;
     procedure BuildMenus;
     procedure BuildTabPopupMenu;
@@ -482,6 +491,7 @@ type
     procedure EraserShapeComboChanged(Sender: TObject);
     procedure SelModeComboChanged(Sender: TObject);
     procedure ShapeStyleComboChanged(Sender: TObject);
+    procedure LineBezierChanged(Sender: TObject);
     procedure BucketModeComboChanged(Sender: TObject);
     procedure FillSampleComboChanged(Sender: TObject);
     procedure WandSampleComboChanged(Sender: TObject);
@@ -589,7 +599,7 @@ implementation
 
 uses
   Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
-  FPNewImageDialog, FPResizeDialog, FPUtilityHelpers, FPSettingsDialog, FPZoomHelpers,
+  FPNewImageDialog, FPResizeDialog, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers, FPTabHelpers,
@@ -658,6 +668,7 @@ begin
   FZoomScale := 1.0;
   FDisplayUnit := duPixels;
   FCurrentTool := DefaultStartupTool;
+  FPointerButton := mbLeft;
   FBrushSize := 8;
   FWandTolerance := 32;
   FBrushOpacity := 100;
@@ -665,6 +676,7 @@ begin
   FEraserSquareShape := False;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
+  FLineBezierMode := False;
   FLinePathOpen := False;
   FLineCurvePending := False;
   FLineCurveSecondStage := False;
@@ -767,6 +779,7 @@ begin
   FZoomScale := 1.0;
   FDisplayUnit := duPixels;
   FCurrentTool := DefaultStartupTool;
+  FPointerButton := mbLeft;
   FBrushSize := 8;
   FWandTolerance := 32;
   FBrushOpacity := 100;
@@ -774,6 +787,7 @@ begin
   FEraserSquareShape := False;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
+  FLineBezierMode := False;
   FLinePathOpen := False;
   FLineCurvePending := False;
   FLineCurveSecondStage := False;
@@ -1351,10 +1365,12 @@ begin
   FDocument.PushHistory(PaintToolName(FCurrentTool));
   CommitShapeTool(FDragStart, FLineCurveEndPoint);
   SetDirty(True);
+  InvalidatePreparedBitmap;
   FDragStart := FLineCurveEndPoint;
   FLastImagePoint := FDragStart;
   ResetLineCurveSegmentState;
   FLinePathOpen := AContinuePath;
+  RefreshTabCardVisuals(FActiveTabIndex);
   RefreshAuxiliaryImageViews(False);
 end;
 
@@ -1487,6 +1503,14 @@ begin
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
   FPendingSelectionMode := scReplace;
+end;
+
+procedure TMainForm.SyncSelectionOverlayUI(AMarkDirty: Boolean);
+begin
+  InvalidatePreparedBitmap;
+  if AMarkDirty then
+    SetDirty(True);
+  RefreshCanvas;
 end;
 
 procedure TMainForm.SyncImageMutationUI(ARefreshLayers: Boolean; AMarkDirty: Boolean);
@@ -1626,6 +1650,11 @@ begin
     if Assigned(FShapeStyleLabel) then FShapeStyleLabel.Visible := IsShapeTool;
     if Assigned(FShapeStyleCombo) then FShapeStyleCombo.Visible := IsShapeTool;
     if Assigned(FShapeStyleCombo) then FShapeStyleCombo.ItemIndex := FShapeStyle;
+    if Assigned(FLineBezierCheck) then
+    begin
+      FLineBezierCheck.Visible := FCurrentTool = tkLine;
+      FLineBezierCheck.Checked := FLineBezierMode;
+    end;
     if Assigned(FBucketModeLabel) then FBucketModeLabel.Visible := IsBucketTool;
     if Assigned(FBucketModeCombo) then FBucketModeCombo.Visible := IsBucketTool;
     if Assigned(FBucketModeCombo) then FBucketModeCombo.ItemIndex := FBucketFloodMode;
@@ -1720,6 +1749,51 @@ begin
     end;
   finally
     FUpdatingToolOption := False;
+  end;
+  SyncToolButtonSelection;
+end;
+
+procedure TMainForm.SyncToolButtonSelection;
+var
+  ToolKind: TToolKind;
+  IsActive: Boolean;
+begin
+  for ToolKind := Low(TToolKind) to High(TToolKind) do
+  begin
+    if not Assigned(FToolButtons[ToolKind]) then
+      Continue;
+    IsActive := ToolKind = FCurrentTool;
+    FToolButtons[ToolKind].Down := IsActive;
+    if IsActive then
+      FToolButtons[ToolKind].Font.Style := [fsBold]
+    else
+      FToolButtons[ToolKind].Font.Style := [];
+  end;
+end;
+
+procedure TMainForm.SyncUtilityButtonStates;
+var
+  PaletteHost: TPanel;
+begin
+  if Assigned(FUtilityButtons[ucTools]) then
+  begin
+    PaletteHost := PaletteControl(pkTools);
+    FUtilityButtons[ucTools].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+  end;
+  if Assigned(FUtilityButtons[ucHistory]) then
+  begin
+    PaletteHost := PaletteControl(pkHistory);
+    FUtilityButtons[ucHistory].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+  end;
+  if Assigned(FUtilityButtons[ucLayers]) then
+  begin
+    PaletteHost := PaletteControl(pkLayers);
+    FUtilityButtons[ucLayers].Down := Assigned(PaletteHost) and PaletteHost.Visible;
+  end;
+  if Assigned(FUtilityButtons[ucColors]) then
+  begin
+    PaletteHost := PaletteControl(pkColors);
+    FUtilityButtons[ucColors].Down := Assigned(PaletteHost) and PaletteHost.Visible;
   end;
 end;
 
@@ -2002,6 +2076,7 @@ var
   UtilityCommand: TUtilityCommandKind;
   ZoomIndex: Integer;
   Btn: TSpeedButton;
+  GroupPanel: TPanel;
 begin
   FTopPanel := TPanel.Create(Self);
   FTopPanel.Parent := Self;
@@ -2013,37 +2088,84 @@ begin
   FTopPanel.ParentColor := False;
 
   { Toolbar row 1: quick actions + zoom; the tool-options row stays separate below it. }
-  Btn := CreateButton('New',   10,  8, 26, @NewDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'New document (Cmd+N)';
-  Btn := CreateButton('Open',  40,  8, 26, @OpenDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Open document (Cmd+O)';
-  Btn := CreateButton('Save',  70,  8, 26, @SaveDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Save document (Cmd+S)';
-  Btn := CreateButton('Cut',  110,  8, 26, @CutClick,           FTopPanel, 0, bicCommand); Btn.Hint := 'Cut selection (Cmd+X)';
-  Btn := CreateButton('Copy', 140,  8, 26, @CopyClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Copy selection (Cmd+C)';
-  Btn := CreateButton('Paste',170,  8, 26, @PasteClick,         FTopPanel, 0, bicCommand); Btn.Hint := 'Paste (Cmd+V)';
-  Btn := CreateButton('Undo', 214,  8, 26, @UndoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Undo last action (Cmd+Z)';
-  Btn := CreateButton('Redo', 244,  8, 26, @RedoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Redo (Cmd+Shift+Z)';
-  Btn := CreateButton('-',    288,  8, 26, @ZoomOutClick,       FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom out';
+  GroupPanel := TPanel.Create(FTopPanel);
+  GroupPanel.Parent := FTopPanel;
+  GroupPanel.Left := 8;
+  GroupPanel.Top := 6;
+  GroupPanel.Width := 190;
+  GroupPanel.Height := 30;
+  GroupPanel.BevelOuter := bvNone;
+  GroupPanel.Caption := '';
+  GroupPanel.Color := PaletteListBackgroundColor;
+  GroupPanel.ParentColor := False;
+
+  GroupPanel := TPanel.Create(FTopPanel);
+  GroupPanel.Parent := FTopPanel;
+  GroupPanel.Left := 206;
+  GroupPanel.Top := 6;
+  GroupPanel.Width := 92;
+  GroupPanel.Height := 30;
+  GroupPanel.BevelOuter := bvNone;
+  GroupPanel.Caption := '';
+  GroupPanel.Color := PaletteListBackgroundColor;
+  GroupPanel.ParentColor := False;
+
+  GroupPanel := TPanel.Create(FTopPanel);
+  GroupPanel.Parent := FTopPanel;
+  GroupPanel.Left := 304;
+  GroupPanel.Top := 6;
+  GroupPanel.Width := 64;
+  GroupPanel.Height := 30;
+  GroupPanel.BevelOuter := bvNone;
+  GroupPanel.Caption := '';
+  GroupPanel.Color := PaletteListBackgroundColor;
+  GroupPanel.ParentColor := False;
+
+  GroupPanel := TPanel.Create(FTopPanel);
+  GroupPanel.Parent := FTopPanel;
+  GroupPanel.Left := 388;
+  GroupPanel.Top := 6;
+  GroupPanel.Width := 150;
+  GroupPanel.Height := 30;
+  GroupPanel.BevelOuter := bvNone;
+  GroupPanel.Caption := '';
+  GroupPanel.Color := PaletteListBackgroundColor;
+  GroupPanel.ParentColor := False;
+
+  Btn := CreateButton('New',   12,  8, 56, @NewDocumentClick,   FTopPanel, 0, bicCommand); Btn.Hint := 'New document (Cmd+N)';
+  Btn := CreateButton('Open',  72,  8, 58, @OpenDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Open document (Cmd+O)';
+  Btn := CreateButton('Save', 134,  8, 56, @SaveDocumentClick,  FTopPanel, 0, bicCommand); Btn.Hint := 'Save document (Cmd+S)';
+  Btn := CreateButton('Cut',  210,  8, 26, @CutClick,           FTopPanel, 0, bicCommand); Btn.Hint := 'Cut selection (Cmd+X)';
+  Btn := CreateButton('Copy', 240,  8, 26, @CopyClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Copy selection (Cmd+C)';
+  Btn := CreateButton('Paste',270,  8, 26, @PasteClick,         FTopPanel, 0, bicCommand); Btn.Hint := 'Paste (Cmd+V)';
+  Btn := CreateButton('Undo', 308,  8, 26, @UndoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Undo last action (Cmd+Z)';
+  Btn := CreateButton('Redo', 338,  8, 26, @RedoClick,          FTopPanel, 0, bicCommand); Btn.Hint := 'Redo (Cmd+Shift+Z)';
+  Btn := CreateButton('-',    392,  8, 26, @ZoomOutClick,       FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom out (Cmd+-)';
 
   FZoomCombo := TComboBox.Create(FTopPanel);
   FZoomCombo.Parent := FTopPanel;
-  FZoomCombo.Left := 318;
+  FZoomCombo.Left := 422;
   FZoomCombo.Top := 8;
   FZoomCombo.Width := 82;
   FZoomCombo.Style := csDropDownList;
   for ZoomIndex := 0 to ZoomPresetCount - 1 do
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
+  FZoomCombo.Hint := 'Zoom preset';
+  FZoomCombo.ShowHint := True;
 
-  Btn := CreateButton('+', 404, 8, 26, @ZoomInClick, FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom in';
+  Btn := CreateButton('+', 508, 8, 26, @ZoomInClick, FTopPanel, 0, bicCommand); Btn.Hint := 'Zoom in (Cmd+=)';
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
   UtilityPanel.Left := 1180;
-  UtilityPanel.Top := 8;
+  UtilityPanel.Top := 6;
   UtilityPanel.Width := 172;
-  UtilityPanel.Height := 26;
+  UtilityPanel.Height := 30;
   UtilityPanel.BevelOuter := bvNone;
   UtilityPanel.Caption := '';
-  UtilityPanel.Color := ToolbarBackgroundColor;
+  UtilityPanel.Color := PaletteListBackgroundColor;
+  UtilityPanel.ParentColor := False;
   UtilityPanel.Anchors := [akTop, akRight];
   for UtilityIndex := 0 to UtilityCommandDisplayCount - 1 do
   begin
@@ -2051,14 +2173,27 @@ begin
     UtilityButton := CreateButton(
       UtilityCommandGlyph(UtilityCommand),
       UtilityIndex * 28,
-      0,
+      2,
       26,
       @UtilityButtonClick,
       UtilityPanel,
       Ord(UtilityCommand),
       bicUtility
     );
-    UtilityButton.Hint := UtilityCommandHint(UtilityCommand);
+    FUtilityButtons[UtilityCommand] := UtilityButton;
+    if UtilityCommand in [ucTools, ucHistory, ucLayers, ucColors] then
+    begin
+      UtilityButton.Flat := False;
+      UtilityButton.GroupIndex := 20 + UtilityIndex;
+      UtilityButton.AllowAllUp := True;
+    end;
+    if UtilityCommandShortcutLabel(UtilityCommand) <> '' then
+      UtilityButton.Hint := Format(
+        '%s (%s)',
+        [UtilityCommandHint(UtilityCommand), UtilityCommandShortcutLabel(UtilityCommand)]
+      )
+    else
+      UtilityButton.Hint := UtilityCommandHint(UtilityCommand);
   end;
 
   LabelCtrl := TLabel.Create(FTopPanel);
@@ -2078,13 +2213,13 @@ begin
   begin
     ToolKind := PaintToolAtDisplayIndex(ToolIndex);
     FToolCombo.Items.AddObject(
-      PaintToolName(ToolKind),
+      PaintToolDisplayLabel(ToolKind),
       TObject(PtrInt(Ord(ToolKind)))
     );
   end;
   FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
   FToolCombo.OnChange := @ToolComboChange;
-  FToolCombo.Hint := 'Choose the active tool';
+  FToolCombo.Hint := 'Choose the active tool (single-letter shortcuts work when Command, Control, and Option are not held)';
   FToolCombo.ShowHint := True;
 
   FOptionLabel := TLabel.Create(FTopPanel);
@@ -2215,6 +2350,18 @@ begin
   FShapeStyleCombo.OnChange := @ShapeStyleComboChanged;
   FShapeStyleCombo.Hint := 'Shape draw style';
   FShapeStyleCombo.ShowHint := True;
+
+  FLineBezierCheck := TCheckBox.Create(FTopPanel);
+  FLineBezierCheck.Parent := FTopPanel;
+  FLineBezierCheck.Left := 348;
+  FLineBezierCheck.Top := 38;
+  FLineBezierCheck.Width := 100;
+  FLineBezierCheck.Caption := 'Bezier';
+  FLineBezierCheck.Checked := FLineBezierMode;
+  FLineBezierCheck.Visible := False;
+  FLineBezierCheck.OnChange := @LineBezierChanged;
+  FLineBezierCheck.Hint := 'Enable staged Bezier editing for the Line tool';
+  FLineBezierCheck.ShowHint := True;
 
   { Bucket fill mode combo: Contiguous / Global }
   FBucketModeLabel := TLabel.Create(FTopPanel);
@@ -2462,15 +2609,29 @@ begin
     ToolButton := CreateButton(
       PaintToolGlyph(ToolKind),
       8 + ColumnIndex * 46,
-      ContentTop + RowIndex * 28,
+      ContentTop + RowIndex * 29,
       40,
       @ToolButtonClick,
       FToolsPanel,
       Ord(ToolKind),
       bicTool
     );
-    ToolButton.Hint := PaintToolName(ToolKind) + ' — ' + PaintToolHint(ToolKind);
+    FToolButtons[ToolKind] := ToolButton;
+    ToolButton.Height := 29;
+    ToolButton.Flat := False;
+    ToolButton.GroupIndex := 1;
+    ToolButton.AllowAllUp := False;
+    ToolButton.Layout := blGlyphTop;
+    ToolButton.Margin := 1;
+    ToolButton.Spacing := 0;
+    ToolButton.Caption := PaintToolShortcutKey(ToolKind);
+    ToolButton.Font.Size := 6;
+    ToolButton.Hint := Format(
+      '%s — %s. %s',
+      [PaintToolDisplayLabel(ToolKind), PaintToolHint(ToolKind), PaintToolShortcutHint(ToolKind)]
+    );
   end;
+  SyncToolButtonSelection;
 
   FColorsPanel := TPanel.Create(Self);
   CreatePalette(FColorsPanel, pkColors);
@@ -2504,8 +2665,10 @@ begin
   FColorPickButton.OnColorChanged := @ColorPickButtonChanged;
   FColorPickButton.ButtonColor := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
 
-  CreateButton('Swap', 74, ContentTop, 40, @SwapColorsClick, FColorsPanel, 0, bicCommand);
-  CreateButton('Mono', 120, ContentTop, 40, @ResetColorsClick, FColorsPanel, 0, bicCommand);
+  ToolButton := CreateButton('Swap', 74, ContentTop, 40, @SwapColorsClick, FColorsPanel, 0, bicCommand);
+  ToolButton.Hint := 'Swap primary and secondary colors (X)';
+  ToolButton := CreateButton('Mono', 120, ContentTop, 40, @ResetColorsClick, FColorsPanel, 0, bicCommand);
+  ToolButton.Hint := 'Reset colors to black and white (D)';
 
   FColorsBox := TPaintBox.Create(FColorsPanel);
   FColorsBox.Parent := FColorsPanel;
@@ -2724,11 +2887,23 @@ begin
   Result.ParentFont := False;
   if TryBuildButtonGlyph(ACaption, AIconContext, Result.Glyph) then
   begin
-    Result.Caption := '';
     Result.NumGlyphs := 1;
-    Result.Margin := 4;
-    Result.Spacing := 0;
-    Result.Font.Size := 9;
+    if (AIconContext = bicCommand) and (AWidth >= 54) then
+    begin
+      Result.Caption := ACaption;
+      Result.Layout := blGlyphLeft;
+      Result.Margin := 4;
+      Result.Spacing := 4;
+      Result.Font.Size := 8;
+      Result.Flat := False;
+    end
+    else
+    begin
+      Result.Caption := '';
+      Result.Margin := 4;
+      Result.Spacing := 0;
+      Result.Font.Size := 9;
+    end;
   end
   else
   begin
@@ -3198,7 +3373,7 @@ begin
     end;
   end;
 
-  if (FCurrentTool = tkLine) and FLinePathOpen and (not FLineCurvePending) and
+  if (FCurrentTool = tkLine) and FLineBezierMode and FLinePathOpen and (not FLineCurvePending) and
      (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) then
   begin
     PreviewStrokeColor := RGBToColor(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B);
@@ -3220,7 +3395,7 @@ begin
       DrawPointHoverOverlay(ACanvas, FLastImagePoint);
   end;
 
-  if FLineCurvePending and (FCurrentTool = tkLine) then
+  if FLineBezierMode and FLineCurvePending and (FCurrentTool = tkLine) then
   begin
     PreviewStrokeColor := RGBToColor(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B);
     PreviewStrokeWidth := Min(24, Max(1, Round(Max(1, FBrushSize div 2) * FZoomScale)));
@@ -3739,9 +3914,33 @@ var
   SwatchSize: Integer;
   FrontRect: TRect;
   BackRect: TRect;
-  TileX: Integer;
-  TileY: Integer;
   TextLeft: Integer;
+  procedure PaintAlphaSwatch(const ASwatchRect: TRect; const AColor: TRGBA32);
+  var
+    TileX: Integer;
+    TileY: Integer;
+    TileColor: TRGBA32;
+    DisplayColor: TRGBA32;
+  begin
+    for TileY := Max(0, ASwatchRect.Top - 3) to Min(PB.Height - 1, ASwatchRect.Bottom + 3) do
+      for TileX := Max(0, ASwatchRect.Left - 3) to Min(PB.Width - 1, ASwatchRect.Right + 3) do
+      begin
+        if (((TileX - ASwatchRect.Left) div TileSize) + ((TileY - ASwatchRect.Top) div TileSize)) mod 2 = 0 then
+          TileColor := RGBA(236, 238, 242, 255)
+        else
+          TileColor := RGBA(214, 217, 223, 255);
+        if (TileX >= ASwatchRect.Left) and (TileX < ASwatchRect.Right) and
+           (TileY >= ASwatchRect.Top) and (TileY < ASwatchRect.Bottom) then
+          DisplayColor := BlendNormal(AColor, TileColor, 255)
+        else
+          DisplayColor := TileColor;
+        C.Pixels[TileX, TileY] := RGBToColor(DisplayColor.R, DisplayColor.G, DisplayColor.B);
+      end;
+    C.Brush.Style := bsClear;
+    C.Pen.Color := ChromeDividerColor;
+    C.Rectangle(ASwatchRect.Left, ASwatchRect.Top, ASwatchRect.Right, ASwatchRect.Bottom);
+    C.Brush.Style := bsSolid;
+  end;
 begin
   if not Assigned(Sender) then
     Exit;
@@ -3765,30 +3964,8 @@ begin
     SwatchMargin + SwatchSize
   );
 
-  for TileY := Max(0, BackRect.Top - 3) to Min(PB.Height - 1, BackRect.Bottom + 3) do
-    for TileX := Max(0, BackRect.Left - 3) to Min(PB.Width - 1, BackRect.Right + 3) do
-    begin
-      if (((TileX - BackRect.Left) div TileSize) + ((TileY - BackRect.Top) div TileSize)) mod 2 = 0 then
-        C.Pixels[TileX, TileY] := RGBToColor(236, 238, 242)
-      else
-        C.Pixels[TileX, TileY] := RGBToColor(214, 217, 223);
-    end;
-  for TileY := Max(0, FrontRect.Top - 3) to Min(PB.Height - 1, FrontRect.Bottom + 3) do
-    for TileX := Max(0, FrontRect.Left - 3) to Min(PB.Width - 1, FrontRect.Right + 3) do
-    begin
-      if (((TileX - FrontRect.Left) div TileSize) + ((TileY - FrontRect.Top) div TileSize)) mod 2 = 0 then
-        C.Pixels[TileX, TileY] := RGBToColor(236, 238, 242)
-      else
-        C.Pixels[TileX, TileY] := RGBToColor(214, 217, 223);
-    end;
-
-  C.Brush.Color := RGBToColor(FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B);
-  C.Pen.Color := ChromeDividerColor;
-  C.Rectangle(BackRect.Left, BackRect.Top, BackRect.Right, BackRect.Bottom);
-
-  C.Brush.Color := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
-  C.Pen.Color := ChromeDividerColor;
-  C.Rectangle(FrontRect.Left, FrontRect.Top, FrontRect.Right, FrontRect.Bottom);
+  PaintAlphaSwatch(BackRect, FSecondaryColor);
+  PaintAlphaSwatch(FrontRect, FPrimaryColor);
 
   C.Brush.Style := bsClear;
   C.Pen.Width := 2;
@@ -3871,14 +4048,14 @@ begin
       Byte(PickedColor and $FF),
       Byte((PickedColor shr 8) and $FF),
       Byte((PickedColor shr 16) and $FF),
-      FPrimaryColor.A
+      255
     )
   else
     FSecondaryColor := RGBA(
       Byte(PickedColor and $FF),
       Byte((PickedColor shr 8) and $FF),
       Byte((PickedColor shr 16) and $FF),
-      FSecondaryColor.A
+      255
     );
   RefreshColorsPanel;
 end;
@@ -4656,6 +4833,7 @@ begin
     PaletteHost := PaletteControl(PaletteKind);
     FPaletteViewItems[PaletteKind].Checked := Assigned(PaletteHost) and PaletteHost.Visible;
   end;
+  SyncUtilityButtonStates;
 end;
 
 procedure TMainForm.RestorePaletteLayout;
@@ -4709,7 +4887,10 @@ procedure TMainForm.CreatePaletteHeader(ATarget: TPanel; AKind: TPaletteKind);
 var
   HeaderPanel: TPanel;
   TitleLabel: TLabel;
+  GlyphLabel: TLabel;
+  ShortcutLabel: TLabel;
   CloseButton: TSpeedButton;
+  HeaderGlyph: string;
 begin
   HeaderPanel := TPanel.Create(ATarget);
   HeaderPanel.Parent := ATarget;
@@ -4723,13 +4904,62 @@ begin
   HeaderPanel.OnMouseMove := @PaletteMouseMove;
   HeaderPanel.OnMouseUp := @PaletteMouseUp;
 
+  case AKind of
+    pkTools:
+      HeaderGlyph := UtilityCommandGlyph(ucTools);
+    pkColors:
+      HeaderGlyph := UtilityCommandGlyph(ucColors);
+    pkHistory:
+      HeaderGlyph := UtilityCommandGlyph(ucHistory);
+    pkLayers:
+      HeaderGlyph := UtilityCommandGlyph(ucLayers);
+  else
+    HeaderGlyph := '';
+  end;
+
+  GlyphLabel := TLabel.Create(HeaderPanel);
+  GlyphLabel.Parent := HeaderPanel;
+  GlyphLabel.Caption := HeaderGlyph;
+  GlyphLabel.Left := 8;
+  GlyphLabel.Top := 4;
+  GlyphLabel.Font.Color := ChromeMutedTextColor;
+  GlyphLabel.Font.Size := 9;
+  GlyphLabel.Transparent := True;
+  GlyphLabel.OnMouseDown := @PaletteMouseDown;
+  GlyphLabel.OnMouseMove := @PaletteMouseMove;
+  GlyphLabel.OnMouseUp := @PaletteMouseUp;
+
   TitleLabel := TLabel.Create(HeaderPanel);
   TitleLabel.Parent := HeaderPanel;
   TitleLabel.Caption := PaletteTitle(AKind);
-  TitleLabel.Left := 8;
+  TitleLabel.Left := 22;
   TitleLabel.Top := 4;
+  TitleLabel.Width := Max(24, ATarget.Width - 56);
+  TitleLabel.AutoSize := False;
+  TitleLabel.Anchors := [akLeft, akTop, akRight];
+  TitleLabel.Transparent := True;
   TitleLabel.Font.Color := ChromeTextColor;
   TitleLabel.Font.Style := [fsBold];
+  TitleLabel.OnMouseDown := @PaletteMouseDown;
+  TitleLabel.OnMouseMove := @PaletteMouseMove;
+  TitleLabel.OnMouseUp := @PaletteMouseUp;
+
+  ShortcutLabel := TLabel.Create(HeaderPanel);
+  ShortcutLabel.Parent := HeaderPanel;
+  ShortcutLabel.Caption := PaletteShortcutDigit(AKind);
+  ShortcutLabel.Left := ATarget.Width - 42;
+  ShortcutLabel.Top := 5;
+  ShortcutLabel.Width := 10;
+  ShortcutLabel.Height := 12;
+  ShortcutLabel.AutoSize := False;
+  ShortcutLabel.Alignment := taCenter;
+  ShortcutLabel.Anchors := [akTop, akRight];
+  ShortcutLabel.Transparent := True;
+  ShortcutLabel.Font.Color := ChromeMutedTextColor;
+  ShortcutLabel.Font.Size := 7;
+  ShortcutLabel.OnMouseDown := @PaletteMouseDown;
+  ShortcutLabel.OnMouseMove := @PaletteMouseMove;
+  ShortcutLabel.OnMouseUp := @PaletteMouseUp;
 
   CloseButton := CreateButton(
     'X',
@@ -4743,7 +4973,10 @@ begin
   );
   CloseButton.Height := 18;
   CloseButton.Anchors := [akTop, akRight];
-  CloseButton.Hint := 'Close ' + PaletteTitle(AKind) + ' palette';
+  CloseButton.Hint := Format(
+    'Close %s palette (%s toggles it)',
+    [PaletteTitle(AKind), PaletteShortcutLabel(AKind)]
+  );
 end;
 
 procedure TMainForm.CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
@@ -5201,6 +5434,7 @@ var
   DestY: Integer;
   SourceX: Integer;
   SourceY: Integer;
+  PickedColor: TRGBA32;
 begin
   if FDocument.HasSelection then
     PaintSelection := FDocument.Selection
@@ -5233,25 +5467,23 @@ begin
       );
     tkEraser:
       if FEraserSquareShape then
-        FDocument.ActiveLayer.Surface.DrawSquareLine(
+        FDocument.ActiveLayer.Surface.EraseSquareLine(
           FLastImagePoint.X,
           FLastImagePoint.Y,
           APoint.X,
           APoint.Y,
           Max(1, FBrushSize div 2),
-          ActivePaintColor,
           FBrushOpacity * 255 div 100,
           FBrushHardness * 255 div 100,
           PaintSelection
         )
       else
-        FDocument.ActiveLayer.Surface.DrawLine(
+        FDocument.ActiveLayer.Surface.EraseLine(
           FLastImagePoint.X,
           FLastImagePoint.Y,
           APoint.X,
           APoint.Y,
           Max(1, FBrushSize div 2),
-          ActivePaintColor,
           FBrushOpacity * 255 div 100,
           FBrushHardness * 255 div 100,
           PaintSelection
@@ -5293,15 +5525,13 @@ begin
       end;
     tkColorPicker:
       begin
+        PickedColor := ColorForActiveTarget(FPickSecondaryTarget);
         if FPickerSampleSource = 1 then
         begin
           { Sample from composite image }
           CompositeSurface := FDocument.Composite;
           try
-            if FPickSecondaryTarget then
-              FSecondaryColor := CompositeSurface[APoint.X, APoint.Y]
-            else
-              FPrimaryColor := CompositeSurface[APoint.X, APoint.Y];
+            PickedColor := CompositeSurface[APoint.X, APoint.Y];
           finally
             CompositeSurface.Free;
           end;
@@ -5310,13 +5540,12 @@ begin
         begin
           { Sample from current layer only }
           if FDocument.ActiveLayer.Surface.InBounds(APoint.X, APoint.Y) then
-          begin
-            if FPickSecondaryTarget then
-              FSecondaryColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y]
-            else
-              FPrimaryColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y];
-          end;
+            PickedColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y];
         end;
+        if FPickSecondaryTarget then
+          FSecondaryColor := RGBA(PickedColor.R, PickedColor.G, PickedColor.B, FSecondaryColor.A)
+        else
+          FPrimaryColor := RGBA(PickedColor.R, PickedColor.G, PickedColor.B, FPrimaryColor.A);
       end;
     tkRecolor:
       FDocument.ActiveLayer.Surface.RecolorBrush(
@@ -6383,24 +6612,21 @@ procedure TMainForm.DeselectClick(Sender: TObject);
 begin
   FDocument.PushHistory('Deselect');
   FDocument.Deselect;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncSelectionOverlayUI(True);
 end;
 
 procedure TMainForm.SelectAllClick(Sender: TObject);
 begin
   FDocument.PushHistory('Select All');
   FDocument.SelectAll;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncSelectionOverlayUI(True);
 end;
 
 procedure TMainForm.InvertSelectionClick(Sender: TObject);
 begin
   FDocument.PushHistory('Invert Selection');
   FDocument.InvertSelection;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncSelectionOverlayUI(True);
 end;
 
 procedure TMainForm.FillSelectionClick(Sender: TObject);
@@ -7016,9 +7242,7 @@ begin
   begin
     FDocument.PushHistory('Reorder Layer');
     FDocument.MoveLayer(FLayerDragIndex, DropIndex);
-    SetDirty(True);
-    RefreshLayers;
-    RefreshCanvas;
+    SyncImageMutationUI(True, True);
   end;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
@@ -7115,7 +7339,7 @@ begin
     Exit;
   end;
 
-  if (FCurrentTool = tkLine) and (FLineCurvePending or FLinePathOpen) then
+  if (FCurrentTool = tkLine) and FLineBezierMode and (FLineCurvePending or FLinePathOpen) then
     case Key of
       VK_ESCAPE:
         begin
@@ -7350,7 +7574,10 @@ begin
   { Only override combo-selected mode when modifier keys are held }
   if (ssShift in Shift) or (ssAlt in Shift) then
     FPendingSelectionMode := SelectionModeFromShift(Shift);
+  FPointerButton := Button;
   FPointerDown := True;
+  if Assigned(FPaintBox) then
+    FPaintBox.MouseCapture := True;
 
   case FCurrentTool of
     tkPencil, tkBrush, tkEraser:
@@ -7367,6 +7594,8 @@ begin
         if FDocument.HasSelection and not FDocument.Selection[ImagePoint.X, ImagePoint.Y] then
         begin
           FPointerDown := False;
+          if Assigned(FPaintBox) then
+            FPaintBox.MouseCapture := False;
           RefreshStatus(ImagePoint);
           Exit;
         end;
@@ -7392,8 +7621,7 @@ begin
         FDocument.PushHistory('Magic Wand');
         FDocument.SelectMagicWand(ImagePoint.X, ImagePoint.Y, EnsureRange(FWandTolerance, 0, 255), FPendingSelectionMode, FWandSampleSource = 1, FWandContiguous);
         ApplySelectionFeather;
-        SetDirty(True);
-        RefreshCanvas;
+        SyncSelectionOverlayUI(True);
         FPointerDown := False;
       end;
     tkText:
@@ -7424,7 +7652,10 @@ begin
           FCloneStampSnapshot := FDocument.ActiveLayer.Surface.Clone;
           FPointerDown := False;
           if Assigned(FPaintBox) then
+          begin
+            FPaintBox.MouseCapture := False;
             FPaintBox.Invalidate;
+          end;
         end
         else if FCloneStampSampled then
         begin
@@ -7495,6 +7726,8 @@ begin
           FDocument.PushHistory(PaintToolName(FCurrentTool));
       end;
   end;
+  if Assigned(FPaintBox) then
+    FPaintBox.MouseCapture := FPointerDown;
 end;
 
 procedure TMainForm.PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
@@ -7502,11 +7735,26 @@ var
   ImagePoint: TPoint;
   DeltaX: Integer;
   DeltaY: Integer;
+  ButtonStillDown: Boolean;
 begin
   ImagePoint := CanvasToImage(X, Y);
   DeltaX := ImagePoint.X - FLastImagePoint.X;
   DeltaY := ImagePoint.Y - FLastImagePoint.Y;
   if FPointerDown then
+  begin
+    case FPointerButton of
+      mbRight:
+        ButtonStillDown := ssRight in Shift;
+      mbMiddle:
+        ButtonStillDown := ssMiddle in Shift;
+    else
+      ButtonStillDown := ssLeft in Shift;
+    end;
+    if not ButtonStillDown then
+    begin
+      PaintBoxMouseUp(Sender, FPointerButton, Shift, X, Y);
+      Exit;
+    end;
     case FCurrentTool of
       tkPencil, tkBrush, tkEraser:
         begin
@@ -7542,16 +7790,14 @@ begin
         begin
           FDocument.MoveSelectionBy(DeltaX, DeltaY);
           FLastImagePoint := ImagePoint;
-          SetDirty(True);
-          RefreshCanvas;
+          SyncSelectionOverlayUI(True);
         end;
       tkMovePixels:
         if (DeltaX <> 0) or (DeltaY <> 0) then
         begin
           FDocument.MoveSelectedPixelsBy(DeltaX, DeltaY);
           FLastImagePoint := ImagePoint;
-          SetDirty(True);
-          RefreshCanvas;
+          SyncSelectionOverlayUI(True);
         end;
       tkSelectLasso, tkFreeformShape:
         begin
@@ -7580,7 +7826,8 @@ begin
           RefreshCanvas;
         end;
     end;
-  if (not FPointerDown) and (FCurrentTool = tkLine) and FLineCurvePending then
+  end;
+  if (not FPointerDown) and (FCurrentTool = tkLine) and FLineBezierMode and FLineCurvePending then
   begin
     if FLineCurveSecondStage then
       FLineCurveControlPoint2 := ImagePoint
@@ -7592,7 +7839,7 @@ begin
   if (not FPointerDown) and Assigned(FPaintBox) and
      (
        PaintToolHasCanvasHoverOverlay(FCurrentTool) or
-       ((FCurrentTool = tkLine) and (FLineCurvePending or FLinePathOpen))
+       ((FCurrentTool = tkLine) and FLineBezierMode and (FLineCurvePending or FLinePathOpen))
      ) then
     FPaintBox.Invalidate;
   RefreshStatus(ImagePoint);
@@ -7603,10 +7850,16 @@ var
   ImagePoint: TPoint;
 begin
   if not FPointerDown then
+  begin
+    if Assigned(FPaintBox) then
+      FPaintBox.MouseCapture := False;
     Exit;
+  end;
   if Button = mbMiddle then
     DeactivateTempPan;
   FPointerDown := False;
+  if Assigned(FPaintBox) then
+    FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
   if Assigned(FPreStrokeSnapshot) then
     CommitStrokeHistory(PaintToolName(FCurrentTool));
@@ -7617,13 +7870,8 @@ begin
   begin
     if not FLineCurvePending then
     begin
-      if (ImagePoint.X = FDragStart.X) and (ImagePoint.Y = FDragStart.Y) then
-      begin
-        FDocument.PushHistory(PaintToolName(FCurrentTool));
-        CommitShapeTool(FDragStart, ImagePoint);
-        SyncImageMutationUI(False, True);
-      end
-      else
+      if FLineBezierMode and
+         ((ImagePoint.X <> FDragStart.X) or (ImagePoint.Y <> FDragStart.Y)) then
       begin
         FLinePathOpen := False;
         FLineCurvePending := True;
@@ -7634,9 +7882,17 @@ begin
           (FDragStart.Y + ImagePoint.Y) div 2
         );
         FLineCurveControlPoint2 := FLineCurveControlPoint;
+        RefreshCanvas;
+      end
+      else
+      begin
+        FDocument.PushHistory(PaintToolName(FCurrentTool));
+        CommitShapeTool(FDragStart, ImagePoint);
+        SyncImageMutationUI(False, True);
       end;
-      RefreshCanvas;
     end;
+    RefreshStatus(ImagePoint);
+    Exit;
   end;
   if FCurrentTool in [tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape] then
   begin
@@ -7677,16 +7933,14 @@ begin
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     FDocument.SelectRectangle(FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FPendingSelectionMode);
     ApplySelectionFeather;
-    SetDirty(True);
-    RefreshCanvas;
+    SyncSelectionOverlayUI(True);
   end;
   if FCurrentTool = tkSelectEllipse then
   begin
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     FDocument.SelectEllipse(FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FPendingSelectionMode);
     ApplySelectionFeather;
-    SetDirty(True);
-    RefreshCanvas;
+    SyncSelectionOverlayUI(True);
   end;
   if FCurrentTool = tkSelectLasso then
   begin
@@ -7695,8 +7949,12 @@ begin
     FDocument.SelectLasso(FLassoPoints, FPendingSelectionMode);
     ApplySelectionFeather;
     SetLength(FLassoPoints, 0);
-    SetDirty(True);
-    RefreshCanvas;
+    SyncSelectionOverlayUI(True);
+  end;
+  if FCurrentTool = tkMovePixels then
+  begin
+    RefreshTabCardVisuals(FActiveTabIndex);
+    RefreshAuxiliaryImageViews(True);
   end;
   RefreshStatus(ImagePoint);
 end;
@@ -9399,6 +9657,16 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FShapeStyleCombo) then Exit;
   FShapeStyle := FShapeStyleCombo.ItemIndex;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.LineBezierChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FLineBezierCheck) then Exit;
+  FLineBezierMode := FLineBezierCheck.Checked;
+  if not FLineBezierMode then
+    ResetLineCurveState;
   RefreshCanvas;
 end;
 

@@ -12,6 +12,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (UI labels can accidentally break drag affordances)
+- Problem: adding more visible metadata to panel chrome can quietly break interaction if the new label controls sit on top of the original drag surface and stop forwarding pointer events.
+- Core error: palette headers rely on shared mouse handlers for drag movement, but newly added title-bar labels are separate controls and can intercept the mouse by default.
+- Investigation: while extending palette headers with visible glyphs and shortcut badges, re-checked `CreatePaletteHeader(...)` and compared it against the existing drag wiring on the header panel itself.
+- Root cause: decorative controls inside a draggable region are still interactive controls; unless they explicitly forward events, they can create "dead" zones in what used to be a continuous drag surface.
+- Fix: the new glyph, title, and shortcut labels in palette headers now forward `OnMouseDown` / `OnMouseMove` / `OnMouseUp` to the same palette drag handlers as the header panel.
+- Reuse note: any time visible chrome is added inside a draggable title region, treat hit-testing as part of the feature, not as a post-polish detail.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (tool state is part of UI truth, not optional chrome)
+- Problem: even when tool switching worked internally, the visible tool palette could still look inert because the buttons did not clearly show which tool was active and the shortcut surface stayed hidden in docs/tooltips.
+- Core error: tool state had been treated as a logic concern (`FCurrentTool`, combo selection, keyboard routing) instead of a visible product concern, so the palette grid itself lagged behind the actual interaction state.
+- Investigation: re-read the tool-switch paths (`ToolButtonClick`, combo changes, single-key shortcuts, temporary pan) and confirmed they all updated `FCurrentTool`, but the visible tool buttons were not kept as a synchronized UI state surface.
+- Root cause: the palette buttons were created as anonymous controls without a shared selection-sync path or shared shortcut metadata, so the UI had no explicit contract for reflecting the active tool.
+- Fix: added shared tool-shortcut helpers, stored tool-button references, synchronized button `Down` state through a dedicated `SyncToolButtonSelection`, surfaced shortcut badges on the buttons and combo labels, and extended the same idea to utility palette toggles.
+- Reuse note: if a control is the user's primary affordance for mode changes, its selected state and shortcut affordance are part of feature completeness; keeping that metadata only in internal state or docs is not enough.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (selection overlays are part of the cached canvas, so selection changes need cache invalidation too)
+- Problem: several selection-family interactions could succeed logically and still look broken because the marquee or moved pixels would not visibly update until some later unrelated repaint happened.
+- Core error: the prepared canvas bitmap already includes the composited image plus the selection outline, but some selection mutations were still treating `RefreshCanvas` as sufficient without first invalidating that cached bitmap.
+- Investigation: re-audited `BuildDisplaySurface(...)` and confirmed the selection outline is rendered into the same cached display surface as the image, then traced selection commands and tool gestures that still only did `SetDirty(True); RefreshCanvas;`.
+- Root cause: selection state had been mentally treated as "overlay-only UI state", while the actual render path bakes it into the cached display bitmap, making cache invalidation mandatory for visible correctness.
+- Fix: added a shared `SyncSelectionOverlayUI(...)` path and routed selection-only commands, wand picks, selection commits, move-selection drags, and move-selected-pixels drags through it.
+- Reuse note: when a UI overlay is baked into a cached composite, any mutation of that overlay must follow the same invalidation discipline as pixel edits; otherwise "state changed" and "what the user sees" will diverge.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (interactive helpers can bypass the standard mutation-sync path)
+- Problem: some live interaction helpers were still mutating pixels or document order correctly but not refreshing all the same visible surfaces that the primary command handlers already kept in sync.
+- Core error: helper methods like staged line-segment commit and layer-list drag reorder were outside the usual menu-command flow, so they were easier to leave on older partial refresh code paths.
+- Investigation: after the main command handlers were already on `SyncImageMutationUI(...)`, re-scanned the remaining gesture helpers and found `CommitPendingLineSegment(...)` and layer drag reorder still using older manual refresh tails.
+- Root cause: central command handlers had been normalized first, while secondary interactive helpers kept legacy refresh snippets that no longer matched the main UI contract.
+- Fix: staged line-segment commit now invalidates the prepared bitmap and refreshes tab previews before the next paint, and layer drag reorder now uses `SyncImageMutationUI(True, True)` instead of a partial manual refresh.
+- Reuse note: after introducing a shared post-mutation UI helper, explicitly audit non-menu helper paths too; the hard bugs tend to survive in gesture-specific helpers, not in the obvious command handlers.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (recolor tolerance silently corrupts magic wand tolerance when switching tools)
 - Problem: changing the tolerance spin while `Recolor` was active would silently overwrite the `Magic Wand` tolerance, and vice versa, because both tools wrote into the same `FWandTolerance` field.
 - Core error: the tolerance spin's change handler and the `UpdateToolOptionControl` display path both used `FWandTolerance` regardless of whether the active tool was Recolor or Magic Wand.

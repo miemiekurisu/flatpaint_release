@@ -18,6 +18,8 @@ type
     procedure FreeformShapeAppearsAfterBasicShapes;
     procedure ToolMetadataIsCompleteForDisplayOrder;
     procedure ToolGlyphsStayCompact;
+    procedure ToolShortcutMetadataStaysAssigned;
+    procedure ToolDisplayLabelsExposeShortcutHints;
     procedure CropTextCloneRecolorAppearInDisplayOrder;
     procedure TotalDisplayCountIsCorrect;
     procedure UtilityGlyphsStayCompact;
@@ -27,8 +29,8 @@ type
     procedure ShortcutSingleKeyMaps;
     procedure AdvancedToolsAdvertiseCanvasHoverFeedback;
     procedure BrushOverlayClassificationStaysFocused;
-    procedure LineToolHintMentionsTwoHandleCurve;
-    procedure LineToolHintMentionsPathChaining;
+    procedure LineToolHintMentionsStraightByDefault;
+    procedure LineToolHintMentionsOptionalBezier;
     procedure TextToolHintMentionsInlineEditing;
     procedure ColorShortcutTogglesTarget;
     procedure LayerOpacityHelpersRoundTripPercentScale;
@@ -222,6 +224,36 @@ begin
   AssertTrue('zoom glyph should no longer use text label', PaintToolGlyph(tkZoom) <> 'Zoom');
 end;
 
+procedure TFPUIHelpersTests.ToolShortcutMetadataStaysAssigned;
+begin
+  AssertEquals('selection tools should share S', 'S', PaintToolShortcutKey(tkSelectRect));
+  AssertEquals('move tools should share M', 'M', PaintToolShortcutKey(tkMoveSelection));
+  AssertEquals('brush should keep B', 'B', PaintToolShortcutKey(tkBrush));
+  AssertEquals('text should keep T', 'T', PaintToolShortcutKey(tkText));
+  AssertEquals('crop intentionally has no bare-key shortcut', '', PaintToolShortcutKey(tkCrop));
+  AssertTrue(
+    'shape family should advertise cycling in shortcut hint',
+    Pos('cycle', LowerCase(PaintToolShortcutHint(tkLine))) > 0
+  );
+end;
+
+procedure TFPUIHelpersTests.ToolDisplayLabelsExposeShortcutHints;
+begin
+  AssertTrue(
+    'brush label should expose its shortcut',
+    Pos('(B)', PaintToolDisplayLabel(tkBrush)) > 0
+  );
+  AssertTrue(
+    'selection label should expose its shortcut',
+    Pos('(S)', PaintToolDisplayLabel(tkSelectRect)) > 0
+  );
+  AssertEquals(
+    'crop label should stay clean when no shortcut exists',
+    'Crop',
+    PaintToolDisplayLabel(tkCrop)
+  );
+end;
+
 procedure TFPUIHelpersTests.CropTextCloneRecolorAppearInDisplayOrder;
 begin
   AssertTrue('crop has display index', PaintToolDisplayIndex(tkCrop) >= 0);
@@ -360,19 +392,19 @@ begin
   AssertFalse('text should not use brush overlay', PaintToolUsesBrushOverlay(tkText));
 end;
 
-procedure TFPUIHelpersTests.LineToolHintMentionsTwoHandleCurve;
+procedure TFPUIHelpersTests.LineToolHintMentionsStraightByDefault;
 begin
   AssertTrue(
-    'line hint should mention handle staging',
-    Pos('handle', LowerCase(PaintToolHint(tkLine))) > 0
+    'line hint should mention straight-line default behavior',
+    Pos('straight', LowerCase(PaintToolHint(tkLine))) > 0
   );
 end;
 
-procedure TFPUIHelpersTests.LineToolHintMentionsPathChaining;
+procedure TFPUIHelpersTests.LineToolHintMentionsOptionalBezier;
 begin
   AssertTrue(
-    'line hint should mention path chaining',
-    Pos('chain', LowerCase(PaintToolHint(tkLine))) > 0
+    'line hint should mention the optional Bezier mode',
+    Pos('bezier', LowerCase(PaintToolHint(tkLine))) > 0
   );
 end;
 

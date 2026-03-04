@@ -15,6 +15,7 @@ type
     procedure DefaultPaletteRectsDoNotOverlap;
     procedure WorkspaceAwareDefaultRectsStaySeparated;
     procedure PaletteShortcutsFollowShortcutPolicy;
+    procedure PaletteShortcutLabelsStayReadable;
     procedure PaletteChromeMetricsStayCompact;
     procedure LightThemeUsesBrightMacOSChrome;
     procedure ChromeAccentBandsStayDistinct;
@@ -114,6 +115,14 @@ begin
   AssertEquals('colors shortcut', '2', PaletteShortcutDigit(pkColors));
   AssertEquals('layers shortcut', '3', PaletteShortcutDigit(pkLayers));
   AssertEquals('history shortcut', '4', PaletteShortcutDigit(pkHistory));
+end;
+
+procedure TFPPaletteHelpersTests.PaletteShortcutLabelsStayReadable;
+begin
+  AssertEquals('tools label', 'Cmd+1', PaletteShortcutLabel(pkTools));
+  AssertEquals('colors label', 'Cmd+2', PaletteShortcutLabel(pkColors));
+  AssertEquals('layers label', 'Cmd+3', PaletteShortcutLabel(pkLayers));
+  AssertEquals('history label', 'Cmd+4', PaletteShortcutLabel(pkHistory));
 end;
 
 procedure TFPPaletteHelpersTests.PaletteChromeMetricsStayCompact;
