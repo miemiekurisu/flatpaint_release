@@ -1,5 +1,17 @@
 # Development Progress Log
 
+## 2026-03-04 (tool-control logic audit + tolerance isolation pass)
+
+- This pass maps primarily to the `Tool/Config Options`, `Paint tools`, `Selection tools`, and `Draw tools` rows in `docs/FEATURE_MATRIX.md`.
+- This was a code-vs-docs audit pass, not an additive feature pass. The goal was to read through the tool options control logic in `mainform.pas`, cross-reference with `docs/TOOL_OPTIONS_BASELINE.md`, and fix any logic errors that had accumulated across interleaved tool-option additions.
+- **Recolor tolerance was sharing `FWandTolerance` with Magic Wand.** Switching between the two tools silently overwrote the other's tolerance value because the tolerance spin's change handler wrote into the same field regardless of tool. Added a dedicated `FRecolorTolerance` field, initialized it independently (default 32), and rerouted `UpdateToolOptionControl`, `FillTolSpinChanged`, and `ApplyImmediateTool` so each tool owns its own tolerance state.
+- **`SelAntiAliasChanged` did not sync the Feather spin's `Enabled` state.** Unchecking Anti-alias left the Feather spin visually enabled, which could mislead users into thinking feathering was still active. The handler now sets `FSelFeatherSpin.Enabled := FSelAntiAlias` immediately after toggling.
+- **Recolor and Clone Stamp mouse-move paths called `SetDirty(True)` instead of `InvalidatePreparedBitmap`.** Every pixel of a drag stroke triggered `UpdateCaption` + `RefreshTabStrip` + `RefreshTabCardVisuals`, causing unnecessary full-strip churn during continuous painting. Changed both handlers to match the Pencil/Brush/Eraser pattern: `InvalidatePreparedBitmap` during drag, `SetDirty(True)` only on mouse-down.
+- **`CommitPendingLineSegment` did not refresh layer thumbnails.** After committing each Bézier segment in a multi-segment line path, the Layers palette thumbnails stayed stale until the next unrelated refresh. Added `RefreshAuxiliaryImageViews(False)` at the end of the commit path.
+- No new features or new tests were added in this pass — the existing 198 tests already cover the affected tool paths, and all pass cleanly after the fixes.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **198 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the tool-options surface is now internally cleaner; there are no more known shared-state bugs between tools, and the mouse-move performance path for Recolor/CloneStamp is no longer doing unnecessary tab-strip work during every stroke pixel.
+
 ## 2026-03-04 (pencil first-dab visibility + iconography extension pass)
 
 - This pass maps primarily to the `Paint tools`, `Command surface parity`, and `Iconography` rows in `docs/FEATURE_MATRIX.md`.

@@ -1,5 +1,11 @@
 # Test Log
 
+## 2026-03-04 (tool-control logic audit + tolerance isolation pass)
+- Full CI verification after separating Recolor tolerance from Magic Wand tolerance, syncing Feather spin enabled state on Anti-alias toggle, aligning Recolor/CloneStamp mouse-move to lightweight cache-invalidation instead of full SetDirty, and adding layer thumbnail refresh after line segment commit: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 198 tests, 0 errors, 0 failures
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-04 (pencil first-dab visibility + iconography extension pass)
 - Full CI verification after invalidating the prepared display bitmap on the initial mouse-down mutation path for the live paint tools and extending shared glyph coverage to Colors actions plus palette close buttons: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 198 tests, 0 errors, 0 failures, including the expanded `TFPIconHelpersTests` coverage for `Swap`, `Mono`, and shared close-button glyph support

@@ -231,6 +231,8 @@ type
     FRecolorPreserveValueCheck: TCheckBox;
     FCloneAlignedOffset: TPoint;
     FCloneAlignedOffsetValid: Boolean;
+    { Recolor tool tolerance (separate from FWandTolerance) }
+    FRecolorTolerance: Integer;
     { Fill sample source: 0=Current Layer, 1=All Layers }
     FFillSampleSource: Integer;
     { Color picker sample source: 0=Current Layer, 1=All Layers }
@@ -680,6 +682,7 @@ begin
   FGradientReverse := False;
   FCloneAligned := True;
   FRecolorPreserveValue := True;
+  FRecolorTolerance := 32;
   FCloneAlignedOffset := Point(0, 0);
   FCloneAlignedOffsetValid := False;
   FPickerSampleSource := 0;
@@ -788,6 +791,7 @@ begin
   FGradientReverse := False;
   FCloneAligned := True;
   FRecolorPreserveValue := True;
+  FRecolorTolerance := 32;
   FCloneAlignedOffset := Point(0, 0);
   FCloneAlignedOffsetValid := False;
   FPickerSampleSource := 0;
@@ -1351,6 +1355,7 @@ begin
   FLastImagePoint := FDragStart;
   ResetLineCurveSegmentState;
   FLinePathOpen := AContinuePath;
+  RefreshAuxiliaryImageViews(False);
 end;
 
 procedure TMainForm.ApplySelectionFeather;
@@ -1640,7 +1645,7 @@ begin
       begin
         FFillTolLabel.Left := 480;
         FFillTolSpin.Left := 552;
-        FFillTolSpin.Value := FWandTolerance
+        FFillTolSpin.Value := FRecolorTolerance
       end
       else
       begin
@@ -5320,7 +5325,7 @@ begin
         Max(1, FBrushSize div 2),
         ColorForActiveTarget(not FPickSecondaryTarget),
         ActivePaintColor,
-        EnsureRange(FWandTolerance, 0, 255),
+        EnsureRange(FRecolorTolerance, 0, 255),
         FBrushOpacity * 255 div 100,
         FRecolorPreserveValue,
         PaintSelection
@@ -7563,7 +7568,7 @@ begin
         begin
           ApplyImmediateTool(ImagePoint);
           ExpandStrokeDirty(ImagePoint);
-          SetDirty(True);
+          InvalidatePreparedBitmap;
           RefreshCanvas;
         end;
       tkCloneStamp:
@@ -7571,7 +7576,7 @@ begin
         begin
           ApplyImmediateTool(ImagePoint);
           ExpandStrokeDirty(ImagePoint);
-          SetDirty(True);
+          InvalidatePreparedBitmap;
           RefreshCanvas;
         end;
     end;
@@ -9435,7 +9440,7 @@ begin
   if not Assigned(FFillTolSpin) then Exit;
   case FCurrentTool of
     tkRecolor:
-      FWandTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
+      FRecolorTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
   else
     FFillTolerance := EnsureRange(FFillTolSpin.Value, 0, 255);
   end;
@@ -9489,6 +9494,8 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FSelAntiAliasCheck) then Exit;
   FSelAntiAlias := FSelAntiAliasCheck.Checked;
+  if Assigned(FSelFeatherSpin) then
+    FSelFeatherSpin.Enabled := FSelAntiAlias;
   RefreshCanvas;
 end;
 

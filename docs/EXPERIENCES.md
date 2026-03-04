@@ -12,6 +12,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (recolor tolerance silently corrupts magic wand tolerance when switching tools)
+- Problem: changing the tolerance spin while `Recolor` was active would silently overwrite the `Magic Wand` tolerance, and vice versa, because both tools wrote into the same `FWandTolerance` field.
+- Core error: the tolerance spin's change handler and the `UpdateToolOptionControl` display path both used `FWandTolerance` regardless of whether the active tool was Recolor or Magic Wand.
+- Investigation: traced `FillTolSpinChanged` and `UpdateToolOptionControl`; found `FFillTolSpin.Value := FWandTolerance` for Recolor read-back and `FWandTolerance := ...` for Recolor write-back, confirming the shared-field bug.
+- Root cause: when the tolerance spin was generalized across tools, the Recolor path was grafted onto the existing Magic Wand field instead of introducing a dedicated backing field.
+- Fix: added `FRecolorTolerance` as a separate field, initialized to 32 (same default as wand), and rerouted `UpdateToolOptionControl`, `FillTolSpinChanged`, and `ApplyImmediateTool` to use `FRecolorTolerance` when the active tool is `tkRecolor`.
+- Reuse note: when multiple tools share one visible spin control, each tool must still own its own backing field; using one field for "whichever tool is active" silently corrupts the dormant tool's value when the user switches.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (anti-alias toggle does not disable the dependent feather spin)
+- Problem: unchecking the `Anti-alias` checkbox for selection tools left the `Feather` spin visually enabled, making it look like feathering was still available when it was not.
+- Core error: `SelAntiAliasChanged` wrote the boolean state but did not propagate the enabled/disabled state to the dependent control.
+- Investigation: compared `UpdateToolOptionControl` (which correctly sets `FSelFeatherSpin.Enabled := FSelAntiAlias`) with `SelAntiAliasChanged` and saw the sync was missing.
+- Root cause: the initial setup path propagated the dependent state, but the runtime change handler was added later without copying the sync logic.
+- Fix: added `FSelFeatherSpin.Enabled := FSelAntiAlias` to `SelAntiAliasChanged`.
+- Reuse note: when a control has a dependent enable/disable relationship established in the initial layout, make sure the runtime change handler mirrors the same dependency; the two paths evolve separately and drift apart.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (mouse-move stroke path calls SetDirty causing per-pixel tab-strip churn)
+- Problem: dragging with `Recolor` or `Clone Stamp` was noticeably heavier than dragging with `Pencil`/`Brush`/`Eraser` because every pixel movement triggered a full `SetDirty(True)` call.
+- Core error: `SetDirty(True)` calls `InvalidatePreparedBitmap` + `UpdateCaption` + `RefreshTabStrip`/`RefreshTabCardVisuals` on every state change, which is correct for discrete commands but excessive inside a tight per-pixel mouse-move loop.
+- Investigation: compared the `PaintBoxMouseMove` handlers for `tkPencil`/`tkBrush`/`tkEraser` (which use `InvalidatePreparedBitmap`) against `tkRecolor`/`tkCloneStamp` (which used `SetDirty(True)`) and confirmed the asymmetry.
+- Root cause: the Recolor and CloneStamp tools were added in later passes and their mouse-move handlers copied a more conservative pattern instead of matching the lightweight cache-invalidation-only contract that the original paint tools had already established.
+- Fix: replaced `SetDirty(True)` with `InvalidatePreparedBitmap` in the mouse-move handlers for `tkRecolor` and `tkCloneStamp`; the dirty flag is still set correctly on initial mouse-down and committed through `CommitStrokeHistory` on mouse-up.
+- Reuse note: per-pixel mutation loops during continuous painting should do the minimum display-cache work during the drag and defer heavier UI-state work (caption, tab strip, dirty flags) to the mouse-up commit; copying the "safe" pattern from discrete command handlers into drag loops creates unnecessary churn.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (line segment commit does not refresh layer thumbnails)
+- Problem: committing a Bézier segment in a multi-segment line path left the Layers palette thumbnails showing the pre-segment state until an unrelated event forced a layer-list refresh.
+- Core error: `CommitPendingLineSegment` called `SetDirty(True)` (which refreshes the tab strip) but did not call `RefreshAuxiliaryImageViews`, so layer thumbnails lagged behind.
+- Investigation: compared `CommitPendingLineSegment` with `CommitStrokeHistory` (which does call `RefreshAuxiliaryImageViews`) and found the missing call.
+- Root cause: the line segment commit path was written as a lighter-weight alternative to the full `SyncImageMutationUI` path, but the layer-list refresh was omitted as part of that simplification.
+- Fix: added `RefreshAuxiliaryImageViews(False)` at the end of `CommitPendingLineSegment`.
+- Reuse note: any code path that commits visible pixel changes needs to refresh all surfaces that display document state: canvas, tab strip, and layer thumbnails; forgetting one secondary view surface is an easy oversight when the commit path is hand-built instead of going through a shared mutation-sync helper.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (live stroke tools still look broken if the first dab misses cache invalidation)
 - Problem: users could still report that `Pencil` "did not draw" even when the layer pixels had already changed, especially on a single click or the first dab of a stroke.
 - Core error: the mouse-down path for immediate paint tools wrote into the layer surface and refreshed the canvas, but it did not always invalidate the prepared display bitmap first, so the repaint could still show stale cached pixels.
