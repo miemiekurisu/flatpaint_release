@@ -12,6 +12,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (transparent-color sampling can make every later paint tool look broken)
+- Problem: multiple tools (`Pencil`, `Brush`, shapes, text) could all look like they had stopped committing even though the same previews still rendered correctly.
+- Core error: sampling a transparent pixel copied `A=0` into the active swatch, while the visible swatch UI still rendered only the RGB channels and looked like an opaque black/colored paint.
+- Investigation: compared preview rendering against committed raster writes and re-read the color-pick and Colors-panel paint paths; previews used RGB-only chrome, but committed pixels still respected alpha.
+- Root cause: the app treated sampled RGBA as the new paint swatch even when the user intent was only "pick the visible color", and the swatch preview hid that zero-alpha state.
+- Fix: the color picker now preserves the current active alpha when adopting sampled RGB, the system color button now resets the chosen swatch to opaque alpha, and the Colors panel now renders both swatches through a checkerboard alpha preview.
+- Reuse note: if a sampled color is reused for future painting, never silently import transparent alpha unless the UI explicitly exposes alpha sampling as a user choice; otherwise one transparent sample can masquerade as a cross-tool rendering failure.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (eraser and drag-commit logic need their own semantics, not paint-tool assumptions)
+- Problem: the eraser could do nothing at all, and drag-shape tools could get stuck in a preview state when release delivery was unreliable.
+- Core error: the eraser was reusing normal alpha blending with a fully transparent source color (a no-op), and drag finalization depended too heavily on receiving an explicit `MouseUp` event.
+- Investigation: re-read `BlendNormal`, confirmed `Src.A = 0` returns the destination unchanged, then traced the shape/line drag lifecycle and identified the single-event dependency on `PaintBoxMouseUp`.
+- Root cause: two different interaction classes had been forced through paint-tool defaults: "erase" is not the same as "paint transparent", and "drag finished" is not the same as "we definitely received MouseUp on the same control".
+- Fix: added dedicated raster erase-brush/erase-line paths that reduce destination alpha directly, enabled mouse capture during drags, and added button-state fallback finalization in the move path when the pressed-button flag disappears before a formal mouse-up arrives.
+- Reuse note: if a tool removes pixels or ends a gesture, do not assume the regular paint blend path or the happy-path event sequence is enough; destructive tools and drag tools need explicit semantics.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-04 (UI labels can accidentally break drag affordances)
 - Problem: adding more visible metadata to panel chrome can quietly break interaction if the new label controls sit on top of the original drag surface and stop forwarding pointer events.
 - Core error: palette headers rely on shared mouse handlers for drag movement, but newly added title-bar labels are separate controls and can intercept the mouse by default.

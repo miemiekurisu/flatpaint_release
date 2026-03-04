@@ -1,5 +1,15 @@
 # Development Progress Log
 
+## 2026-03-04 (paint-visibility recovery + line-default interaction pass)
+
+- This pass maps primarily to `Paint tools`, `Draw tools`, `Colors`, `Tool/Config Options`, and the shared canvas-feedback completion bar.
+- The highest-priority UAT issue in this pass was not missing raster math, but a semantic mismatch between visible previews and committed pixels: the eyedropper could sample a fully transparent pixel and silently copy its `A=0` into the active swatch, while the Colors panel still rendered that swatch as opaque-looking RGB. That made brush/shape/text previews look black while committed strokes were actually invisible.
+- The live color-sampling path now preserves the active swatch alpha when sampling RGB from the canvas, the system color button now resets the chosen swatch to an opaque color, and the Colors panel swatches now paint through a real checkerboard alpha preview instead of ignoring transparency.
+- The `Eraser` path was also corrected at the raster-core level. It no longer tries to "paint with transparent black" through normal alpha blending (which was a no-op); it now uses dedicated erase-brush/erase-line raster paths that actually reduce destination alpha toward transparency.
+- `Line` now matches the expected default interaction again: a normal drag commits a straight line on release, while staged Bezier editing is now opt-in through a visible `Bezier` checkbox in the tool-options row. The older multi-step curve workflow is still available, but it no longer hijacks the default line gesture.
+- Drag tools are also more reliable under Cocoa/LCL event delivery now: while a drag is active, the canvas captures the mouse, and the move path will finalize the gesture if the widgetset stops reporting the pressed button before a `MouseUp` reaches the control. This closes more of the "preview keeps following the cursor even after release" failure mode.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **206 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` refreshed `dist/FlatPaint.app`.
+
 ## 2026-03-04 (toolbar grouping + palette-header shortcut pass)
 
 - This pass maps primarily to `Workspace visual parity`, `Menus/Shortcuts`, and `Iconography`.

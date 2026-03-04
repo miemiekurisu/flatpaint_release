@@ -5543,9 +5543,9 @@ begin
             PickedColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y];
         end;
         if FPickSecondaryTarget then
-          FSecondaryColor := RGBA(PickedColor.R, PickedColor.G, PickedColor.B, FSecondaryColor.A)
+          FSecondaryColor := AdoptSampledRGBPreservingAlpha(FSecondaryColor, PickedColor)
         else
-          FPrimaryColor := RGBA(PickedColor.R, PickedColor.G, PickedColor.B, FPrimaryColor.A);
+          FPrimaryColor := AdoptSampledRGBPreservingAlpha(FPrimaryColor, PickedColor);
       end;
     tkRecolor:
       FDocument.ActiveLayer.Surface.RecolorBrush(
@@ -7742,14 +7742,7 @@ begin
   DeltaY := ImagePoint.Y - FLastImagePoint.Y;
   if FPointerDown then
   begin
-    case FPointerButton of
-      mbRight:
-        ButtonStillDown := ssRight in Shift;
-      mbMiddle:
-        ButtonStillDown := ssMiddle in Shift;
-    else
-      ButtonStillDown := ssLeft in Shift;
-    end;
+    ButtonStillDown := DragButtonIsStillPressed(FPointerButton, Shift);
     if not ButtonStillDown then
     begin
       PaintBoxMouseUp(Sender, FPointerButton, Shift, X, Y);
@@ -7870,8 +7863,7 @@ begin
   begin
     if not FLineCurvePending then
     begin
-      if FLineBezierMode and
-         ((ImagePoint.X <> FDragStart.X) or (ImagePoint.Y <> FDragStart.Y)) then
+      if LineReleaseStartsBezier(FLineBezierMode, FDragStart, ImagePoint) then
       begin
         FLinePathOpen := False;
         FLineCurvePending := True;

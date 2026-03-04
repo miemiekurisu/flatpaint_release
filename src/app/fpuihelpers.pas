@@ -6,7 +6,7 @@ unit FPUIHelpers;
 interface
 
 uses
-  Classes, FPDocument;
+  Classes, Controls, Types, FPColor, FPDocument;
 
 function PaintToolName(ATool: TToolKind): string;
 function PaintToolHint(ATool: TToolKind): string;
@@ -23,6 +23,9 @@ function PaintToolAtDisplayIndex(AIndex: Integer): TToolKind;
 function PaintToolDisplayIndex(ATool: TToolKind): Integer;
 function DefaultStartupTool: TToolKind;
 function ToolShortcutUsesPlainKeyOnly(const AShift: TShiftState): Boolean;
+function AdoptSampledRGBPreservingAlpha(const ACurrentColor, ASampledColor: TRGBA32): TRGBA32;
+function DragButtonIsStillPressed(AButton: TMouseButton; const AShift: TShiftState): Boolean;
+function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEndPoint: TPoint): Boolean;
 
 { Given a key and a reverse-flag (Shift held), compute the new tool.  }
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
@@ -340,6 +343,29 @@ end;
 function ToolShortcutUsesPlainKeyOnly(const AShift: TShiftState): Boolean;
 begin
   Result := not ((ssMeta in AShift) or (ssCtrl in AShift) or (ssAlt in AShift));
+end;
+
+function AdoptSampledRGBPreservingAlpha(const ACurrentColor, ASampledColor: TRGBA32): TRGBA32;
+begin
+  Result := RGBA(ASampledColor.R, ASampledColor.G, ASampledColor.B, ACurrentColor.A);
+end;
+
+function DragButtonIsStillPressed(AButton: TMouseButton; const AShift: TShiftState): Boolean;
+begin
+  case AButton of
+    mbRight:
+      Result := ssRight in AShift;
+    mbMiddle:
+      Result := ssMiddle in AShift;
+  else
+    Result := ssLeft in AShift;
+  end;
+end;
+
+function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEndPoint: TPoint): Boolean;
+begin
+  Result := ABezierEnabled and
+    ((AStartPoint.X <> AEndPoint.X) or (AStartPoint.Y <> AEndPoint.Y));
 end;
 
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;

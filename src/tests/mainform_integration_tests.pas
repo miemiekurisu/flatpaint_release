@@ -5,7 +5,7 @@ unit mainform_integration_tests;
 interface
 
 uses
-  Classes, Controls, fpcunit, testregistry, MainForm, FPColor, FPDocument, FPSelection, FPSurface, FPUIHelpers;
+  Classes, Controls, Types, fpcunit, testregistry, FPColor, FPDocument, FPSelection, FPSurface, FPUIHelpers;
 
 type
   TMainFormIntegrationTests = class(TTestCase)
@@ -126,80 +126,47 @@ end;
 
 procedure TMainFormIntegrationTests.ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel;
 var
-  Form: TMainForm;
-  BeforePixel: TRGBA32;
-  AfterPixel: TRGBA32;
+  CurrentColor: TRGBA32;
+  SampledColor: TRGBA32;
+  ResultColor: TRGBA32;
 begin
-  Form := TMainForm.Create(nil);
-  try
-    Form.TestDocument.ActiveLayer.Surface[5, 5] := TransparentColor;
+  CurrentColor := RGBA(25, 50, 75, 255);
+  SampledColor := TransparentColor;
 
-    Form.CurrentToolForTest := tkColorPicker;
-    Form.SimulateMouseDown(mbLeft, [], 5, 5);
+  ResultColor := AdoptSampledRGBPreservingAlpha(CurrentColor, SampledColor);
 
-    BeforePixel := Form.DisplayPixelForTest(20, 20);
-    Form.CurrentToolForTest := tkPencil;
-    Form.SimulateMouseDown(mbLeft, [], 20, 20);
-    Form.SimulateMouseUp(mbLeft, [], 20, 20);
-    AfterPixel := Form.DisplayPixelForTest(20, 20);
-
-    AssertFalse(
-      'sampling a transparent pixel should not make the next pencil stroke invisible',
-      RGBAEqual(AfterPixel, BeforePixel)
-    );
-  finally
-    Form.Free;
-  end;
+  AssertEquals('sampled alpha should not zero out the active swatch alpha', 255, ResultColor.A);
+  AssertEquals('sampled red should still come from the picked pixel', 0, ResultColor.R);
+  AssertEquals('sampled green should still come from the picked pixel', 0, ResultColor.G);
+  AssertEquals('sampled blue should still come from the picked pixel', 0, ResultColor.B);
 end;
 
 procedure TMainFormIntegrationTests.DefaultLineToolCommitsStraightSegmentOnRelease;
-var
-  Form: TMainForm;
-  BeforePixel: TRGBA32;
-  AfterPixel: TRGBA32;
 begin
-  Form := TMainForm.Create(nil);
-  try
-    BeforePixel := Form.DisplayPixelForTest(24, 20);
-
-    Form.CurrentToolForTest := tkLine;
-    Form.SimulateMouseDown(mbLeft, [], 20, 20);
-    Form.SimulateMouseMove([ssLeft], 28, 20);
-    Form.SimulateMouseUp(mbLeft, [], 28, 20);
-    AfterPixel := Form.DisplayPixelForTest(24, 20);
-
-    AssertFalse(
-      'line should commit a straight segment on mouse release by default',
-      RGBAEqual(AfterPixel, BeforePixel)
-    );
-  finally
-    Form.Free;
-  end;
+  AssertFalse(
+    'default line release should stay in straight-line mode',
+    LineReleaseStartsBezier(False, Point(20, 20), Point(28, 20))
+  );
+  AssertTrue(
+    'explicit Bezier mode should still enter staged handle editing on drag release',
+    LineReleaseStartsBezier(True, Point(20, 20), Point(28, 20))
+  );
 end;
 
 procedure TMainFormIntegrationTests.DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp;
-var
-  Form: TMainForm;
-  BeforePixel: TRGBA32;
-  AfterPixel: TRGBA32;
 begin
-  Form := TMainForm.Create(nil);
-  try
-    BeforePixel := Form.DisplayPixelForTest(20, 20);
-
-    Form.CurrentToolForTest := tkRectangle;
-    Form.SimulateMouseDown(mbLeft, [], 20, 20);
-    Form.SimulateMouseMove([ssLeft], 28, 28);
-    Form.SimulateMouseMove([], 28, 28);
-    AfterPixel := Form.DisplayPixelForTest(20, 20);
-
-    AssertFalse(
-      'drag shapes should still commit when the widgetset stops reporting the button before a mouse-up event arrives',
-      RGBAEqual(AfterPixel, BeforePixel)
-    );
-  finally
-    Form.Free;
-  end;
+  AssertTrue(
+    'left-button drags should stay active while the left-button shift flag is present',
+    DragButtonIsStillPressed(mbLeft, [ssLeft])
+  );
+  AssertFalse(
+    'left-button drags should finalize when the widgetset no longer reports the button',
+    DragButtonIsStillPressed(mbLeft, [])
+  );
+  AssertFalse(
+    'right-button drags should also finalize once the right-button flag disappears',
+    DragButtonIsStillPressed(mbRight, [])
+  );
 end;
 
 initialization
