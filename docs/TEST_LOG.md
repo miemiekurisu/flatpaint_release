@@ -1,5 +1,41 @@
 # Test Log
 
+## 2026-03-04 (status-progress visibility pass)
+- Full CI verification after adding a real status-bar progress region for adjustments/effects and extending the status-layout tests for the new progress slot: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 190 tests, 0 errors, 0 failures after the new status-progress helpers and layout assertions
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (image-list parity closure + card-refresh pass)
+- Full CI verification after replacing repeated full tab-strip rebuilds with lighter in-place tab-card preview refresh for same-structure updates and updating the image-list parity audit: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 188 tests, 0 errors, 0 failures after the tab-strip refresh refinement
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (real save-options pass)
+- Full CI verification after wiring PNG alpha/compression and JPEG progressive settings through the real writer path and adding save-option regressions: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 188 tests, 0 errors, 0 failures after the export-path update
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-04 (visual-mutation sync pass)
+- Full CI verification after centralizing mutation-driven UI refresh through `SyncImageMutationUI(...)` and routing the high-visibility adjustments/effects/history paths through it: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 186 tests, 0 errors, 0 failures after the shared post-mutation UI sync pass
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
+## 2026-03-03 (layer-properties completion pass)
+- Full CI verification after adding visibility to `Layer Properties...` and `Ctrl+Click` jump-to-top / jump-to-bottom layer movement: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 184 tests, 0 errors, 0 failures after the layer-surface updates
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace after switching the modifier check to the public `GetKeyShiftState` helper
+
+## 2026-03-03 (krita flattened-import pass)
+- Full CI verification after adding ZIP-based `.kra` flattened import through Krita's merged preview PNG path: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 184 tests, 0 errors, 0 failures, including the new `KraZipLoadExtractsMergedImage` regression while preserving the invalid `.kra` fallback-error coverage
+- GUI build verification after the same pass: `bash ./scripts/build.sh`
+- Result: passed; the current Lazarus/Cocoa build linked `flatpaint`, refreshed `dist/FlatPaint.app`, and completed cleanly in the workspace
+
 ## 2026-03-03 (effects near-completion + safe startup-tool pass)
 - Full CI verification after adding `Red Eye`, `Tile Reflection`, `Crystallize`, `Ink Sketch`, `Mandelbrot Fractal`, `Julia Fractal`, and switching the startup default tool to `Rectangle Select`: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; the script rebuilt `flatpaint_cli`, rebuilt `dist/flatpaint_tests`, and ran the full suite at 183 tests, 0 errors, 0 failures, including six new effect-specific surface tests plus the new startup-default helper regression

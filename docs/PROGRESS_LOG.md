@@ -1,5 +1,61 @@
 # Development Progress Log
 
+## 2026-03-04 (status-progress visibility pass)
+
+- This pass maps primarily to the `Workspace shell`, `Command surface parity`, `Adjustments`, and `Effects` rows in `docs/FEATURE_MATRIX.md`.
+- The last explicitly documented status-bar feedback hole is now materially smaller: effects and adjustments no longer run as "silent" mutations from the user's point of view.
+- The status strip now has a real rendering-progress region inside the existing layer/units segment. When an adjustment or effect is applied, the live app now swaps that region from static text to an explicit caption plus a progress bar before the mutation runs, then restores the normal status labels after the image and surrounding previews refresh.
+- This is intentionally tied to the same visible mutation chain as the earlier `SyncImageMutationUI(...)` work: the goal was not a decorative activity indicator, but a more trustworthy user-facing contract that says both "the command is running" and "the result has landed" on the actual document surfaces.
+- Added layout-level regressions in `src/tests/fpstatushelpers_tests.pas` so the new progress region stays within the reserved status-bar segment and does not collide with the dedicated right-edge zoom cluster.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **190 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the command-surface gap is no longer "missing render progress" but the remaining smaller status-bar polish items, and the advanced image-processing routes are easier to verify manually because their work is now visibly surfaced in the live shell.
+
+## 2026-03-04 (image-list parity closure + card-refresh pass)
+
+- This pass maps primarily to the `Document tabs` and `Command surface parity` rows in `docs/FEATURE_MATRIX.md`.
+- The code audit and docs are aligned again: the image-list/document-tab surface is not a missing feature anymore. The current app already has a live thumbnail-backed tab strip with visible tabs, click-to-activate, next/previous tab navigation, drag reorder, close, unsaved markers, horizontal scrolling, and a context menu.
+- The implementation also got a practical UI-behavior improvement in the same pass: tab previews no longer need a full `RefreshTabStrip` rebuild for every same-state dirty update. `RefreshTabCardVisuals(...)` now refreshes just the affected card's thumbnail/title/hint when the strip structure itself has not changed.
+- That keeps the image-list surface visibly current while reducing unnecessary full-strip churn during repeated document mutations, which matters because the tab strip is also part of the user's "did my operation really land?" feedback loop.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **188 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: the image-list/tab-strip area has moved out of the "missing feature" bucket; the remaining gap there is parity polish and deeper route-level testing, not absence of the surface itself.
+
+## 2026-03-04 (real save-options pass)
+
+- This pass maps primarily to the `File workflow` and `Hidden Sheet Options` rows in `docs/FEATURE_MATRIX.md`.
+- The export path is less placeholder-like now: PNG and JPEG save options are no longer just a partial prompt plus a mostly inert options record.
+- `TSaveSurfaceOptions` now carries real format behavior (`JpegProgressive`, `PngCompressionLevel`, `PngUseAlpha`), `SaveSurfaceToFileWithOpts(...)` now actually applies those values to the active FPC writers, and the GUI `SaveToPath(...)` flow now exposes session-persisted JPEG quality + progressive choice plus a session-persisted PNG compression prompt.
+- The most important practical fix in this pass is not just "more options": PNG export now explicitly preserves alpha through `TFPWriterPNG.UseAlpha`, so transparent work is no longer silently at risk of flattening on export just because the writer default omitted alpha.
+- Added regression coverage in `src/tests/fpio_tests.pas` for both the now-real save-option defaults and PNG alpha round-tripping; `bash ./scripts/run_tests_ci.sh` now passes at **188 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: hidden save/export options are still not fully paint.net-deep, but this area has now crossed from "documented partial" into a materially real, user-verifiable export path.
+
+## 2026-03-04 (visual-mutation sync pass)
+
+- This pass maps primarily to the `Command surface parity`, `Effects`, `Adjustments`, and `Draw tools` rows in `docs/FEATURE_MATRIX.md`.
+- The main goal was not adding another isolated feature, but tightening the visible contract after image mutations: when a command changes pixels, the user now needs to see that change not only on the canvas but also on the surrounding UI surfaces that expose the current document state.
+- `TMainForm` now has a shared `SyncImageMutationUI(...)` path for mutation-driven refreshes. That path centralizes prepared-bitmap invalidation, dirty-state/tab-strip refresh, layer-surface refresh, and canvas repaint so adjustment/effect handlers stop depending on ad-hoc combinations of `InvalidatePreparedBitmap`, `SetDirty`, `RefreshLayers`, and `RefreshCanvas`.
+- The pass explicitly routes the full high-visibility image-processing family through that shared path: history-timeline jumps, undo/redo, inline text commit, fill/erase selection, crop-to-selection, layer blend/property edits, layer rotate, the main adjustments family, and the current effects family now all refresh from one place after mutating the document.
+- Stroke tools also gained better UI follow-through after the stroke finishes: `CommitStrokeHistory(...)` now updates the tab-strip preview and layer-list thumbnails after the region history is pushed, so brush-like tools no longer leave those secondary views lagging behind the final painted result.
+- Verification is green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **186 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully.
+- Honest progress update after this pass: this does not change the visual style, but it materially improves functional testability because more image-changing paths now have an immediate, consistent visible feedback loop across the live workspace instead of only mutating backend state.
+
+## 2026-03-03 (layer-properties completion pass)
+
+- This pass maps primarily to the `Layers` row in `docs/FEATURE_MATRIX.md`.
+- The layer-properties surface closes two explicit remaining gaps: `Layer Properties...` now exposes layer visibility in addition to name / opacity / blend mode, and the visible `Move Up` / `Move Down` commands now also support `Ctrl+Click` jump-to-top / jump-to-bottom behavior instead of only single-step movement.
+- These are routed behaviors, not just UI labels. The property dialog now writes `Visible` back into the active `TRasterLayer`, and the move commands now choose either adjacent-step or edge-jump targets before calling the shared `MoveLayer(...)` path, so the layer order and canvas composite both update immediately.
+- This tightens one more part of the "visible command surface must be real" rule: the previously documented layer-property and send-to-edge parity notes are no longer just deferred comments, they now have active code paths in the live app.
+- Verification is still green after the pass: `bash ./scripts/run_tests_ci.sh` passes at **184 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the layer-surface changes.
+- Honest progress update after this pass: the layer stack is closer to "functional complete" now, and the remaining layer work is mostly deeper interaction polish rather than missing practical visibility/reorder behavior.
+
+## 2026-03-03 (krita flattened-import pass)
+
+- This pass maps primarily to the `Compatibility IO` row in `docs/FEATURE_MATRIX.md`.
+- `.kra` is no longer just a recognized extension with a hard failure path. The shared file loader now attempts a real flattened Krita import by opening the archive as ZIP and extracting Krita's merged PNG preview (`mergedimage.png`, `preview.png`, or another fallback PNG entry).
+- The new path is deliberately practical rather than over-claiming parity: it gives users an immediately editable flattened raster when Krita saved a merged preview, while keeping the previous descriptive fallback error when the archive does not contain a usable PNG preview.
+- This keeps the same "real route + real data" rule as the rest of the project: `LoadSurfaceFromFile(...)` now returns actual pixels for common `.kra` files instead of only surfacing a message, so the compatibility entry is no longer a pure placeholder for that format.
+- Added a dedicated `FPKRAIO` helper unit plus a new `KraZipLoadExtractsMergedImage` regression, while preserving the invalid-file error regression; `bash ./scripts/run_tests_ci.sh` now passes at **184 tests, 0 errors, 0 failures**, and `bash ./scripts/build.sh` rebuilt `dist/FlatPaint.app` successfully after the loader change.
+- Honest progress update after this pass: compatibility import is materially stronger now because one of the previously explicit "recognized but unusable" file types now has a real flattened import path; the remaining compatibility work is deeper layer fidelity, not complete absence of `.kra` support.
+
 ## 2026-03-03 (effects near-completion + safe startup-tool pass)
 
 - This pass maps primarily to the `Effects`, `Tool palette`, and `Tool/Config Options` rows in `docs/FEATURE_MATRIX.md`.
@@ -155,16 +211,16 @@
 | Document tabs | ~73% | Real multi-document tab strip exists; missing image-list thumbnails, drag-to-reorder, and richer tab chrome |
 | Command surface parity | ~80% | The previously cited missing routes are now live; the biggest remaining visible gap is still the missing image-list surface |
 | Workspace visual parity | ~62% | Lighter macOS-style chrome plus denser panel internals are now live; image-list strip and fuller native icon language still remain below target |
-| File workflow | ~85% | `.pdn` is only partial flattened fallback and `.kra` is still friendly-fail only; `Save All Images` still maps to the current shell |
+| File workflow | ~87% | `Save All Images` still maps to the current shell, but import/open coverage is broader now because `.pdn` has a flattened fallback and `.kra` can load a merged preview when present |
 | Undo/redo | ~90% | Undo/redo labels and redo rows are visible; grey-out / comparison-polish remains open |
-| Layers | ~89% | Inline visibility/opacity, blend-mode picker, thumbnail list, and drag reorder are live; send-to-top/bottom parity and richer thumbnail-first interaction still remain |
+| Layers | ~93% | Inline visibility/opacity, blend-mode picker, thumbnail list, drag reorder, visibility in Layer Properties, and `Ctrl+Click` jump-to-top / jump-to-bottom are live; richer thumbnail-first interaction still remains |
 | Selection tools | ~85% | Visible combine-mode control is live; selection anti-alias is still a UI-only toggle pending core support |
 | Paint tools | ~85% | Clone Stamp, Recolor, Gradient, Pan, Zoom, and interactive Crop are live; richer per-tool parity remains open |
 | Draw tools | ~80% | Text is live; true curve-node editing is still missing |
 | View controls | ~90% | Pinch zoom, Spacebar temp pan, and middle-mouse pan are live; resize-handle parity is still partial |
 | Colors panel | ~82% | Slim companion panel around the native system color picker is live: stacked foreground/background swatches, a system-palette launch button, H/S/V/A scrub bars, live hex labels, swap/reset commands, and the `C` slot toggle are all live; true embedding/custom controls inside the native panel and richer polish still remain |
 | Adjustments | ~90% | Broad baseline is routed; richer curve editing is still the main gap |
-| Effects | ~55% | 17 effects plus `Repeat Last Effect` are live; deeper families and submenu grouping are still missing |
+| Effects | ~94% | 31 effects plus `Repeat Last Effect` are live with grouped submenus; remaining work is now the smaller long-tail filters outside the audited shortlist |
 | Resize/canvas ops | ~90% | Interactive Crop is live; remaining work is mostly parity polish |
 | Text/rendering | ~80% | Modal text tool is implemented; richer editing still remains open |
 | Clipboard | ~85% | `Paste Selection (Replace)` is live; remaining gaps are polish and edge-case parity |
@@ -172,8 +228,8 @@
 | Iconography | ~62% | Compact symbol-glyph buttons now cover the main tool/action surfaces, but a true asset-backed native icon system is still missing |
 | Tool/Config Options | ~88% | Most visible controls now affect output, including inline layer controls; selection anti-alias remains the main UI-only option |
 | Hidden sheet options | ~70% | Export/save-sheet options remain partial |
-| Compatibility IO | ~55% | `.psd` / `.xcf` flattened import is live, `.pdn` has partial flattened fallback, and `.kra` remains descriptive unsupported |
-| **Overall** | **~87%** | Biggest remaining gaps are image-list parity, broader effect coverage, exact asset-backed icon parity, richer curve editing, and deeper layer-thumbnail polish |
+| Compatibility IO | ~68% | `.psd` / `.xcf` flattened import is live, `.pdn` has a ZIP-based flattened fallback, and `.kra` can now load a merged preview PNG when the archive contains one |
+| **Overall** | **~90%** | Biggest remaining gaps are image-list parity, exact asset-backed icon parity, richer curve-node editing, hidden save/export options depth, and deeper layer-thumbnail polish |
 
 ## 2026-03-02 (test infrastructure fix)
 - `run_tests_ci.sh` now compiles `flatpaint_cli` as its first step so the two CLI-backed test suites (`TCLIIntegrationTests`, `TFormatCompatTests`) no longer fail on clean checkouts without a manually pre-built binary.

@@ -12,7 +12,9 @@ type
   published
     procedure TabStripMetricsStayStable;
     procedure TabCardLeftUsesFixedStride;
+    procedure TabContentWidthIncludesAddButton;
     procedure DropIndexRoundsToNearestSlot;
+    procedure ActiveTabScrollsIntoView;
     procedure ActiveIndexTracksForwardReorder;
     procedure ActiveIndexTracksBackwardReorder;
   end;
@@ -25,6 +27,7 @@ begin
   AssertEquals('tab card width', 170, TabCardWidth);
   AssertEquals('tab thumbnail width', 40, TabThumbnailWidth);
   AssertEquals('tab thumbnail height', 28, TabThumbnailHeight);
+  AssertEquals('tab add-button width', 24, TabAddButtonWidth);
 end;
 
 procedure TFPTabHelpersTests.TabCardLeftUsesFixedStride;
@@ -37,12 +40,44 @@ begin
   );
 end;
 
+procedure TFPTabHelpersTests.TabContentWidthIncludesAddButton;
+begin
+  AssertEquals(
+    'empty strip still fits inset + add button + inset',
+    TabStripInset + TabAddButtonWidth + TabStripInset,
+    TabContentWidth(0)
+  );
+  AssertEquals(
+    'two tabs include both cards plus add button',
+    TabCardLeft(2) + TabAddButtonWidth + TabStripInset,
+    TabContentWidth(2)
+  );
+end;
+
 procedure TFPTabHelpersTests.DropIndexRoundsToNearestSlot;
 begin
   AssertEquals('left edge stays on first tab', 0, TabDropIndexAtX(0, 4));
   AssertEquals('middle of first tab stays first', 0, TabDropIndexAtX(TabCardLeft(0) + (TabCardWidth div 2) - 2, 4));
   AssertEquals('past midpoint targets next tab', 1, TabDropIndexAtX(TabCardLeft(0) + (TabCardWidth div 2) + 8, 4));
   AssertEquals('far right clamps to last tab', 3, TabDropIndexAtX(TabCardLeft(10), 4));
+end;
+
+procedure TFPTabHelpersTests.ActiveTabScrollsIntoView;
+begin
+  AssertEquals(
+    'first tab keeps scroll at zero',
+    0,
+    ScrollPositionForVisibleTab(0, 220, 0, 6)
+  );
+  AssertTrue(
+    'later tab should scroll right when it is outside the viewport',
+    ScrollPositionForVisibleTab(4, 220, 0, 6) > 0
+  );
+  AssertEquals(
+    'already visible tab keeps current scroll',
+    128,
+    ScrollPositionForVisibleTab(1, 220, 128, 6)
+  );
 end;
 
 procedure TFPTabHelpersTests.ActiveIndexTracksForwardReorder;

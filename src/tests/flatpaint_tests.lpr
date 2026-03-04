@@ -13,6 +13,7 @@ uses
   cli_integration_tests, integration_document_flow_tests, integration_native_roundtrip_tests, format_compat_tests,
   ui_applescript_tests, ui_prototype_tests, perf_snapshot_tests,
   fprulerhelpers_tests, fpzoomhelpers_tests, fpviewhelpers_tests,
+  fpiconhelpers_tests,
   fpcurveshelpers_tests, fpposterizehelpers_tests, fpblurhelpers_tests,
   fpnoisehelpers_tests, fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpbrightnesscontrasthelpers_tests, fpresizehelpers_tests, fpviewporthelpers_tests,

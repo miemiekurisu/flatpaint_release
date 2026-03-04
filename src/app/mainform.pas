@@ -62,6 +62,9 @@ type
     FWandSampleSource: Integer;
     { JPEG export quality 1-100; persisted per session }
     FJpegQuality: Integer;
+    FJpegProgressive: Boolean;
+    { PNG export compression 0-9; persisted per session }
+    FPngCompressionLevel: Integer;
     FPrimaryColor: TRGBA32;
     FSecondaryColor: TRGBA32;
     FStrokeColor: TRGBA32;
@@ -107,6 +110,9 @@ type
     FPaintBox: TCanvasView;
     FStatusBar: TPanel;
     FStatusLabels: array[0..6] of TLabel;
+    FStatusProgressBar: TProgressBar;
+    FStatusProgressLabel: TLabel;
+    FStatusProgressActive: Boolean;
     FStatusZoomTrack: TTrackBar;
     FStatusZoomLabel: TLabel;
     FLayerList: TListBox;
@@ -164,6 +170,7 @@ type
     FTabFileNames: array of string;
     FTabDirtyFlags: array of Boolean;
     FActiveTabIndex: Integer;
+    FTabStripHost: TScrollBox;
     FTabStrip: TPanel;
     FTabPopupMenu: TPopupMenu;
     FPopupTabIndex: Integer;
@@ -274,6 +281,11 @@ type
     procedure BeginInlineTextEdit(const APoint: TPoint);
     procedure CommitInlineTextEdit(ACommit: Boolean = True);
     procedure InvalidatePreparedBitmap;
+    procedure RefreshAuxiliaryImageViews(ARefreshLayers: Boolean = False);
+    procedure SyncImageMutationUI(ARefreshLayers: Boolean = False; AMarkDirty: Boolean = True);
+    procedure BeginStatusProgress(const ACaption: string);
+    procedure UpdateStatusProgress(APercent: Integer; const ACaption: string = '');
+    procedure EndStatusProgress;
     procedure UpdateToolOptionControl;
     procedure RefreshUnitsMenu;
     procedure BuildMenus;
@@ -452,6 +464,7 @@ type
     procedure MoveDocumentTab(AFromIndex, AToIndex: Integer);
     function PointToTabStrip(AControl: TControl; X, Y: Integer): TPoint;
     procedure BuildTabThumbnail(AIndex: Integer; AImage: TImage);
+    procedure RefreshTabCardVisuals(AIndex: Integer);
     { Colors panel RGBA controls }
     procedure UpdateColorSpins;
     procedure ColorSpinChanged(Sender: TObject);
@@ -672,6 +685,8 @@ begin
     FWandSampleSource := 0;
     FWandContiguous := True;
     FJpegQuality := 90;
+    FJpegProgressive := False;
+    FPngCompressionLevel := 6;
     FFillTolerance := 8;
     FGradientType := 0;
     FGradientReverse := False;
@@ -695,6 +710,7 @@ begin
     FPreparedBitmap := TBitmap.Create;
     FRenderRevision := 1;
     FPreparedRevision := 0;
+    FStatusProgressActive := False;
 
     FDocument := TImageDocument.Create(1024, 768);
     SetLength(FTabDocuments, 1);
@@ -754,6 +770,8 @@ begin
   FWandSampleSource := 0;
   FWandContiguous := True;
   FJpegQuality := 90;
+  FJpegProgressive := False;
+  FPngCompressionLevel := 6;
   FFillTolerance := 8;
   FGradientType := 0;
   FGradientReverse := False;
@@ -777,6 +795,7 @@ begin
   FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
   FPreparedRevision := 0;
+  FStatusProgressActive := False;
 
   FDocument := TImageDocument.Create(1024, 768);
   { Initialize tab arrays with the first document }
@@ -864,9 +883,21 @@ begin
   BuildToolbar;
 
   { Tab strip — inserted between toolbar and workspace }
-  FTabStrip := TPanel.Create(Self);
-  FTabStrip.Parent := Self;
-  FTabStrip.Align := alTop;
+  FTabStripHost := TScrollBox.Create(Self);
+  FTabStripHost.Parent := Self;
+  FTabStripHost.Align := alTop;
+  FTabStripHost.Height := TabStripHeight;
+  FTabStripHost.BorderStyle := bsNone;
+  FTabStripHost.Color := TabStripBackgroundColor;
+  FTabStripHost.ParentColor := False;
+  FTabStripHost.HorzScrollBar.Tracking := True;
+  FTabStripHost.VertScrollBar.Visible := False;
+
+  FTabStrip := TPanel.Create(FTabStripHost);
+  FTabStrip.Parent := FTabStripHost;
+  FTabStrip.Left := 0;
+  FTabStrip.Top := 0;
+  FTabStrip.Width := FTabStripHost.ClientWidth;
   FTabStrip.Height := TabStripHeight;
   FTabStrip.BevelOuter := bvNone;
   FTabStrip.Caption := '';
@@ -969,6 +1000,22 @@ begin
     FStatusLabels[I].Transparent := True;
     FStatusLabels[I].AutoSize := False;
   end;
+
+  FStatusProgressLabel := TLabel.Create(FStatusBar);
+  FStatusProgressLabel.Parent := FStatusBar;
+  FStatusProgressLabel.Layout := tlCenter;
+  FStatusProgressLabel.Font.Size := 9;
+  FStatusProgressLabel.Font.Color := ChromeTextColor;
+  FStatusProgressLabel.Transparent := True;
+  FStatusProgressLabel.AutoSize := False;
+  FStatusProgressLabel.Visible := False;
+
+  FStatusProgressBar := TProgressBar.Create(FStatusBar);
+  FStatusProgressBar.Parent := FStatusBar;
+  FStatusProgressBar.Min := 0;
+  FStatusProgressBar.Max := 100;
+  FStatusProgressBar.Position := 0;
+  FStatusProgressBar.Visible := False;
 
   FStatusZoomTrack := TTrackBar.Create(FStatusBar);
   FStatusZoomTrack.Parent := FStatusBar;
@@ -1372,10 +1419,12 @@ end;
 procedure TMainForm.CommitInlineTextEdit(ACommit: Boolean);
 var
   TextResult: TTextDialogResult;
+  DidCommit: Boolean;
 begin
   if not Assigned(FInlineTextEdit) or not FInlineTextEdit.Visible or FInlineTextCommitting then
     Exit;
   FInlineTextCommitting := True;
+  DidCommit := False;
   try
     if ACommit and (Trim(FInlineTextEdit.Text) <> '') then
     begin
@@ -1385,11 +1434,13 @@ begin
       FTextLastResult.Text := FInlineTextEdit.Text;
       FDocument.PushHistory('Text');
       PlaceTextAtPoint(TextResult, FInlineTextAnchor, FInlineTextColor);
-      SetDirty(True);
+      SyncImageMutationUI(False, True);
+      DidCommit := True;
     end;
     FInlineTextEdit.Visible := False;
     FInlineTextEdit.Text := '';
-    RefreshCanvas;
+    if not DidCommit then
+      RefreshCanvas;
   finally
     FInlineTextCommitting := False;
   end;
@@ -1398,6 +1449,99 @@ end;
 procedure TMainForm.InvalidatePreparedBitmap;
 begin
   Inc(FRenderRevision);
+end;
+
+procedure TMainForm.RefreshAuxiliaryImageViews(ARefreshLayers: Boolean);
+begin
+  if ARefreshLayers then
+    RefreshLayers
+  else if Assigned(FLayerList) then
+    FLayerList.Invalidate;
+end;
+
+procedure TMainForm.SyncImageMutationUI(ARefreshLayers: Boolean; AMarkDirty: Boolean);
+begin
+  if FStatusProgressActive then
+    UpdateStatusProgress(82);
+  InvalidatePreparedBitmap;
+  if AMarkDirty then
+    SetDirty(True)
+  else
+    RefreshTabCardVisuals(FActiveTabIndex);
+  RefreshAuxiliaryImageViews(ARefreshLayers);
+  RefreshCanvas;
+  if FStatusProgressActive then
+    UpdateStatusProgress(94);
+end;
+
+procedure TMainForm.BeginStatusProgress(const ACaption: string);
+begin
+  if not Assigned(FStatusBar) then
+    Exit;
+  FStatusProgressActive := True;
+  if Assigned(FStatusProgressLabel) then
+  begin
+    FStatusProgressLabel.Caption := ACaption;
+    FStatusProgressLabel.Visible := True;
+  end;
+  if Assigned(FStatusProgressBar) then
+  begin
+    FStatusProgressBar.Position := 8;
+    FStatusProgressBar.Visible := True;
+  end;
+  if Assigned(FStatusLabels[4]) then
+    FStatusLabels[4].Visible := False;
+  if Assigned(FStatusLabels[5]) then
+    FStatusLabels[5].Visible := False;
+  LayoutStatusBarControls(nil);
+  FStatusBar.Invalidate;
+  FStatusBar.Update;
+  Application.ProcessMessages;
+end;
+
+procedure TMainForm.UpdateStatusProgress(APercent: Integer; const ACaption: string);
+begin
+  if not FStatusProgressActive or not Assigned(FStatusBar) then
+    Exit;
+  if (ACaption <> '') and Assigned(FStatusProgressLabel) then
+    FStatusProgressLabel.Caption := ACaption;
+  if Assigned(FStatusProgressBar) then
+    FStatusProgressBar.Position := EnsureRange(APercent, 0, 100);
+  FStatusBar.Invalidate;
+  FStatusBar.Update;
+  Application.ProcessMessages;
+end;
+
+procedure TMainForm.EndStatusProgress;
+begin
+  if not FStatusProgressActive then
+    Exit;
+  if Assigned(FStatusProgressBar) then
+    FStatusProgressBar.Position := 100;
+  if Assigned(FStatusBar) then
+  begin
+    FStatusBar.Invalidate;
+    FStatusBar.Update;
+    Application.ProcessMessages;
+  end;
+  FStatusProgressActive := False;
+  if Assigned(FStatusProgressLabel) then
+  begin
+    FStatusProgressLabel.Caption := '';
+    FStatusProgressLabel.Visible := False;
+  end;
+  if Assigned(FStatusProgressBar) then
+  begin
+    FStatusProgressBar.Position := 0;
+    FStatusProgressBar.Visible := False;
+  end;
+  if Assigned(FStatusLabels[4]) then
+    FStatusLabels[4].Visible := True;
+  if Assigned(FStatusLabels[5]) then
+    FStatusLabels[5].Visible := True;
+  LayoutStatusBarControls(nil);
+  if Assigned(FStatusBar) then
+    FStatusBar.Invalidate;
 end;
 
 procedure TMainForm.UpdateToolOptionControl;
@@ -4107,6 +4251,10 @@ var
   PanelIndex: Integer;
   LeftPos: Integer;
   TrackW, LblW: Integer;
+  ProgressLeft: Integer;
+  ProgressWidth: Integer;
+  ProgressLabelW: Integer;
+  ProgressBarW: Integer;
 begin
   if not Assigned(FStatusBar) or
      not Assigned(FStatusZoomLabel) then
@@ -4126,6 +4274,25 @@ begin
     );
     Inc(LeftPos, PanelWidths[PanelIndex]);
   end;
+
+  ProgressLeft := 4 + ProgressStatusPanelLeft(PanelWidths);
+  ProgressWidth := ProgressStatusPanelWidth(PanelWidths);
+  ProgressLabelW := ProgressLabelWidth(ProgressWidth);
+  ProgressBarW := ProgressBarWidth(ProgressWidth);
+  if Assigned(FStatusProgressLabel) then
+    FStatusProgressLabel.SetBounds(
+      ProgressLeft + 4,
+      0,
+      Max(0, ProgressLabelW - 4),
+      FStatusBar.Height
+    );
+  if Assigned(FStatusProgressBar) then
+    FStatusProgressBar.SetBounds(
+      ProgressLeft + ProgressLabelW + 4,
+      4,
+      Max(0, ProgressBarW),
+      Max(12, FStatusBar.Height - 8)
+    );
 
   { Panel 6: zoom trackbar + zoom percentage label }
   TrackW := ZoomTrackWidth(PanelWidths[6]);
@@ -4238,10 +4405,7 @@ begin
       FDocument.Redo;
     end;
   end;
-  InvalidatePreparedBitmap;
-  RefreshLayers;
-  RefreshCanvas;
-  RefreshStatus(FLastImagePoint);
+  SyncImageMutationUI(True, False);
 end;
 
 procedure TMainForm.UpdateCaption;
@@ -4720,6 +4884,15 @@ procedure TMainForm.SetDirty(AValue: Boolean);
 begin
   if AValue then
     InvalidatePreparedBitmap;
+  if (FDirty = AValue) and
+     (Length(FTabDirtyFlags) > FActiveTabIndex) and
+     (FTabDirtyFlags[FActiveTabIndex] = AValue) then
+  begin
+    FDirty := AValue;
+    UpdateCaption;
+    RefreshTabCardVisuals(FActiveTabIndex);
+    Exit;
+  end;
   FDirty := AValue;
   if (Length(FTabDirtyFlags) > FActiveTabIndex) then
     FTabDirtyFlags[FActiveTabIndex] := AValue;
@@ -4733,7 +4906,10 @@ var
   ResolvedFileName: string;
   SaveOpts: TSaveSurfaceOptions;
   QualityStr: string;
+  PngLevelStr: string;
   ParsedQuality: Integer;
+  ParsedPngLevel: Integer;
+  ProgressiveChoice: Integer;
   Ext: string;
 begin
   ResolvedFileName := ExpandFileName(AFileName);
@@ -4751,6 +4927,9 @@ begin
 
   SaveOpts := DefaultSaveSurfaceOptions;
   Ext := LowerCase(ExtractFileExt(ResolvedFileName));
+  SaveOpts.JpegQuality := FJpegQuality;
+  SaveOpts.JpegProgressive := FJpegProgressive;
+  SaveOpts.PngCompressionLevel := FPngCompressionLevel;
 
   { Show JPEG quality prompt }
   if (Ext = '.jpg') or (Ext = '.jpeg') then
@@ -4762,6 +4941,36 @@ begin
     ParsedQuality := EnsureRange(ParsedQuality, 1, 100);
     FJpegQuality := ParsedQuality;
     SaveOpts.JpegQuality := FJpegQuality;
+    ProgressiveChoice := MessageDlg(
+      'JPEG Export',
+      'Use progressive encoding?',
+      mtConfirmation,
+      [mbYes, mbNo, mbCancel],
+      0
+    );
+    case ProgressiveChoice of
+      mrYes:
+        FJpegProgressive := True;
+      mrNo:
+        FJpegProgressive := False;
+    else
+      Exit;
+    end;
+    SaveOpts.JpegProgressive := FJpegProgressive;
+  end
+  else if Ext = '.png' then
+  begin
+    PngLevelStr := IntToStr(FPngCompressionLevel);
+    if not InputQuery(
+      'PNG Export',
+      'Compression level (0-9, higher = smaller file / slower save):',
+      PngLevelStr
+    ) then
+      Exit;
+    ParsedPngLevel := StrToIntDef(Trim(PngLevelStr), FPngCompressionLevel);
+    ParsedPngLevel := EnsureRange(ParsedPngLevel, 0, 9);
+    FPngCompressionLevel := ParsedPngLevel;
+    SaveOpts.PngCompressionLevel := FPngCompressionLevel;
   end;
 
   Surface := FDocument.Composite;
@@ -5527,19 +5736,13 @@ end;
 procedure TMainForm.UndoClick(Sender: TObject);
 begin
   FDocument.Undo;
-  InvalidatePreparedBitmap;
-  RefreshLayers;
-  RefreshCanvas;
-  SetDirty(True);
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.RedoClick(Sender: TObject);
 begin
   FDocument.Redo;
-  InvalidatePreparedBitmap;
-  RefreshLayers;
-  RefreshCanvas;
-  SetDirty(True);
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.CutClick(Sender: TObject);
@@ -5559,8 +5762,7 @@ begin
     FClipboardOffset := Point(0, 0);
     FClipboardSurface := FDocument.CutSelectionToSurface(False);
   end;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.CopyClick(Sender: TObject);
@@ -5614,9 +5816,7 @@ begin
     Exit;
   FDocument.PushHistory('Paste');
   FDocument.PasteAsNewLayer(FClipboardSurface, FClipboardOffset.X, FClipboardOffset.Y, 'Pasted Layer');
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.PasteIntoNewLayerClick(Sender: TObject);
@@ -5682,22 +5882,48 @@ begin
 end;
 
 procedure TMainForm.MoveLayerUpClick(Sender: TObject);
+var
+  TargetIndex: Integer;
 begin
-  if FDocument.ActiveLayerIndex >= FDocument.LayerCount - 1 then
+  if FDocument.LayerCount <= 1 then
     Exit;
-  FDocument.PushHistory('Move Layer Up');
-  FDocument.MoveLayer(FDocument.ActiveLayerIndex, FDocument.ActiveLayerIndex + 1);
+  if ssCtrl in GetKeyShiftState then
+    TargetIndex := FDocument.LayerCount - 1
+  else
+    TargetIndex := FDocument.ActiveLayerIndex + 1;
+  if TargetIndex > FDocument.LayerCount - 1 then
+    TargetIndex := FDocument.LayerCount - 1;
+  if TargetIndex = FDocument.ActiveLayerIndex then
+    Exit;
+  if TargetIndex = FDocument.LayerCount - 1 then
+    FDocument.PushHistory('Move Layer to Top')
+  else
+    FDocument.PushHistory('Move Layer Up');
+  FDocument.MoveLayer(FDocument.ActiveLayerIndex, TargetIndex);
   SetDirty(True);
   RefreshLayers;
   RefreshCanvas;
 end;
 
 procedure TMainForm.MoveLayerDownClick(Sender: TObject);
+var
+  TargetIndex: Integer;
 begin
-  if FDocument.ActiveLayerIndex <= 0 then
+  if FDocument.LayerCount <= 1 then
     Exit;
-  FDocument.PushHistory('Move Layer Down');
-  FDocument.MoveLayer(FDocument.ActiveLayerIndex, FDocument.ActiveLayerIndex - 1);
+  if ssCtrl in GetKeyShiftState then
+    TargetIndex := 0
+  else
+    TargetIndex := FDocument.ActiveLayerIndex - 1;
+  if TargetIndex < 0 then
+    TargetIndex := 0;
+  if TargetIndex = FDocument.ActiveLayerIndex then
+    Exit;
+  if TargetIndex = 0 then
+    FDocument.PushHistory('Move Layer to Bottom')
+  else
+    FDocument.PushHistory('Move Layer Down');
+  FDocument.MoveLayer(FDocument.ActiveLayerIndex, TargetIndex);
   SetDirty(True);
   RefreshLayers;
   RefreshCanvas;
@@ -5800,8 +6026,7 @@ begin
     Exit;
   FDocument.PushHistory('Resize Image');
   FDocument.ResizeImage(TargetWidth, TargetHeight, ResampleMode);
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.ResizeCanvasClick(Sender: TObject);
@@ -5813,72 +6038,78 @@ begin
     Exit;
   FDocument.PushHistory('Resize Canvas');
   FDocument.ResizeCanvas(TargetWidth, TargetHeight);
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.RotateClockwiseClick(Sender: TObject);
 begin
   FDocument.PushHistory('Rotate 90 Right');
   FDocument.Rotate90Clockwise;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.RotateCounterClockwiseClick(Sender: TObject);
 begin
   FDocument.PushHistory('Rotate 90 Left');
   FDocument.Rotate90CounterClockwise;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.Rotate180Click(Sender: TObject);
 begin
   FDocument.PushHistory('Rotate 180');
   FDocument.Rotate180;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.FlipHorizontalClick(Sender: TObject);
 begin
   FDocument.PushHistory('Flip Horizontal');
   FDocument.FlipHorizontal;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.FlipVerticalClick(Sender: TObject);
 begin
   FDocument.PushHistory('Flip Vertical');
   FDocument.FlipVertical;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.AutoLevelClick(Sender: TObject);
 begin
-  FDocument.PushHistory('Auto-Level');
-  FDocument.AutoLevel;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Auto-Level...');
+  try
+    FDocument.PushHistory('Auto-Level');
+    FDocument.AutoLevel;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.InvertColorsClick(Sender: TObject);
 begin
-  FDocument.PushHistory('Invert Colors');
-  FDocument.InvertColors;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Invert Colors...');
+  try
+    FDocument.PushHistory('Invert Colors');
+    FDocument.InvertColors;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.GrayscaleClick(Sender: TObject);
 begin
-  FDocument.PushHistory('Grayscale');
-  FDocument.Grayscale;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Grayscale...');
+  try
+    FDocument.PushHistory('Grayscale');
+    FDocument.Grayscale;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.CurvesClick(Sender: TObject);
@@ -5888,10 +6119,14 @@ begin
   GammaValue := 1.0;
   if not RunCurvesDialog(Self, GammaValue) then
     Exit;
-  FDocument.PushHistory('Curves');
-  FDocument.AdjustGammaCurve(GammaValue);
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Curves...');
+  try
+    FDocument.PushHistory('Curves');
+    FDocument.AdjustGammaCurve(GammaValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.HueSaturationClick(Sender: TObject);
@@ -5903,10 +6138,14 @@ begin
   SaturationDelta := 0;
   if not RunHueSaturationDialog(Self, HueDelta, SaturationDelta) then
     Exit;
-  FDocument.PushHistory('Hue / Saturation');
-  FDocument.AdjustHueSaturation(HueDelta, SaturationDelta);
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Hue / Saturation...');
+  try
+    FDocument.PushHistory('Hue / Saturation');
+    FDocument.AdjustHueSaturation(HueDelta, SaturationDelta);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.LevelsClick(Sender: TObject);
@@ -5922,15 +6161,19 @@ begin
   OutputHigh := 255;
   if not RunLevelsDialog(Self, InputLow, InputHigh, OutputLow, OutputHigh) then
     Exit;
-  FDocument.PushHistory('Levels');
-  FDocument.AdjustLevels(
-    InputLow,
-    InputHigh,
-    OutputLow,
-    OutputHigh
-  );
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Levels...');
+  try
+    FDocument.PushHistory('Levels');
+    FDocument.AdjustLevels(
+      InputLow,
+      InputHigh,
+      OutputLow,
+      OutputHigh
+    );
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.BrightnessContrastClick(Sender: TObject);
@@ -5942,19 +6185,27 @@ begin
   Contrast := 0;
   if not RunBrightnessContrastDialog(Self, Brightness, Contrast) then
     Exit;
-  FDocument.PushHistory('Brightness / Contrast');
-  FDocument.AdjustBrightness(Brightness);
-  FDocument.AdjustContrast(Contrast);
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Brightness / Contrast...');
+  try
+    FDocument.PushHistory('Brightness / Contrast');
+    FDocument.AdjustBrightness(Brightness);
+    FDocument.AdjustContrast(Contrast);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.SepiaClick(Sender: TObject);
 begin
-  FDocument.PushHistory('Sepia');
-  FDocument.Sepia;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Sepia...');
+  try
+    FDocument.PushHistory('Sepia');
+    FDocument.Sepia;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.BlackAndWhiteClick(Sender: TObject);
@@ -5964,10 +6215,14 @@ begin
   ValueText := '127';
   if not InputQuery('Black and White', 'Threshold (0 to 255)', ValueText) then
     Exit;
-  FDocument.PushHistory('Black and White');
-  FDocument.BlackAndWhite(EnsureRange(StrToIntDef(ValueText, 127), 0, 255));
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Black and White...');
+  try
+    FDocument.PushHistory('Black and White');
+    FDocument.BlackAndWhite(EnsureRange(StrToIntDef(ValueText, 127), 0, 255));
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.PosterizeClick(Sender: TObject);
@@ -5977,10 +6232,14 @@ begin
   Levels := 6;
   if not RunPosterizeDialog(Self, Levels) then
     Exit;
-  FDocument.PushHistory('Posterize');
-  FDocument.Posterize(Levels);
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Posterize...');
+  try
+    FDocument.PushHistory('Posterize');
+    FDocument.Posterize(Levels);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
 end;
 
 procedure TMainForm.BlurClick(Sender: TObject);
@@ -5991,11 +6250,14 @@ begin
   Radius := 2;
   if not RunBlurDialog(Self, Radius) then
     Exit;
-  FDocument.PushHistory('Blur');
-  FDocument.BoxBlur(Radius);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Blur...');
+  try
+    FDocument.PushHistory('Blur');
+    FDocument.BoxBlur(Radius);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Blur';
   FLastEffectProc := @BlurClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -6008,11 +6270,14 @@ end;
 procedure TMainForm.SharpenClick(Sender: TObject);
 begin
   if FDocument.LayerCount = 0 then Exit;
-  FDocument.PushHistory('Sharpen');
-  FDocument.Sharpen;
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Sharpen...');
+  try
+    FDocument.PushHistory('Sharpen');
+    FDocument.Sharpen;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Sharpen';
   FLastEffectProc := @SharpenClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -6030,11 +6295,14 @@ begin
   Amount := 24;
   if not RunNoiseDialog(Self, Amount) then
     Exit;
-  FDocument.PushHistory('Add Noise');
-  FDocument.AddNoise(Amount);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Add Noise...');
+  try
+    FDocument.PushHistory('Add Noise');
+    FDocument.AddNoise(Amount);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Add Noise';
   FLastEffectProc := @AddNoiseClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -6047,11 +6315,14 @@ end;
 procedure TMainForm.OutlineClick(Sender: TObject);
 begin
   if FDocument.LayerCount = 0 then Exit;
-  FDocument.PushHistory('Detect Edges');
-  FDocument.DetectEdges;
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Detect Edges...');
+  try
+    FDocument.PushHistory('Detect Edges');
+    FDocument.DetectEdges;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Detect Edges';
   FLastEffectProc := @OutlineClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -6070,11 +6341,14 @@ begin
   AStr := '10';
   if not InputQuery('Outline Effect', 'Alpha threshold (0–255):', AStr) then Exit;
   ThresholdVal := EnsureRange(StrToIntDef(AStr, 10), 0, 255);
-  FDocument.PushHistory('Outline Effect');
-  FDocument.OutlineEffect(FPrimaryColor, ThresholdVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Outline Effect...');
+  try
+    FDocument.PushHistory('Outline Effect');
+    FDocument.OutlineEffect(FPrimaryColor, ThresholdVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Outline Effect';
   FLastEffectProc := @OutlineEffectClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -6114,8 +6388,7 @@ begin
     Exit;
   FDocument.PushHistory('Fill Selection');
   FDocument.FillSelection(FPrimaryColor);
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI;
 end;
 
 procedure TMainForm.EraseSelectionClick(Sender: TObject);
@@ -6124,8 +6397,7 @@ begin
     Exit;
   FDocument.PushHistory('Erase Selection');
   FDocument.EraseSelection;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI;
 end;
 
 procedure TMainForm.CropToSelectionClick(Sender: TObject);
@@ -6134,9 +6406,7 @@ begin
     Exit;
   FDocument.PushHistory('Crop to Selection');
   FDocument.CropToSelection;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.SwapColorsClick(Sender: TObject);
@@ -6971,6 +7241,8 @@ begin
   { PushRegionHistory takes ownership of BeforePixels }
   FDocument.PushRegionHistory(ALabel, FStrokeLayerIndex, CR, BeforePixels);
   FreeAndNil(FPreStrokeSnapshot);
+  RefreshTabCardVisuals(FActiveTabIndex);
+  RefreshAuxiliaryImageViews(False);
 end;
 
 procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -7071,8 +7343,7 @@ begin
       begin
         FDocument.PushHistory(PaintToolName(FCurrentTool));
         ApplyImmediateTool(ImagePoint);
-        SetDirty(True);
-        RefreshCanvas;
+        SyncImageMutationUI(False, True);
         FPointerDown := False;
       end;
     tkSelectLasso:
@@ -7319,7 +7590,7 @@ begin
       begin
         FDocument.PushHistory(PaintToolName(FCurrentTool));
         CommitShapeTool(FDragStart, ImagePoint);
-        SetDirty(True);
+        SyncImageMutationUI(False, True);
       end
       else
       begin
@@ -7340,8 +7611,7 @@ begin
   begin
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     CommitShapeTool(FDragStart, ImagePoint);
-    SetDirty(True);
-    RefreshCanvas;
+    SyncImageMutationUI(False, True);
   end;
   if FCurrentTool = tkCrop then
   begin
@@ -7355,11 +7625,8 @@ begin
         Abs(ImagePoint.X - FDragStart.X),
         Abs(ImagePoint.Y - FDragStart.Y)
       );
-      SetDirty(True);
       UpdateCanvasSize;
-      InvalidatePreparedBitmap;
-      RefreshLayers;
-      RefreshCanvas;
+      SyncImageMutationUI(True, True);
     end;
   end;
   if FCurrentTool = tkFreeformShape then
@@ -7369,7 +7636,7 @@ begin
     begin
       FDocument.PushHistory(PaintToolName(FCurrentTool));
       CommitShapeTool(FDragStart, ImagePoint);
-      SetDirty(True);
+      SyncImageMutationUI(False, True);
     end;
     SetLength(FLassoPoints, 0);
     RefreshCanvas;
@@ -7435,11 +7702,14 @@ end;
 procedure TMainForm.EmbossClick(Sender: TObject);
 begin
   if FDocument.LayerCount = 0 then Exit;
-  FDocument.PushHistory('Emboss');
-  FDocument.Emboss;
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Emboss...');
+  try
+    FDocument.PushHistory('Emboss');
+    FDocument.Emboss;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Emboss';
   FLastEffectProc := @EmbossClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7452,11 +7722,14 @@ end;
 procedure TMainForm.SoftenClick(Sender: TObject);
 begin
   if FDocument.LayerCount = 0 then Exit;
-  FDocument.PushHistory('Soften');
-  FDocument.Soften;
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Soften...');
+  try
+    FDocument.PushHistory('Soften');
+    FDocument.Soften;
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Soften';
   FLastEffectProc := @SoftenClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7469,11 +7742,14 @@ end;
 procedure TMainForm.RenderCloudsClick(Sender: TObject);
 begin
   if FDocument.LayerCount = 0 then Exit;
-  FDocument.PushHistory('Render Clouds');
-  FDocument.RenderClouds(1);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Render Clouds...');
+  try
+    FDocument.PushHistory('Render Clouds');
+    FDocument.RenderClouds(1);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Render Clouds';
   FLastEffectProc := @RenderCloudsClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7492,11 +7768,14 @@ begin
   AStr := '10';
   if not InputQuery('Pixelate', 'Block Size (1 to 100)', AStr) then Exit;
   Val := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
-  FDocument.PushHistory('Pixelate');
-  FDocument.Pixelate(Val);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Pixelate...');
+  try
+    FDocument.PushHistory('Pixelate');
+    FDocument.Pixelate(Val);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Pixelate';
   FLastEffectProc := @PixelateClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7517,11 +7796,14 @@ begin
   if not InputQuery('Vignette', 'Strength (0 to 100)', AStr) then Exit;
   Val := EnsureRange(StrToIntDef(AStr, 50), 0, 100);
   Strength := Val / 100.0;
-  FDocument.PushHistory('Vignette');
-  FDocument.Vignette(Strength);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Vignette...');
+  try
+    FDocument.PushHistory('Vignette');
+    FDocument.Vignette(Strength);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Vignette';
   FLastEffectProc := @VignetteClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7543,11 +7825,14 @@ begin
   AStr := '10';
   if not InputQuery('Motion Blur', 'Distance in pixels (1-100)', AStr) then Exit;
   DistVal := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
-  FDocument.PushHistory('Motion Blur');
-  FDocument.MotionBlur(AngleVal, DistVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Motion Blur...');
+  try
+    FDocument.PushHistory('Motion Blur');
+    FDocument.MotionBlur(AngleVal, DistVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Motion Blur';
   FLastEffectProc := @MotionBlurClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7566,11 +7851,14 @@ begin
   AStr := '1';
   if not InputQuery('Median Filter (Denoise)', 'Radius (1=3x3, 2=5x5)', AStr) then Exit;
   RadiusVal := EnsureRange(StrToIntDef(AStr, 1), 1, 2);
-  FDocument.PushHistory('Median Filter');
-  FDocument.MedianFilter(RadiusVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Median Filter...');
+  try
+    FDocument.PushHistory('Median Filter');
+    FDocument.MedianFilter(RadiusVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Median Filter';
   FLastEffectProc := @MedianFilterClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7592,11 +7880,14 @@ begin
   IntStr := '80';
   if not InputQuery('Glow Effect', 'Intensity (0–200):', IntStr) then Exit;
   IntVal := EnsureRange(StrToIntDef(Trim(IntStr), 80), 0, 200);
-  FDocument.PushHistory('Glow Effect');
-  FDocument.GlowEffect(RadVal, IntVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Glow Effect...');
+  try
+    FDocument.PushHistory('Glow Effect');
+    FDocument.GlowEffect(RadVal, IntVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Glow Effect';
   FLastEffectProc := @GlowClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7615,11 +7906,14 @@ begin
   RadStr := '4';
   if not InputQuery('Oil Paint', 'Brush radius (1–8):', RadStr) then Exit;
   RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 4), 1, 8);
-  FDocument.PushHistory('Oil Paint');
-  FDocument.OilPaint(RadVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Oil Paint...');
+  try
+    FDocument.PushHistory('Oil Paint');
+    FDocument.OilPaint(RadVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Oil Paint';
   FLastEffectProc := @OilPaintClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7638,11 +7932,14 @@ begin
   AmtStr := '4';
   if not InputQuery('Frosted Glass', 'Amount (1–20):', AmtStr) then Exit;
   AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 4), 1, 20);
-  FDocument.PushHistory('Frosted Glass');
-  FDocument.FrostedGlass(AmtVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Frosted Glass...');
+  try
+    FDocument.PushHistory('Frosted Glass');
+    FDocument.FrostedGlass(AmtVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Frosted Glass';
   FLastEffectProc := @FrostedGlassClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7661,11 +7958,14 @@ begin
   AmtStr := '8';
   if not InputQuery('Zoom Blur', 'Amount (1–30):', AmtStr) then Exit;
   AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 8), 1, 30);
-  FDocument.PushHistory('Zoom Blur');
-  FDocument.ZoomBlur(FDocument.Width div 2, FDocument.Height div 2, AmtVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Zoom Blur...');
+  try
+    FDocument.PushHistory('Zoom Blur');
+    FDocument.ZoomBlur(FDocument.Width div 2, FDocument.Height div 2, AmtVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Zoom Blur';
   FLastEffectProc := @ZoomBlurClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7684,11 +7984,14 @@ begin
   RadStr := '3';
   if not InputQuery('Gaussian Blur', 'Radius (1–30):', RadStr) then Exit;
   RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 3), 1, 30);
-  FDocument.PushHistory('Gaussian Blur');
-  FDocument.GaussianBlur(RadVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Gaussian Blur...');
+  try
+    FDocument.PushHistory('Gaussian Blur');
+    FDocument.GaussianBlur(RadVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Gaussian Blur';
   FLastEffectProc := @GaussianBlurClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7707,11 +8010,14 @@ begin
   RadiusText := '4';
   if not InputQuery('Unfocus', 'Radius (1-24):', RadiusText) then Exit;
   RadiusValue := EnsureRange(StrToIntDef(Trim(RadiusText), 4), 1, 24);
-  FDocument.PushHistory('Unfocus');
-  FDocument.Unfocus(RadiusValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Unfocus...');
+  try
+    FDocument.PushHistory('Unfocus');
+    FDocument.Unfocus(RadiusValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Unfocus';
   FLastEffectProc := @UnfocusClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7735,11 +8041,14 @@ begin
   ThresholdText := '24';
   if not InputQuery('Surface Blur', 'Edge threshold (0-255):', ThresholdText) then Exit;
   ThresholdValue := EnsureRange(StrToIntDef(Trim(ThresholdText), 24), 0, 255);
-  FDocument.PushHistory('Surface Blur');
-  FDocument.SurfaceBlur(RadiusValue, ThresholdValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Surface Blur...');
+  try
+    FDocument.PushHistory('Surface Blur');
+    FDocument.SurfaceBlur(RadiusValue, ThresholdValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Surface Blur';
   FLastEffectProc := @SurfaceBlurClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7758,11 +8067,14 @@ begin
   AmtStr := '15';
   if not InputQuery('Radial Blur', 'Sweep angle in degrees (1–60):', AmtStr) then Exit;
   AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 15), 1, 60);
-  FDocument.PushHistory('Radial Blur');
-  FDocument.RadialBlur(AmtVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Radial Blur...');
+  try
+    FDocument.PushHistory('Radial Blur');
+    FDocument.RadialBlur(AmtVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Radial Blur';
   FLastEffectProc := @RadialBlurClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7781,11 +8093,14 @@ begin
   AmtStr := '90';
   if not InputQuery('Twist', 'Angle in degrees (-360 to 360):', AmtStr) then Exit;
   AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 90), -360, 360);
-  FDocument.PushHistory('Twist');
-  FDocument.Twist(AmtVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Twist...');
+  try
+    FDocument.PushHistory('Twist');
+    FDocument.Twist(AmtVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Twist';
   FLastEffectProc := @TwistClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7804,11 +8119,14 @@ begin
   OffStr := '8';
   if not InputQuery('Fragment', 'Offset in pixels (1–40):', OffStr) then Exit;
   OffVal := EnsureRange(StrToIntDef(Trim(OffStr), 8), 1, 40);
-  FDocument.PushHistory('Fragment');
-  FDocument.Fragment(OffVal);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Fragment...');
+  try
+    FDocument.PushHistory('Fragment');
+    FDocument.Fragment(OffVal);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Fragment';
   FLastEffectProc := @FragmentClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7827,11 +8145,14 @@ begin
   AmountText := '50';
   if not InputQuery('Bulge', 'Strength (1-100):', AmountText) then Exit;
   AmountValue := EnsureRange(StrToIntDef(Trim(AmountText), 50), 1, 100);
-  FDocument.PushHistory('Bulge');
-  FDocument.Bulge(AmountValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Bulge...');
+  try
+    FDocument.PushHistory('Bulge');
+    FDocument.Bulge(AmountValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Bulge';
   FLastEffectProc := @BulgeClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7850,11 +8171,14 @@ begin
   AmountText := '50';
   if not InputQuery('Dents', 'Strength (1-100):', AmountText) then Exit;
   AmountValue := EnsureRange(StrToIntDef(Trim(AmountText), 50), 1, 100);
-  FDocument.PushHistory('Dents');
-  FDocument.Dents(AmountValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Dents...');
+  try
+    FDocument.PushHistory('Dents');
+    FDocument.Dents(AmountValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Dents';
   FLastEffectProc := @DentsClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7873,11 +8197,14 @@ begin
   AngleText := '45';
   if not InputQuery('Relief', 'Light angle in degrees (0-359):', AngleText) then Exit;
   AngleValue := EnsureRange(StrToIntDef(Trim(AngleText), 45), 0, 359);
-  FDocument.PushHistory('Relief');
-  FDocument.Relief(AngleValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Relief...');
+  try
+    FDocument.PushHistory('Relief');
+    FDocument.Relief(AngleValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Relief';
   FLastEffectProc := @ReliefClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7901,11 +8228,14 @@ begin
   StrengthText := '100';
   if not InputQuery('Red Eye', 'Reduction strength (0-100):', StrengthText) then Exit;
   StrengthValue := EnsureRange(StrToIntDef(Trim(StrengthText), 100), 0, 100);
-  FDocument.PushHistory('Red Eye');
-  FDocument.RedEye(ThresholdValue, StrengthValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Red Eye...');
+  try
+    FDocument.PushHistory('Red Eye');
+    FDocument.RedEye(ThresholdValue, StrengthValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Red Eye';
   FLastEffectProc := @RedEyeClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7924,11 +8254,14 @@ begin
   TileText := '32';
   if not InputQuery('Tile Reflection', 'Tile size in pixels (2-256):', TileText) then Exit;
   TileValue := EnsureRange(StrToIntDef(Trim(TileText), 32), 2, 256);
-  FDocument.PushHistory('Tile Reflection');
-  FDocument.TileReflection(TileValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Tile Reflection...');
+  try
+    FDocument.PushHistory('Tile Reflection');
+    FDocument.TileReflection(TileValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Tile Reflection';
   FLastEffectProc := @TileReflectionClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7947,11 +8280,14 @@ begin
   CellText := '24';
   if not InputQuery('Crystallize', 'Cell size in pixels (2-128):', CellText) then Exit;
   CellValue := EnsureRange(StrToIntDef(Trim(CellText), 24), 2, 128);
-  FDocument.PushHistory('Crystallize');
-  FDocument.Crystallize(CellValue, 1);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Crystallize...');
+  try
+    FDocument.PushHistory('Crystallize');
+    FDocument.Crystallize(CellValue, 1);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Crystallize';
   FLastEffectProc := @CrystallizeClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -7975,11 +8311,14 @@ begin
   ColorText := '45';
   if not InputQuery('Ink Sketch', 'Color retention (0-100):', ColorText) then Exit;
   ColorValue := EnsureRange(StrToIntDef(Trim(ColorText), 45), 0, 100);
-  FDocument.PushHistory('Ink Sketch');
-  FDocument.InkSketch(InkValue, ColorValue);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Ink Sketch...');
+  try
+    FDocument.PushHistory('Ink Sketch');
+    FDocument.InkSketch(InkValue, ColorValue);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Ink Sketch';
   FLastEffectProc := @InkSketchClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -8003,11 +8342,14 @@ begin
   ZoomText := '100';
   if not InputQuery('Mandelbrot Fractal', 'Zoom percent (25-400):', ZoomText) then Exit;
   ZoomValue := EnsureRange(StrToIntDef(Trim(ZoomText), 100), 25, 400);
-  FDocument.PushHistory('Mandelbrot Fractal');
-  FDocument.RenderMandelbrot(IterationValue, ZoomValue / 100.0);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Mandelbrot Fractal...');
+  try
+    FDocument.PushHistory('Mandelbrot Fractal');
+    FDocument.RenderMandelbrot(IterationValue, ZoomValue / 100.0);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Mandelbrot Fractal';
   FLastEffectProc := @MandelbrotClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -8031,11 +8373,14 @@ begin
   ZoomText := '100';
   if not InputQuery('Julia Fractal', 'Zoom percent (25-400):', ZoomText) then Exit;
   ZoomValue := EnsureRange(StrToIntDef(Trim(ZoomText), 100), 25, 400);
-  FDocument.PushHistory('Julia Fractal');
-  FDocument.RenderJulia(IterationValue, ZoomValue / 100.0);
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  BeginStatusProgress('Applying Julia Fractal...');
+  try
+    FDocument.PushHistory('Julia Fractal');
+    FDocument.RenderJulia(IterationValue, ZoomValue / 100.0);
+    SyncImageMutationUI;
+  finally
+    EndStatusProgress;
+  end;
   FLastEffectCaption := 'Julia Fractal';
   FLastEffectProc := @JuliaClick;
   if Assigned(FRepeatLastEffectItem) then
@@ -8060,18 +8405,17 @@ begin
     Exit;
   Layer := FDocument.ActiveLayer;
   DialogResult.Name := Layer.Name;
+  DialogResult.Visible := Layer.Visible;
   DialogResult.Opacity := Layer.Opacity;
   DialogResult.BlendMode := Layer.BlendMode;
   if not RunLayerPropertiesDialog(Self, DialogResult) then
     Exit;
   FDocument.PushHistory('Layer Properties');
   Layer.Name := DialogResult.Name;
+  Layer.Visible := DialogResult.Visible;
   Layer.Opacity := DialogResult.Opacity;
   Layer.BlendMode := DialogResult.BlendMode;
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.PasteSelectionClick(Sender: TObject);
@@ -8079,9 +8423,7 @@ begin
   if not FDocument.HasStoredSelection then
     Exit;
   FDocument.PasteStoredSelection;
-  SetDirty(True);
-  RefreshLayers;
-  RefreshCanvas;
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.LayerBlendModeChanged(Sender: TObject);
@@ -8097,9 +8439,7 @@ begin
     Exit;
   NewMode := TBlendMode(FLayerBlendCombo.ItemIndex);
   FDocument.ActiveLayer.BlendMode := NewMode;
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI;
 end;
 
 procedure TMainForm.InlineTextEditChange(Sender: TObject);
@@ -8349,6 +8689,74 @@ begin
   end;
 end;
 
+procedure TMainForm.RefreshTabCardVisuals(AIndex: Integer);
+var
+  I: Integer;
+  ChildIndex: Integer;
+  Card: TPanel;
+  ChildControl: TControl;
+  TabCaption: string;
+  TabHint: string;
+begin
+  if not Assigned(FTabStrip) then
+    Exit;
+  if (AIndex < 0) or
+     (AIndex >= Length(FTabDocuments)) or
+     (AIndex >= Length(FTabDirtyFlags)) or
+     (AIndex >= Length(FTabFileNames)) then
+    Exit;
+
+  if FTabDirtyFlags[AIndex] then
+    TabCaption := TabDocumentDisplayName(AIndex) + ' *'
+  else
+    TabCaption := TabDocumentDisplayName(AIndex);
+  if FTabFileNames[AIndex] <> '' then
+    TabHint := FTabFileNames[AIndex]
+  else
+    TabHint := TabCaption;
+
+  for I := 0 to FTabStrip.ControlCount - 1 do
+  begin
+    if not (FTabStrip.Controls[I] is TPanel) then
+      Continue;
+    Card := TPanel(FTabStrip.Controls[I]);
+    if Card.Tag <> AIndex then
+      Continue;
+
+    Card.Hint := TabHint;
+    if AIndex = FActiveTabIndex then
+      Card.Color := PaletteActiveRowColor
+    else
+      Card.Color := PaletteListBackgroundColor;
+
+    for ChildIndex := 0 to Card.ControlCount - 1 do
+    begin
+      ChildControl := Card.Controls[ChildIndex];
+      ChildControl.Hint := TabHint;
+      if ChildControl is TImage then
+        BuildTabThumbnail(AIndex, TImage(ChildControl))
+      else if ChildControl is TLabel then
+      begin
+        if ChildControl.Top <= 10 then
+        begin
+          TLabel(ChildControl).Caption := TabCaption;
+          if AIndex = FActiveTabIndex then
+            TLabel(ChildControl).Font.Style := [fsBold]
+          else
+            TLabel(ChildControl).Font.Style := [];
+        end
+        else
+          TLabel(ChildControl).Caption := Format(
+            '%d x %d px',
+            [FTabDocuments[AIndex].Width, FTabDocuments[AIndex].Height]
+          );
+      end;
+    end;
+    Card.Invalidate;
+    Exit;
+  end;
+end;
+
 procedure TMainForm.MoveDocumentTab(AFromIndex, AToIndex: Integer);
 var
   DocTemp: TImageDocument;
@@ -8415,6 +8823,9 @@ var
   AddBtn: TSpeedButton;
   CloseBtn: TSpeedButton;
   CardLeftPos: Integer;
+  RequiredWidth: Integer;
+  ViewportWidth: Integer;
+  NewScrollPos: Integer;
   TabCaption: string;
   TabHint: string;
 begin
@@ -8556,6 +8967,20 @@ begin
     AddBtn.Hint := 'New document';
     AddBtn.ShowHint := True;
     AddBtn.OnClick := @NewDocumentClick;
+
+    RequiredWidth := Max(
+      TabContentWidth(Length(FTabDocuments)),
+      Max(1, FTabStripHost.ClientWidth)
+    );
+    FTabStrip.Width := RequiredWidth;
+    ViewportWidth := Max(1, FTabStripHost.ClientWidth);
+    NewScrollPos := ScrollPositionForVisibleTab(
+      FActiveTabIndex,
+      ViewportWidth,
+      FTabStripHost.HorzScrollBar.Position,
+      Length(FTabDocuments)
+    );
+    FTabStripHost.HorzScrollBar.Position := NewScrollPos;
   finally
     FUpdatingTabs := False;
   end;
@@ -9061,9 +9486,7 @@ begin
       Exit;
   end;
   FDocument.PushHistory('Rotate Layer');
-  InvalidatePreparedBitmap;
-  SetDirty(True);
-  RefreshCanvas;
+  SyncImageMutationUI;
 end;
 
 end.

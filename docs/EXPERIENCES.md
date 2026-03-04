@@ -12,6 +12,60 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-04 (image-processing feedback still feels incomplete if the busy state is invisible)
+- Problem: even after routing mutations back into the canvas and preview surfaces, longer image-processing commands could still feel ambiguous in manual use because the UI had no explicit "rendering in progress" signal while the command was running.
+- Core error: the app could mutate pixels correctly and refresh the result afterward, but adjustments/effects still looked like synchronous black boxes from the user's point of view because the status bar kept showing static labels during processing.
+- Investigation: re-read the remaining explicit `Status bar: Progress bar` gap in `docs/FEATURE_MATRIX.md`, then inspected the live status-strip layout and found that the existing layer/units segment was the safest place to surface progress without creating another detached indicator.
+- Root cause: post-mutation correctness had been treated as the only feedback contract, while "the command is currently rendering" was still missing from the live shell.
+- Fix: added a real progress label + progress bar inside the status strip, reserved it inside the existing status-bar layout helpers, and routed the adjustments/effects handlers through `BeginStatusProgress(...)` / `EndStatusProgress` so the busy state is visible before the mutation lands.
+- Reuse note: for editor commands that can visibly change the image, the UI contract should cover both phases: show that the command is running, then show that the new pixels have landed; a correct final repaint alone still leaves the feature harder to trust during manual UAT.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (live previews should not force full control-tree rebuilds)
+- Problem: a visible preview surface can become functionally correct but still unnecessarily heavy if every small content refresh rebuilds the entire widget tree instead of updating the changed card in place.
+- Core error: the tab strip already had live thumbnails, but the old "always rebuild" refresh model meant even same-state dirty updates could recreate the full strip when only the active document preview actually changed.
+- Investigation: re-read the tab-strip implementation after tightening document-mutation UI sync and noticed the code path was now using `RefreshTabStrip` frequently enough that the remaining coarse refresh granularity itself became the next bottleneck.
+- Root cause: structural refresh (adding/removing/reordering tabs) and content refresh (updating one tab's thumbnail/title) were still treated as the same operation.
+- Fix: kept `RefreshTabStrip` for structural changes, added `RefreshTabCardVisuals(...)` for in-place card refresh, and routed same-state dirty updates plus stroke-finalization preview refresh through the lighter path.
+- Reuse note: when a UI surface becomes part of the live feedback loop, split "rebuild the control structure" from "refresh the current content" as early as possible; otherwise correctness fixes can quietly turn into avoidable UI churn.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (save-option records are still fake if the writer path ignores them)
+- Problem: export can look "configurable" in code and docs while still behaving like a fixed pipeline if the UI collects format options but the actual image writer ignores them.
+- Core error: the save path had a partially real options record, but `PngCompressionLevel` was documented as reserved and PNG alpha was not explicitly enabled on the writer, which meant a major export expectation could still fail despite the presence of a save-options abstraction.
+- Investigation: re-read `SaveToPath(...)` and `SaveSurfaceToFileWithOpts(...)`, then checked the local FPC writer sources to confirm `TFPWriterPNG` really exposes `UseAlpha` and `CompressionLevel`, and `TFPWriterJPEG` exposes `ProgressiveEncoding`.
+- Root cause: the abstraction stopped one layer too early; the app had begun modeling save options, but the concrete writer configuration was only wired for JPEG quality and left the other real writer capabilities unused.
+- Fix: extended `TSaveSurfaceOptions`, wired the PNG and JPEG writer properties in `SaveSurfaceToFileWithOpts(...)`, and exposed matching session-persisted prompts in the GUI save flow.
+- Reuse note: whenever an export option is added, verify the full chain in one pass: persistent UI state, option object, concrete writer property, and a round-trip regression that proves the file on disk actually reflects the setting.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-04 (image mutation is not fully testable until every visible surface refreshes)
+- Problem: some image-processing and draw flows could mutate the document correctly while still feeling unreliable in manual testing because only part of the UI visibly updated right away.
+- Core error: treating "canvas repaint" as the only required post-mutation feedback left secondary visible surfaces behind; tabs, layer thumbnails, and history-driven image jumps could lag the real document state even when the pixels had already changed.
+- Investigation: re-audited the main mutation handlers in `mainform.pas` after the user's repeated feedback about "function works but does not visibly land on the image", then compared the different post-mutation code paths and found too many hand-written combinations of `InvalidatePreparedBitmap`, `SetDirty`, `RefreshLayers`, and `RefreshCanvas`.
+- Root cause: post-mutation UI sync was not modeled as one contract. The code had multiple partially overlapping refresh patterns, so new effects and tools could easily refresh the canvas but forget the other visible surfaces that help the user verify the result.
+- Fix: added a shared `SyncImageMutationUI(...)` path for mutation handlers, routed the adjustments/effects/history/property paths through it, and updated stroke-finalization to refresh tab and layer previews after brush-like operations complete.
+- Reuse note: for editor features, "the operation ran" is not the completion condition; define one shared post-mutation path that covers every user-visible surface that represents current document state, then route new image-changing features through that path by default.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (build verification can still fail after tests pass if GUI-only APIs differ)
+- Problem: the layer pass initially passed the shared CI test suite but still failed the Lazarus GUI build because the key-state API used in a GUI-only handler was not available through the current unit imports in the app target.
+- Core error: relying on the test suite alone missed a GUI compile break; `GetKeyState` compiled conceptually against LCL internals but was not visible in the current `MainForm` unit, so the app build broke even though the core tests stayed green.
+- Investigation: after the layer-properties and jump-to-edge move changes, reran `build.sh`, read the Lazarus compile error, and checked the local LCL sources to confirm the safer public helper already exposed by `Controls`.
+- Root cause: the first implementation reached for a lower-level key-state symbol instead of using the higher-level `GetKeyShiftState` helper that matches the unit's existing dependencies.
+- Fix: replaced the direct `GetKeyState(...)` calls with `GetKeyShiftState`, keeping the same `Ctrl+Click` behavior while restoring GUI build compatibility.
+- Reuse note: when adding GUI-only modifier behavior, always rerun the full GUI build even if core tests pass, and prefer public LCL helpers already available from the unit's imported surface over lower-level API calls.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-03 (recognized format is still a gap if it only raises a nicer error)
+- Problem: a compatibility format can look "supported" in filters and docs while still being functionally missing if the only real behavior is a descriptive exception.
+- Core error: recognizing `.kra` in the open dialog but always failing on load improved messaging, yet it still left a major user-facing gap because the format had no successful pixel-return path at all.
+- Investigation: re-read the compatibility row in `docs/FEATURE_MATRIX.md`, then traced `LoadSurfaceUsingKnownReaders(...)` in `fpio.pas` and confirmed `.kra` short-circuited into an unconditional exception before any attempt to inspect the ZIP container.
+- Root cause: the earlier pass optimized for clearer failure messages but stopped short of a practical fallback import path, even though Krita archives often contain a directly usable merged PNG preview.
+- Fix: added `FPKRAIO` with ZIP-based extraction of `mergedimage.png` / `preview.png` (or another fallback PNG entry), routed `.kra` through that loader first, and kept the descriptive error only as the fallback when no readable flattened preview exists.
+- Reuse note: when a foreign format is marked partial, prefer a real flattened fallback path whenever the source container exposes one; a nicer error is still not "support" if common files can be flattened automatically.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-03 (startup defaults should be shared state, not duplicated literals)
 - Problem: the startup active tool needed to change from a paint tool to `Rectangle Select`, but the current code held that default in more than one constructor path and the first test approach tried to instantiate the full form in a headless environment.
 - Core error: duplicated startup literals are easy to update incompletely, and GUI construction is a brittle way to verify a simple default-state contract in CI.

@@ -10,10 +10,14 @@ uses
 type
   { Options passed to SaveSurfaceToFileWithOpts.
     JpegQuality: 1..100 (default 90 if 0).
-    PngCompressionLevel: reserved for future use; ignored in this release. }
+    JpegProgressive: whether JPEG should use progressive encoding.
+    PngCompressionLevel: 0..9 user-facing scale mapped onto zlib levels.
+    PngUseAlpha: whether PNG should preserve alpha data. }
   TSaveSurfaceOptions = record
     JpegQuality: Integer;
+    JpegProgressive: Boolean;
     PngCompressionLevel: Integer;
+    PngUseAlpha: Boolean;
   end;
 
 function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
@@ -27,12 +31,13 @@ function SupportedImportDialogFilter: string;
 implementation
 
 uses
+  FPKRAIO,
   FPXCFIO,
   FPPDNIO,
   FPReadBMP, FPReadGIF, FPReadJPEG, FPReadPCX, FPReadPNG, FPReadPNM, FPReadPSD,
   FPReadTGA, FPReadTiff, FPReadXPM, FPReadXWD,
   FPWriteBMP, FPWriteJPEG, FPWritePCX, FPWritePNG, FPWritePNM, FPWriteTGA,
-  FPWriteTiff, FPWriteXPM;
+  FPWriteTiff, FPWriteXPM, ZStream;
 
 const
   SurfaceOpenPattern =
@@ -127,12 +132,16 @@ var
   ReaderIndex: Integer;
   PreferredReader: TFPCustomImageReader;
 begin
-  { Krita .kra files are ZIP archives; a full layer-preserving import is not yet
-    implemented. Raise a descriptive error instead of a confusing binary failure. }
+  { Krita .kra files are ZIP archives; try Krita's merged PNG preview first. }
   if SameText(APreferredExtension, '.kra') then
+  begin
+    if TryLoadFlattenedKRASurface(AFileName, Result) then
+      Exit;
     raise Exception.Create(
-      'Krita (.kra) files are not yet fully supported.' + LineEnding +
-      'To open Krita artwork in FlatPaint, export a flattened PNG or PSD from Krita first.');
+      'Krita (.kra) file could not be imported.' + LineEnding +
+      'This file may not contain a readable merged PNG preview.' + LineEnding +
+      'To open Krita artwork in FlatPaint, save with a merged image preview or export a flattened PNG from Krita first.');
+  end;
 
   { Paint.NET .pdn files: attempt ZIP-based flattened PNG extraction first }
   if SameText(APreferredExtension, '.pdn') then
@@ -233,6 +242,8 @@ var
   Pixel: TRGBA32;
   Extension: string;
   JpegQuality: Integer;
+  PngLevel: Integer;
+  PngCompression: TCompressionLevel;
 begin
   Extension := LowerCase(ExtractFileExt(AFileName));
   Writer := CreateWriter(Extension);
@@ -245,6 +256,21 @@ begin
       JpegQuality := AOpts.JpegQuality;
       if JpegQuality <= 0 then JpegQuality := 90;
       TFPWriterJPEG(Writer).CompressionQuality := JpegQuality;
+      TFPWriterJPEG(Writer).ProgressiveEncoding := AOpts.JpegProgressive;
+    end
+    else if Writer is TFPWriterPNG then
+    begin
+      PngLevel := AOpts.PngCompressionLevel;
+      if PngLevel <= 0 then
+        PngCompression := clNone
+      else if PngLevel <= 3 then
+        PngCompression := clFastest
+      else if PngLevel >= 8 then
+        PngCompression := clMax
+      else
+        PngCompression := clDefault;
+      TFPWriterPNG(Writer).UseAlpha := AOpts.PngUseAlpha;
+      TFPWriterPNG(Writer).CompressionLevel := PngCompression;
     end;
 
     for Y := 0 to ASurface.Height - 1 do
@@ -264,7 +290,9 @@ end;
 function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
 begin
   Result.JpegQuality := 90;
+  Result.JpegProgressive := False;
   Result.PngCompressionLevel := 6;
+  Result.PngUseAlpha := True;
 end;
 
 end.

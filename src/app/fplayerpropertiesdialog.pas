@@ -10,6 +10,7 @@ uses
 type
   TLayerPropertiesResult = record
     Name: string;
+    Visible: Boolean;
     Opacity: Byte;
     BlendMode: TBlendMode;
   end;
@@ -38,6 +39,7 @@ type
   TLayerPropertiesForm = class(TForm)
   private
     FNameEdit: TEdit;
+    FVisibleCheck: TCheckBox;
     FOpacityEdit: TEdit;
     FOpacityTrack: TTrackBar;
     FBlendCombo: TComboBox;
@@ -65,9 +67,9 @@ begin
   Caption := 'Layer Properties';
   Position := poScreenCenter;
   Width := 320;
-  Height := 218;
+  Height := 248;
   ClientWidth := 320;
-  ClientHeight := 218;
+  ClientHeight := 248;
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
@@ -98,23 +100,31 @@ begin
     FBlendCombo.Items.Add(BlendModeNames[BM]);
   FBlendCombo.ItemIndex := Ord(AResult.BlendMode);
 
+  FVisibleCheck := TCheckBox.Create(Self);
+  FVisibleCheck.Parent := Self;
+  FVisibleCheck.Left := 80;
+  FVisibleCheck.Top := 82;
+  FVisibleCheck.Width := 220;
+  FVisibleCheck.Caption := 'Visible';
+  FVisibleCheck.Checked := AResult.Visible;
+
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
-  LabelCtrl.Top := 86;
+  LabelCtrl.Top := 116;
   LabelCtrl.Caption := 'Opacity:';
 
   FOpacityEdit := TEdit.Create(Self);
   FOpacityEdit.Parent := Self;
   FOpacityEdit.Left := 80;
-  FOpacityEdit.Top := 82;
+  FOpacityEdit.Top := 112;
   FOpacityEdit.Width := 56;
   FOpacityEdit.OnEditingDone := @OpacityEditDone;
 
   FOpacityTrack := TTrackBar.Create(Self);
   FOpacityTrack.Parent := Self;
   FOpacityTrack.Left := 14;
-  FOpacityTrack.Top := 110;
+  FOpacityTrack.Top := 140;
   FOpacityTrack.Width := 286;
   FOpacityTrack.Min := 0;
   FOpacityTrack.Max := 255;
@@ -129,7 +139,7 @@ begin
   OkButton.Parent := Self;
   OkButton.Caption := 'OK';
   OkButton.Left := 170;
-  OkButton.Top := 180;
+  OkButton.Top := 210;
   OkButton.Width := 64;
   OkButton.Height := 28;
   OkButton.Default := True;
@@ -139,7 +149,7 @@ begin
   CancelButton.Parent := Self;
   CancelButton.Caption := 'Cancel';
   CancelButton.Left := 242;
-  CancelButton.Top := 180;
+  CancelButton.Top := 210;
   CancelButton.Width := 64;
   CancelButton.Height := 28;
   CancelButton.ModalResult := mrCancel;
@@ -178,6 +188,7 @@ end;
 function TLayerPropertiesForm.GetResult: TLayerPropertiesResult;
 begin
   Result.Name := FNameEdit.Text;
+  Result.Visible := Assigned(FVisibleCheck) and FVisibleCheck.Checked;
   Result.Opacity := Byte(FOpacityTrack.Position);
   if FBlendCombo.ItemIndex >= 0 then
     Result.BlendMode := TBlendMode(FBlendCombo.ItemIndex)

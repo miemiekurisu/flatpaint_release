@@ -13,6 +13,8 @@ type
     procedure ComputedPanelWidthsStayWithinAvailableWidth;
     procedure ZoomPanelStaysAsDedicatedRightCluster;
     procedure ZoomPanelLeftEqualsLeadingPanelWidths;
+    procedure ProgressPanelBridgesLayerAndUnitSlots;
+    procedure ProgressWidgetsStayInsideProgressPanel;
     procedure ZoomLabelWidthLeavesReadableCaptionSpace;
     procedure ZoomTrackWidthStaysInsideZoomPanel;
   end;
@@ -53,6 +55,41 @@ begin
     'zoom panel starts after the first six panels',
     Widths[0] + Widths[1] + Widths[2] + Widths[3] + Widths[4] + Widths[5],
     ZoomStatusPanelLeft(Widths)
+  );
+end;
+
+procedure TFPStatusHelpersTests.ProgressPanelBridgesLayerAndUnitSlots;
+var
+  Widths: TStatusPanelWidthArray;
+begin
+  ComputeStatusPanelWidths(1024, Widths);
+  AssertEquals(
+    'progress region should start after the first four panels',
+    Widths[0] + Widths[1] + Widths[2] + Widths[3],
+    ProgressStatusPanelLeft(Widths)
+  );
+  AssertEquals(
+    'progress region should consume the layer and units slots',
+    Widths[4] + Widths[5],
+    ProgressStatusPanelWidth(Widths)
+  );
+end;
+
+procedure TFPStatusHelpersTests.ProgressWidgetsStayInsideProgressPanel;
+var
+  Widths: TStatusPanelWidthArray;
+  ProgressWidth: Integer;
+begin
+  ComputeStatusPanelWidths(960, Widths);
+  ProgressWidth := ProgressStatusPanelWidth(Widths);
+  AssertTrue('progress panel should be visible', ProgressWidth > 0);
+  AssertTrue(
+    'progress label should fit inside progress panel',
+    ProgressLabelWidth(ProgressWidth) <= ProgressWidth
+  );
+  AssertTrue(
+    'progress bar should fit beside the label',
+    ProgressLabelWidth(ProgressWidth) + ProgressBarWidth(ProgressWidth) + 12 <= ProgressWidth
   );
 end;
 

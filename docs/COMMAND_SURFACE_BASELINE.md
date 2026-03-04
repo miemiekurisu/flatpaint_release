@@ -206,7 +206,7 @@ If a control is visible, it must either:
 5. Continuous interactions (zoom, pan, drag tools, image-list drag reorder) also need behavior-specific interaction tests, not just static command tests.
 
 ## Current known mainline gaps
-- The image list / document-tab strip is still not implemented in the current Lazarus GUI source; the baseline is documented here, but the real code path still lacks visible tabs, next/previous navigation, thumbnail surfacing, and image-list context actions.
+- The image list / document-tab strip is now live in the current Lazarus GUI source: visible thumbnail-backed tabs, next/previous navigation, drag reordering, close buttons, horizontal scrolling, and a context menu are all present; the remaining gap here is richer paint.net-style image-list polish rather than absence of the surface.
 - `Resize...`, `Canvas Size...`, and `Units` now exist in baseline form, but they still need deeper paint.net-style polish and fuller route-level coverage.
 - Not every toolbar command currently has a guaranteed one-to-one route-level test.
 - Not every tool-palette icon is backed by full paint.net-equivalent behavior yet.

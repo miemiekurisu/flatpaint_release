@@ -5,7 +5,7 @@ unit fpio_tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPIO, FPPDNIO;
+  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPIO, FPKRAIO, FPPDNIO, Zipper;
 
 type
   TFPIOTests = class(TTestCase)
@@ -16,16 +16,30 @@ type
     procedure WriteXCFString(AStream: TStream; const AValue: string);
     procedure CreateMinimalXCFFIle(const AFileName: string);
   published
+    procedure DefaultSaveOptionsExposeRealFormatControls;
     procedure LoaderCanSniffPngWithUnknownExtension;
+    procedure PngRoundTripPreservesAlphaByDefault;
     procedure TargaRoundTripPreservesPixels;
     procedure LoaderCanReadMinimalXCFProject;
     procedure UnifiedOpenFilterIncludesProjectsAndPSD;
     procedure KraLoadRaisesDescriptiveError;
+    procedure KraZipLoadExtractsMergedImage;
     procedure PdnLoadRaisesDescriptiveError;
     procedure PdnZipLoadExtractsPNG;
   end;
 
 implementation
+
+procedure TFPIOTests.DefaultSaveOptionsExposeRealFormatControls;
+var
+  Opts: TSaveSurfaceOptions;
+begin
+  Opts := DefaultSaveSurfaceOptions;
+  AssertEquals('jpeg quality default', 90, Opts.JpegQuality);
+  AssertFalse('jpeg progressive default', Opts.JpegProgressive);
+  AssertEquals('png compression default', 6, Opts.PngCompressionLevel);
+  AssertTrue('png alpha enabled by default', Opts.PngUseAlpha);
+end;
 
 function TFPIOTests.UniqueTempFile(const AExtension: string): string;
 begin
@@ -184,6 +198,35 @@ begin
   end;
 end;
 
+procedure TFPIOTests.PngRoundTripPreservesAlphaByDefault;
+var
+  SourceSurface: TRasterSurface;
+  LoadedSurface: TRasterSurface;
+  PngPath: string;
+  Opts: TSaveSurfaceOptions;
+begin
+  SourceSurface := TRasterSurface.Create(1, 1);
+  try
+    SourceSurface[0, 0] := RGBA(10, 20, 30, 123);
+    PngPath := UniqueTempFile('.png');
+    Opts := DefaultSaveSurfaceOptions;
+    SaveSurfaceToFileWithOpts(PngPath, SourceSurface, Opts);
+
+    LoadedSurface := LoadSurfaceFromFile(PngPath);
+    try
+      AssertTrue(
+        'png alpha-preserving save round-trips the exact pixel',
+        RGBAEqual(LoadedSurface[0, 0], SourceSurface[0, 0])
+      );
+    finally
+      LoadedSurface.Free;
+      DeleteFile(PngPath);
+    end;
+  finally
+    SourceSurface.Free;
+  end;
+end;
+
 procedure TFPIOTests.TargaRoundTripPreservesPixels;
 var
   SourceSurface: TRasterSurface;
@@ -267,6 +310,44 @@ begin
   DeleteFile(KraPath);
   AssertTrue('kra load must raise', GotException);
   AssertTrue('kra error mentions kra', Pos('.kra', ExceptionMsg) > 0);
+end;
+
+procedure TFPIOTests.KraZipLoadExtractsMergedImage;
+var
+  KraPath: string;
+  PngPath: string;
+  Surface: TRasterSurface;
+  LoadedSurface: TRasterSurface;
+  ZipperObj: TZipper;
+begin
+  KraPath := UniqueTempFile('.kra');
+  PngPath := UniqueTempFile('.png');
+  Surface := TRasterSurface.Create(1, 1);
+  LoadedSurface := nil;
+  try
+    Surface[0, 0] := RGBA(12, 34, 56, 255);
+    SaveSurfaceToFile(PngPath, Surface);
+
+    ZipperObj := TZipper.Create;
+    try
+      ZipperObj.FileName := KraPath;
+      ZipperObj.Entries.AddFileEntry(PngPath, 'mergedimage.png');
+      ZipperObj.ZipAllFiles;
+    finally
+      ZipperObj.Free;
+    end;
+
+    LoadedSurface := LoadSurfaceFromFile(KraPath);
+    AssertNotNull('kra load should return a surface', LoadedSurface);
+    AssertEquals('kra width', 1, LoadedSurface.Width);
+    AssertEquals('kra height', 1, LoadedSurface.Height);
+    AssertTrue('kra pixel should match merged image', RGBAEqual(LoadedSurface[0, 0], RGBA(12, 34, 56, 255)));
+  finally
+    LoadedSurface.Free;
+    Surface.Free;
+    DeleteFile(PngPath);
+    DeleteFile(KraPath);
+  end;
 end;
 
 procedure TFPIOTests.PdnLoadRaisesDescriptiveError;

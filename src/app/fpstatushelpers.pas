@@ -12,6 +12,10 @@ type
 
 procedure ComputeStatusPanelWidths(ATotalWidth: Integer; out AWidths: TStatusPanelWidthArray);
 function ZoomStatusPanelLeft(const AWidths: TStatusPanelWidthArray): Integer;
+function ProgressStatusPanelLeft(const AWidths: TStatusPanelWidthArray): Integer;
+function ProgressStatusPanelWidth(const AWidths: TStatusPanelWidthArray): Integer;
+function ProgressLabelWidth(AProgressPanelWidth: Integer): Integer;
+function ProgressBarWidth(AProgressPanelWidth: Integer): Integer;
 function ZoomLabelWidth(AZoomPanelWidth: Integer): Integer;
 function ZoomTrackWidth(AZoomPanelWidth: Integer): Integer;
 
@@ -63,6 +67,33 @@ begin
   Result := 0;
   for PanelIndex := 0 to StatusPanelCount - 2 do
     Inc(Result, Max(0, AWidths[PanelIndex]));
+end;
+
+function ProgressStatusPanelLeft(const AWidths: TStatusPanelWidthArray): Integer;
+begin
+  Result := Max(0, AWidths[0]) +
+            Max(0, AWidths[1]) +
+            Max(0, AWidths[2]) +
+            Max(0, AWidths[3]);
+end;
+
+function ProgressStatusPanelWidth(const AWidths: TStatusPanelWidthArray): Integer;
+begin
+  Result := Max(0, AWidths[4]) + Max(0, AWidths[5]);
+end;
+
+function ProgressLabelWidth(AProgressPanelWidth: Integer): Integer;
+begin
+  Result := EnsureRange(Max(0, AProgressPanelWidth) div 3, 56, 98);
+  if Result > Max(0, AProgressPanelWidth) then
+    Result := Max(0, AProgressPanelWidth);
+end;
+
+function ProgressBarWidth(AProgressPanelWidth: Integer): Integer;
+begin
+  Result := Max(0, AProgressPanelWidth) - ProgressLabelWidth(AProgressPanelWidth) - 12;
+  if Result < 0 then
+    Result := 0;
 end;
 
 function ZoomLabelWidth(AZoomPanelWidth: Integer): Integer;
