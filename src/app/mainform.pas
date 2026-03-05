@@ -166,7 +166,6 @@ type
     FInlineTextCommitting: Boolean;
     FLayerBlendCombo: TComboBox;
     FLayerPropsButton: TSpeedButton;
-    FLayerVisibleCheck: TCheckBox;
     FLayerOpacitySpin: TSpinEdit;
     FLayerOpacityLabel: TLabel;
     FUpdatingLayerControls: Boolean;
@@ -262,6 +261,7 @@ type
     FLayerDragIndex: Integer;
     FLayerDragTargetIndex: Integer;
     FMagnifyInstalled: Boolean;
+    FAquaAppearanceApplied: Boolean;
     function ActivePaintColor: TRGBA32;
     function BackgroundToolColor: TRGBA32;
     function ColorForActiveTarget(AAlternate: Boolean = False): TRGBA32;
@@ -308,6 +308,7 @@ type
     procedure UpdateStatusProgress(APercent: Integer; const ACaption: string = '');
     procedure EndStatusProgress;
     procedure UpdateToolOptionControl;
+    procedure LayoutOptionRow;
     procedure SyncToolButtonSelection;
     procedure SyncUtilityButtonStates;
     procedure ButtonIconOverlayClick(Sender: TObject);
@@ -640,8 +641,9 @@ uses
   FPNewImageDialog, FPResizeDialog, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
-  FPBlurDialog, FPNoiseDialog, FPFileMenuHelpers, FPTabHelpers,
-  FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge, FPAlphaBridge;
+  FPBlurDialog, FPNoiseDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
+  FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge, FPAlphaBridge,
+  FPListBgBridge, FPAppearanceBridge;
 
 const
   DisplayDPI = 96.0;
@@ -1713,14 +1715,10 @@ begin
     begin
       if FCurrentTool = tkRecolor then
       begin
-        FFillTolLabel.Left := 480;
-        FFillTolSpin.Left := 552;
         FFillTolSpin.Value := FRecolorTolerance
       end
       else
       begin
-        FFillTolLabel.Left := 348;
-        FFillTolSpin.Left := 420;
         FFillTolSpin.Value := FFillTolerance;
       end;
       if FCurrentTool = tkRecolor then
@@ -1786,17 +1784,114 @@ begin
         end;
     else
       begin
-        FOptionLabel.Caption := '';
-        FOptionLabel.Visible := True;
-        FBrushSpin.Visible := True;
-        FBrushSpin.Enabled := False;
-        FBrushSpin.Value := FBrushSize;
+        FOptionLabel.Visible := False;
+        FBrushSpin.Visible := False;
       end;
     end;
   finally
     FUpdatingToolOption := False;
   end;
+  LayoutOptionRow;
   SyncToolButtonSelection;
+end;
+
+procedure TMainForm.LayoutOptionRow;
+{ Dynamically positions all visible tool-option controls left-to-right
+  with consistent spacing, following Apple HIG guidelines.  This eliminates
+  large gaps when intermediate controls are hidden and prevents overlaps. }
+const
+  OptionStartX = 222;    { Right after tool combo: 50 + 164 + 8 }
+  LabelGap = 4;          { Between a label and its paired control }
+  GroupGap = 12;          { Between adjacent control groups }
+var
+  X: Integer;
+
+  procedure PlaceLabel(ALabel: TLabel);
+  begin
+    if not Assigned(ALabel) or not ALabel.Visible then Exit;
+    ALabel.Left := X;
+    Inc(X, ALabel.Width + LabelGap);
+  end;
+
+  procedure PlaceControl(AControl: TControl);
+  begin
+    if not Assigned(AControl) or not AControl.Visible then Exit;
+    AControl.Left := X;
+    Inc(X, AControl.Width + GroupGap);
+  end;
+
+begin
+  X := OptionStartX;
+
+  { Size / Tolerance }
+  PlaceLabel(FOptionLabel);
+  PlaceControl(FBrushSpin);
+
+  { Opacity }
+  PlaceLabel(FOpacityLabel);
+  PlaceControl(FOpacitySpin);
+
+  { Selection Mode }
+  PlaceLabel(FSelModeLabel);
+  PlaceControl(FSelModeCombo);
+
+  { Shape Style }
+  PlaceLabel(FShapeStyleLabel);
+  PlaceControl(FShapeStyleCombo);
+
+  { Line Bezier }
+  PlaceControl(FLineBezierCheck);
+
+  { Bucket Fill Mode }
+  PlaceLabel(FBucketModeLabel);
+  PlaceControl(FBucketModeCombo);
+
+  { Gradient Type }
+  PlaceLabel(FGradientTypeLabel);
+  PlaceControl(FGradientTypeCombo);
+
+  { Color Picker Sample }
+  PlaceLabel(FPickerSampleLabel);
+  PlaceControl(FPickerSampleCombo);
+
+  { Hardness }
+  PlaceLabel(FHardnessLabel);
+  PlaceControl(FHardnessSpin);
+
+  { Eraser Shape }
+  PlaceLabel(FEraserShapeLabel);
+  PlaceControl(FEraserShapeCombo);
+
+  { Fill / Recolor Tolerance }
+  PlaceLabel(FFillTolLabel);
+  PlaceControl(FFillTolSpin);
+
+  { Fill Sample Source }
+  PlaceLabel(FFillSampleLabel);
+  PlaceControl(FFillSampleCombo);
+
+  { Wand Sample Source }
+  PlaceLabel(FWandSampleLabel);
+  PlaceControl(FWandSampleCombo);
+
+  { Clone Aligned }
+  PlaceControl(FCloneAlignedCheck);
+
+  { Recolor Preserve Value }
+  PlaceControl(FRecolorPreserveValueCheck);
+
+  { Gradient Reverse }
+  PlaceControl(FGradientReverseCheck);
+
+  { Selection Anti-alias }
+  PlaceControl(FSelAntiAliasCheck);
+
+  { Selection Feather }
+  PlaceLabel(FSelFeatherLabel);
+  PlaceControl(FSelFeatherSpin);
+
+  { Wand Contiguous }
+  PlaceControl(FWandContiguousCheck);
 end;
 
 procedure TMainForm.SyncToolButtonSelection;
@@ -2325,14 +2420,28 @@ begin
   ZoomGroupPanel.ParentColor := False;
   ZoomGroupPanel.Anchors := [akTop, akRight];
 
-  Btn := CreateButton('New',   4, 2, 72, @NewDocumentClick,   FileGroupPanel, 0, bicCommand); Btn.Hint := 'New document (Cmd+N)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Open',  80, 2, 78, @OpenDocumentClick, FileGroupPanel, 0, bicCommand); Btn.Hint := 'Open document (Cmd+O)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Save', 162, 2, 72, @SaveDocumentClick, FileGroupPanel, 0, bicCommand); Btn.Hint := 'Save document (Cmd+S)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Cut',    4, 2, ToolbarCompactButtonWidth, @CutClick,          EditGroupPanel, 0, bicCommand); Btn.Hint := 'Cut selection (Cmd+X)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Copy',  34, 2, ToolbarCompactButtonWidth, @CopyClick,         EditGroupPanel, 0, bicCommand); Btn.Hint := 'Copy selection (Cmd+C)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Paste', 64, 2, ToolbarCompactButtonWidth, @PasteClick,        EditGroupPanel, 0, bicCommand); Btn.Hint := 'Paste (Cmd+V)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Undo',   4, 2, ToolbarCompactButtonWidth, @UndoClick,         UndoGroupPanel, 0, bicCommand); Btn.Hint := 'Undo last action (Cmd+Z)'; Btn.Height := ToolbarButtonHeight;
-  Btn := CreateButton('Redo',  34, 2, ToolbarCompactButtonWidth, @RedoClick,         UndoGroupPanel, 0, bicCommand); Btn.Hint := 'Redo (Cmd+Shift+Z)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('New',   4, 2, 72, @NewDocumentClick,   FileGroupPanel, 0, bicCommand);
+  if Pos('      ', Btn.Caption) = 1 then Btn.Caption := '      ' + TR('New', #$E6#$96#$B0#$E5#$BB#$BA)
+  else Btn.Caption := TR('New', #$E6#$96#$B0#$E5#$BB#$BA);
+  Btn.Hint := TR('New document (Cmd+N)', #$E6#$96#$B0#$E5#$BB#$BA#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+N)');
+  Btn.Height := ToolbarButtonHeight;
+
+  Btn := CreateButton('Open',  80, 2, 78, @OpenDocumentClick, FileGroupPanel, 0, bicCommand);
+  if Pos('      ', Btn.Caption) = 1 then Btn.Caption := '      ' + TR('Open', #$E6#$89#$93#$E5#$BC#$80)
+  else Btn.Caption := TR('Open', #$E6#$89#$93#$E5#$BC#$80);
+  Btn.Hint := TR('Open document (Cmd+O)', #$E6#$89#$93#$E5#$BC#$80#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+O)');
+  Btn.Height := ToolbarButtonHeight;
+
+  Btn := CreateButton('Save', 162, 2, 72, @SaveDocumentClick, FileGroupPanel, 0, bicCommand);
+  if Pos('      ', Btn.Caption) = 1 then Btn.Caption := '      ' + TR('Save', #$E4#$BF#$9D#$E5#$AD#$98)
+  else Btn.Caption := TR('Save', #$E4#$BF#$9D#$E5#$AD#$98);
+  Btn.Hint := TR('Save document (Cmd+S)', #$E4#$BF#$9D#$E5#$AD#$98#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+S)');
+  Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Cut',    4, 2, ToolbarCompactButtonWidth, @CutClick,          EditGroupPanel, 0, bicCommand); Btn.Hint := TR('Cut selection (Cmd+X)', #$E5#$89#$AA#$E5#$88#$87#$E9#$80#$89#$E5#$8C#$BA + ' (Cmd+X)'); Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Copy',  34, 2, ToolbarCompactButtonWidth, @CopyClick,         EditGroupPanel, 0, bicCommand); Btn.Hint := TR('Copy selection (Cmd+C)', #$E5#$A4#$8D#$E5#$88#$B6#$E9#$80#$89#$E5#$8C#$BA + ' (Cmd+C)'); Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Paste', 64, 2, ToolbarCompactButtonWidth, @PasteClick,        EditGroupPanel, 0, bicCommand); Btn.Hint := TR('Paste (Cmd+V)', #$E7#$B2#$98#$E8#$B4#$B4 + ' (Cmd+V)'); Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Undo',   4, 2, ToolbarCompactButtonWidth, @UndoClick,         UndoGroupPanel, 0, bicCommand); Btn.Hint := TR('Undo last action (Cmd+Z)', #$E6#$92#$A4#$E9#$94#$80 + ' (Cmd+Z)'); Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Redo',  34, 2, ToolbarCompactButtonWidth, @RedoClick,         UndoGroupPanel, 0, bicCommand); Btn.Hint := TR('Redo (Cmd+Shift+Z)', #$E9#$87#$8D#$E5#$81#$9A + ' (Cmd+Shift+Z)'); Btn.Height := ToolbarButtonHeight;
 
   Btn := CreateButton('Tools',  6, 2, ToolbarUtilityButtonWidth, @UtilityButtonClick, PaletteGroupPanel, Ord(ucTools),  bicUtility); Btn.Hint := UtilityCommandHint(ucTools) + ' (' + UtilityCommandShortcutLabel(ucTools) + ')'; Btn.Height := ToolbarButtonHeight;
   FUtilityButtons[ucTools] := Btn;
@@ -2359,6 +2468,7 @@ begin
   for ZoomIndex := 0 to ZoomPresetCount - 1 do
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
+  FZoomCombo.Color := clWhite;
   FZoomCombo.Font.Color := ChromeTextColor;
   FZoomCombo.Hint := 'Zoom preset';
   FZoomCombo.ShowHint := True;
@@ -2491,6 +2601,7 @@ begin
   end;
   SyncToolComboSelection;
   FToolCombo.OnChange := @ToolComboChange;
+  FToolCombo.Color := clWhite;
   FToolCombo.Font.Color := ChromeTextColor;
   FToolCombo.Hint := 'Choose the active tool (single-letter shortcuts work when Command, Control, and Option are not held)';
   FToolCombo.ShowHint := True;
@@ -2576,6 +2687,7 @@ begin
   FEraserShapeCombo.ItemIndex := 0;
   FEraserShapeCombo.Visible := False;
   FEraserShapeCombo.OnChange := @EraserShapeComboChanged;
+  FEraserShapeCombo.Color := clWhite;
   FEraserShapeCombo.Font.Color := ChromeTextColor;
   FEraserShapeCombo.Hint := 'Eraser tip shape';
   FEraserShapeCombo.ShowHint := True;
@@ -2601,6 +2713,7 @@ begin
   FSelModeCombo.ItemIndex := 0;
   FSelModeCombo.Visible := False;
   FSelModeCombo.OnChange := @SelModeComboChanged;
+  FSelModeCombo.Color := clWhite;
   FSelModeCombo.Font.Color := ChromeTextColor;
   FSelModeCombo.Hint := 'Selection combination mode';
   FSelModeCombo.ShowHint := True;
@@ -2626,6 +2739,7 @@ begin
   FShapeStyleCombo.ItemIndex := 0;
   FShapeStyleCombo.Visible := False;
   FShapeStyleCombo.OnChange := @ShapeStyleComboChanged;
+  FShapeStyleCombo.Color := clWhite;
   FShapeStyleCombo.Font.Color := ChromeTextColor;
   FShapeStyleCombo.Hint := 'Shape draw style';
   FShapeStyleCombo.ShowHint := True;
@@ -2662,6 +2776,7 @@ begin
   FBucketModeCombo.ItemIndex := 0;
   FBucketModeCombo.Visible := False;
   FBucketModeCombo.OnChange := @BucketModeComboChanged;
+  FBucketModeCombo.Color := clWhite;
   FBucketModeCombo.Font.Color := ChromeTextColor;
   FBucketModeCombo.Hint := 'Fill mode';
   FBucketModeCombo.ShowHint := True;
@@ -2686,6 +2801,7 @@ begin
   FFillSampleCombo.ItemIndex := 0;
   FFillSampleCombo.Visible := False;
   FFillSampleCombo.OnChange := @FillSampleComboChanged;
+  FFillSampleCombo.Color := clWhite;
   FFillSampleCombo.Font.Color := ChromeTextColor;
   FFillSampleCombo.Hint := 'Fill sample source';
   FFillSampleCombo.ShowHint := True;
@@ -2710,6 +2826,7 @@ begin
   FWandSampleCombo.ItemIndex := 0;
   FWandSampleCombo.Visible := False;
   FWandSampleCombo.OnChange := @WandSampleComboChanged;
+  FWandSampleCombo.Color := clWhite;
   FWandSampleCombo.Font.Color := ChromeTextColor;
   FWandSampleCombo.Hint := 'Wand sample source';
   FWandSampleCombo.ShowHint := True;
@@ -2770,6 +2887,7 @@ begin
   FGradientTypeCombo.ItemIndex := 0;
   FGradientTypeCombo.Visible := False;
   FGradientTypeCombo.OnChange := @GradientTypeComboChanged;
+  FGradientTypeCombo.Color := clWhite;
   FGradientTypeCombo.Font.Color := ChromeTextColor;
   FGradientTypeCombo.Hint := 'Gradient type';
   FGradientTypeCombo.ShowHint := True;
@@ -2833,6 +2951,7 @@ begin
   FPickerSampleCombo.ItemIndex := 0;
   FPickerSampleCombo.Visible := False;
   FPickerSampleCombo.OnChange := @PickerSampleComboChanged;
+  FPickerSampleCombo.Color := clWhite;
   FPickerSampleCombo.Font.Color := ChromeTextColor;
   FPickerSampleCombo.Hint := 'Pick color from layer or composite image';
   FPickerSampleCombo.ShowHint := True;
@@ -2862,7 +2981,7 @@ begin
   FSelFeatherSpin.Parent := FTopPanel;
   FSelFeatherSpin.Left := 656;
   FSelFeatherSpin.Top := ToolbarOptionRowTop;
-  FSelFeatherSpin.Width := 52;
+  FSelFeatherSpin.Width := 60;
   FSelFeatherSpin.MinValue := 0;
   FSelFeatherSpin.MaxValue := 128;
   FSelFeatherSpin.Value := FSelFeather;
@@ -3032,28 +3151,25 @@ begin
   FHistoryList.ItemHeight := 20;
   FHistoryList.OnClick := @HistoryListClick;
   FHistoryList.OnDrawItem := @HistoryListDrawItem;
+  FPSetListBackground(Pointer(FHistoryList.Handle), 1.0, 1.0, 1.0);
   RefreshHistoryPanel;
 
   FRightPanel := TPanel.Create(Self);
   CreatePalette(FRightPanel, pkLayers);
 
-  { Row 1: Add / Duplicate / Delete / Merge }
+  { Row 1: Add / Duplicate / Delete / Merge / Up / Down }
   CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel, 0, bicCommand).Hint := 'Add new layer';
   CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand).Hint := 'Duplicate layer';
   CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand).Hint := 'Delete layer';
   CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand).Hint := 'Merge down';
-  { Row 1 right: Vis / Up / Down }
-  CreateButton('Vis', 132, ContentTop, 26, @ToggleLayerVisibilityClick, FRightPanel, 0, bicCommand).Hint := 'Toggle visibility';
-  CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up';
-  CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down';
+  CreateButton('Up', 132, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up';
+  CreateButton('Dn', 162, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down';
 
-  { Row 2: Opacity / Flatten / Rename / Properties / Lock }
-  CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel, 0, bicCommand).Hint := 'Layer opacity';
-  CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := 'Flatten image';
-  CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand).Hint := 'Rename layer';
-  FLayerPropsButton := CreateButton('Props', 102, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel, 0, bicCommand);
+  { Row 2: Flatten / Rename / Properties }
+  CreateButton('Flat', 12, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := 'Flatten image';
+  CreateButton('Name', 42, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand).Hint := 'Rename layer';
+  FLayerPropsButton := CreateButton('Props', 72, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel, 0, bicCommand);
   FLayerPropsButton.Hint := 'Layer properties';
-  CreateButton('Lock', 132, ContentTop + 28, 26, @ToggleLayerLockClick, FRightPanel, 0, bicCommand).Hint := 'Toggle layer lock';
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
@@ -3071,27 +3187,20 @@ begin
   FLayerBlendCombo.Items.Add('Soft Light');
   FLayerBlendCombo.ItemIndex := 0;
   FLayerBlendCombo.OnChange := @LayerBlendModeChanged;
+  FLayerBlendCombo.Color := clWhite;
   FLayerBlendCombo.Font.Color := ChromeTextColor;
-
-  FLayerVisibleCheck := TCheckBox.Create(FRightPanel);
-  FLayerVisibleCheck.Parent := FRightPanel;
-  FLayerVisibleCheck.Left := 12;
-  FLayerVisibleCheck.Top := ContentTop + 88;
-  FLayerVisibleCheck.Width := 84;
-  FLayerVisibleCheck.Caption := 'Visible';
-  FLayerVisibleCheck.OnChange := @LayerVisibleCheckChanged;
 
   FLayerOpacityLabel := TLabel.Create(FRightPanel);
   FLayerOpacityLabel.Parent := FRightPanel;
   FLayerOpacityLabel.Caption := 'Opacity:';
   FLayerOpacityLabel.Font.Color := ChromeTextColor;
-  FLayerOpacityLabel.Left := 106;
-  FLayerOpacityLabel.Top := ContentTop + 93;
+  FLayerOpacityLabel.Left := 12;
+  FLayerOpacityLabel.Top := ContentTop + 85;
 
   FLayerOpacitySpin := TSpinEdit.Create(FRightPanel);
   FLayerOpacitySpin.Parent := FRightPanel;
-  FLayerOpacitySpin.Left := 160;
-  FLayerOpacitySpin.Top := ContentTop + 88;
+  FLayerOpacitySpin.Left := 68;
+  FLayerOpacitySpin.Top := ContentTop + 82;
   FLayerOpacitySpin.Width := 72;
   FLayerOpacitySpin.MinValue := 0;
   FLayerOpacitySpin.MaxValue := 100;
@@ -3102,9 +3211,9 @@ begin
   FLayerList.Parent := FRightPanel;
   FLayerList.BorderStyle := bsNone;
   FLayerList.Left := 12;
-  FLayerList.Top := ContentTop + 118;
+  FLayerList.Top := ContentTop + 108;
   FLayerList.Width := 220;
-  FLayerList.Height := FRightPanel.Height - (ContentTop + 130);
+  FLayerList.Height := FRightPanel.Height - (ContentTop + 120);
   FLayerList.Anchors := [akTop, akLeft, akRight, akBottom];
   FLayerList.Color := PaletteListBackgroundColor;
   FLayerList.Font.Color := ChromeTextColor;
@@ -3117,6 +3226,7 @@ begin
   FLayerList.OnMouseDown := @LayerListMouseDown;
   FLayerList.OnMouseMove := @LayerListMouseMove;
   FLayerList.OnMouseUp := @LayerListMouseUp;
+  FPSetListBackground(Pointer(FLayerList.Handle), 1.0, 1.0, 1.0);
   FRightPanel.OnResize := @LayersPanelResize;
   LayoutLayersPanel;
 end;
@@ -3152,14 +3262,10 @@ begin
     Result := '−'
   else if ACaption = 'Mrg' then
     Result := '⇣'
-  else if ACaption = 'Vis' then
-    Result := '◉'
   else if ACaption = 'Up' then
     Result := '↑'
   else if ACaption = 'Dn' then
     Result := '↓'
-  else if ACaption = 'Fade' then
-    Result := '◔'
   else if ACaption = 'Flat' then
     Result := '▤'
   else if ACaption = 'Name' then
@@ -4335,8 +4441,6 @@ begin
     try
       if Assigned(FLayerBlendCombo) then
         FLayerBlendCombo.ItemIndex := Ord(FDocument.ActiveLayer.BlendMode);
-      if Assigned(FLayerVisibleCheck) then
-        FLayerVisibleCheck.Checked := FDocument.ActiveLayer.Visible;
       if Assigned(FLayerOpacitySpin) then
         FLayerOpacitySpin.Value := LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity);
     finally
@@ -5699,7 +5803,7 @@ procedure TMainForm.LayoutLayersPanel;
 const
   Margin = 12;
   ContentTop = 30;
-  ListTop = ContentTop + 118;
+  ListTop = ContentTop + 108;
   BottomMargin = 12;
 begin
   if not Assigned(FRightPanel) or not Assigned(FLayerList) then
@@ -6883,13 +6987,8 @@ begin
   SealPendingStrokeHistory;
   if FUpdatingLayerControls then
     Exit;
-  if not Assigned(FLayerVisibleCheck) or (FDocument.LayerCount = 0) then
+  if FDocument.LayerCount = 0 then
     Exit;
-  if FDocument.ActiveLayer.Visible = FLayerVisibleCheck.Checked then
-    Exit;
-  FDocument.PushHistory('Toggle Layer Visibility');
-  FDocument.SetLayerVisibility(FDocument.ActiveLayerIndex, FLayerVisibleCheck.Checked);
-  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.LayerOpacitySpinChanged(Sender: TObject);
@@ -7121,16 +7220,16 @@ end;
 
 procedure TMainForm.BlackAndWhiteClick(Sender: TObject);
 var
-  ValueText: string;
+  Val: Integer;
 begin
   SealPendingStrokeHistory;
-  ValueText := '127';
-  if not InputQuery('Black and White', 'Threshold (0 to 255)', ValueText) then
+  Val := 127;
+  if not RunEffectDialog1(Self, 'Black and White', 'Threshold', 0, 255, 127, Val) then
     Exit;
   BeginStatusProgress('Applying Black and White...');
   try
     FDocument.PushHistory('Black and White');
-    FDocument.BlackAndWhite(EnsureRange(StrToIntDef(ValueText, 127), 0, 255));
+    FDocument.BlackAndWhite(Val);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
@@ -7251,14 +7350,12 @@ end;
 
 procedure TMainForm.OutlineEffectClick(Sender: TObject);
 var
-  AStr: string;
   ThresholdVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AStr := '10';
-  if not InputQuery('Outline Effect', 'Alpha threshold (0–255):', AStr) then Exit;
-  ThresholdVal := EnsureRange(StrToIntDef(AStr, 10), 0, 255);
+  ThresholdVal := 10;
+  if not RunEffectDialog1(Self, 'Outline Effect', 'Alpha Threshold', 0, 255, 10, ThresholdVal) then Exit;
   BeginStatusProgress('Applying Outline Effect...');
   try
     FDocument.PushHistory('Outline Effect');
@@ -7621,6 +7718,14 @@ begin
     FPInstallMagnifyHandler(Pointer(FCanvasHost.Handle),
       @FPMagnifyCallbackProc);
     FMagnifyInstalled := True;
+  end;
+
+  { Force light (Aqua) appearance so all native dropdowns/popups render
+    with a white background instead of a dark translucent material. }
+  if (not FAquaAppearanceApplied) and HandleAllocated then
+  begin
+    FPForceAquaAppearance(Pointer(Handle));
+    FAquaAppearanceApplied := True;
   end;
 
   ScrollPosition := Point(
@@ -8013,8 +8118,6 @@ begin
     try
       if Assigned(FLayerBlendCombo) then
         FLayerBlendCombo.ItemIndex := Ord(FDocument.ActiveLayer.BlendMode);
-      if Assigned(FLayerVisibleCheck) then
-        FLayerVisibleCheck.Checked := FDocument.ActiveLayer.Visible;
       if Assigned(FLayerOpacitySpin) then
         FLayerOpacitySpin.Value := LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity);
     finally
@@ -8058,12 +8161,6 @@ begin
     InvalidatePreparedBitmap;
     RefreshCanvas;
     FLayerList.Invalidate;
-    if Assigned(FLayerVisibleCheck) then
-    begin
-      FUpdatingLayerControls := True;
-      FLayerVisibleCheck.Checked := FDocument.Layers[HitIndex].Visible;
-      FUpdatingLayerControls := False;
-    end;
     Exit;
   end;
 
@@ -9015,14 +9112,12 @@ end;
 
 procedure TMainForm.PixelateClick(Sender: TObject);
 var
-  AStr: string;
   Val: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AStr := '10';
-  if not InputQuery('Pixelate', 'Block Size (1 to 100)', AStr) then Exit;
-  Val := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
+  Val := 10;
+  if not RunEffectDialog1(Self, 'Pixelate', 'Block Size', 1, 100, 10, Val) then Exit;
   BeginStatusProgress('Applying Pixelate...');
   try
     FDocument.PushHistory('Pixelate');
@@ -9042,15 +9137,13 @@ end;
 
 procedure TMainForm.VignetteClick(Sender: TObject);
 var
-  AStr: string;
   Val: Integer;
   Strength: Double;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AStr := '50';
-  if not InputQuery('Vignette', 'Strength (0 to 100)', AStr) then Exit;
-  Val := EnsureRange(StrToIntDef(AStr, 50), 0, 100);
+  Val := 50;
+  if not RunEffectDialog1(Self, 'Vignette', 'Strength', 0, 100, 50, Val) then Exit;
   Strength := Val / 100.0;
   BeginStatusProgress('Applying Vignette...');
   try
@@ -9071,17 +9164,16 @@ end;
 
 procedure TMainForm.MotionBlurClick(Sender: TObject);
 var
-  AStr: string;
   AngleVal, DistVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AStr := '0';
-  if not InputQuery('Motion Blur', 'Angle in degrees (0-359)', AStr) then Exit;
-  AngleVal := EnsureRange(StrToIntDef(AStr, 0), 0, 359);
-  AStr := '10';
-  if not InputQuery('Motion Blur', 'Distance in pixels (1-100)', AStr) then Exit;
-  DistVal := EnsureRange(StrToIntDef(AStr, 10), 1, 100);
+  AngleVal := 0;
+  DistVal := 10;
+  if not RunEffectDialog2(Self, 'Motion Blur',
+    'Angle (degrees)', 0, 359, 0,
+    'Distance (pixels)', 1, 100, 10,
+    AngleVal, DistVal) then Exit;
   BeginStatusProgress('Applying Motion Blur...');
   try
     FDocument.PushHistory('Motion Blur');
@@ -9101,14 +9193,12 @@ end;
 
 procedure TMainForm.MedianFilterClick(Sender: TObject);
 var
-  AStr: string;
   RadiusVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AStr := '1';
-  if not InputQuery('Median Filter (Denoise)', 'Radius (1=3x3, 2=5x5)', AStr) then Exit;
-  RadiusVal := EnsureRange(StrToIntDef(AStr, 1), 1, 2);
+  RadiusVal := 1;
+  if not RunEffectDialog1(Self, 'Median Filter (Denoise)', 'Radius', 1, 2, 1, RadiusVal) then Exit;
   BeginStatusProgress('Applying Median Filter...');
   try
     FDocument.PushHistory('Median Filter');
@@ -9128,17 +9218,16 @@ end;
 
 procedure TMainForm.GlowClick(Sender: TObject);
 var
-  RadStr, IntStr: string;
   RadVal, IntVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  RadStr := '3';
-  if not InputQuery('Glow Effect', 'Radius (1–10):', RadStr) then Exit;
-  RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 3), 1, 10);
-  IntStr := '80';
-  if not InputQuery('Glow Effect', 'Intensity (0–200):', IntStr) then Exit;
-  IntVal := EnsureRange(StrToIntDef(Trim(IntStr), 80), 0, 200);
+  RadVal := 3;
+  IntVal := 80;
+  if not RunEffectDialog2(Self, 'Glow Effect',
+    'Radius', 1, 10, 3,
+    'Intensity', 0, 200, 80,
+    RadVal, IntVal) then Exit;
   BeginStatusProgress('Applying Glow Effect...');
   try
     FDocument.PushHistory('Glow Effect');
@@ -9158,14 +9247,12 @@ end;
 
 procedure TMainForm.OilPaintClick(Sender: TObject);
 var
-  RadStr: string;
   RadVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  RadStr := '4';
-  if not InputQuery('Oil Paint', 'Brush radius (1–8):', RadStr) then Exit;
-  RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 4), 1, 8);
+  RadVal := 4;
+  if not RunEffectDialog1(Self, 'Oil Paint', 'Brush Radius', 1, 8, 4, RadVal) then Exit;
   BeginStatusProgress('Applying Oil Paint...');
   try
     FDocument.PushHistory('Oil Paint');
@@ -9185,14 +9272,12 @@ end;
 
 procedure TMainForm.FrostedGlassClick(Sender: TObject);
 var
-  AmtStr: string;
   AmtVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AmtStr := '4';
-  if not InputQuery('Frosted Glass', 'Amount (1–20):', AmtStr) then Exit;
-  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 4), 1, 20);
+  AmtVal := 4;
+  if not RunEffectDialog1(Self, 'Frosted Glass', 'Amount', 1, 20, 4, AmtVal) then Exit;
   BeginStatusProgress('Applying Frosted Glass...');
   try
     FDocument.PushHistory('Frosted Glass');
@@ -9212,14 +9297,12 @@ end;
 
 procedure TMainForm.ZoomBlurClick(Sender: TObject);
 var
-  AmtStr: string;
   AmtVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AmtStr := '8';
-  if not InputQuery('Zoom Blur', 'Amount (1–30):', AmtStr) then Exit;
-  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 8), 1, 30);
+  AmtVal := 8;
+  if not RunEffectDialog1(Self, 'Zoom Blur', 'Amount', 1, 30, 8, AmtVal) then Exit;
   BeginStatusProgress('Applying Zoom Blur...');
   try
     FDocument.PushHistory('Zoom Blur');
@@ -9239,14 +9322,12 @@ end;
 
 procedure TMainForm.GaussianBlurClick(Sender: TObject);
 var
-  RadStr: string;
   RadVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  RadStr := '3';
-  if not InputQuery('Gaussian Blur', 'Radius (1–30):', RadStr) then Exit;
-  RadVal := EnsureRange(StrToIntDef(Trim(RadStr), 3), 1, 30);
+  RadVal := 3;
+  if not RunEffectDialog1(Self, 'Gaussian Blur', 'Radius', 1, 30, 3, RadVal) then Exit;
   BeginStatusProgress('Applying Gaussian Blur...');
   try
     FDocument.PushHistory('Gaussian Blur');
@@ -9266,14 +9347,12 @@ end;
 
 procedure TMainForm.UnfocusClick(Sender: TObject);
 var
-  RadiusText: string;
   RadiusValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  RadiusText := '4';
-  if not InputQuery('Unfocus', 'Radius (1-24):', RadiusText) then Exit;
-  RadiusValue := EnsureRange(StrToIntDef(Trim(RadiusText), 4), 1, 24);
+  RadiusValue := 4;
+  if not RunEffectDialog1(Self, 'Unfocus', 'Radius', 1, 24, 4, RadiusValue) then Exit;
   BeginStatusProgress('Applying Unfocus...');
   try
     FDocument.PushHistory('Unfocus');
@@ -9293,19 +9372,17 @@ end;
 
 procedure TMainForm.SurfaceBlurClick(Sender: TObject);
 var
-  RadiusText: string;
-  ThresholdText: string;
   RadiusValue: Integer;
   ThresholdValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  RadiusText := '3';
-  if not InputQuery('Surface Blur', 'Radius (1-24):', RadiusText) then Exit;
-  RadiusValue := EnsureRange(StrToIntDef(Trim(RadiusText), 3), 1, 24);
-  ThresholdText := '24';
-  if not InputQuery('Surface Blur', 'Edge threshold (0-255):', ThresholdText) then Exit;
-  ThresholdValue := EnsureRange(StrToIntDef(Trim(ThresholdText), 24), 0, 255);
+  RadiusValue := 3;
+  ThresholdValue := 24;
+  if not RunEffectDialog2(Self, 'Surface Blur',
+    'Radius', 1, 24, 3,
+    'Edge Threshold', 0, 255, 24,
+    RadiusValue, ThresholdValue) then Exit;
   BeginStatusProgress('Applying Surface Blur...');
   try
     FDocument.PushHistory('Surface Blur');
@@ -9325,14 +9402,12 @@ end;
 
 procedure TMainForm.RadialBlurClick(Sender: TObject);
 var
-  AmtStr: string;
   AmtVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AmtStr := '15';
-  if not InputQuery('Radial Blur', 'Sweep angle in degrees (1–60):', AmtStr) then Exit;
-  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 15), 1, 60);
+  AmtVal := 15;
+  if not RunEffectDialog1(Self, 'Radial Blur', 'Sweep Angle (degrees)', 1, 60, 15, AmtVal) then Exit;
   BeginStatusProgress('Applying Radial Blur...');
   try
     FDocument.PushHistory('Radial Blur');
@@ -9352,14 +9427,12 @@ end;
 
 procedure TMainForm.TwistClick(Sender: TObject);
 var
-  AmtStr: string;
   AmtVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AmtStr := '90';
-  if not InputQuery('Twist', 'Angle in degrees (-360 to 360):', AmtStr) then Exit;
-  AmtVal := EnsureRange(StrToIntDef(Trim(AmtStr), 90), -360, 360);
+  AmtVal := 90;
+  if not RunEffectDialog1(Self, 'Twist', 'Angle (degrees)', -360, 360, 90, AmtVal) then Exit;
   BeginStatusProgress('Applying Twist...');
   try
     FDocument.PushHistory('Twist');
@@ -9379,14 +9452,12 @@ end;
 
 procedure TMainForm.FragmentClick(Sender: TObject);
 var
-  OffStr: string;
   OffVal: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  OffStr := '8';
-  if not InputQuery('Fragment', 'Offset in pixels (1–40):', OffStr) then Exit;
-  OffVal := EnsureRange(StrToIntDef(Trim(OffStr), 8), 1, 40);
+  OffVal := 8;
+  if not RunEffectDialog1(Self, 'Fragment', 'Offset (pixels)', 1, 40, 8, OffVal) then Exit;
   BeginStatusProgress('Applying Fragment...');
   try
     FDocument.PushHistory('Fragment');
@@ -9406,14 +9477,12 @@ end;
 
 procedure TMainForm.BulgeClick(Sender: TObject);
 var
-  AmountText: string;
   AmountValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AmountText := '50';
-  if not InputQuery('Bulge', 'Strength (1-100):', AmountText) then Exit;
-  AmountValue := EnsureRange(StrToIntDef(Trim(AmountText), 50), 1, 100);
+  AmountValue := 50;
+  if not RunEffectDialog1(Self, 'Bulge', 'Strength', 1, 100, 50, AmountValue) then Exit;
   BeginStatusProgress('Applying Bulge...');
   try
     FDocument.PushHistory('Bulge');
@@ -9433,14 +9502,12 @@ end;
 
 procedure TMainForm.DentsClick(Sender: TObject);
 var
-  AmountText: string;
   AmountValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AmountText := '50';
-  if not InputQuery('Dents', 'Strength (1-100):', AmountText) then Exit;
-  AmountValue := EnsureRange(StrToIntDef(Trim(AmountText), 50), 1, 100);
+  AmountValue := 50;
+  if not RunEffectDialog1(Self, 'Dents', 'Strength', 1, 100, 50, AmountValue) then Exit;
   BeginStatusProgress('Applying Dents...');
   try
     FDocument.PushHistory('Dents');
@@ -9460,14 +9527,12 @@ end;
 
 procedure TMainForm.ReliefClick(Sender: TObject);
 var
-  AngleText: string;
   AngleValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  AngleText := '45';
-  if not InputQuery('Relief', 'Light angle in degrees (0-359):', AngleText) then Exit;
-  AngleValue := EnsureRange(StrToIntDef(Trim(AngleText), 45), 0, 359);
+  AngleValue := 45;
+  if not RunEffectDialog1(Self, 'Relief', 'Light Angle (degrees)', 0, 359, 45, AngleValue) then Exit;
   BeginStatusProgress('Applying Relief...');
   try
     FDocument.PushHistory('Relief');
@@ -9487,19 +9552,17 @@ end;
 
 procedure TMainForm.RedEyeClick(Sender: TObject);
 var
-  ThresholdText: string;
-  StrengthText: string;
   ThresholdValue: Integer;
   StrengthValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  ThresholdText := '48';
-  if not InputQuery('Red Eye', 'Red threshold (0-255):', ThresholdText) then Exit;
-  ThresholdValue := EnsureRange(StrToIntDef(Trim(ThresholdText), 48), 0, 255);
-  StrengthText := '100';
-  if not InputQuery('Red Eye', 'Reduction strength (0-100):', StrengthText) then Exit;
-  StrengthValue := EnsureRange(StrToIntDef(Trim(StrengthText), 100), 0, 100);
+  ThresholdValue := 48;
+  StrengthValue := 100;
+  if not RunEffectDialog2(Self, 'Red Eye',
+    'Red Threshold', 0, 255, 48,
+    'Reduction Strength', 0, 100, 100,
+    ThresholdValue, StrengthValue) then Exit;
   BeginStatusProgress('Applying Red Eye...');
   try
     FDocument.PushHistory('Red Eye');
@@ -9519,14 +9582,12 @@ end;
 
 procedure TMainForm.TileReflectionClick(Sender: TObject);
 var
-  TileText: string;
   TileValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  TileText := '32';
-  if not InputQuery('Tile Reflection', 'Tile size in pixels (2-256):', TileText) then Exit;
-  TileValue := EnsureRange(StrToIntDef(Trim(TileText), 32), 2, 256);
+  TileValue := 32;
+  if not RunEffectDialog1(Self, 'Tile Reflection', 'Tile Size (pixels)', 2, 256, 32, TileValue) then Exit;
   BeginStatusProgress('Applying Tile Reflection...');
   try
     FDocument.PushHistory('Tile Reflection');
@@ -9546,14 +9607,12 @@ end;
 
 procedure TMainForm.CrystallizeClick(Sender: TObject);
 var
-  CellText: string;
   CellValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  CellText := '24';
-  if not InputQuery('Crystallize', 'Cell size in pixels (2-128):', CellText) then Exit;
-  CellValue := EnsureRange(StrToIntDef(Trim(CellText), 24), 2, 128);
+  CellValue := 24;
+  if not RunEffectDialog1(Self, 'Crystallize', 'Cell Size (pixels)', 2, 128, 24, CellValue) then Exit;
   BeginStatusProgress('Applying Crystallize...');
   try
     FDocument.PushHistory('Crystallize');
@@ -9573,19 +9632,17 @@ end;
 
 procedure TMainForm.InkSketchClick(Sender: TObject);
 var
-  InkText: string;
-  ColorText: string;
   InkValue: Integer;
   ColorValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  InkText := '100';
-  if not InputQuery('Ink Sketch', 'Ink strength (0-200):', InkText) then Exit;
-  InkValue := EnsureRange(StrToIntDef(Trim(InkText), 100), 0, 200);
-  ColorText := '45';
-  if not InputQuery('Ink Sketch', 'Color retention (0-100):', ColorText) then Exit;
-  ColorValue := EnsureRange(StrToIntDef(Trim(ColorText), 45), 0, 100);
+  InkValue := 100;
+  ColorValue := 45;
+  if not RunEffectDialog2(Self, 'Ink Sketch',
+    'Ink Strength', 0, 200, 100,
+    'Color Retention', 0, 100, 45,
+    InkValue, ColorValue) then Exit;
   BeginStatusProgress('Applying Ink Sketch...');
   try
     FDocument.PushHistory('Ink Sketch');
@@ -9605,19 +9662,17 @@ end;
 
 procedure TMainForm.MandelbrotClick(Sender: TObject);
 var
-  IterationText: string;
-  ZoomText: string;
   IterationValue: Integer;
   ZoomValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  IterationText := '64';
-  if not InputQuery('Mandelbrot Fractal', 'Iterations (8-512):', IterationText) then Exit;
-  IterationValue := EnsureRange(StrToIntDef(Trim(IterationText), 64), 8, 512);
-  ZoomText := '100';
-  if not InputQuery('Mandelbrot Fractal', 'Zoom percent (25-400):', ZoomText) then Exit;
-  ZoomValue := EnsureRange(StrToIntDef(Trim(ZoomText), 100), 25, 400);
+  IterationValue := 64;
+  ZoomValue := 100;
+  if not RunEffectDialog2(Self, 'Mandelbrot Fractal',
+    'Iterations', 8, 512, 64,
+    'Zoom Percent', 25, 400, 100,
+    IterationValue, ZoomValue) then Exit;
   BeginStatusProgress('Applying Mandelbrot Fractal...');
   try
     FDocument.PushHistory('Mandelbrot Fractal');
@@ -9637,19 +9692,17 @@ end;
 
 procedure TMainForm.JuliaClick(Sender: TObject);
 var
-  IterationText: string;
-  ZoomText: string;
   IterationValue: Integer;
   ZoomValue: Integer;
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  IterationText := '64';
-  if not InputQuery('Julia Fractal', 'Iterations (8-512):', IterationText) then Exit;
-  IterationValue := EnsureRange(StrToIntDef(Trim(IterationText), 64), 8, 512);
-  ZoomText := '100';
-  if not InputQuery('Julia Fractal', 'Zoom percent (25-400):', ZoomText) then Exit;
-  ZoomValue := EnsureRange(StrToIntDef(Trim(ZoomText), 100), 25, 400);
+  IterationValue := 64;
+  ZoomValue := 100;
+  if not RunEffectDialog2(Self, 'Julia Fractal',
+    'Iterations', 8, 512, 64,
+    'Zoom Percent', 25, 400, 100,
+    IterationValue, ZoomValue) then Exit;
   BeginStatusProgress('Applying Julia Fractal...');
   try
     FDocument.PushHistory('Julia Fractal');

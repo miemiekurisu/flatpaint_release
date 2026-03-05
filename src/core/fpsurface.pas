@@ -3120,10 +3120,8 @@ begin
           if InBounds(TargetX, TargetY) then
           begin
             Pixel := Copied[X, Y];
-            if Pixel.A = 255 then
-              Pixels[TargetX, TargetY] := Pixel
-            else if Pixel.A > 0 then
-              BlendPixel(TargetX, TargetY, Pixel, 255);
+            if Pixel.A > 0 then
+              Pixels[TargetX, TargetY] := Pixel;
             { A=0: skip — don't overwrite destination with fully transparent }
           end;
         end;

@@ -1007,10 +1007,8 @@ begin
           TargetY := Y + DeltaY;
           if ActiveLayer.Surface.InBounds(TargetX, TargetY) then
           begin
-            if Copied[X, Y].A = 255 then
-              ActiveLayer.Surface[TargetX, TargetY] := Copied[X, Y]
-            else if Copied[X, Y].A > 0 then
-              ActiveLayer.Surface.BlendPixel(TargetX, TargetY, Copied[X, Y], 255);
+            if Copied[X, Y].A > 0 then
+              ActiveLayer.Surface[TargetX, TargetY] := Copied[X, Y];
           end;
         end;
   finally

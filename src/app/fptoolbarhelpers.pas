@@ -39,16 +39,16 @@ const
   ToolbarDividerTopOffset = 4;
 
   ToolbarOptionRowTop = 56;
-  ToolbarOptionLabelTop = 60;
-  ToolbarOptionCheckTop = 57;
+  ToolbarOptionLabelTop = 62;
+  ToolbarOptionCheckTop = 60;
 
   ToolbarZoomButtonInsetLeft = 6;
   ToolbarZoomButtonTop = 2;
   ToolbarZoomButtonWidth = 26;
   ToolbarZoomComboLeft = 38;
-  ToolbarZoomComboTop = 3;
+  ToolbarZoomComboTop = 2;
   ToolbarZoomComboWidth = 84;
-  ToolbarZoomComboHeight = 26;
+  ToolbarZoomComboHeight = 24;
   ToolbarZoomInButtonLeft = 128;
 
 function ToolbarFileGroupRect: TRect;

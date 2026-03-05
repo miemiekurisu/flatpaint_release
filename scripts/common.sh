@@ -233,6 +233,28 @@ compile_native_modules() {
       -o "$output_dir/fp_alpha.o" \
       "$src_dir/fp_alpha.m"
   fi
+
+  if [[ -f "$src_dir/fp_listbg.m" ]]; then
+    log "Compiling native module: fp_listbg.m"
+    clang -c -O2 \
+      -arch "$(uname -m)" \
+      -mmacosx-version-min=11.0 \
+      -fobjc-arc \
+      -framework Cocoa \
+      -o "$output_dir/fp_listbg.o" \
+      "$src_dir/fp_listbg.m"
+  fi
+
+  if [[ -f "$src_dir/fp_appearance.m" ]]; then
+    log "Compiling native module: fp_appearance.m"
+    clang -c -O2 \
+      -arch "$(uname -m)" \
+      -mmacosx-version-min=11.0 \
+      -fobjc-arc \
+      -framework Cocoa \
+      -o "$output_dir/fp_appearance.o" \
+      "$src_dir/fp_appearance.m"
+  fi
 }
 
 clean_generated_artifacts() {
