@@ -28,9 +28,12 @@ find_lazbuild() {
     return 0
   fi
 
+  # Resolve lazarus checkout relative to workspace (two levels up from project root)
+  local workspace_lazarus
+  workspace_lazarus="$(cd "$ROOT_DIR/../.." 2>/dev/null && pwd)/lazarus/lazbuild"
+
   for candidate in \
-    "/Users/kurisu/Documents/workspace.nosync/lazarus/lazbuild" \
-    "/Users/chrischan/Documents/workspace.nosync/lazarus/lazbuild" \
+    "$workspace_lazarus" \
     "/opt/homebrew/bin/lazbuild" \
     "/usr/local/bin/lazbuild" \
     "/Applications/Lazarus/lazbuild"
@@ -240,6 +243,11 @@ clean_generated_artifacts() {
     "$ROOT_DIR/flatpaint" \
     "$ROOT_DIR/flatpaint.app" \
     "$ROOT_DIR/src/cli/flatpaint_cli"
+
+  # Remove stale object files / debug symbols / session files in project root
+  find "$ROOT_DIR" -maxdepth 1 \( -name '*.o' -o -name '*.ppu' -o -name '*.lps' \) -delete 2>/dev/null || true
+  find "$ROOT_DIR" -maxdepth 1 -name '*.dSYM' -type d -exec rm -rf {} + 2>/dev/null || true
+
   mkdir -p -- "$ROOT_DIR/dist" "$ROOT_DIR/lib"
 }
 
@@ -256,17 +264,17 @@ prepare_icon_assets() {
 }
 
 build_default_artifacts() {
+  clean_generated_artifacts
   kill_running_flatpaint
   compile_native_modules
   prepare_icon_assets
-  run_lazbuild "$PROJECT_FILE"
+  run_lazbuild -B "$PROJECT_FILE"
 
   if [[ ! -f "$DEFAULT_BINARY" ]]; then
     printf 'Expected build output %s was not produced.\n' "$DEFAULT_BINARY" >&2
     return 1
   fi
 
-  stage_app_bundle "$LOCAL_APP_BUNDLE" "flatpaint" "FlatPaint" "$DEFAULT_BINARY"
   stage_app_bundle "$DIST_APP_BUNDLE" "FlatPaint" "FlatPaint" "$DEFAULT_BINARY"
 }
 
