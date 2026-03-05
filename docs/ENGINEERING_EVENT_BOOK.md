@@ -22,5 +22,12 @@ Use one short block per issue.
 - Fix: deleted the leftover generated `Sources/FlatPaintApp/FlatPaint.swift` file
 - Repeat count: This issue has occurred 1 time(s)
 
+## 2026-03-05
+- Problem: Drawing tools (pencil, rectangle, etc.) appeared to work (visual feedback during drag) but strokes never "landed" on canvas. Undo history only showed 0 and 1 entries, never growing to 2, 3, 4.
+- Core error: `FHistory.Count` reset to 0 between every `PushHistory` call despite no explicit `ClearHistory` invocation.
+- Investigation: Created `TDebugObjectList` subclass overriding `Notify` to log all ADDED/EXTRACTED/DELETED events with stack traces. Caught an EXTRACTED notification immediately after ADDED — proving `Undo` was called right after `PushHistory`. Stack trace led to `RefreshHistoryPanel` → `FHistoryList.ItemIndex := UndoCount` → macOS Cocoa fires `OnClick` → `HistoryListClick` → `FDocument.Undo`. The Cocoa widgetset fires `TListBox.OnClick` when `ItemIndex` is set programmatically (unlike Win32/GTK). Tests never caught this because `CreateForTesting` sets `FHistoryList := nil`, so `RefreshHistoryPanel` exits early.
+- Fix: In `RefreshHistoryPanel`, disconnect `FHistoryList.OnClick` (set to nil) before programmatic `ItemIndex` update, reconnect in `finally` block. One-line root cause, ~5-line fix.
+- Repeat count: This issue has occurred 1 time(s)
+
 ## Note
 - `docs/EXPERIENCES.md` is now the primary cumulative issue log. This file remains only as the earlier session-local record.

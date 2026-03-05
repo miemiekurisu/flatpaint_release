@@ -5964,6 +5964,13 @@ begin
     PaintSelection := FDocument.Selection
   else
     PaintSelection := nil;
+  WriteLn(StdErr, Format('[ApplyImmediateTool] tool=%d pt=(%d,%d) lastPt=(%d,%d) hasSel=%s color=(%d,%d,%d,%d) opacity=%d brushSize=%d layerIdx=%d layerBg=%s',
+    [Ord(FCurrentTool), APoint.X, APoint.Y, FLastImagePoint.X, FLastImagePoint.Y,
+     BoolToStr(FDocument.HasSelection, 'Y', 'N'),
+     ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A,
+     FBrushOpacity, FBrushSize,
+     FDocument.ActiveLayerIndex,
+     BoolToStr(FDocument.ActiveLayer.IsBackground, 'Y', 'N')]));
   case FCurrentTool of
     tkPencil:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -8230,8 +8237,20 @@ begin
   case FCurrentTool of
     tkPencil, tkBrush, tkEraser:
       begin
+        WriteLn(StdErr, Format('[MouseDown] pencil/brush/eraser imgPt=(%d,%d) pixelBefore=(%d,%d,%d,%d)',
+          [ImagePoint.X, ImagePoint.Y,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].R,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].G,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].B,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].A]));
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
+        WriteLn(StdErr, Format('[MouseDown] pixelAfter=(%d,%d,%d,%d) undoDepth=%d',
+          [FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].R,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].G,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].B,
+           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].A,
+           FDocument.UndoDepth]));
         ExpandStrokeDirty(ImagePoint);
         InvalidatePreparedBitmap;
         SetDirty(True);
@@ -8538,8 +8557,12 @@ begin
   end;
   if FCurrentTool in [tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape] then
   begin
+    WriteLn(StdErr, Format('[MouseUp] shape tool=%d drag=(%d,%d)->(%d,%d) undoDepthBefore=%d',
+      [Ord(FCurrentTool), FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FDocument.UndoDepth]));
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     CommitShapeTool(FDragStart, ImagePoint);
+    WriteLn(StdErr, Format('[MouseUp] shape committed undoDepthAfter=%d',
+      [FDocument.UndoDepth]));
     SyncImageMutationUI(False, True);
   end;
   if FCurrentTool = tkCrop then
