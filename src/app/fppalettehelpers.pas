@@ -48,7 +48,7 @@ const
   PaletteMargin = 12;
   PaletteGap = 14;
   ToolsPaletteWidth = 108;
-  ToolsPaletteHeight = 414;
+  ToolsPaletteHeight = 500;
   ColorsPaletteWidth = 254;
   ColorsPaletteHeight = 300;
   HistoryPaletteWidth = 236;

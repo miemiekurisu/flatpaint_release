@@ -391,7 +391,6 @@ type
     procedure ApplyZoomScaleAtViewportPoint(ANewScale: Double; const AViewportPoint: TPoint);
     procedure ApplyImmediateTool(const APoint: TPoint);
     procedure CommitShapeTool(const AStartPoint, AEndPoint: TPoint);
-    procedure DiagnoseDrawing(Data: PtrInt);
     procedure ResetDocument(AWidth, AHeight: Integer);
     procedure NewDocumentClick(Sender: TObject);
     procedure OpenDocumentClick(Sender: TObject);
@@ -1110,7 +1109,6 @@ begin
   if Assigned(Application) then
     Application.AddOnIdleHandler(@AppIdle);
   GMainForm := Self;
-  Application.QueueAsyncCall(@DiagnoseDrawing, 0);
 end;
 
 class function TMainForm.CreateForTesting: TMainForm;
@@ -5966,13 +5964,6 @@ begin
     PaintSelection := FDocument.Selection
   else
     PaintSelection := nil;
-  WriteLn(StdErr, Format('[ApplyImmediateTool] tool=%d pt=(%d,%d) lastPt=(%d,%d) hasSel=%s color=(%d,%d,%d,%d) opacity=%d brushSize=%d layerIdx=%d layerBg=%s',
-    [Ord(FCurrentTool), APoint.X, APoint.Y, FLastImagePoint.X, FLastImagePoint.Y,
-     BoolToStr(FDocument.HasSelection, 'Y', 'N'),
-     ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A,
-     FBrushOpacity, FBrushSize,
-     FDocument.ActiveLayerIndex,
-     BoolToStr(FDocument.ActiveLayer.IsBackground, 'Y', 'N')]));
   case FCurrentTool of
     tkPencil:
       FDocument.ActiveLayer.Surface.DrawLine(
@@ -6319,93 +6310,6 @@ begin
             PaintSelection
           );
       end;
-  end;
-end;
-
-procedure TMainForm.DiagnoseDrawing(Data: PtrInt);
-var
-  F: TextFile;
-  PixBefore, PixAfter: TRGBA32;
-  SavedTool: TToolKind;
-  CX, CY: Integer;
-  DispSurf: TRasterSurface;
-begin
-  CX := FDocument.Width div 2;
-  CY := FDocument.Height div 2;
-  AssignFile(F, '/tmp/fp_diag.txt');
-  Rewrite(F);
-  try
-    WriteLn(F, Format('Canvas=%dx%d ZoomScale=%.4f', [FDocument.Width, FDocument.Height, FZoomScale]));
-    WriteLn(F, Format('ActiveLayerIdx=%d LayerCount=%d', [FDocument.ActiveLayerIndex, FDocument.LayerCount]));
-    WriteLn(F, Format('ActiveLayer.Name=%s IsBackground=%s Visible=%s Opacity=%d',
-      [FDocument.ActiveLayer.Name, BoolToStr(FDocument.ActiveLayer.IsBackground, 'Y', 'N'),
-       BoolToStr(FDocument.ActiveLayer.Visible, 'Y', 'N'), FDocument.ActiveLayer.Opacity]));
-    WriteLn(F, Format('HasSelection=%s', [BoolToStr(FDocument.HasSelection, 'Y', 'N')]));
-    WriteLn(F, Format('CurrentTool=%d PrimaryColor=(%d,%d,%d,%d) SecondaryColor=(%d,%d,%d,%d)',
-      [Ord(FCurrentTool), FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B, FPrimaryColor.A,
-       FSecondaryColor.R, FSecondaryColor.G, FSecondaryColor.B, FSecondaryColor.A]));
-    WriteLn(F, Format('BrushSize=%d BrushOpacity=%d', [FBrushSize, FBrushOpacity]));
-
-    { Display surface before drawing }
-    DispSurf := BuildDisplaySurface;
-    PixBefore := DispSurf[CX, CY];
-    WriteLn(F, Format('DisplayBefore at (%d,%d) = (%d,%d,%d,%d)', [CX, CY, PixBefore.R, PixBefore.G, PixBefore.B, PixBefore.A]));
-    PixBefore := FDocument.ActiveLayer.Surface[CX, CY];
-    WriteLn(F, Format('LayerBefore at (%d,%d) = (%d,%d,%d,%d)', [CX, CY, PixBefore.R, PixBefore.G, PixBefore.B, PixBefore.A]));
-
-    { Draw a black line directly on surface at (CX,CY) }
-    FDocument.ActiveLayer.Surface.DrawLine(CX-5, CY, CX+5, CY, 3, RGBA(0,0,0,255), 255, 255, nil);
-    PixAfter := FDocument.ActiveLayer.Surface[CX, CY];
-    WriteLn(F, Format('LayerAfterDirect at (%d,%d) = (%d,%d,%d,%d)', [CX, CY, PixAfter.R, PixAfter.G, PixAfter.B, PixAfter.A]));
-
-    { Rebuild display }
-    InvalidatePreparedBitmap;
-    DispSurf := BuildDisplaySurface;
-    PixAfter := DispSurf[CX, CY];
-    WriteLn(F, Format('DisplayAfterDirect at (%d,%d) = (%d,%d,%d,%d)', [CX, CY, PixAfter.R, PixAfter.G, PixAfter.B, PixAfter.A]));
-
-    { Now test pencil tool via full pipeline }
-    SavedTool := FCurrentTool;
-    FCurrentTool := tkPencil;
-    FStrokeColor := RGBA(0, 0, 0, 255);
-    WriteLn(F, '--- Simulating pencil stroke at (100,100)->(120,120) ---');
-    PixBefore := FDocument.ActiveLayer.Surface[110, 110];
-    WriteLn(F, Format('LayerBefore at (110,110) = (%d,%d,%d,%d)', [PixBefore.R, PixBefore.G, PixBefore.B, PixBefore.A]));
-
-    PaintBoxMouseDown(FPaintBox, mbLeft, [ssLeft], Round(100 * FZoomScale), Round(100 * FZoomScale));
-    PaintBoxMouseMove(FPaintBox, [ssLeft], Round(120 * FZoomScale), Round(120 * FZoomScale));
-    PaintBoxMouseUp(FPaintBox, mbLeft, [], Round(120 * FZoomScale), Round(120 * FZoomScale));
-
-    PixAfter := FDocument.ActiveLayer.Surface[110, 110];
-    WriteLn(F, Format('LayerAfterPencil at (110,110) = (%d,%d,%d,%d)', [PixAfter.R, PixAfter.G, PixAfter.B, PixAfter.A]));
-    WriteLn(F, Format('UndoDepth after pencil=%d', [FDocument.UndoDepth]));
-
-    DispSurf := BuildDisplaySurface;
-    PixAfter := DispSurf[110, 110];
-    WriteLn(F, Format('DisplayAfterPencil at (110,110) = (%d,%d,%d,%d)', [PixAfter.R, PixAfter.G, PixAfter.B, PixAfter.A]));
-
-    { Now test rectangle tool via full pipeline }
-    FCurrentTool := tkRectangle;
-    WriteLn(F, '--- Simulating rectangle (200,200)->(300,300) ---');
-    PixBefore := FDocument.ActiveLayer.Surface[200, 200];
-    WriteLn(F, Format('LayerBefore at (200,200) = (%d,%d,%d,%d)', [PixBefore.R, PixBefore.G, PixBefore.B, PixBefore.A]));
-
-    PaintBoxMouseDown(FPaintBox, mbLeft, [ssLeft], Round(200 * FZoomScale), Round(200 * FZoomScale));
-    PaintBoxMouseMove(FPaintBox, [ssLeft], Round(300 * FZoomScale), Round(300 * FZoomScale));
-    PaintBoxMouseUp(FPaintBox, mbLeft, [], Round(300 * FZoomScale), Round(300 * FZoomScale));
-
-    PixAfter := FDocument.ActiveLayer.Surface[200, 200];
-    WriteLn(F, Format('LayerAfterRect at (200,200) = (%d,%d,%d,%d)', [PixAfter.R, PixAfter.G, PixAfter.B, PixAfter.A]));
-    WriteLn(F, Format('UndoDepth after rect=%d', [FDocument.UndoDepth]));
-
-    DispSurf := BuildDisplaySurface;
-    PixAfter := DispSurf[200, 200];
-    WriteLn(F, Format('DisplayAfterRect at (200,200) = (%d,%d,%d,%d)', [PixAfter.R, PixAfter.G, PixAfter.B, PixAfter.A]));
-
-    FCurrentTool := SavedTool;
-    WriteLn(F, 'DiagnoseDrawing COMPLETE');
-  finally
-    CloseFile(F);
   end;
 end;
 
@@ -7695,13 +7599,21 @@ begin
 end;
 
 procedure TMainForm.ToolButtonClick(Sender: TObject);
+var
+  NewTool: TToolKind;
 begin
   SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
   FTempToolActive := False;
-  FCurrentTool := TToolKind(TControl(Sender).Tag);
+  NewTool := TToolKind(TControl(Sender).Tag);
+  if (not IsSelectionTool(NewTool)) and FDocument.HasSelection then
+  begin
+    FDocument.PushHistory('Deselect');
+    FDocument.Deselect;
+  end;
+  FCurrentTool := NewTool;
   SyncToolComboSelection;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -7709,6 +7621,8 @@ begin
 end;
 
 procedure TMainForm.ToolComboChange(Sender: TObject);
+var
+  NewTool: TToolKind;
 begin
   SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
@@ -7716,7 +7630,15 @@ begin
   ResetLineCurveState;
   FTempToolActive := False;
   if FToolCombo.ItemIndex >= 0 then
-    FCurrentTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
+  begin
+    NewTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
+    if (not IsSelectionTool(NewTool)) and FDocument.HasSelection then
+    begin
+      FDocument.PushHistory('Deselect');
+      FDocument.Deselect;
+    end;
+    FCurrentTool := NewTool;
+  end;
   UpdateToolOptionControl;
   RefreshCanvas;
   RefreshStatus(FLastImagePoint);
@@ -8103,6 +8025,11 @@ begin
       CommitInlineTextEdit(True);
       ResetLineCurveState;
       FTempToolActive := False;
+      if (not IsSelectionTool(NewTool)) and FDocument.HasSelection then
+      begin
+        FDocument.PushHistory('Deselect');
+        FDocument.Deselect;
+      end;
       FCurrentTool := NewTool;
       SyncToolComboSelection;
       UpdateToolOptionControl;
@@ -8326,20 +8253,8 @@ begin
   case FCurrentTool of
     tkPencil, tkBrush, tkEraser:
       begin
-        WriteLn(StdErr, Format('[MouseDown] pencil/brush/eraser imgPt=(%d,%d) pixelBefore=(%d,%d,%d,%d)',
-          [ImagePoint.X, ImagePoint.Y,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].R,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].G,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].B,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].A]));
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
-        WriteLn(StdErr, Format('[MouseDown] pixelAfter=(%d,%d,%d,%d) undoDepth=%d',
-          [FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].R,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].G,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].B,
-           FDocument.ActiveLayer.Surface[ImagePoint.X, ImagePoint.Y].A,
-           FDocument.UndoDepth]));
         ExpandStrokeDirty(ImagePoint);
         InvalidatePreparedBitmap;
         SetDirty(True);
@@ -8646,12 +8561,8 @@ begin
   end;
   if FCurrentTool in [tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape] then
   begin
-    WriteLn(StdErr, Format('[MouseUp] shape tool=%d drag=(%d,%d)->(%d,%d) undoDepthBefore=%d',
-      [Ord(FCurrentTool), FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FDocument.UndoDepth]));
     FDocument.PushHistory(PaintToolName(FCurrentTool));
     CommitShapeTool(FDragStart, ImagePoint);
-    WriteLn(StdErr, Format('[MouseUp] shape committed undoDepthAfter=%d',
-      [FDocument.UndoDepth]));
     SyncImageMutationUI(False, True);
   end;
   if FCurrentTool = tkCrop then

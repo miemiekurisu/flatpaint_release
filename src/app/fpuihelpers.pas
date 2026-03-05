@@ -27,6 +27,7 @@ function AdoptSampledRGBPreservingAlpha(const ACurrentColor, ASampledColor: TRGB
 function DragButtonIsStillPressed(AButton: TMouseButton; const AShift: TShiftState): Boolean;
 function ShouldCommitPendingStrokeOnMouseDown(AHasPendingStroke: Boolean): Boolean;
 function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEndPoint: TPoint): Boolean;
+function IsSelectionTool(ATool: TToolKind): Boolean;
 
 { Given a key and a reverse-flag (Shift held), compute the new tool.  }
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
@@ -373,6 +374,12 @@ function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEn
 begin
   Result := ABezierEnabled and
     ((AStartPoint.X <> AEndPoint.X) or (AStartPoint.Y <> AEndPoint.Y));
+end;
+
+function IsSelectionTool(ATool: TToolKind): Boolean;
+begin
+  Result := ATool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand,
+                      tkMoveSelection, tkMovePixels];
 end;
 
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
