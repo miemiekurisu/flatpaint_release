@@ -1575,3 +1575,66 @@ Use the same compact structure every time.
 - Fix: introduced `TSnapshotKind` (`skFullDocument` / `skLayerRegion`); `PushHistory` now computes the current tool's dirty rect (brush bounding box expanded by radius), saves only that sub-surface in `(FRegionLayerIndex, FDirtyRect, FRegionSurface)`, and restores by stamping the saved region back into the correct layer; operations that affect multiple layers or document structure (merge, flatten, resize) still use `skFullDocument`
 - Reuse note: implement region snapshots as a `(LayerIndex: Integer; DirtyRect: TRect; RegionSurface: TRasterSurface)` triple alongside the existing full snapshot path; always test the region restore path separately from the full-document restore path — a dirty-rect off-by-one leaves visible single-pixel ghost artifacts that are easy to miss in a "no exception" test
 - Repeat count: This issue has occurred 1 time(s)
+
+## 2026-03-05 (Preferences / Settings menu must be reachable from the app menu bar)
+- Problem: the i18n system and settings dialog existed in code, but users had no way to open the Settings dialog because no "Preferences..." menu item existed in the application menu bar
+- Core error: `fpsettingsdialog.pas` and `fpi18n.pas` were fully implemented but unreachable — the user could not change language or DPI settings because no menu route existed
+- Investigation: searched the Edit and application menus for "Preferences" or "Settings" routes and found none; the `@SettingsClick` handler was wired to the utility strip but not to any menu item
+- Root cause: the Settings dialog was added as a utility-strip button handler but was never promoted into the standard macOS "Edit → Preferences..." menu item position
+- Fix: added `CreateMenuItem(EditMenu, TR('Preferences...', ...), @SettingsClick, ShortCut($BC, [ssMeta]))` to the Edit menu; on macOS the shortcut `$BC` corresponds to the comma key so `Cmd+,` opens Preferences, matching Apple HIG expectations
+- Reuse note: on macOS, always place Preferences/Settings as a menu item with `Cmd+,`; the FPC virtual key code for comma is `$BC` (VK_OEM_COMMA); do not rely on utility strip buttons alone as the only entry point for app-wide configuration dialogs
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (close-unsaved-tab must prompt to save, not prompt to discard)
+- Problem: clicking the close button on a tab with unsaved changes showed "Discard unsaved changes?" with Yes=discard, No=cancel — this is backwards from standard macOS UX expectations
+- Core error: the Yes button performed the destructive action (discard), which violates the macOS convention where Yes/Save should be the safe action and No/Don't Save should be the destructive one
+- Investigation: tested the tab close flow and compared against macOS Finder and other apps; macOS convention is "Do you want to save changes?" → Yes=save, No=don't save, Cancel=abort
+- Root cause: the original implementation treated the confirmation dialog as a guard against accidental close rather than following standard save-discard-cancel semantics
+- Fix: changed both `TabCloseButtonClick` and `TabMenuCloseClick` to use `QuestionDlg` with three choices: Yes=save (calls `SwitchToTab(Idx)` then `SaveDocumentClick(nil)`), No=discard, Cancel=abort; added `Choice: Integer` local variable for the three-way result
+- Reuse note: when a document-close flow involves unsaved changes, always use the save/discard/cancel pattern (Yes=save, No=discard, Cancel=abort); the destructive action should never be the default or the Yes button; always switch to the target tab before saving so the correct document is persisted
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (effect parameter dialogs need TTrackBar sliders, not only TEdit fields)
+- Problem: effect parameter dialogs (Hue/Saturation, Brightness/Contrast, Levels) had only plain TEdit numeric fields, making parameter adjustment tedious and imprecise
+- Core error: users had to type exact numbers into edit fields with no visual feedback of the parameter range or relative position — this does not match the UX of any mainstream image editor
+- Investigation: compared against paint.net and Photoshop dialogs which all provide slider controls for continuous parameters
+- Root cause: the initial dialog implementations used the minimal LCL approach (TLabel + TEdit) and never added TTrackBar for interactive scrubbing
+- Fix: added TTrackBar sliders to all three dialogs — `fphuesaturationdialog.pas` (hue -180..180, saturation -100..100), `fpbrightnesscontrastdialog.pas` (brightness -255..255, contrast -255..254), `fplevelsdialog.pas` (4 trackbars for input low/high + output low/high); all trackbars are bidirectionally synced with their TEdit fields and use the TR() i18n function for localized labels
+- Reuse note: for any continuous numeric parameter in a dialog, always pair TEdit with TTrackBar; map the trackbar range to the parameter range using `Position - Offset` for signed ranges; sync edit→trackbar and trackbar→edit in change handlers; use `try..except` around StrToInt for defensive edit parsing; always set TTrackBar.Min/Max/Position at creation time
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (layer list must show lock icon → eye icon → thumbnail → name in that order)
+- Problem: the layer list item layout was inconsistent — the eye (visibility) icon and thumbnail positions did not match mainstream editor conventions, making the list harder to scan
+- Core error: the drawing order in `LayerListDrawItem` had eye and thumbnail in non-standard positions
+- Investigation: compared paint.net, Photoshop, and GIMP layer list layouts — all place a lock/visibility column first, then a thumbnail, then the name
+- Root cause: the original layout was built incrementally as features were added, without a complete layout plan
+- Fix: rewrote `LayerListDrawItem` with explicit layout constants: `LockLeft=4`, `EyeLeft=21`, `ThumbLeft=40`, `NameLeft=82`; lock icon (padlock shape) is drawn first, then eye icon, then a 36×36 thumbnail, then the layer name; click detection in `LayerListMouseDown` now checks X < 21 for lock toggles
+- Reuse note: when an owner-draw listbox has multiple inline controls (icons, thumbnails, labels), define all positions as named constants at the unit level and draw them in a fixed left-to-right order; always handle click detection in MouseDown using the same constants to ensure hit regions match visual positions
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (layer lock is a core document property, not a UI decoration)
+- Problem: there was no way to prevent accidental edits to a specific layer — any paint tool could modify any layer regardless of intended protection
+- Core error: `TRasterLayer` had no lock state; the document model had no concept of per-layer edit protection
+- Investigation: compared paint.net, Photoshop, and GIMP — all support per-layer lock that prevents paint operations while still allowing selection, zoom, pan, and color picking
+- Root cause: layer lock was not part of the original document model design
+- Fix: added `FLocked: Boolean` field and `Locked: Boolean` property to `TRasterLayer` in `fpdocument.pas`; `Clone` copies `FLocked`; added lock icon drawing in layer list with click-to-toggle; added "Toggle Lock" menu item in Layers menu; added "Lock" button in layer panel; added guard in `PaintBoxMouseDown` that blocks painting tools on locked layers while allowing zoom, pan, selection, and color picker
+- Reuse note: layer protection state belongs in the document model, not the UI — it must travel with `Clone()`, save/load, and undo/redo; the guard in `PaintBoxMouseDown` should use an allow-list of non-destructive tools rather than a deny-list of painting tools, to ensure new tools default to being blocked on locked layers
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (toolbar option row spacing must follow Apple HIG minimum touch targets)
+- Problem: the toolbar option controls (labels, combos, checkboxes) were visually overlapping or too close to the first toolbar row, making the UI feel cramped
+- Core error: `ToolbarOptionRowTop`, `ToolbarOptionLabelTop`, and `ToolbarOptionCheckTop` constants were too small, leaving insufficient vertical separation between toolbar rows
+- Investigation: measured the live layout against Apple HIG recommendations for minimum control spacing and found the tool option row was only 2px below the first row content
+- Root cause: the original constants were chosen for a denser layout and never adjusted after the first toolbar row grew taller with grouped command panels
+- Fix: adjusted constants in `fptoolbarhelpers.pas`: `ToolbarOptionRowTop` 52→56, `ToolbarOptionLabelTop` 57→60, `ToolbarOptionCheckTop` 54→57; also adjusted Tool label Left 10→12 and FToolCombo Left 46→50
+- Reuse note: toolbar layout geometry should account for the final rendered height of the row above, not just the intended control bounds; when adding taller grouped panels to a toolbar row, always re-verify the vertical start of the next row's controls
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-05 (i18n language file generation depends on having a reachable Settings dialog)
+- Problem: the i18n system appeared to not generate its `language.conf` file, making language changes non-persistent
+- Core error: users reported they could not set language, which appeared to be a file-generation bug
+- Investigation: verified `fpi18n.pas` code: `GetAppConfigDir(False)` + `ForceDirectories` + `AssignFile(F, LangFile)` + `Rewrite(F)` — the code was correct; the directory would be created on first use
+- Root cause: the actual problem was that the Settings dialog was unreachable (no Preferences menu item), so `SaveLanguagePreference` was never triggered; the file-generation code itself was correct
+- Fix: the root cause was fixed by adding the Preferences menu item (see separate entry); no changes needed to `fpi18n.pas`
+- Reuse note: when a feature appears to not save its state, always verify whether the UI path to trigger the save is actually reachable before debugging the persistence code itself; missing menu items can masquerade as broken persistence
+- Repeat count: `This issue has occurred 1 time(s)`

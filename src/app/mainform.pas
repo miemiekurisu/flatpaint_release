@@ -425,6 +425,7 @@ type
     procedure MergeDownClick(Sender: TObject);
     procedure FlattenClick(Sender: TObject);
     procedure ToggleLayerVisibilityClick(Sender: TObject);
+    procedure ToggleLayerLockClick(Sender: TObject);
     procedure LayerOpacityClick(Sender: TObject);
     procedure LayerVisibleCheckChanged(Sender: TObject);
     procedure LayerOpacitySpinChanged(Sender: TObject);
@@ -1970,6 +1971,8 @@ begin
   CreateMenuItem(EditMenu, TR('Fill Selection', #$E5#$A1#$AB#$E5#$85#$85#$E9#$80#$89#$E5#$8C#$BA), @FillSelectionClick);
   CreateMenuItem(EditMenu, TR('Erase Selection', #$E6#$93#$A6#$E9#$99#$A4#$E9#$80#$89#$E5#$8C#$BA), @EraseSelectionClick, VK_DELETE);
   CreateMenuItem(EditMenu, TR('Crop To Selection', #$E8#$A3#$81#$E5#$89#$AA#$E5#$88#$B0#$E9#$80#$89#$E5#$8C#$BA), @CropToSelectionClick);
+  EditMenu.AddSeparator;
+  CreateMenuItem(EditMenu, TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...'), @SettingsClick, ShortCut($BC, [ssMeta]));
 
   LayerMenu := TMenuItem.Create(FMainMenu);
   LayerMenu.Caption := TR('&Layers', '&' + #$E5#$9B#$BE#$E5#$B1#$82);
@@ -1982,6 +1985,7 @@ begin
   CreateMenuItem(LayerMenu, TR('Move Layer &Down', #$E4#$B8#$8B#$E7#$A7#$BB#$E5#$9B#$BE#$E5#$B1#$82 + '(&D)'), @MoveLayerDownClick);
   CreateMenuItem(LayerMenu, TR('&Merge Down', '&' + #$E5#$90#$91#$E4#$B8#$8B#$E5#$90#$88#$E5#$B9#$B6), @MergeDownClick, ShortCut(VK_M, [ssMeta, ssShift]));
   CreateMenuItem(LayerMenu, TR('Toggle &Visibility', #$E5#$88#$87#$E6#$8D#$A2#$E5#$8F#$AF#$E8#$A7#$81#$E6#$80#$A7 + '(&V)'), @ToggleLayerVisibilityClick);
+  CreateMenuItem(LayerMenu, TR('Toggle &Lock', #$E5#$88#$87#$E6#$8D#$A2#$E9#$94#$81#$E5#$AE#$9A + '(&L)'), @ToggleLayerLockClick);
   CreateMenuItem(LayerMenu, TR('Layer &Opacity...', #$E5#$9B#$BE#$E5#$B1#$82#$E4#$B8#$8D#$E9#$80#$8F#$E6#$98#$8E#$E5#$BA#$A6 + '(&O)...'), @LayerOpacityClick);
   LayerMenu.AddSeparator;
   CreateMenuItem(LayerMenu, TR('Import From &File...', #$E4#$BB#$8E#$E6#$96#$87#$E4#$BB#$B6#$E5#$AF#$BC#$E5#$85#$A5 + '(&F)...'), @ImportLayerClick);
@@ -2466,12 +2470,12 @@ begin
   LabelCtrl.Parent := FTopPanel;
   LabelCtrl.Caption := 'Tool:';
   LabelCtrl.Font.Color := ChromeTextColor;
-  LabelCtrl.Left := 10;
+  LabelCtrl.Left := 12;
   LabelCtrl.Top := ToolbarOptionLabelTop;
 
   FToolCombo := TComboBox.Create(FTopPanel);
   FToolCombo.Parent := FTopPanel;
-  FToolCombo.Left := 46;
+  FToolCombo.Left := 50;
   FToolCombo.Top := ToolbarOptionRowTop;
   FToolCombo.Width := 164;
   FToolCombo.Style := csDropDownList;
@@ -3043,12 +3047,13 @@ begin
   CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up';
   CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down';
 
-  { Row 2: Opacity / Flatten / Rename / Properties }
+  { Row 2: Opacity / Flatten / Rename / Properties / Lock }
   CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel, 0, bicCommand).Hint := 'Layer opacity';
   CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := 'Flatten image';
   CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand).Hint := 'Rename layer';
   FLayerPropsButton := CreateButton('Props', 102, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel, 0, bicCommand);
   FLayerPropsButton.Hint := 'Layer properties';
+  CreateButton('Lock', 132, ContentTop + 28, 26, @ToggleLayerLockClick, FRightPanel, 0, bicCommand).Hint := 'Toggle layer lock';
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
@@ -6846,6 +6851,15 @@ begin
   SyncImageMutationUI(True, True);
 end;
 
+procedure TMainForm.ToggleLayerLockClick(Sender: TObject);
+begin
+  SealPendingStrokeHistory;
+  if FDocument.LayerCount = 0 then Exit;
+  FDocument.ActiveLayer.Locked := not FDocument.ActiveLayer.Locked;
+  if Assigned(FLayerList) then
+    FLayerList.Invalidate;
+end;
+
 procedure TMainForm.LayerOpacityClick(Sender: TObject);
 var
   ValueText: string;
@@ -7808,16 +7822,17 @@ end;
 
 procedure TMainForm.LayerListDrawItem(Control: TWinControl; Index: Integer;
   ARect: TRect; State: TOwnerDrawState);
-{ Renders one layer row: a scaled thumbnail on the left, then the layer name
-  (bold when selected) with opacity % if < 100, and a dim eye indicator. }
+{ Renders one layer row: lock | eye | thumbnail | name }
 const
-  ThumbW  = 36;
-  ThumbH  = 28;
-  ThumbMarginX = 4;
+  IconSize  = 14;
+  IconMargin = 3;
+  LockLeft  = 4;
+  EyeLeft   = LockLeft + IconSize + IconMargin;
+  ThumbLeft = EyeLeft + IconSize + IconMargin + 2;
+  ThumbW    = 36;
+  ThumbH    = 28;
   ThumbMarginY = 4;
-  EyeLeft = ThumbW + ThumbMarginX * 2 + 2;
-  EyeSize = 14;
-  NameLeft = EyeLeft + EyeSize + 4;
+  NameLeft  = ThumbLeft + ThumbW + 6;
 var
   LB: TListBox;
   Layer: TRasterLayer;
@@ -7830,7 +7845,7 @@ var
   SW, SH, TX, TY: Integer;
   ThumbR: TRect;
   OldFont: TFont;
-  EyeCX, EyeCY, EyeR: Integer;
+  ICX, ICY, IR: Integer;
 begin
   LB := TListBox(Control);
   if not Assigned(FDocument) then Exit;
@@ -7857,18 +7872,77 @@ begin
   LB.Canvas.Brush.Color := BgCol;
   LB.Canvas.FillRect(ARect);
 
-  { Thumbnail — checkerboard background then the layer pixels }
-  TX := ARect.Left + ThumbMarginX;
+  ICY := ARect.Top + (ARect.Bottom - ARect.Top) div 2;
+  IR := IconSize div 2;
+
+  { 1. Lock icon }
+  begin
+    ICX := ARect.Left + LockLeft + IR;
+    LB.Canvas.Pen.Width := 1;
+    LB.Canvas.Pen.Style := psSolid;
+    if Layer.Locked then
+    begin
+      { Filled padlock shape }
+      LB.Canvas.Pen.Color := TextCol;
+      LB.Canvas.Brush.Style := bsSolid;
+      LB.Canvas.Brush.Color := TextCol;
+      { Lock body }
+      LB.Canvas.Rectangle(ICX - 4, ICY - 1, ICX + 5, ICY + 5);
+      { Shackle arc }
+      LB.Canvas.Brush.Style := bsClear;
+      LB.Canvas.Arc(ICX - 3, ICY - 6, ICX + 4, ICY, 0, 360 * 16);
+    end
+    else
+    begin
+      { Dim open padlock }
+      LB.Canvas.Pen.Color := ChromeMutedTextColor;
+      LB.Canvas.Brush.Style := bsClear;
+      { Lock body outline }
+      LB.Canvas.Rectangle(ICX - 4, ICY - 1, ICX + 5, ICY + 5);
+      { Open shackle }
+      LB.Canvas.Arc(ICX - 3, ICY - 7, ICX + 4, ICY - 1, 0, 360 * 16);
+    end;
+    LB.Canvas.Brush.Style := bsSolid;
+  end;
+
+  { 2. Eye icon }
+  begin
+    ICX := ARect.Left + EyeLeft + IR;
+    LB.Canvas.Brush.Style := bsClear;
+    if Layer.Visible then
+    begin
+      LB.Canvas.Pen.Color := TextCol;
+      LB.Canvas.Pen.Width := 1;
+      LB.Canvas.Pen.Style := psSolid;
+      LB.Canvas.Ellipse(ICX - IR, ICY - IR div 2,
+                         ICX + IR, ICY + IR div 2);
+      LB.Canvas.Brush.Style := bsSolid;
+      LB.Canvas.Brush.Color := TextCol;
+      LB.Canvas.Ellipse(ICX - 2, ICY - 2, ICX + 3, ICY + 3);
+    end
+    else
+    begin
+      LB.Canvas.Pen.Color := ChromeMutedTextColor;
+      LB.Canvas.Pen.Width := 1;
+      LB.Canvas.Pen.Style := psSolid;
+      LB.Canvas.Ellipse(ICX - IR, ICY - IR div 2,
+                         ICX + IR, ICY + IR div 2);
+      LB.Canvas.MoveTo(ICX - IR + 1, ICY + IR div 2);
+      LB.Canvas.LineTo(ICX + IR - 1, ICY - IR div 2);
+    end;
+    LB.Canvas.Brush.Style := bsSolid;
+  end;
+
+  { 3. Thumbnail }
+  TX := ARect.Left + ThumbLeft;
   TY := ARect.Top  + ThumbMarginY;
   ThumbR := Rect(TX, TY, TX + ThumbW, TY + ThumbH);
-  { Draw a grey/white checker for transparency }
   LB.Canvas.Brush.Color := ChromeDividerColor;
   LB.Canvas.FillRect(ThumbR);
 
   Src := Layer.Surface;
   if Assigned(Src) and (Src.Width > 0) and (Src.Height > 0) then
   begin
-    { Scale to fit within ThumbW x ThumbH keeping aspect ratio }
     if Src.Width * ThumbH > Src.Height * ThumbW then
     begin
       SW := ThumbW;
@@ -7894,52 +7968,19 @@ begin
       ThumbSurf.Free;
     end;
   end;
-  { Thumbnail border }
   LB.Canvas.Brush.Style := bsClear;
   LB.Canvas.Pen.Color := ChromeDividerColor;
   LB.Canvas.Rectangle(ThumbR.Left, ThumbR.Top, ThumbR.Right, ThumbR.Bottom);
   LB.Canvas.Brush.Style := bsSolid;
 
-  { Layer name – bold for selected / active }
+  { 4. Layer name }
   NameText := Layer.Name;
   if Layer.IsBackground then
     NameText := NameText + ' [Background]';
   if Layer.Opacity < 255 then
     NameText := NameText + Format(' %d%%', [LayerOpacityPercentFromByte(Layer.Opacity)]);
-
-  { Eye icon — simple drawn glyph }
-  begin
-    EyeCX := ARect.Left + EyeLeft + EyeSize div 2;
-    EyeCY := ARect.Top + (ARect.Bottom - ARect.Top) div 2;
-    EyeR := EyeSize div 2;
-    LB.Canvas.Brush.Style := bsClear;
-    if Layer.Visible then
-    begin
-      { Solid eye: eye outline + pupil }
-      LB.Canvas.Pen.Color := TextCol;
-      LB.Canvas.Pen.Width := 1;
-      LB.Canvas.Pen.Style := psSolid;
-      LB.Canvas.Ellipse(EyeCX - EyeR, EyeCY - EyeR div 2,
-                         EyeCX + EyeR, EyeCY + EyeR div 2);
-      { Pupil dot }
-      LB.Canvas.Brush.Style := bsSolid;
-      LB.Canvas.Brush.Color := TextCol;
-      LB.Canvas.Ellipse(EyeCX - 2, EyeCY - 2, EyeCX + 3, EyeCY + 3);
-    end
-    else
-    begin
-      { Dim eye outline with strikethrough }
-      LB.Canvas.Pen.Color := ChromeMutedTextColor;
-      LB.Canvas.Pen.Width := 1;
-      LB.Canvas.Pen.Style := psSolid;
-      LB.Canvas.Ellipse(EyeCX - EyeR, EyeCY - EyeR div 2,
-                         EyeCX + EyeR, EyeCY + EyeR div 2);
-      { Diagonal strikethrough }
-      LB.Canvas.MoveTo(EyeCX - EyeR + 1, EyeCY + EyeR div 2);
-      LB.Canvas.LineTo(EyeCX + EyeR - 1, EyeCY - EyeR div 2);
-    end;
-    LB.Canvas.Brush.Style := bsSolid;
-  end;
+  if Layer.Locked then
+    NameText := NameText + ' [Locked]';
 
   OldFont := TFont.Create;
   try
@@ -7990,9 +8031,11 @@ end;
 
 procedure TMainForm.LayerListMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
+const
+  LockRight = 4 + 14 + 3;   { LockLeft + IconSize + IconMargin }
+  EyeRight  = LockRight + 14 + 3 + 2; { EyeLeft + IconSize + extra margin }
 var
   HitIndex: Integer;
-  EyeRight: Integer;
 begin
   if (Button <> mbLeft) or not Assigned(FLayerList) then
     Exit;
@@ -8000,8 +8043,15 @@ begin
   if (HitIndex < 0) or (HitIndex >= FDocument.LayerCount) then
     Exit;
 
+  { Click in lock-icon area → toggle lock }
+  if X < LockRight then
+  begin
+    FDocument.Layers[HitIndex].Locked := not FDocument.Layers[HitIndex].Locked;
+    FLayerList.Invalidate;
+    Exit;
+  end;
+
   { Click in eye-icon area → toggle visibility }
-  EyeRight := 46 + 14 + 4; { EyeLeft + EyeSize + margin }
   if X < EyeRight then
   begin
     FDocument.SetLayerVisibility(HitIndex, not FDocument.Layers[HitIndex].Visible);
@@ -8359,6 +8409,12 @@ procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shi
 var
   ImagePoint: TPoint;
 begin
+  { Guard: block editing on locked layers (allow non-destructive tools) }
+  if Assigned(FDocument) and (FDocument.LayerCount > 0) and
+     FDocument.ActiveLayer.Locked and
+     not (FCurrentTool in [tkZoom, tkPan, tkColorPicker, tkSelectRect,
+       tkSelectEllipse, tkSelectLasso, tkMagicWand]) then
+    Exit;
   if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
     SealPendingStrokeHistory;
   if Button = mbMiddle then
@@ -10294,16 +10350,30 @@ end;
 procedure TMainForm.TabCloseButtonClick(Sender: TObject);
 var
   Idx: Integer;
+  Choice: Integer;
 begin
   if not (Sender is TControl) then Exit;
   Idx := TControl(Sender).Tag;
   if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
   if FTabDirtyFlags[Idx] then
   begin
-    if MessageDlg('Close Document',
-      Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(Idx)]),
-      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
-      Exit;
+    Choice := MessageDlg(TR('Save Changes', #$E4#$BF#$9D#$E5#$AD#$98#$E6#$9B#$B4#$E6#$94#$B9),
+      Format(TR('Do you want to save changes to "%s"?',
+        #$E6#$98#$AF#$E5#$90#$A6#$E4#$BF#$9D#$E5#$AD#$98#$E5#$AF#$B9' "%s" '#$E7#$9A#$84#$E6#$9B#$B4#$E6#$94#$B9#$EF#$BC#$9F),
+        [TabDocumentDisplayName(Idx)]),
+      mtConfirmation, [mbYes, mbNo, mbCancel], 0);
+    case Choice of
+      mrYes:
+        begin
+          { Switch to the tab so Save works on it }
+          SwitchToTab(Idx);
+          SaveDocumentClick(nil);
+          if FDirty then Exit; { Save cancelled }
+        end;
+      mrNo: ; { Discard }
+    else
+      Exit; { Cancel }
+    end;
   end;
   CloseDocumentTab(Idx);
 end;
@@ -10317,6 +10387,7 @@ procedure TMainForm.TabMenuCloseClick(Sender: TObject);
 var
   Popup: TPopupMenu;
   Idx: Integer;
+  Choice: Integer;
 begin
   if not (Sender is TMenuItem) then Exit;
   Popup := TMenuItem(Sender).GetParentMenu as TPopupMenu;
@@ -10326,7 +10397,22 @@ begin
     if (Idx < 0) or (Idx >= Length(FTabDocuments)) then Exit;
     if FTabDirtyFlags[Idx] then
     begin
-      if MessageDlg('Close Document', Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(Idx)]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
+      Choice := MessageDlg(TR('Save Changes', #$E4#$BF#$9D#$E5#$AD#$98#$E6#$9B#$B4#$E6#$94#$B9),
+        Format(TR('Do you want to save changes to "%s"?',
+          #$E6#$98#$AF#$E5#$90#$A6#$E4#$BF#$9D#$E5#$AD#$98#$E5#$AF#$B9' "%s" '#$E7#$9A#$84#$E6#$9B#$B4#$E6#$94#$B9#$EF#$BC#$9F),
+          [TabDocumentDisplayName(Idx)]),
+        mtConfirmation, [mbYes, mbNo, mbCancel], 0);
+      case Choice of
+        mrYes:
+          begin
+            SwitchToTab(Idx);
+            SaveDocumentClick(nil);
+            if FDirty then Exit;
+          end;
+        mrNo: ;
+      else
+        Exit;
+      end;
     end;
     CloseDocumentTab(Idx);
   end;

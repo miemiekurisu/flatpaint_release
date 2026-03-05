@@ -31,3 +31,10 @@ Use one short block per issue.
 
 ## Note
 - `docs/EXPERIENCES.md` is now the primary cumulative issue log. This file remains only as the earlier session-local record.
+
+## 2026-03-05 (UI/UX polish pass)
+- Problem: 8 user-reported UI/UX issues including missing Preferences menu, wrong close-unsaved-tab logic, effect dialogs lacking sliders, layer list layout ordering, no layer lock feature, toolbar spacing too tight, and unreachable i18n settings
+- Core error: the Settings dialog existed but was unreachable from the menu bar; close-tab used discard-first logic; effect parameter dialogs had no TTrackBar sliders; layer list lacked lock icon column; `TRasterLayer` had no lock property; toolbar option row overlapped with first row
+- Investigation: systematic sub-agent investigation of all 8 reported issues, then sequential implementation of each fix
+- Fix: (1) Added Preferences... to Edit menu with Cmd+, shortcut ($BC + ssMeta); (2) Changed close-tab to Yes=save, No=discard, Cancel=abort pattern; (3) Added TTrackBar sliders to 3 effect dialogs (hue/sat, brightness/contrast, levels); (4) Rewrote layer list layout as lock→eye→thumbnail→name with explicit position constants; (5) Full layer lock: FLocked property in TRasterLayer, lock icon, click-to-toggle, menu item, panel button, paint guard; (6) Adjusted toolbar spacing constants (+4px); (7) Verified i18n code was correct — root cause was missing Preferences menu
+- Repeat count: This issue has occurred 1 time(s)

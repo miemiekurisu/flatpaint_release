@@ -49,6 +49,7 @@ type
   private
     FName: string;
     FVisible: Boolean;
+    FLocked: Boolean;
     FOpacity: Byte;
     FBlendMode: TBlendMode;
     FIsBackground: Boolean;
@@ -59,6 +60,7 @@ type
     function Clone: TRasterLayer;
     property Name: string read FName write FName;
     property Visible: Boolean read FVisible write FVisible;
+    property Locked: Boolean read FLocked write FLocked;
     property Opacity: Byte read FOpacity write FOpacity;
     property BlendMode: TBlendMode read FBlendMode write FBlendMode;
     property IsBackground: Boolean read FIsBackground write FIsBackground;
@@ -255,6 +257,7 @@ function TRasterLayer.Clone: TRasterLayer;
 begin
   Result := TRasterLayer.Create(FName, FSurface.Width, FSurface.Height, FIsBackground);
   Result.FVisible := FVisible;
+  Result.FLocked := FLocked;
   Result.FOpacity := FOpacity;
   Result.FBlendMode := FBlendMode;
   Result.Surface.Assign(FSurface);

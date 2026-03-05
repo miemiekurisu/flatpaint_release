@@ -38,9 +38,9 @@ const
   ToolbarDividerHeight = 22;
   ToolbarDividerTopOffset = 4;
 
-  ToolbarOptionRowTop = 52;
-  ToolbarOptionLabelTop = 57;
-  ToolbarOptionCheckTop = 54;
+  ToolbarOptionRowTop = 56;
+  ToolbarOptionLabelTop = 60;
+  ToolbarOptionCheckTop = 57;
 
   ToolbarZoomButtonInsetLeft = 6;
   ToolbarZoomButtonTop = 2;

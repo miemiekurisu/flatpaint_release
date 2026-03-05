@@ -1,5 +1,31 @@
 # Development Progress Log
 
+## 2026-03-05 (UI/UX polish pass: Preferences menu, close-tab save logic, effect dialog sliders, layer list rewrite, layer lock, toolbar spacing, i18n verification)
+
+### Changes
+
+This pass addressed 8 user-reported UI/UX issues in a single session. All changes build cleanly (288,949 lines compiled, 0 errors, 0 fatal warnings).
+
+1. **Preferences menu added to Edit menu** — Added `Preferences...` (`Cmd+,`) to the Edit menu, wired to `@SettingsClick`. The FPC virtual key code for comma is `$BC`; the shortcut is `ShortCut($BC, [ssMeta])`. This makes the Settings dialog (language, DPI, display units) reachable from the standard macOS menu position. Previously the Settings dialog was only accessible via the utility strip.
+
+2. **Close unsaved tab now prompts to save** — `TabCloseButtonClick` and `TabMenuCloseClick` changed from "Discard unsaved changes?" (Yes=discard, No=cancel) to "Do you want to save changes?" (Yes=save via `SaveDocumentClick`, No=discard, Cancel=abort). Both handlers now call `SwitchToTab(Idx)` before saving to ensure the correct document is persisted. Added `Choice: Integer` local variable for the three-way `QuestionDlg` result.
+
+3. **Effect dialog TTrackBar sliders** — Added TTrackBar sliders to three adjustment dialogs that previously only had plain TEdit fields:
+   - `fphuesaturationdialog.pas` — hue (-180..180) and saturation (-100..100)
+   - `fpbrightnesscontrastdialog.pas` — brightness (-255..255) and contrast (-255..254)
+   - `fplevelsdialog.pas` — 4 trackbars for input low/high + output low/high
+   All trackbars are bidirectionally synced with their TEdit fields and use the `TR()` i18n function for localized labels.
+
+4. **Layer list layout rewrite** — Rewrote `LayerListDrawItem` with new layout order: lock icon → eye icon → thumbnail → name. Layout constants: `LockLeft=4`, `EyeLeft=21`, `ThumbLeft=40`, `NameLeft=82`. Lock icon drawn as a padlock shape (filled when locked, outline when unlocked).
+
+5. **Layer lock feature (full implementation)** — Added `FLocked: Boolean` field and `Locked` property to `TRasterLayer` in `fpdocument.pas`. Updated `Clone` to copy `FLocked`. Added lock icon click-to-toggle in `LayerListMouseDown` (X < 21). Added `ToggleLayerLockClick` method. Added "Lock" button in layer panel row 2. Added "Toggle Lock" menu item in Layers menu. Added locked-layer guard in `PaintBoxMouseDown` — blocks painting tools but allows zoom, pan, selection, and color picker.
+
+6. **Toolbar spacing adjusted** — Changed constants in `fptoolbarhelpers.pas`: `ToolbarOptionRowTop` 52→56, `ToolbarOptionLabelTop` 57→60, `ToolbarOptionCheckTop` 54→57. Also adjusted Tool label Left 10→12, `FToolCombo` Left 46→50. This provides better vertical separation between the first toolbar row (grouped command panels) and the second tool-options row.
+
+7. **i18n verification** — Confirmed `fpi18n.pas` code is correct: `GetAppConfigDir(False)` + `ForceDirectories` + `language.conf` file. The directory is created on first language change. The root issue was that the Settings dialog was unreachable without the Preferences menu item (now fixed).
+
+8. **Build verification** — All changes compiled cleanly: 288,949 lines, 21.6 sec, 0 errors, 0 fatal warnings.
+
 ## 2026-03-05 (six critical/high/medium bugs fixed + 18 integration tests)
 
 ### Bugs Found and Fixed
