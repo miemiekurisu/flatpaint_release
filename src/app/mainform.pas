@@ -203,6 +203,16 @@ type
     FColorEditTarget: Integer; { 0=Primary, 1=Secondary }
     FActiveColorSlider: Integer;
     FColorTargetCombo: TComboBox;
+    { Color wheel picker }
+    FColorWheelBox: TPaintBox;
+    FColorWheelBitmap: TBitmap;
+    FColorSVBitmap: TBitmap;
+    FColorSVCachedHue: Double;
+    FColorWheelDragMode: Integer;  { 0=none, 1=hue ring, 2=SV square }
+    FColorExpandButton: TButton;
+    FColorExpanded: Boolean;
+    FColorDetailBox: TPaintBox;
+    FColorDetailDragBar: Integer;  { -1=none, 0..6=R,G,B,H,S,V,A }
     { Tool options — opacity and selection mode }
     FOpacitySpin: TSpinEdit;
     FOpacityLabel: TLabel;
@@ -282,6 +292,17 @@ type
     procedure ColorSliderBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure ColorSliderBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure ColorSliderBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ColorWheelBoxPaint(Sender: TObject);
+    procedure ColorWheelBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ColorWheelBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure ColorWheelBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ColorExpandButtonClick(Sender: TObject);
+    procedure ColorDetailBoxPaint(Sender: TObject);
+    procedure ColorDetailBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure ColorDetailBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
+    procedure ColorDetailBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure RebuildColorWheelBitmaps;
+    procedure ApplyColorDetailBarAt(X, Y: Integer);
     procedure SwatchBoxPaint(Sender: TObject);
     procedure SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     function ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
@@ -637,7 +658,7 @@ var
 implementation
 
 uses
-  Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers,
+  Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers, FPColorWheel,
   FPNewImageDialog, FPResizeDialog, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
@@ -1133,6 +1154,8 @@ begin
   FClipboardSurface.Free;
   FCloneStampSnapshot.Free;
   FPreStrokeSnapshot.Free;  { defensive cleanup in case a stroke was interrupted }
+  FColorWheelBitmap.Free;
+  FColorSVBitmap.Free;
   { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
   for I := 0 to Length(FTabDocuments) - 1 do
     FTabDocuments[I].Free;
@@ -3067,67 +3090,132 @@ begin
   FColorTargetCombo.ItemIndex := 0;
   FColorTargetCombo.Visible := False;
   FColorTargetCombo.OnChange := @ColorTargetComboChanged;
-  FColorPickButton := TColorButton.Create(FColorsPanel);
-  FColorPickButton.Parent := FColorsPanel;
-  FColorPickButton.Left := 12;
-  FColorPickButton.Top := ContentTop;
-  FColorPickButton.Width := 56;
-  FColorPickButton.Height := 26;
-  FColorPickButton.Caption := '';
-  FColorPickButton.Flat := True;
-  FColorPickButton.BorderWidth := 1;
-  FColorPickButton.Hint := 'Open the system color palette for the active swatch';
-  FColorPickButton.ShowHint := True;
-  FColorPickButton.OnColorChanged := @ColorPickButtonChanged;
-  FColorPickButton.ButtonColor := RGBToColor(FPrimaryColor.R, FPrimaryColor.G, FPrimaryColor.B);
-
-  ToolButton := CreateButton('Swap', 74, ContentTop, 40, @SwapColorsClick, FColorsPanel, 0, bicCommand);
-  ToolButton.Hint := 'Swap primary and secondary colors (X)';
-  ToolButton := CreateButton('Mono', 120, ContentTop, 40, @ResetColorsClick, FColorsPanel, 0, bicCommand);
-  ToolButton.Hint := 'Reset colors to black and white (D)';
-
+  { ── FG / BG swatch pair ─────────────────────────────────────────────── }
   FColorsBox := TPaintBox.Create(FColorsPanel);
   FColorsBox.Parent := FColorsPanel;
-  FColorsBox.Left := 12;
-  FColorsBox.Top := ContentTop + 34;
-  FColorsBox.Width := FColorsPanel.Width - 24;
-  FColorsBox.Height := 84;
-  FColorsBox.Anchors := [akLeft, akRight, akTop];
   FColorsBox.OnPaint := @ColorsBoxPaint;
   FColorsBox.OnMouseDown := @ColorsBoxMouseDown;
   FColorsBox.OnMouseMove := @ColorsBoxMouseMove;
 
-  FActiveColorHexLabel := TLabel.Create(FColorsPanel);
-  FActiveColorHexLabel.Parent := FColorsPanel;
-  FActiveColorHexLabel.Left := 12;
-  FActiveColorHexLabel.Top := FColorsBox.Top + FColorsBox.Height + 4;
-  FActiveColorHexLabel.Width := FColorsPanel.Width - 24;
-  FActiveColorHexLabel.Height := 16;
-  FActiveColorHexLabel.Font.Color := ChromeTextColor;
-  FActiveColorHexLabel.Font.Size := 9;
+  { Swap / Reset buttons beside the swatch pair }
+  ToolButton := CreateButton('Swap', 78, ContentTop, 28, @SwapColorsClick, FColorsPanel, 0, bicCommand);
+  ToolButton.Hint := 'Swap primary and secondary colors (X)';
+  ToolButton := CreateButton('Mono', 110, ContentTop, 28, @ResetColorsClick, FColorsPanel, 0, bicCommand);
+  ToolButton.Hint := 'Reset colors to black and white (D)';
 
-  FColorsValueLabel := TLabel.Create(FColorsPanel);
-  FColorsValueLabel.Parent := FColorsPanel;
-  FColorsValueLabel.Left := 12;
-  FColorsValueLabel.Top := FActiveColorHexLabel.Top + 18;
-  FColorsValueLabel.Width := FColorsPanel.Width - 24;
-  FColorsValueLabel.Height := 14;
-  FColorsValueLabel.Font.Color := ChromeMutedTextColor;
-  FColorsValueLabel.Font.Size := 8;
+  { ── Expand / Collapse toggle ──────────────────────────────────────── }
+  FColorExpanded := False;
+  FColorExpandButton := TButton.Create(FColorsPanel);
+  FColorExpandButton.Parent := FColorsPanel;
+  FColorExpandButton.Caption := TR('Normal >>', #$E5#$B8#$B8#$E8#$A7#$84 + ' >>');
+  FColorExpandButton.OnClick := @ColorExpandButtonClick;
+  FColorExpandButton.Font.Size := 9;
+  FColorExpandButton.Width := 72;
+  FColorExpandButton.Height := 22;
 
-  FColorSliderBox := TPaintBox.Create(FColorsPanel);
-  FColorSliderBox.Parent := FColorsPanel;
-  FColorSliderBox.Left := 12;
-  FColorSliderBox.Top := FColorsValueLabel.Top + 18;
-  FColorSliderBox.Width := FColorsPanel.Width - 24;
-  FColorSliderBox.Height := 68;
-  FColorSliderBox.Anchors := [akLeft, akRight, akTop];
-  FColorSliderBox.OnPaint := @ColorSliderBoxPaint;
-  FColorSliderBox.OnMouseDown := @ColorSliderBoxMouseDown;
-  FColorSliderBox.OnMouseMove := @ColorSliderBoxMouseMove;
-  FColorSliderBox.OnMouseUp := @ColorSliderBoxMouseUp;
-  FColorSliderBox.Hint := 'Drag H, S, V and A strips to tune the active swatch';
-  FColorSliderBox.ShowHint := True;
+  { ── Color wheel ─────────────────────────────────────────────────────── }
+  FColorWheelBox := TPaintBox.Create(FColorsPanel);
+  FColorWheelBox.Parent := FColorsPanel;
+  FColorWheelBox.OnPaint := @ColorWheelBoxPaint;
+  FColorWheelBox.OnMouseDown := @ColorWheelBoxMouseDown;
+  FColorWheelBox.OnMouseMove := @ColorWheelBoxMouseMove;
+  FColorWheelBox.OnMouseUp := @ColorWheelBoxMouseUp;
+  FColorWheelBitmap := TBitmap.Create;
+  FColorSVBitmap := TBitmap.Create;
+  FColorSVCachedHue := -1.0;
+  FColorWheelDragMode := 0;
+
+  { ── Detail gradient bars (RGB / HSV / Alpha) ────────────────────────── }
+  FColorDetailBox := TPaintBox.Create(FColorsPanel);
+  FColorDetailBox.Parent := FColorsPanel;
+  FColorDetailBox.Visible := False;
+  FColorDetailBox.OnPaint := @ColorDetailBoxPaint;
+  FColorDetailBox.OnMouseDown := @ColorDetailBoxMouseDown;
+  FColorDetailBox.OnMouseMove := @ColorDetailBoxMouseMove;
+  FColorDetailBox.OnMouseUp := @ColorDetailBoxMouseUp;
+  FColorDetailDragBar := -1;
+
+  { ── RGB spin edits ──────────────────────────────────────────────────── }
+  FColorRSpin := TSpinEdit.Create(FColorsPanel);
+  FColorRSpin.Parent := FColorsPanel;
+  FColorRSpin.MinValue := 0; FColorRSpin.MaxValue := 255;
+  FColorRSpin.Width := 52; FColorRSpin.Height := 22;
+  FColorRSpin.Visible := False;
+  FColorRSpin.Font.Size := 9; FColorRSpin.Font.Color := ChromeTextColor;
+  FColorRSpin.Color := clWhite;
+  FColorRSpin.OnChange := @ColorSpinChanged;
+
+  FColorGSpin := TSpinEdit.Create(FColorsPanel);
+  FColorGSpin.Parent := FColorsPanel;
+  FColorGSpin.MinValue := 0; FColorGSpin.MaxValue := 255;
+  FColorGSpin.Width := 52; FColorGSpin.Height := 22;
+  FColorGSpin.Visible := False;
+  FColorGSpin.Font.Size := 9; FColorGSpin.Font.Color := ChromeTextColor;
+  FColorGSpin.Color := clWhite;
+  FColorGSpin.OnChange := @ColorSpinChanged;
+
+  FColorBSpin := TSpinEdit.Create(FColorsPanel);
+  FColorBSpin.Parent := FColorsPanel;
+  FColorBSpin.MinValue := 0; FColorBSpin.MaxValue := 255;
+  FColorBSpin.Width := 52; FColorBSpin.Height := 22;
+  FColorBSpin.Visible := False;
+  FColorBSpin.Font.Size := 9; FColorBSpin.Font.Color := ChromeTextColor;
+  FColorBSpin.Color := clWhite;
+  FColorBSpin.OnChange := @ColorSpinChanged;
+
+  { ── HSV spin edits ──────────────────────────────────────────────────── }
+  FColorHSpin := TSpinEdit.Create(FColorsPanel);
+  FColorHSpin.Parent := FColorsPanel;
+  FColorHSpin.MinValue := 0; FColorHSpin.MaxValue := 360;
+  FColorHSpin.Width := 52; FColorHSpin.Height := 22;
+  FColorHSpin.Visible := False;
+  FColorHSpin.Font.Size := 9; FColorHSpin.Font.Color := ChromeTextColor;
+  FColorHSpin.Color := clWhite;
+  FColorHSpin.OnChange := @ColorHSVSpinChanged;
+
+  FColorSSpin := TSpinEdit.Create(FColorsPanel);
+  FColorSSpin.Parent := FColorsPanel;
+  FColorSSpin.MinValue := 0; FColorSSpin.MaxValue := 100;
+  FColorSSpin.Width := 52; FColorSSpin.Height := 22;
+  FColorSSpin.Visible := False;
+  FColorSSpin.Font.Size := 9; FColorSSpin.Font.Color := ChromeTextColor;
+  FColorSSpin.Color := clWhite;
+  FColorSSpin.OnChange := @ColorHSVSpinChanged;
+
+  FColorVSpin := TSpinEdit.Create(FColorsPanel);
+  FColorVSpin.Parent := FColorsPanel;
+  FColorVSpin.MinValue := 0; FColorVSpin.MaxValue := 100;
+  FColorVSpin.Width := 52; FColorVSpin.Height := 22;
+  FColorVSpin.Visible := False;
+  FColorVSpin.Font.Size := 9; FColorVSpin.Font.Color := ChromeTextColor;
+  FColorVSpin.Color := clWhite;
+  FColorVSpin.OnChange := @ColorHSVSpinChanged;
+
+  { ── Alpha spin edit ─────────────────────────────────────────────────── }
+  FColorASpin := TSpinEdit.Create(FColorsPanel);
+  FColorASpin.Parent := FColorsPanel;
+  FColorASpin.MinValue := 0; FColorASpin.MaxValue := 255;
+  FColorASpin.Width := 52; FColorASpin.Height := 22;
+  FColorASpin.Visible := False;
+  FColorASpin.Font.Size := 9; FColorASpin.Font.Color := ChromeTextColor;
+  FColorASpin.Color := clWhite;
+  FColorASpin.OnChange := @ColorSpinChanged;
+
+  { ── Hex edit ────────────────────────────────────────────────────────── }
+  FColorHexEdit := TEdit.Create(FColorsPanel);
+  FColorHexEdit.Parent := FColorsPanel;
+  FColorHexEdit.Visible := False;
+  FColorHexEdit.Width := 80; FColorHexEdit.Height := 22;
+  FColorHexEdit.Font.Size := 9; FColorHexEdit.Font.Color := ChromeTextColor;
+  FColorHexEdit.Color := clWhite;
+  FColorHexEdit.OnEditingDone := @ColorHexChanged;
+
+  { ── Swatch grid (96-colour palette) ─────────────────────────────────── }
+  FSwatchBox := TPaintBox.Create(FColorsPanel);
+  FSwatchBox.Parent := FColorsPanel;
+  FSwatchBox.OnPaint := @SwatchBoxPaint;
+  FSwatchBox.OnMouseDown := @SwatchBoxMouseDown;
+
   FColorsPanel.OnResize := @ColorsPanelResize;
   LayoutColorsPanel;
   RefreshColorsPanel;
@@ -4503,8 +4591,10 @@ begin
   UpdateColorSpins;
   if Assigned(FColorsBox) then
     FColorsBox.Invalidate;
-  if Assigned(FColorSliderBox) then
-    FColorSliderBox.Invalidate;
+  if Assigned(FColorWheelBox) then
+    FColorWheelBox.Invalidate;
+  if Assigned(FColorDetailBox) and FColorDetailBox.Visible then
+    FColorDetailBox.Invalidate;
   if Assigned(FSwatchBox) then
     FSwatchBox.Invalidate;
 end;
@@ -4872,6 +4962,419 @@ begin
   RefreshColorsPanel;
   if Assigned(FColorsBox) then
     FColorsBox.Invalidate;
+end;
+
+{ ── Color Wheel handlers ─────────────────────────────────────────────────── }
+
+procedure TMainForm.RebuildColorWheelBitmaps;
+var
+  WSize: Integer;
+  OuterR, InnerR: Integer;
+begin
+  if not Assigned(FColorWheelBox) then Exit;
+  WSize := FColorWheelBox.Width;
+  if WSize < 20 then Exit;
+  OuterR := (WSize div 2) - 2;
+  InnerR := OuterR - 18;
+  if InnerR < 10 then InnerR := 10;
+  { Rebuild hue ring only when size changes }
+  if (FColorWheelBitmap.Width <> WSize) or (FColorWheelBitmap.Height <> WSize) then
+    RenderHueRing(FColorWheelBitmap, WSize, InnerR, OuterR);
+end;
+
+procedure TMainForm.ColorWheelBoxPaint(Sender: TObject);
+var
+  PB: TPaintBox;
+  WSize: Integer;
+  CX, CY, OuterR, InnerR, SVSize, SVLeft, SVTop: Integer;
+  EditColor: TRGBA32;
+  CurH, CurS, CurV: Double;
+  MarkerX, MarkerY: Integer;
+begin
+  if not Assigned(Sender) then Exit;
+  PB := TPaintBox(Sender);
+  WSize := PB.Width;
+  if WSize < 20 then Exit;
+
+  PB.Canvas.Brush.Color := PaletteSurfaceColor(pkColors, False);
+  PB.Canvas.FillRect(Rect(0, 0, PB.Width, PB.Height));
+
+  CX := WSize div 2;
+  CY := WSize div 2;
+  OuterR := CX - 2;
+  InnerR := OuterR - 18;
+  if InnerR < 10 then InnerR := 10;
+
+  { Draw hue ring from cached bitmap }
+  RebuildColorWheelBitmaps;
+  if (FColorWheelBitmap.Width > 0) and (FColorWheelBitmap.Height > 0) then
+    PB.Canvas.Draw(0, 0, FColorWheelBitmap);
+
+  { Get current edit colour and HSV }
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
+  { Use cached hue when saturation drops to zero to avoid snap-to-red }
+  if (CurS < 0.001) and (FColorSVCachedHue >= 0.0) then
+    CurH := FColorSVCachedHue;
+
+  { Draw SV square inside the ring }
+  SVSize := Round((InnerR - 4) * 1.414);
+  if SVSize < 8 then SVSize := 8;
+  SVLeft := CX - SVSize div 2;
+  SVTop := CY - SVSize div 2;
+
+  { Rebuild SV square if hue changed or first render }
+  if (Abs(FColorSVCachedHue - CurH) > 0.001) or
+     (FColorSVBitmap.Width <> SVSize) or
+     (FColorSVCachedHue < 0.0) then
+  begin
+    RenderSVSquare(FColorSVBitmap, CurH, SVSize);
+    FColorSVCachedHue := CurH;
+  end;
+  if (FColorSVBitmap.Width > 0) and (FColorSVBitmap.Height > 0) then
+    PB.Canvas.Draw(SVLeft, SVTop, FColorSVBitmap);
+
+  { SV square border }
+  PB.Canvas.Brush.Style := bsClear;
+  PB.Canvas.Pen.Color := RGBToColor(200, 200, 200);
+  PB.Canvas.Rectangle(SVLeft, SVTop, SVLeft + SVSize, SVTop + SVSize);
+  PB.Canvas.Brush.Style := bsSolid;
+
+  { Hue marker on the ring }
+  DrawHueMarker(PB.Canvas, CurH, CX, CY, (OuterR + InnerR) div 2, 5);
+
+  { SV marker inside the square }
+  MarkerX := SVLeft + Round(CurS * Max(1, SVSize - 1));
+  MarkerY := SVTop + Round((1.0 - CurV) * Max(1, SVSize - 1));
+  if CurV > 0.5 then
+    DrawCircleMarker(PB.Canvas, MarkerX, MarkerY, 5, clBlack, clWhite)
+  else
+    DrawCircleMarker(PB.Canvas, MarkerX, MarkerY, 5, clWhite, clBlack);
+end;
+
+procedure TMainForm.ColorWheelBoxMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+var
+  WSize, CX, CY, OuterR, InnerR, SVSize, SVLeft, SVTop: Integer;
+  NewHue, NewSat, NewVal: Double;
+  EditColor: TRGBA32;
+  CurH, CurS, CurV: Double;
+  R, G, B: Byte;
+begin
+  if Button <> mbLeft then Exit;
+  if not Assigned(FColorWheelBox) then Exit;
+  WSize := FColorWheelBox.Width;
+  CX := WSize div 2;
+  CY := WSize div 2;
+  OuterR := CX - 2;
+  InnerR := OuterR - 18;
+  if InnerR < 10 then InnerR := 10;
+  SVSize := Round((InnerR - 4) * 1.414);
+  if SVSize < 8 then SVSize := 8;
+  SVLeft := CX - SVSize div 2;
+  SVTop := CY - SVSize div 2;
+
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
+  if (CurS < 0.001) and (FColorSVCachedHue >= 0.0) then
+    CurH := FColorSVCachedHue;
+
+  if HitTestHueRing(X, Y, CX, CY, InnerR, OuterR, NewHue) then
+  begin
+    FColorWheelDragMode := 1;
+    FColorSVCachedHue := NewHue;
+    HSVToRGB(NewHue, CurS, CurV, R, G, B);
+    EditColor := RGBA(R, G, B, EditColor.A);
+    if FColorEditTarget = 0 then FPrimaryColor := EditColor
+    else FSecondaryColor := EditColor;
+    RefreshColorsPanel;
+  end
+  else if HitTestSVSquare(X, Y, SVLeft, SVTop, SVSize, NewSat, NewVal) then
+  begin
+    FColorWheelDragMode := 2;
+    HSVToRGB(CurH, NewSat, NewVal, R, G, B);
+    EditColor := RGBA(R, G, B, EditColor.A);
+    if FColorEditTarget = 0 then FPrimaryColor := EditColor
+    else FSecondaryColor := EditColor;
+    RefreshColorsPanel;
+  end
+  else
+    FColorWheelDragMode := 0;
+end;
+
+procedure TMainForm.ColorWheelBoxMouseMove(Sender: TObject; Shift: TShiftState;
+  X, Y: Integer);
+var
+  WSize, CX, CY, OuterR, InnerR, SVSize, SVLeft, SVTop: Integer;
+  NewHue, NewSat, NewVal: Double;
+  EditColor: TRGBA32;
+  CurH, CurS, CurV: Double;
+  R, G, B: Byte;
+begin
+  if not (ssLeft in Shift) then Exit;
+  if FColorWheelDragMode = 0 then Exit;
+  if not Assigned(FColorWheelBox) then Exit;
+
+  WSize := FColorWheelBox.Width;
+  CX := WSize div 2;
+  CY := WSize div 2;
+  OuterR := CX - 2;
+  InnerR := OuterR - 18;
+  if InnerR < 10 then InnerR := 10;
+  SVSize := Round((InnerR - 4) * 1.414);
+  if SVSize < 8 then SVSize := 8;
+  SVLeft := CX - SVSize div 2;
+  SVTop := CY - SVSize div 2;
+
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
+  if (CurS < 0.001) and (FColorSVCachedHue >= 0.0) then
+    CurH := FColorSVCachedHue;
+
+  if FColorWheelDragMode = 1 then
+  begin
+    { Hue ring drag — always compute angle from centre }
+    NewHue := ArcTan2(-(Y - CY), X - CX) / (2.0 * Pi);
+    if NewHue < 0 then NewHue := NewHue + 1.0;
+    FColorSVCachedHue := NewHue;
+    HSVToRGB(NewHue, CurS, CurV, R, G, B);
+    EditColor := RGBA(R, G, B, EditColor.A);
+    if FColorEditTarget = 0 then FPrimaryColor := EditColor
+    else FSecondaryColor := EditColor;
+    RefreshColorsPanel;
+  end
+  else if FColorWheelDragMode = 2 then
+  begin
+    { SV square drag — clamp to square bounds }
+    NewSat := EnsureRange((X - SVLeft) / Max(1, SVSize - 1), 0.0, 1.0);
+    NewVal := EnsureRange(1.0 - (Y - SVTop) / Max(1, SVSize - 1), 0.0, 1.0);
+    HSVToRGB(CurH, NewSat, NewVal, R, G, B);
+    EditColor := RGBA(R, G, B, EditColor.A);
+    if FColorEditTarget = 0 then FPrimaryColor := EditColor
+    else FSecondaryColor := EditColor;
+    RefreshColorsPanel;
+  end;
+end;
+
+procedure TMainForm.ColorWheelBoxMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button = mbLeft then
+    FColorWheelDragMode := 0;
+end;
+
+{ ── Expand / Collapse toggle ──────────────────────────────────────────────── }
+
+procedure TMainForm.ColorExpandButtonClick(Sender: TObject);
+const
+  CollapsedWidth = 220;
+  ExpandedWidth = 440;
+begin
+  FColorExpanded := not FColorExpanded;
+  if FColorExpanded then
+    FColorsPanel.Width := ExpandedWidth
+  else
+    FColorsPanel.Width := CollapsedWidth;
+  LayoutColorsPanel;
+  RefreshColorsPanel;
+end;
+
+{ ── Detail gradient-bar panel (RGB / HSV / Alpha) ─────────────────────────── }
+
+procedure TMainForm.ColorDetailBoxPaint(Sender: TObject);
+const
+  BarLabelW = 24;
+  BarHeight = 14;
+  RowHeight = 22;
+  HeaderHeight = 18;
+  HeaderGap = 4;
+var
+  PB: TPaintBox;
+  EditColor: TRGBA32;
+  CurH, CurS, CurV: Double;
+  BarLeft, BarW: Integer;
+  Y: Integer;
+  procedure DrawHeader(const AText: string; AY: Integer);
+  begin
+    PB.Canvas.Font.Style := [fsBold];
+    PB.Canvas.Font.Color := ChromeTextColor;
+    PB.Canvas.Font.Size := 9;
+    PB.Canvas.TextOut(0, AY + 1, AText);
+    PB.Canvas.Font.Style := [];
+  end;
+  procedure DrawBarRow(const ALabel: string; AKind: TGradientBarKind; AMarker: Double; ARowY: Integer);
+  begin
+    PB.Canvas.Font.Color := ChromeTextColor;
+    PB.Canvas.Font.Size := 9;
+    PB.Canvas.TextOut(2, ARowY + 1, ALabel);
+    PaintGradientBar(PB.Canvas, AKind, EditColor, AMarker,
+      BarLeft, ARowY, BarW, BarHeight);
+  end;
+begin
+  if not Assigned(Sender) then Exit;
+  PB := TPaintBox(Sender);
+  PB.Canvas.Brush.Color := PaletteSurfaceColor(pkColors, False);
+  PB.Canvas.FillRect(Rect(0, 0, PB.Width, PB.Height));
+
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
+
+  BarLeft := BarLabelW;
+  BarW := Max(24, PB.Width - BarLabelW);
+
+  { RGB section }
+  Y := 0;
+  DrawHeader('RGB', Y);
+  Y := Y + HeaderHeight;
+  DrawBarRow(TR('R', #$E7#$BA#$A2), gbkRed, EditColor.R / 255.0, Y);
+  Y := Y + RowHeight;
+  DrawBarRow(TR('G', #$E7#$BB#$BF), gbkGreen, EditColor.G / 255.0, Y);
+  Y := Y + RowHeight;
+  DrawBarRow(TR('B', #$E8#$93#$9D), gbkBlue, EditColor.B / 255.0, Y);
+  Y := Y + RowHeight;
+
+  { Hex label }
+  Y := Y + HeaderGap;
+  PB.Canvas.Font.Color := ChromeMutedTextColor;
+  PB.Canvas.Font.Size := 8;
+  PB.Canvas.TextOut(2, Y + 2, TR('Hex:', #$E5#$8D#$81#$E5#$85#$AD#$E8#$BF#$9B#$E5#$88#$B6 + ':'));
+  Y := Y + 24;
+
+  { HSV section }
+  Y := Y + HeaderGap;
+  DrawHeader('HSV', Y);
+  Y := Y + HeaderHeight;
+  DrawBarRow('H', gbkHue, CurH, Y);
+  Y := Y + RowHeight;
+  DrawBarRow('S', gbkSaturation, CurS, Y);
+  Y := Y + RowHeight;
+  DrawBarRow('V', gbkValue, CurV, Y);
+  Y := Y + RowHeight;
+
+  { Alpha section }
+  Y := Y + HeaderGap;
+  DrawHeader(TR('Alpha', #$E4#$B8#$8D#$E9#$80#$8F#$E6#$98#$8E#$E5#$BA#$A6), Y);
+  Y := Y + HeaderHeight;
+  DrawBarRow('A', gbkAlpha, EditColor.A / 255.0, Y);
+end;
+
+procedure TMainForm.ApplyColorDetailBarAt(X, Y: Integer);
+const
+  BarLabelW = 24;
+  BarHeight = 14;
+  RowHeight = 22;
+  HeaderHeight = 18;
+  HeaderGap = 4;
+var
+  EditColor: TRGBA32;
+  CurH, CurS, CurV: Double;
+  BarLeft, BarW: Integer;
+  Frac: Double;
+  RowY: Integer;
+  BarIdx: Integer;
+  R, G, B: Byte;
+begin
+  if not Assigned(FColorDetailBox) then Exit;
+  BarIdx := -1;
+  BarLeft := BarLabelW;
+  BarW := Max(24, FColorDetailBox.Width - BarLabelW);
+  Frac := EnsureRange((X - BarLeft) / Max(1, BarW - 1), 0.0, 1.0);
+
+  if FColorEditTarget = 0 then
+    EditColor := FPrimaryColor
+  else
+    EditColor := FSecondaryColor;
+  RGBToHSV(EditColor.R, EditColor.G, EditColor.B, CurH, CurS, CurV);
+
+  { Determine which bar was hit based on FColorDetailDragBar or Y position }
+  if FColorDetailDragBar >= 0 then
+    BarIdx := FColorDetailDragBar
+  else
+  begin
+    { Compute bar index from Y coordinate }
+    RowY := HeaderHeight;                          { R starts here }
+    if Y < RowY then Exit;
+    if Y < RowY + RowHeight then begin BarIdx := 0; end              { R }
+    else if Y < RowY + RowHeight * 2 then begin BarIdx := 1; end     { G }
+    else if Y < RowY + RowHeight * 3 then begin BarIdx := 2; end     { B }
+    else begin
+      { HSV starts after: 3 rows + hex + gap + header }
+      RowY := HeaderHeight + RowHeight * 3 + HeaderGap + 24 + HeaderGap + HeaderHeight;
+      if Y < RowY then Exit;
+      if Y < RowY + RowHeight then begin BarIdx := 3; end            { H }
+      else if Y < RowY + RowHeight * 2 then begin BarIdx := 4; end   { S }
+      else if Y < RowY + RowHeight * 3 then begin BarIdx := 5; end   { V }
+      else begin
+        { Alpha starts after HSV + gap + header }
+        RowY := RowY + RowHeight * 3 + HeaderGap + HeaderHeight;
+        if Y < RowY then Exit;
+        BarIdx := 6;                                                   { A }
+      end;
+    end;
+    FColorDetailDragBar := BarIdx;  { lock to this bar for subsequent drag moves }
+  end;
+
+  case BarIdx of
+    0: EditColor := RGBA(EnsureRange(Round(Frac * 255), 0, 255), EditColor.G, EditColor.B, EditColor.A);
+    1: EditColor := RGBA(EditColor.R, EnsureRange(Round(Frac * 255), 0, 255), EditColor.B, EditColor.A);
+    2: EditColor := RGBA(EditColor.R, EditColor.G, EnsureRange(Round(Frac * 255), 0, 255), EditColor.A);
+    3: begin
+         HSVToRGB(Frac, CurS, CurV, R, G, B);
+         EditColor := RGBA(R, G, B, EditColor.A);
+         FColorSVCachedHue := Frac;
+       end;
+    4: begin
+         HSVToRGB(CurH, Frac, CurV, R, G, B);
+         EditColor := RGBA(R, G, B, EditColor.A);
+       end;
+    5: begin
+         HSVToRGB(CurH, CurS, Frac, R, G, B);
+         EditColor := RGBA(R, G, B, EditColor.A);
+       end;
+    6: EditColor := RGBA(EditColor.R, EditColor.G, EditColor.B, EnsureRange(Round(Frac * 255), 0, 255));
+  else
+    Exit;
+  end;
+
+  if FColorEditTarget = 0 then
+    FPrimaryColor := EditColor
+  else
+    FSecondaryColor := EditColor;
+  RefreshColorsPanel;
+end;
+
+procedure TMainForm.ColorDetailBoxMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button <> mbLeft then Exit;
+  FColorDetailDragBar := -1;
+  ApplyColorDetailBarAt(X, Y);
+end;
+
+procedure TMainForm.ColorDetailBoxMouseMove(Sender: TObject; Shift: TShiftState;
+  X, Y: Integer);
+begin
+  if not (ssLeft in Shift) then Exit;
+  ApplyColorDetailBarAt(X, Y);
+end;
+
+procedure TMainForm.ColorDetailBoxMouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button = mbLeft then
+    FColorDetailDragBar := -1;
 end;
 
 procedure TMainForm.HistoryListDrawItem(Control: TWinControl; Index: Integer;
@@ -5738,64 +6241,146 @@ end;
 procedure TMainForm.LayoutColorsPanel;
 const
   Margin = 12;
-  Gap = 6;
-  BottomMargin = 12;
-  ButtonHeight = 26;
-  SwatchHeight = 84;
-  SliderHeight = 68;
   ContentTop = 30;
+  BottomMargin = 8;
+  { Left column sizes }
+  SwatchBoxW = 60;
+  SwatchBoxH = 56;
+  WheelSize = 160;
+  PaletteRowH = 48;
+  { Right-column (detail) constants }
+  DetailLeftX = 180;
+  DetailBarH = 14;
+  DetailRowH = 22;
+  DetailHeaderH = 18;
+  SpinW = 52;
+  SpinH = 22;
+  HexW = 80;
+var
+  LeftColW: Integer;
+  WheelTop: Integer;
+  SwatchTop: Integer;
+  ShowDetail: Boolean;
+  DetailW: Integer;
+  DetailTop: Integer;
+  BarGradLeft: Integer;
+  BarGradW: Integer;
+  SpinX: Integer;
+  RowY: Integer;
+  procedure PositionSpin(ASpin: TSpinEdit; ARowY: Integer);
+  begin
+    if Assigned(ASpin) then
+    begin
+      ASpin.Left := SpinX;
+      ASpin.Top := DetailTop + ARowY;
+      ASpin.Width := SpinW;
+      ASpin.Height := SpinH;
+      ASpin.Visible := ShowDetail;
+    end;
+  end;
 begin
   if not Assigned(FColorsPanel) then
     Exit;
-  if Assigned(FColorPickButton) then
-  begin
-    FColorPickButton.Left := Margin;
-    FColorPickButton.Top := ContentTop;
-    FColorPickButton.Width := 56;
-    FColorPickButton.Height := ButtonHeight;
-  end;
-  if Assigned(FColorPickButton) and Assigned(FColorsBox) then
+
+  ShowDetail := FColorExpanded;
+  LeftColW := FColorsPanel.Width - Margin * 2;
+  if ShowDetail then
+    LeftColW := Min(LeftColW, DetailLeftX - Margin);
+
+  { ── FG/BG swatch pair ────────────────────────────────────────────────── }
+  if Assigned(FColorsBox) then
   begin
     FColorsBox.Left := Margin;
-    FColorsBox.Top := FColorPickButton.Top + ButtonHeight + Gap;
-    FColorsBox.Width := FColorsPanel.Width - Margin * 2;
-    FColorsBox.Height := SwatchHeight;
+    FColorsBox.Top := ContentTop;
+    FColorsBox.Width := SwatchBoxW;
+    FColorsBox.Height := SwatchBoxH;
   end;
-  if Assigned(FActiveColorHexLabel) and Assigned(FColorsBox) then
+
+  { ── Expand button ────────────────────────────────────────────────────── }
+  if Assigned(FColorExpandButton) then
   begin
-    FActiveColorHexLabel.Left := Margin;
-    FActiveColorHexLabel.Top := FColorsBox.Top + FColorsBox.Height + 4;
-    FActiveColorHexLabel.Width := FColorsPanel.Width - Margin * 2;
-  end;
-  if Assigned(FColorsValueLabel) then
-  begin
-    FColorsValueLabel.Left := Margin;
-    if Assigned(FActiveColorHexLabel) then
-      FColorsValueLabel.Top := FActiveColorHexLabel.Top + FActiveColorHexLabel.Height + 2
+    if ShowDetail then
+      FColorExpandButton.Caption := TR('<< Normal', '<< ' + #$E5#$B8#$B8#$E8#$A7#$84)
     else
-      FColorsValueLabel.Top := ContentTop + ButtonHeight + Gap + SwatchHeight + 22;
-    FColorsValueLabel.Width := FColorsPanel.Width - Margin * 2;
+      FColorExpandButton.Caption := TR('Normal >>', #$E5#$B8#$B8#$E8#$A7#$84 + ' >>');
+    FColorExpandButton.Left := FColorsPanel.Width - Margin - 72;
+    FColorExpandButton.Top := ContentTop;
+    FColorExpandButton.Width := 72;
+    FColorExpandButton.Height := 22;
   end;
-  if Assigned(FColorSliderBox) then
+
+  { ── Color wheel ──────────────────────────────────────────────────────── }
+  WheelTop := ContentTop + SwatchBoxH + 6;
+  if Assigned(FColorWheelBox) then
   begin
-    FColorSliderBox.Left := Margin;
-    FColorSliderBox.Top := FColorsValueLabel.Top + FColorsValueLabel.Height + Gap;
-    FColorSliderBox.Width := FColorsPanel.Width - Margin * 2;
-    FColorSliderBox.Height := Min(
-      SliderHeight,
-      Max(48, FColorsPanel.Height - FColorSliderBox.Top - BottomMargin)
-    );
+    FColorWheelBox.Left := Margin;
+    FColorWheelBox.Top := WheelTop;
+    FColorWheelBox.Width := Min(WheelSize, LeftColW);
+    FColorWheelBox.Height := Min(WheelSize, LeftColW);
   end;
+
+  { ── Swatch grid ──────────────────────────────────────────────────────── }
+  SwatchTop := WheelTop + Min(WheelSize, LeftColW) + 6;
   if Assigned(FSwatchBox) then
   begin
     FSwatchBox.Left := Margin;
-    if Assigned(FColorSliderBox) then
-      FSwatchBox.Top := FColorSliderBox.Top + FColorSliderBox.Height + Gap
-    else
-      FSwatchBox.Top := ContentTop + ButtonHeight + Gap + SwatchHeight + Gap + SliderHeight;
-    FSwatchBox.Width := FColorsPanel.Width - Margin * 2;
-    FSwatchBox.Height := 0;
-    FSwatchBox.Visible := False;
+    FSwatchBox.Top := SwatchTop;
+    FSwatchBox.Width := LeftColW;
+    FSwatchBox.Height := PaletteRowH;
+    FSwatchBox.Visible := True;
+  end;
+
+  { ── Detail panel (right side, visible when expanded) ─────────────────── }
+  if ShowDetail then
+  begin
+    DetailW := FColorsPanel.Width - DetailLeftX - Margin;
+    DetailTop := ContentTop + 4;
+    BarGradLeft := 24;
+    BarGradW := Max(24, DetailW - BarGradLeft - SpinW - 6);
+    SpinX := DetailLeftX + DetailW - SpinW;
+    if Assigned(FColorDetailBox) then
+    begin
+      FColorDetailBox.Left := DetailLeftX;
+      FColorDetailBox.Top := DetailTop;
+      FColorDetailBox.Width := DetailW - SpinW - 6;
+      FColorDetailBox.Height := 260;
+      FColorDetailBox.Visible := True;
+    end;
+    { R, G, B spins }
+    PositionSpin(FColorRSpin, DetailHeaderH);
+    PositionSpin(FColorGSpin, DetailHeaderH + DetailRowH);
+    PositionSpin(FColorBSpin, DetailHeaderH + DetailRowH * 2);
+    { Hex edit }
+    if Assigned(FColorHexEdit) then
+    begin
+      FColorHexEdit.Left := DetailLeftX + BarGradLeft;
+      FColorHexEdit.Top := DetailTop + DetailHeaderH + DetailRowH * 3 + 4;
+      FColorHexEdit.Width := HexW;
+      FColorHexEdit.Height := SpinH;
+      FColorHexEdit.Visible := True;
+    end;
+    { H, S, V spins }
+    RowY := DetailHeaderH * 2 + DetailRowH * 3 + 8 + SpinH;
+    PositionSpin(FColorHSpin, RowY);
+    PositionSpin(FColorSSpin, RowY + DetailRowH);
+    PositionSpin(FColorVSpin, RowY + DetailRowH * 2);
+    { Alpha }
+    RowY := RowY + DetailRowH * 3 + DetailHeaderH;
+    PositionSpin(FColorASpin, RowY);
+  end
+  else
+  begin
+    { Hide all detail controls when collapsed }
+    if Assigned(FColorDetailBox) then
+      FColorDetailBox.Visible := False;
+    if Assigned(FColorRSpin) then FColorRSpin.Visible := False;
+    if Assigned(FColorGSpin) then FColorGSpin.Visible := False;
+    if Assigned(FColorBSpin) then FColorBSpin.Visible := False;
+    if Assigned(FColorHSpin) then FColorHSpin.Visible := False;
+    if Assigned(FColorSSpin) then FColorSSpin.Visible := False;
+    if Assigned(FColorVSpin) then FColorVSpin.Visible := False;
+    if Assigned(FColorASpin) then FColorASpin.Visible := False;
+    if Assigned(FColorHexEdit) then FColorHexEdit.Visible := False;
   end;
 end;
 
@@ -5819,8 +6404,10 @@ begin
   LayoutColorsPanel;
   if Assigned(FColorsBox) then
     FColorsBox.Invalidate;
-  if Assigned(FColorSliderBox) then
-    FColorSliderBox.Invalidate;
+  if Assigned(FColorWheelBox) then
+    FColorWheelBox.Invalidate;
+  if Assigned(FColorDetailBox) then
+    FColorDetailBox.Invalidate;
   if Assigned(FSwatchBox) then
     FSwatchBox.Invalidate;
 end;
