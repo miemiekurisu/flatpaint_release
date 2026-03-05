@@ -639,6 +639,20 @@ const
 
 var
   GMainForm: TMainForm = nil;
+  GDebugLog: TextFile;
+  GDebugLogOpen: Boolean = False;
+
+procedure DbgLog(const S: string);
+begin
+  if not GDebugLogOpen then
+  begin
+    AssignFile(GDebugLog, '/tmp/flatpaint_debug.log');
+    Rewrite(GDebugLog);
+    GDebugLogOpen := True;
+  end;
+  WriteLn(GDebugLog, S);
+  Flush(GDebugLog);
+end;
 
 procedure FPMagnifyCallbackProc(AMagnification: Double;
   ALocationX, ALocationY: Double); cdecl;
@@ -3783,6 +3797,7 @@ var
   PreviewStrokeWidth: Integer;
   ShapePreviewFill: Boolean;
   ShapePreviewOutline: Boolean;
+  DbgPx: TRGBA32;
 begin
   ACanvas.Brush.Color := CanvasBackgroundColor;
   ACanvas.FillRect(ARect);
@@ -3791,13 +3806,28 @@ begin
      (FPreparedBitmap.Width <> FDocument.Width) or
      (FPreparedBitmap.Height <> FDocument.Height) then
   begin
+    DbgLog(Format('[PaintCanvasTo] REBUILD rev=%d prepRev=%d bmpW=%d docW=%d', [FRenderRevision, FPreparedRevision, FPreparedBitmap.Width, FDocument.Width]));
     DisplaySurface := BuildDisplaySurface;  { returns FDisplaySurface — do NOT free }
+    if (FLastImagePoint.X >= 0) and (FLastImagePoint.X < DisplaySurface.Width) and
+       (FLastImagePoint.Y >= 0) and (FLastImagePoint.Y < DisplaySurface.Height) then
+    begin
+      DbgPx := DisplaySurface[FLastImagePoint.X, FLastImagePoint.Y];
+      DbgLog(Format('[PaintCanvasTo] DisplaySurf@lastPt(%d,%d)=R%dG%dB%dA%d', [FLastImagePoint.X, FLastImagePoint.Y, DbgPx.R, DbgPx.G, DbgPx.B, DbgPx.A]));
+    end;
     CopySurfaceToBitmap(DisplaySurface, FPreparedBitmap);
     FPreparedRevision := FRenderRevision;
-  end;
+    DbgLog(Format('[PaintCanvasTo] afterCopy bmp.Empty=%s bmpW=%d bmpH=%d', [BoolToStr(FPreparedBitmap.Empty, True), FPreparedBitmap.Width, FPreparedBitmap.Height]));
+  end
+  else
+    DbgLog(Format('[PaintCanvasTo] CACHE rev=%d bmp.Empty=%s', [FRenderRevision, BoolToStr(FPreparedBitmap.Empty, True)]));
 
   if not FPreparedBitmap.Empty then
+  begin
+    DbgLog(Format('[PaintCanvasTo] StretchDraw %dx%d -> %dx%d', [FPreparedBitmap.Width, FPreparedBitmap.Height, FPaintBox.Width, FPaintBox.Height]));
     ACanvas.StretchDraw(Rect(0, 0, FPaintBox.Width, FPaintBox.Height), FPreparedBitmap);
+  end
+  else
+    DbgLog('[PaintCanvasTo] SKIP StretchDraw — bitmap empty!');
 
   if ShouldRenderPixelGrid(FShowPixelGrid, FZoomScale) then
   begin
@@ -8227,11 +8257,13 @@ begin
   case FCurrentTool of
     tkPencil, tkBrush, tkEraser:
       begin
+        DbgLog(Format('[MouseDown] tool=%d pt=%d,%d color=R%dG%dB%dA%d', [Ord(FCurrentTool), ImagePoint.X, ImagePoint.Y, ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A]));
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
         ExpandStrokeDirty(ImagePoint);
         InvalidatePreparedBitmap;
         SetDirty(True);
+        DbgLog(Format('[MouseDown] afterSetDirty renderRev=%d prepRev=%d', [FRenderRevision, FPreparedRevision]));
         RefreshCanvas;
       end;
     tkFill:
@@ -8388,8 +8420,10 @@ begin
   if FPointerDown then
   begin
     ButtonStillDown := DragButtonIsStillPressed(FPointerButton, Shift);
+    DbgLog(Format('[MouseMove] pointerDown=True btn=%d ssLeft=%s btnStillDown=%s tool=%d pt=%d,%d', [Ord(FPointerButton), BoolToStr(ssLeft in Shift, True), BoolToStr(ButtonStillDown, True), Ord(FCurrentTool), ImagePoint.X, ImagePoint.Y]));
     if not ButtonStillDown then
     begin
+      DbgLog('[MouseMove] ABORT — button released, calling MouseUp');
       PaintBoxMouseUp(Sender, FPointerButton, Shift, X, Y);
       Exit;
     end;
@@ -8496,6 +8530,7 @@ begin
   if Button = mbMiddle then
     DeactivateTempPan;
   FPointerDown := False;
+  DbgLog(Format('[MouseUp] pointerDown=False renderRev=%d prepRev=%d', [FRenderRevision, FPreparedRevision]));
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
