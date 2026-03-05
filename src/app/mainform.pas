@@ -1148,18 +1148,19 @@ begin
   GMainForm := nil;
   if Assigned(Application) then
     Application.RemoveOnIdleHandler(@AppIdle);
-  FRecentFiles.Free;
-  FPreparedBitmap.Free;
-  FDisplaySurface.Free;
-  FClipboardSurface.Free;
-  FCloneStampSnapshot.Free;
-  FPreStrokeSnapshot.Free;  { defensive cleanup in case a stroke was interrupted }
-  FColorWheelBitmap.Free;
-  FColorSVBitmap.Free;
+  FreeAndNil(FRecentFiles);
+  FreeAndNil(FPreparedBitmap);
+  FreeAndNil(FDisplaySurface);
+  FreeAndNil(FClipboardSurface);
+  FreeAndNil(FCloneStampSnapshot);
+  FreeAndNil(FPreStrokeSnapshot);  { defensive cleanup in case a stroke was interrupted }
+  FreeAndNil(FColorWheelBitmap);
+  FreeAndNil(FColorSVBitmap);
   { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
   for I := 0 to Length(FTabDocuments) - 1 do
     FTabDocuments[I].Free;
   SetLength(FTabDocuments, 0);
+  FDocument := nil;
   { Test instances were created via NewInstance (no inherited constructor ran),
     so calling inherited Destroy would crash on uninitialised LCL state. }
   if not FIsTestInstance then
@@ -3250,8 +3251,8 @@ begin
   CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand).Hint := 'Duplicate layer';
   CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand).Hint := 'Delete layer';
   CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand).Hint := 'Merge down';
-  CreateButton('Up', 132, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up';
-  CreateButton('Dn', 162, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down';
+  CreateButton('Up', 132, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up in list';
+  CreateButton('Dn', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down in list';
 
   { Row 2: Flatten / Rename / Properties }
   CreateButton('Flat', 12, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := 'Flatten image';
@@ -4001,6 +4002,9 @@ begin
   ACanvas.Brush.Color := CanvasBackgroundColor;
   ACanvas.FillRect(ARect);
 
+  if not Assigned(FPreparedBitmap) or not Assigned(FDocument) then
+    Exit;
+
   if (FPreparedRevision <> FRenderRevision) or
      (FPreparedBitmap.Width <> FDocument.Width) or
      (FPreparedBitmap.Height <> FDocument.Height) then
@@ -4176,12 +4180,27 @@ begin
           TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
           RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
           BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          { Dim the area outside the crop rectangle with a hatch overlay }
+          ACanvas.Brush.Color := RGBToColor(0, 0, 0);
+          ACanvas.Brush.Style := bsFDiagonal;
+          ACanvas.Pen.Style := psClear;
+          if TopY > 0 then
+            ACanvas.FillRect(0, 0, FPaintBox.Width, TopY);
+          if BottomY < FPaintBox.Height then
+            ACanvas.FillRect(0, BottomY, FPaintBox.Width, FPaintBox.Height);
+          if LeftX > 0 then
+            ACanvas.FillRect(0, TopY, LeftX, BottomY);
+          if RightX < FPaintBox.Width then
+            ACanvas.FillRect(RightX, TopY, FPaintBox.Width, BottomY);
+          ACanvas.Brush.Style := bsClear;
+          { Crop border: solid black outline + dashed white for contrast on any background }
+          ACanvas.Pen.Style := psSolid;
+          ACanvas.Pen.Color := clBlack;
+          ACanvas.Pen.Width := 1;
+          ACanvas.Rectangle(LeftX - 1, TopY - 1, RightX + 1, BottomY + 1);
           ACanvas.Pen.Style := psDash;
           ACanvas.Pen.Color := clWhite;
           ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
-          ACanvas.Pen.Style := psSolid;
-          ACanvas.Pen.Color := clBlack;
-          ACanvas.Rectangle(LeftX - 1, TopY - 1, RightX + 1, BottomY + 1);
         end;
       tkRoundedRectangle:
         begin
@@ -4972,6 +4991,7 @@ var
   OuterR, InnerR: Integer;
 begin
   if not Assigned(FColorWheelBox) then Exit;
+  if not Assigned(FColorWheelBitmap) then Exit;
   WSize := FColorWheelBox.Width;
   if WSize < 20 then Exit;
   OuterR := (WSize div 2) - 2;
@@ -5007,7 +5027,7 @@ begin
 
   { Draw hue ring from cached bitmap }
   RebuildColorWheelBitmaps;
-  if (FColorWheelBitmap.Width > 0) and (FColorWheelBitmap.Height > 0) then
+  if Assigned(FColorWheelBitmap) and (FColorWheelBitmap.Width > 0) and (FColorWheelBitmap.Height > 0) then
     PB.Canvas.Draw(0, 0, FColorWheelBitmap);
 
   { Get current edit colour and HSV }
@@ -5027,15 +5047,18 @@ begin
   SVTop := CY - SVSize div 2;
 
   { Rebuild SV square if hue changed or first render }
-  if (Abs(FColorSVCachedHue - CurH) > 0.001) or
-     (FColorSVBitmap.Width <> SVSize) or
-     (FColorSVCachedHue < 0.0) then
+  if Assigned(FColorSVBitmap) then
   begin
-    RenderSVSquare(FColorSVBitmap, CurH, SVSize);
-    FColorSVCachedHue := CurH;
+    if (Abs(FColorSVCachedHue - CurH) > 0.001) or
+       (FColorSVBitmap.Width <> SVSize) or
+       (FColorSVCachedHue < 0.0) then
+    begin
+      RenderSVSquare(FColorSVBitmap, CurH, SVSize);
+      FColorSVCachedHue := CurH;
+    end;
+    if (FColorSVBitmap.Width > 0) and (FColorSVBitmap.Height > 0) then
+      PB.Canvas.Draw(SVLeft, SVTop, FColorSVBitmap);
   end;
-  if (FColorSVBitmap.Width > 0) and (FColorSVBitmap.Height > 0) then
-    PB.Canvas.Draw(SVLeft, SVTop, FColorSVBitmap);
 
   { SV square border }
   PB.Canvas.Brush.Style := bsClear;
