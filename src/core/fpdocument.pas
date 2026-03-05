@@ -8,11 +8,6 @@ uses
   Classes, SysUtils, Contnrs, Types, FPColor, FPSurface, FPSelection;
 
 type
-  TDebugObjectList = class(TObjectList)
-  protected
-    procedure Notify(Ptr: Pointer; Action: TListNotification); override;
-  end;
-
   TBlendMode = (
     bmNormal,
     bmMultiply,
@@ -240,30 +235,6 @@ implementation
 uses
   Math;
 
-procedure TDebugObjectList.Notify(Ptr: Pointer; Action: TListNotification);
-var
-  bp: Pointer;
-  addr: Pointer;
-  I: Integer;
-begin
-  inherited;
-  case Action of
-    lnAdded: WriteLn(StdErr, Format('[FHistory.Notify] ADDED ptr=%p count=%d', [Ptr, Count]));
-    lnExtracted: WriteLn(StdErr, Format('[FHistory.Notify] EXTRACTED ptr=%p count=%d', [Ptr, Count]));
-    lnDeleted: WriteLn(StdErr, Format('[FHistory.Notify] DELETED ptr=%p count=%d', [Ptr, Count]));
-  end;
-  bp := get_frame;
-  I := 0;
-  while (bp <> nil) and (I < 12) do
-  begin
-    addr := get_caller_addr(bp);
-    if addr = nil then Break;
-    WriteLn(StdErr, '  #', I, ' ', BackTraceStrFunc(addr));
-    bp := get_caller_frame(bp);
-    Inc(I);
-  end;
-end;
-
 constructor TRasterLayer.Create(const AName: string; AWidth, AHeight: Integer; AIsBackground: Boolean);
 begin
   inherited Create;
@@ -344,7 +315,7 @@ constructor TImageDocument.Create(AWidth, AHeight: Integer);
 begin
   inherited Create;
   FLayers := TObjectList.Create(True);
-  FHistory := TDebugObjectList.Create(True);
+  FHistory := TObjectList.Create(True);
   FRedo := TObjectList.Create(True);
   FHistoryLabels := TStringList.Create;
   FRedoLabels := TStringList.Create;
@@ -436,7 +407,6 @@ end;
 
 procedure TImageDocument.NewBlank(AWidth, AHeight: Integer);
 begin
-  WriteLn(StdErr, Format('[NewBlank] called w=%d h=%d (history count=%d)', [AWidth, AHeight, FHistory.Count]));
   FWidth := Max(1, AWidth);
   FHeight := Max(1, AHeight);
   FLayers.Clear;
@@ -452,7 +422,6 @@ procedure TImageDocument.ReplaceWithSingleLayer(ASurface: TRasterSurface; const 
 var
   Layer: TRasterLayer;
 begin
-  WriteLn(StdErr, Format('[ReplaceWithSingleLayer] called (history count=%d)', [FHistory.Count]));
   if ALayerName = '' then
     Layer := TRasterLayer.Create('Layer 1', ASurface.Width, ASurface.Height)
   else
@@ -471,35 +440,29 @@ end;
 
 procedure TImageDocument.PushHistory(const ALabel: string);
 begin
-  WriteLn(StdErr, Format('[PushHistory] self=%p BEFORE count=%d maxHistory=%d label=%s FHistory=%p', [Pointer(Self), FHistory.Count, FMaxHistory, ALabel, Pointer(FHistory)]));
   FHistory.Add(TDocumentSnapshot.CreateFromDocument(Self));
   FHistoryLabels.Add(ALabel);
   FRedo.Clear;
   FRedoLabels.Clear;
-  WriteLn(StdErr, Format('[PushHistory] AFTER add count=%d', [FHistory.Count]));
   while FHistory.Count > FMaxHistory do
   begin
     FHistory.Delete(0);
     FHistoryLabels.Delete(0);
   end;
-  WriteLn(StdErr, Format('[PushHistory] FINAL count=%d', [FHistory.Count]));
 end;
 
 procedure TImageDocument.PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
 { Ownership of ABeforePixels is transferred to the new snapshot. }
 begin
-  WriteLn(StdErr, Format('[PushRegionHistory] BEFORE count=%d label=%s layerIdx=%d', [FHistory.Count, ALabel, ALayerIndex]));
   FHistory.Add(TDocumentSnapshot.WrapRegionPixels(ALayerIndex, ADirtyRect, ABeforePixels));
   FHistoryLabels.Add(ALabel);
   FRedo.Clear;
   FRedoLabels.Clear;
-  WriteLn(StdErr, Format('[PushRegionHistory] AFTER add count=%d', [FHistory.Count]));
   while FHistory.Count > FMaxHistory do
   begin
     FHistory.Delete(0);
     FHistoryLabels.Delete(0);
   end;
-  WriteLn(StdErr, Format('[PushRegionHistory] FINAL count=%d', [FHistory.Count]));
 end;
 
 function TImageDocument.CanUndo: Boolean;
@@ -561,7 +524,6 @@ end;
 
 procedure TImageDocument.ClearHistory;
 begin
-  WriteLn(StdErr, Format('[ClearHistory] clearing count=%d', [FHistory.Count]));
   FHistory.Clear;
   FRedo.Clear;
   FHistoryLabels.Clear;

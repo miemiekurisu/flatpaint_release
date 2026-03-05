@@ -639,21 +639,6 @@ const
 
 var
   GMainForm: TMainForm = nil;
-  GDebugLog: TextFile;
-  GDebugLogOpen: Boolean = False;
-
-procedure DbgLog(const S: string);
-begin
-  if not GDebugLogOpen then
-  begin
-    AssignFile(GDebugLog, '/tmp/flatpaint_debug.log');
-    Rewrite(GDebugLog);
-    GDebugLogOpen := True;
-  end;
-  WriteLn(GDebugLog, S);
-  Flush(GDebugLog);
-end;
-
 procedure FPMagnifyCallbackProc(AMagnification: Double;
   ALocationX, ALocationY: Double); cdecl;
 var
@@ -4825,6 +4810,7 @@ begin
     );
   end;
   if not Assigned(FHistoryList) then Exit;
+  FHistoryList.OnClick := nil;
   FHistoryList.Items.BeginUpdate;
   try
     FHistoryList.Items.Clear;
@@ -4850,10 +4836,13 @@ begin
       OpIndex := RowIndex - 1;    { 0 = next redo, RedoCount-1 = furthest }
       FHistoryList.Items.Add(Format('%d. %s', [UndoCount + RowIndex, FDocument.RedoActionLabel(OpIndex)]));
     end;
-    { Highlight current state at row = UndoCount }
+    { Highlight current state at row = UndoCount.
+      Disconnect OnClick while setting ItemIndex to prevent the Cocoa widgetset
+      from firing HistoryListClick, which would spuriously undo the operation. }
     FHistoryList.ItemIndex := UndoCount;
   finally
     FHistoryList.Items.EndUpdate;
+    FHistoryList.OnClick := @HistoryListClick;
   end;
 end;
 
