@@ -4440,6 +4440,7 @@ begin
     UpdateInlineTextEditBounds;
     Exit;
   end;
+  if not Assigned(FDocument) then Exit;
   FPaintBox.Width := Max(1, Round(FDocument.Width * FZoomScale));
   FPaintBox.Height := Max(1, Round(FDocument.Height * FZoomScale));
   if Assigned(FCanvasHost) then
@@ -4470,6 +4471,8 @@ var
   TargetScale: Double;
 begin
   if not Assigned(FCanvasHost) then
+    Exit;
+  if not Assigned(FDocument) then
     Exit;
 
   AvailableWidth := Max(64, FCanvasHost.ClientWidth - 32);
@@ -4518,6 +4521,8 @@ var
   CaptionText: string;
   Layer: TRasterLayer;
 begin
+  if not Assigned(FDocument) then Exit;
+  if not Assigned(FLayerList) then Exit;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
   FLayerList.Items.BeginUpdate;
@@ -5447,6 +5452,7 @@ var
   OpIndex: Integer;
 begin
   if not Assigned(FHistoryList) then Exit;
+  if not Assigned(FDocument) then Exit;
   FHistoryList.OnClick := nil;
   FHistoryList.Items.BeginUpdate;
   try
@@ -5489,6 +5495,8 @@ var
   SelectionBounds: TRect;
 begin
   if not Assigned(FStatusBar) then
+    Exit;
+  if not Assigned(FDocument) then
     Exit;
 
   if FDocument.HasSelection then
@@ -7607,6 +7615,8 @@ var
 begin
   SealPendingStrokeHistory;
   if FUpdatingLayerControls then
+    Exit;
+  if not Assigned(FDocument) then
     Exit;
   if not Assigned(FLayerOpacitySpin) or (FDocument.LayerCount = 0) then
     Exit;

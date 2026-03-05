@@ -38,15 +38,15 @@ const
   ToolbarDividerHeight = 22;
   ToolbarDividerTopOffset = 4;
 
-  ToolbarOptionRowTop = 56;
-  ToolbarOptionLabelTop = 60;
-  ToolbarOptionCheckTop = 59;
+  ToolbarOptionRowTop = 56;      { TComboBox / TSpinEdit — NSPopUpButton baseline +16.5, NSTextField baseline +17.0 }
+  ToolbarOptionLabelTop = 60;    { TLabel — NSLabel baseline +13.0 → 60+13 = 73 ≈ 56+17 }
+  ToolbarOptionCheckTop = 60;    { TCheckBox — baseline +13.0, same as TLabel }
 
   ToolbarZoomButtonInsetLeft = 6;
   ToolbarZoomButtonTop = 2;
   ToolbarZoomButtonWidth = 26;
   ToolbarZoomComboLeft = 38;
-  ToolbarZoomComboTop = 2;
+  ToolbarZoomComboTop = 4;        { Vertically centred with 28 px buttons: (28-24)/2 = 2 → 2+2 = 4 }
   ToolbarZoomComboWidth = 84;
   ToolbarZoomComboHeight = 24;
   ToolbarZoomInButtonLeft = 128;
