@@ -658,7 +658,7 @@ constructor TCanvasView.Create(AOwner: TComponent);
 begin
   inherited Create(AOwner);
   ControlStyle := ControlStyle + [csOpaque];
-  DoubleBuffered := True;
+  { DoubleBuffered removed — Cocoa views are already layer-backed. }
 end;
 
 procedure TCanvasView.Paint;
