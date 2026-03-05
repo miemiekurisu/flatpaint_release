@@ -1204,30 +1204,8 @@ var
   Y: Integer;
   TileColor: TRGBA32;
   PixelColor: TRGBA32;
-  DbgLayerPx: TRGBA32;
-  DbgCompPx: TRGBA32;
-  DbgI: Integer;
 begin
-  DbgLog(Format('[BuildDisplay] layers=%d activeIdx=%d lastPt=%d,%d', 
-    [FDocument.LayerCount, FDocument.ActiveLayerIndex, FLastImagePoint.X, FLastImagePoint.Y]));
-  for DbgI := 0 to FDocument.LayerCount - 1 do
-    DbgLog(Format('[BuildDisplay] layer[%d] visible=%s opacity=%d', 
-      [DbgI, BoolToStr(FDocument.Layers[DbgI].Visible, True), FDocument.Layers[DbgI].Opacity]));
-  if (FLastImagePoint.X >= 0) and (FLastImagePoint.X < FDocument.Width) and
-     (FLastImagePoint.Y >= 0) and (FLastImagePoint.Y < FDocument.Height) then
-  begin
-    DbgLayerPx := FDocument.ActiveLayer.Surface[FLastImagePoint.X, FLastImagePoint.Y];
-    DbgLog(Format('[BuildDisplay] ActiveLayer@lastPt=R%dG%dB%dA%d', 
-      [DbgLayerPx.R, DbgLayerPx.G, DbgLayerPx.B, DbgLayerPx.A]));
-  end;
   CompositeSurface := FDocument.Composite;
-  if (FLastImagePoint.X >= 0) and (FLastImagePoint.X < CompositeSurface.Width) and
-     (FLastImagePoint.Y >= 0) and (FLastImagePoint.Y < CompositeSurface.Height) then
-  begin
-    DbgCompPx := CompositeSurface[FLastImagePoint.X, FLastImagePoint.Y];
-    DbgLog(Format('[BuildDisplay] Composite@lastPt=R%dG%dB%dA%d', 
-      [DbgCompPx.R, DbgCompPx.G, DbgCompPx.B, DbgCompPx.A]));
-  end;
   try
     { Reuse FDisplaySurface to avoid a heap alloc + free on every repaint trigger.
       Only reallocate when the document dimensions change. }
@@ -3804,7 +3782,6 @@ var
   PreviewStrokeWidth: Integer;
   ShapePreviewFill: Boolean;
   ShapePreviewOutline: Boolean;
-  DbgPx: TRGBA32;
 begin
   ACanvas.Brush.Color := CanvasBackgroundColor;
   ACanvas.FillRect(ARect);
@@ -3813,28 +3790,13 @@ begin
      (FPreparedBitmap.Width <> FDocument.Width) or
      (FPreparedBitmap.Height <> FDocument.Height) then
   begin
-    DbgLog(Format('[PaintCanvasTo] REBUILD rev=%d prepRev=%d bmpW=%d docW=%d', [FRenderRevision, FPreparedRevision, FPreparedBitmap.Width, FDocument.Width]));
     DisplaySurface := BuildDisplaySurface;  { returns FDisplaySurface — do NOT free }
-    if (FLastImagePoint.X >= 0) and (FLastImagePoint.X < DisplaySurface.Width) and
-       (FLastImagePoint.Y >= 0) and (FLastImagePoint.Y < DisplaySurface.Height) then
-    begin
-      DbgPx := DisplaySurface[FLastImagePoint.X, FLastImagePoint.Y];
-      DbgLog(Format('[PaintCanvasTo] DisplaySurf@lastPt(%d,%d)=R%dG%dB%dA%d', [FLastImagePoint.X, FLastImagePoint.Y, DbgPx.R, DbgPx.G, DbgPx.B, DbgPx.A]));
-    end;
     CopySurfaceToBitmap(DisplaySurface, FPreparedBitmap);
     FPreparedRevision := FRenderRevision;
-    DbgLog(Format('[PaintCanvasTo] afterCopy bmp.Empty=%s bmpW=%d bmpH=%d', [BoolToStr(FPreparedBitmap.Empty, True), FPreparedBitmap.Width, FPreparedBitmap.Height]));
-  end
-  else
-    DbgLog(Format('[PaintCanvasTo] CACHE rev=%d bmp.Empty=%s', [FRenderRevision, BoolToStr(FPreparedBitmap.Empty, True)]));
+  end;
 
   if not FPreparedBitmap.Empty then
-  begin
-    DbgLog(Format('[PaintCanvasTo] StretchDraw %dx%d -> %dx%d', [FPreparedBitmap.Width, FPreparedBitmap.Height, FPaintBox.Width, FPaintBox.Height]));
     ACanvas.StretchDraw(Rect(0, 0, FPaintBox.Width, FPaintBox.Height), FPreparedBitmap);
-  end
-  else
-    DbgLog('[PaintCanvasTo] SKIP StretchDraw — bitmap empty!');
 
   if ShouldRenderPixelGrid(FShowPixelGrid, FZoomScale) then
   begin
@@ -6190,15 +6152,7 @@ var
   DoOutline: Boolean;
   FillColor: TRGBA32;
   PaintSelection: TSelectionMask;
-  DbgBefore, DbgAfter: TRGBA32;
 begin
-  DbgLog(Format('[CommitShapeTool] tool=%d start=(%d,%d) end=(%d,%d) brushSize=%d', [Ord(FCurrentTool), AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y, FBrushSize]));
-  DbgLog(Format('[CommitShapeTool] activeColor=R%dG%dB%dA%d shapeStyle=%d layerIdx=%d', [ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A, FShapeStyle, FDocument.ActiveLayerIndex]));
-  if FDocument.ActiveLayer.Surface.InBounds(AEndPoint.X, AEndPoint.Y) then
-  begin
-    DbgBefore := FDocument.ActiveLayer.Surface[AEndPoint.X, AEndPoint.Y];
-    DbgLog(Format('[CommitShapeTool] BEFORE pixel@end=R%dG%dB%dA%d', [DbgBefore.R, DbgBefore.G, DbgBefore.B, DbgBefore.A]));
-  end;
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
   DoFill := FShapeStyle in [1, 2];
@@ -6357,12 +6311,6 @@ begin
           );
       end;
   end;
-  if FDocument.ActiveLayer.Surface.InBounds(AEndPoint.X, AEndPoint.Y) then
-  begin
-    DbgAfter := FDocument.ActiveLayer.Surface[AEndPoint.X, AEndPoint.Y];
-    DbgLog(Format('[CommitShapeTool] AFTER pixel@end=R%dG%dB%dA%d', [DbgAfter.R, DbgAfter.G, DbgAfter.B, DbgAfter.A]));
-  end;
-  DbgLog(Format('[CommitShapeTool] undoDepth=%d', [FDocument.UndoDepth]));
 end;
 
 procedure TMainForm.ResetDocument(AWidth, AHeight: Integer);
@@ -7658,7 +7606,6 @@ begin
   ResetLineCurveState;
   FTempToolActive := False;
   FCurrentTool := TToolKind(TControl(Sender).Tag);
-  DbgLog(Format('[ToolButtonClick] switched to tool=%d', [Ord(FCurrentTool)]));
   SyncToolComboSelection;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -8194,7 +8141,6 @@ procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shi
 var
   ImagePoint: TPoint;
 begin
-  DbgLog(Format('[MouseDown-TOP] tool=%d btn=%d pointerDown=%s', [Ord(FCurrentTool), Ord(Button), BoolToStr(FPointerDown, True)]));
   if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
     SealPendingStrokeHistory;
   if Button = mbMiddle then
@@ -8284,13 +8230,11 @@ begin
   case FCurrentTool of
     tkPencil, tkBrush, tkEraser:
       begin
-        DbgLog(Format('[MouseDown] tool=%d pt=%d,%d color=R%dG%dB%dA%d', [Ord(FCurrentTool), ImagePoint.X, ImagePoint.Y, ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A]));
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
         ExpandStrokeDirty(ImagePoint);
         InvalidatePreparedBitmap;
         SetDirty(True);
-        DbgLog(Format('[MouseDown] afterSetDirty renderRev=%d prepRev=%d', [FRenderRevision, FPreparedRevision]));
         RefreshCanvas;
       end;
     tkFill:
@@ -8447,10 +8391,8 @@ begin
   if FPointerDown then
   begin
     ButtonStillDown := DragButtonIsStillPressed(FPointerButton, Shift);
-    DbgLog(Format('[MouseMove] pointerDown=True btn=%d ssLeft=%s btnStillDown=%s tool=%d pt=%d,%d', [Ord(FPointerButton), BoolToStr(ssLeft in Shift, True), BoolToStr(ButtonStillDown, True), Ord(FCurrentTool), ImagePoint.X, ImagePoint.Y]));
     if not ButtonStillDown then
     begin
-      DbgLog('[MouseMove] ABORT — button released, calling MouseUp');
       PaintBoxMouseUp(Sender, FPointerButton, Shift, X, Y);
       Exit;
     end;
@@ -8557,19 +8499,15 @@ begin
   if Button = mbMiddle then
     DeactivateTempPan;
   FPointerDown := False;
-  DbgLog(Format('[MouseUp] pointerDown=False renderRev=%d prepRev=%d', [FRenderRevision, FPreparedRevision]));
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
   if Assigned(FPreStrokeSnapshot) then
   begin
-    DbgLog(Format('[MouseUp] committing stroke for tool=%d dirtyRect=(%d,%d,%d,%d)', [Ord(FStrokeTool), FStrokeDirtyRect.Left, FStrokeDirtyRect.Top, FStrokeDirtyRect.Right, FStrokeDirtyRect.Bottom]));
     CommitStrokeHistory(PaintToolName(FStrokeTool));
-    DbgLog(Format('[MouseUp] afterStrokeCommit undoDepth=%d', [FDocument.UndoDepth]));
   end;
   ImagePoint := CanvasToImage(X, Y);
   FLastImagePoint := ImagePoint;
-  DbgLog(Format('[MouseUp] imagePoint=(%d,%d) tool=%d FDocument=%p', [ImagePoint.X, ImagePoint.Y, Ord(FCurrentTool), Pointer(FDocument)]));
 
   if FCurrentTool = tkLine then
   begin
