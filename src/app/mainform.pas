@@ -10,7 +10,7 @@ uses
   Buttons,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
-  FPUtilityHelpers, FPToolbarHelpers;
+  FPUtilityHelpers, FPToolbarHelpers, FPI18n;
 
 type
   TMainForm = class;
@@ -53,6 +53,10 @@ type
     FDisplayUnit: TDisplayUnit;
     FCurrentTool: TToolKind;
     FBrushSize: Integer;
+    { Per-tool remembered option values }
+    FToolSize: array[TToolKind] of Integer;
+    FToolOpacity: array[TToolKind] of Integer;
+    FToolHardness: array[TToolKind] of Integer;
     FWandTolerance: Integer;
     FPendingSelectionMode: TSelectionCombineMode;
     { 0=Outline, 1=Fill, 2=Outline+Fill }
@@ -72,6 +76,7 @@ type
     FPickSecondaryTarget: Boolean;
     FUpdatingToolOption: Boolean;
     FPointerDown: Boolean;
+    FIsPanning: Boolean;
     FPointerButton: TMouseButton;
     FDragStart: TPoint;
     FLineBezierMode: Boolean;
@@ -126,7 +131,6 @@ type
     FColorPickButton: TColorButton;
     FActiveColorHexLabel: TLabel;
     FColorsValueLabel: TLabel;
-    FHistoryValueLabel: TLabel;
     FBrushSpin: TSpinEdit;
     FToolCombo: TComboBox;
     FZoomCombo: TComboBox;
@@ -553,6 +557,7 @@ type
     procedure UnitsCentimetersClick(Sender: TObject);
     procedure UtilityButtonClick(Sender: TObject);
     procedure SettingsClick(Sender: TObject);
+    procedure RefreshLocalizedUI;
     procedure HelpClick(Sender: TObject);
     procedure TogglePaletteViewClick(Sender: TObject);
     procedure ResetPaletteLayoutClick(Sender: TObject);
@@ -587,6 +592,9 @@ type
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseLeave(Sender: TObject);
+    procedure ToolbarBtnMouseEnter(Sender: TObject);
+    procedure ToolbarBtnMouseLeave(Sender: TObject);
+    procedure FormResize(Sender: TObject);
     { Stroke history helpers }
     procedure SealPendingStrokeHistory;
     procedure BeginStrokeHistory;
@@ -682,6 +690,8 @@ begin
 end;
 
 procedure TMainForm.InitializeMinimalState;
+var
+  LoopTool: TToolKind;
 begin
   { When created via NewInstance (test path), skip inherited TForm property
     setters (Caption, Width, Height, etc.) which may call into an
@@ -708,47 +718,14 @@ begin
   FWandTolerance := 32;
   FBrushOpacity := 100;
   FBrushHardness := 100;
+  for LoopTool := Low(TToolKind) to High(TToolKind) do
+  begin
+    FToolSize[LoopTool] := FBrushSize;
+    FToolOpacity[LoopTool] := FBrushOpacity;
+    FToolHardness[LoopTool] := FBrushHardness;
+  end;
+  FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
-  FShapeStyle := 0;
-  FBucketFloodMode := 0;
-  FLineBezierMode := False;
-  FLinePathOpen := False;
-  FLineCurvePending := False;
-  FLineCurveSecondStage := False;
-  FLineCurveEndPoint := Point(0, 0);
-  FLineCurveControlPoint := Point(0, 0);
-  FLineCurveControlPoint2 := Point(0, 0);
-  FFillSampleSource := 0;
-  FWandSampleSource := 0;
-  FWandContiguous := True;
-  FJpegQuality := 90;
-  FJpegProgressive := False;
-  FPngCompressionLevel := 6;
-  FFillTolerance := 8;
-  FGradientType := 0;
-  FGradientReverse := False;
-  FCloneAligned := True;
-  FRecolorPreserveValue := True;
-  FRecolorTolerance := 32;
-  FCloneAlignedOffset := Point(0, 0);
-  FCloneAlignedOffsetValid := False;
-  FPickerSampleSource := 0;
-  FSelAntiAlias := True;
-  FSelFeather := 0;
-  FTextLastResult.Text := '';
-  FTextLastResult.FontName := '';
-  FTextLastResult.FontSize := 24;
-  FTextLastResult.Bold := False;
-  FTextLastResult.Italic := False;
-  FInlineTextEdit := nil;
-  FInlineTextAnchor := Point(0, 0);
-  FInlineTextColor := FPrimaryColor;
-  FInlineTextCommitting := False;
-  FClipboardOffset := Point(0, 0);
-  { TBitmap.Create may call into the LCL widgetset; skip for headless test
-    instances created via NewInstance. }
-  if not FIsTestInstance then
-    FPreparedBitmap := TBitmap.Create;
   FRenderRevision := 1;
   FPreparedRevision := 0;
   FStatusProgressActive := False;
@@ -781,6 +758,7 @@ var
   SwatchR: Byte;
   SwatchG: Byte;
   SwatchB: Byte;
+  LoopTool: TToolKind;
 begin
   inherited Create(TheOwner);
   { If there is no LCL Application available (headless test run), avoid
@@ -792,15 +770,19 @@ begin
     InitializeMinimalState;
     Exit;
   end;
+  LoadLanguagePreference;
   Caption := 'FlatPaint';
   Width := 1360;
   Height := 900;
+  Constraints.MinWidth := 640;
+  Constraints.MinHeight := 480;
   Position := poScreenCenter;
   DoubleBuffered := True;
   KeyPreview := True;
   OnKeyDown := @FormKeyDown;
   OnKeyUp := @FormKeyUp;
   OnCloseQuery := @FormCloseQuery;
+  OnResize := @FormResize;
 
   FPrimaryColor := RGBA(0, 0, 0, 255);
   FSecondaryColor := RGBA(255, 255, 255, 255);
@@ -814,6 +796,13 @@ begin
   FWandTolerance := 32;
   FBrushOpacity := 100;
   FBrushHardness := 100;
+  for LoopTool := Low(TToolKind) to High(TToolKind) do
+  begin
+    FToolSize[LoopTool] := FBrushSize;
+    FToolOpacity[LoopTool] := FBrushOpacity;
+    FToolHardness[LoopTool] := FBrushHardness;
+  end;
+  FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
   FShapeStyle := 0;
   FBucketFloodMode := 0;
@@ -1769,6 +1758,8 @@ begin
       tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
         begin
           FOptionLabel.Caption := 'Size:';
+          FOptionLabel.Visible := True;
+          FBrushSpin.Visible := True;
           FBrushSpin.Enabled := True;
           FBrushSpin.MinValue := 1;
           FBrushSpin.MaxValue := 255;
@@ -1777,6 +1768,8 @@ begin
       tkMagicWand:
         begin
           FOptionLabel.Caption := 'Tolerance:';
+          FOptionLabel.Visible := True;
+          FBrushSpin.Visible := True;
           FBrushSpin.Enabled := True;
           FBrushSpin.MinValue := 0;
           FBrushSpin.MaxValue := 255;
@@ -1784,9 +1777,8 @@ begin
         end;
       tkSelectRect, tkSelectEllipse, tkSelectLasso:
         begin
-          FOptionLabel.Caption := '';
-          FBrushSpin.Enabled := False;
-          FBrushSpin.Value := 0;
+          FOptionLabel.Visible := False;
+          FBrushSpin.Visible := False;
           { Sync selection mode combo }
           if Assigned(FSelModeCombo) then
             FSelModeCombo.ItemIndex := Ord(FPendingSelectionMode);
@@ -1794,6 +1786,8 @@ begin
     else
       begin
         FOptionLabel.Caption := '';
+        FOptionLabel.Visible := True;
+        FBrushSpin.Visible := True;
         FBrushSpin.Enabled := False;
         FBrushSpin.Value := FBrushSize;
       end;
@@ -1814,8 +1808,11 @@ begin
     if not Assigned(FToolButtons[ToolKind]) then
       Continue;
     IsActive := ToolKind = FCurrentTool;
-    FToolButtons[ToolKind].Down := IsActive;
-    FToolButtons[ToolKind].Flat := not IsActive;
+    { Do NOT set Down:=True — on Cocoa it forces a dark sunken border
+      that cannot be themed away.  Instead signal the active tool with
+      bold font + selection text colour only. }
+    FToolButtons[ToolKind].Down := False;
+    FToolButtons[ToolKind].Flat := True;
     if IsActive then
     begin
       FToolButtons[ToolKind].Font.Style := [fsBold];
@@ -1836,13 +1833,18 @@ var
   begin
     if not Assigned(AButton) then
       Exit;
-    AButton.Down := False;
-    AButton.Flat := not AActive;
-    AButton.Font.Style := [fsBold];
+    AButton.Down := AActive;
+    AButton.Flat := True;
     if AActive then
-      AButton.Font.Color := ChromeTextColor
+    begin
+      AButton.Font.Style := [fsBold];
+      AButton.Font.Color := PaletteSelectionTextColor;
+    end
     else
+    begin
+      AButton.Font.Style := [];
       AButton.Font.Color := ChromeMutedTextColor;
+    end;
   end;
 begin
   if Assigned(FUtilityButtons[ucTools]) then
@@ -1926,116 +1928,116 @@ begin
   FMainMenu := TMainMenu.Create(Self);
 
   FileMenu := TMenuItem.Create(FMainMenu);
-  FileMenu.Caption := '&File';
+  FileMenu.Caption := TR('&File', '&' + #$E6#$96#$87#$E4#$BB#$B6);
   FMainMenu.Items.Add(FileMenu);
-  CreateMenuItem(FileMenu, '&New...', @NewDocumentClick, ShortCut(VK_N, [ssMeta]));
-  CreateMenuItem(FileMenu, '&Open...', @OpenDocumentClick, ShortCut(VK_O, [ssMeta]));
+  CreateMenuItem(FileMenu, TR('&New...', '&' + #$E6#$96#$B0#$E5#$BB#$BA + '...'), @NewDocumentClick, ShortCut(VK_N, [ssMeta]));
+  CreateMenuItem(FileMenu, TR('&Open...', '&' + #$E6#$89#$93#$E5#$BC#$80 + '...'), @OpenDocumentClick, ShortCut(VK_O, [ssMeta]));
   FRecentMenu := TMenuItem.Create(FileMenu);
-  FRecentMenu.Caption := 'Open &Recent';
+  FRecentMenu.Caption := TR('Open &Recent', #$E6#$89#$93#$E5#$BC#$80#$E6#$9C#$80#$E8#$BF#$91#$E6#$96#$87#$E4#$BB#$B6 + '(&R)');
   FileMenu.Add(FRecentMenu);
   RebuildRecentFilesMenu;
-  CreateMenuItem(FileMenu, '&Acquire...', @AcquireClick);
-  CreateMenuItem(FileMenu, 'Import as &Layer...', @ImportLayerClick, ShortCut(VK_I, [ssMeta, ssShift]));
+  CreateMenuItem(FileMenu, TR('&Acquire...', '&' + #$E8#$8E#$B7#$E5#$8F#$96 + '...'), @AcquireClick);
+  CreateMenuItem(FileMenu, TR('Import as &Layer...', #$E5#$AF#$BC#$E5#$85#$A5#$E4#$B8#$BA#$E5#$9B#$BE#$E5#$B1#$82 + '(&L)...'), @ImportLayerClick, ShortCut(VK_I, [ssMeta, ssShift]));
   FileMenu.AddSeparator;
-  CreateMenuItem(FileMenu, '&Close', @CloseDocumentClick, ShortCut(VK_W, [ssMeta]));
+  CreateMenuItem(FileMenu, TR('&Close', '&' + #$E5#$85#$B3#$E9#$97#$AD), @CloseDocumentClick, ShortCut(VK_W, [ssMeta]));
   FSaveMenuItem := TMenuItem.Create(FileMenu);
   FSaveMenuItem.Caption := SaveCommandCaption(FCurrentFileName <> '');
   FSaveMenuItem.OnClick := @SaveDocumentClick;
   FSaveMenuItem.ShortCut := ShortCut(VK_S, [ssMeta]);
   FileMenu.Add(FSaveMenuItem);
-  CreateMenuItem(FileMenu, 'Save &As...', @SaveAsDocumentClick, ShortCut(VK_S, [ssMeta, ssShift]));
-  CreateMenuItem(FileMenu, 'Save A&ll Images', @SaveAllDocumentsClick, ShortCut(VK_S, [ssMeta, ssAlt]));
-  CreateMenuItem(FileMenu, '&Print...', @PrintDocumentClick, ShortCut(VK_P, [ssMeta]));
+  CreateMenuItem(FileMenu, TR('Save &As...', #$E5#$8F#$A6#$E5#$AD#$98#$E4#$B8#$BA + '(&A)...'), @SaveAsDocumentClick, ShortCut(VK_S, [ssMeta, ssShift]));
+  CreateMenuItem(FileMenu, TR('Save A&ll Images', #$E4#$BF#$9D#$E5#$AD#$98#$E5#$85#$A8#$E9#$83#$A8#$E5#$9B#$BE#$E5#$83#$8F + '(&L)'), @SaveAllDocumentsClick, ShortCut(VK_S, [ssMeta, ssAlt]));
+  CreateMenuItem(FileMenu, TR('&Print...', '&' + #$E6#$89#$93#$E5#$8D#$B0 + '...'), @PrintDocumentClick, ShortCut(VK_P, [ssMeta]));
   FileMenu.AddSeparator;
-  CreateMenuItem(FileMenu, 'E&xit', @ExitApplicationClick, ShortCut(VK_Q, [ssMeta]));
+  CreateMenuItem(FileMenu, TR('E&xit', #$E9#$80#$80#$E5#$87#$BA + '(&X)'), @ExitApplicationClick, ShortCut(VK_Q, [ssMeta]));
 
   EditMenu := TMenuItem.Create(FMainMenu);
-  EditMenu.Caption := '&Edit';
+  EditMenu.Caption := TR('&Edit', '&' + #$E7#$BC#$96#$E8#$BE#$91);
   FMainMenu.Items.Add(EditMenu);
-  CreateMenuItem(EditMenu, '&Undo', @UndoClick, ShortCut(VK_Z, [ssMeta]));
-  CreateMenuItem(EditMenu, '&Redo', @RedoClick, ShortCut(VK_Z, [ssMeta, ssShift]));
-  CreateMenuItem(EditMenu, 'Cu&t', @CutClick, ShortCut(VK_X, [ssMeta]));
-  CreateMenuItem(EditMenu, '&Copy', @CopyClick, ShortCut(VK_C, [ssMeta]));
-  CreateMenuItem(EditMenu, 'Copy Selection', @CopySelectionClick);
-  CreateMenuItem(EditMenu, 'Copy &Merged', @CopyMergedClick, ShortCut(VK_C, [ssMeta, ssShift]));
-  CreateMenuItem(EditMenu, '&Paste', @PasteClick, ShortCut(VK_V, [ssMeta]));
-  CreateMenuItem(EditMenu, 'Paste into New Layer', @PasteIntoNewLayerClick);
-  CreateMenuItem(EditMenu, 'Paste into New Image', @PasteIntoNewImageClick);
-  CreateMenuItem(EditMenu, 'Paste &Selection (Replace)', @PasteSelectionClick);
-  CreateMenuItem(EditMenu, 'Select &All', @SelectAllClick, ShortCut(VK_A, [ssMeta]));
-  CreateMenuItem(EditMenu, '&Deselect', @DeselectClick, ShortCut(VK_D, [ssMeta]));
-  CreateMenuItem(EditMenu, '&Invert Selection', @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssAlt]));
-  CreateMenuItem(EditMenu, 'Fill Selection', @FillSelectionClick);
-  CreateMenuItem(EditMenu, 'Erase Selection', @EraseSelectionClick, VK_DELETE);
-  CreateMenuItem(EditMenu, 'Crop To Selection', @CropToSelectionClick);
+  CreateMenuItem(EditMenu, TR('&Undo', '&' + #$E6#$92#$A4#$E9#$94#$80), @UndoClick, ShortCut(VK_Z, [ssMeta]));
+  CreateMenuItem(EditMenu, TR('&Redo', '&' + #$E9#$87#$8D#$E5#$81#$9A), @RedoClick, ShortCut(VK_Z, [ssMeta, ssShift]));
+  CreateMenuItem(EditMenu, TR('Cu&t', #$E5#$89#$AA#$E5#$88#$87 + '(&T)'), @CutClick, ShortCut(VK_X, [ssMeta]));
+  CreateMenuItem(EditMenu, TR('&Copy', '&' + #$E5#$A4#$8D#$E5#$88#$B6), @CopyClick, ShortCut(VK_C, [ssMeta]));
+  CreateMenuItem(EditMenu, TR('Copy Selection', #$E5#$A4#$8D#$E5#$88#$B6#$E9#$80#$89#$E5#$8C#$BA), @CopySelectionClick);
+  CreateMenuItem(EditMenu, TR('Copy &Merged', #$E5#$A4#$8D#$E5#$88#$B6#$E5#$90#$88#$E5#$B9#$B6 + '(&M)'), @CopyMergedClick, ShortCut(VK_C, [ssMeta, ssShift]));
+  CreateMenuItem(EditMenu, TR('&Paste', '&' + #$E7#$B2#$98#$E8#$B4#$B4), @PasteClick, ShortCut(VK_V, [ssMeta]));
+  CreateMenuItem(EditMenu, TR('Paste into New Layer', #$E7#$B2#$98#$E8#$B4#$B4#$E5#$88#$B0#$E6#$96#$B0#$E5#$9B#$BE#$E5#$B1#$82), @PasteIntoNewLayerClick);
+  CreateMenuItem(EditMenu, TR('Paste into New Image', #$E7#$B2#$98#$E8#$B4#$B4#$E5#$88#$B0#$E6#$96#$B0#$E5#$9B#$BE#$E5#$83#$8F), @PasteIntoNewImageClick);
+  CreateMenuItem(EditMenu, TR('Paste &Selection (Replace)', #$E7#$B2#$98#$E8#$B4#$B4#$E9#$80#$89#$E5#$8C#$BA#$EF#$BC#$88#$E6#$9B#$BF#$E6#$8D#$A2#$EF#$BC#$89 + '(&S)'), @PasteSelectionClick);
+  CreateMenuItem(EditMenu, TR('Select &All', #$E5#$85#$A8#$E9#$80#$89 + '(&A)'), @SelectAllClick, ShortCut(VK_A, [ssMeta]));
+  CreateMenuItem(EditMenu, TR('&Deselect', '&' + #$E5#$8F#$96#$E6#$B6#$88#$E9#$80#$89#$E6#$8B#$A9), @DeselectClick, ShortCut(VK_D, [ssMeta]));
+  CreateMenuItem(EditMenu, TR('&Invert Selection', '&' + #$E5#$8F#$8D#$E9#$80#$89), @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssAlt]));
+  CreateMenuItem(EditMenu, TR('Fill Selection', #$E5#$A1#$AB#$E5#$85#$85#$E9#$80#$89#$E5#$8C#$BA), @FillSelectionClick);
+  CreateMenuItem(EditMenu, TR('Erase Selection', #$E6#$93#$A6#$E9#$99#$A4#$E9#$80#$89#$E5#$8C#$BA), @EraseSelectionClick, VK_DELETE);
+  CreateMenuItem(EditMenu, TR('Crop To Selection', #$E8#$A3#$81#$E5#$89#$AA#$E5#$88#$B0#$E9#$80#$89#$E5#$8C#$BA), @CropToSelectionClick);
 
   LayerMenu := TMenuItem.Create(FMainMenu);
-  LayerMenu.Caption := '&Layers';
+  LayerMenu.Caption := TR('&Layers', '&' + #$E5#$9B#$BE#$E5#$B1#$82);
   FMainMenu.Items.Add(LayerMenu);
-  CreateMenuItem(LayerMenu, '&Add Layer', @AddLayerClick, ShortCut(VK_N, [ssMeta, ssShift]));
-  CreateMenuItem(LayerMenu, '&Duplicate Layer', @DuplicateLayerClick, ShortCut(VK_D, [ssMeta, ssShift]));
-  CreateMenuItem(LayerMenu, '&Delete Layer', @DeleteLayerClick, ShortCut(VK_DELETE, [ssMeta]));
-  CreateMenuItem(LayerMenu, '&Rename Layer...', @RenameLayerClick);
-  CreateMenuItem(LayerMenu, 'Move Layer &Up', @MoveLayerUpClick);
-  CreateMenuItem(LayerMenu, 'Move Layer &Down', @MoveLayerDownClick);
-  CreateMenuItem(LayerMenu, '&Merge Down', @MergeDownClick, ShortCut(VK_M, [ssMeta, ssShift]));
-  CreateMenuItem(LayerMenu, 'Toggle &Visibility', @ToggleLayerVisibilityClick);
-  CreateMenuItem(LayerMenu, 'Layer &Opacity...', @LayerOpacityClick);
+  CreateMenuItem(LayerMenu, TR('&Add Layer', '&' + #$E6#$B7#$BB#$E5#$8A#$A0#$E5#$9B#$BE#$E5#$B1#$82), @AddLayerClick, ShortCut(VK_N, [ssMeta, ssShift]));
+  CreateMenuItem(LayerMenu, TR('&Duplicate Layer', '&' + #$E5#$A4#$8D#$E5#$88#$B6#$E5#$9B#$BE#$E5#$B1#$82), @DuplicateLayerClick, ShortCut(VK_D, [ssMeta, ssShift]));
+  CreateMenuItem(LayerMenu, TR('&Delete Layer', '&' + #$E5#$88#$A0#$E9#$99#$A4#$E5#$9B#$BE#$E5#$B1#$82), @DeleteLayerClick, ShortCut(VK_DELETE, [ssMeta]));
+  CreateMenuItem(LayerMenu, TR('&Rename Layer...', '&' + #$E9#$87#$8D#$E5#$91#$BD#$E5#$90#$8D#$E5#$9B#$BE#$E5#$B1#$82 + '...'), @RenameLayerClick);
+  CreateMenuItem(LayerMenu, TR('Move Layer &Up', #$E4#$B8#$8A#$E7#$A7#$BB#$E5#$9B#$BE#$E5#$B1#$82 + '(&U)'), @MoveLayerUpClick);
+  CreateMenuItem(LayerMenu, TR('Move Layer &Down', #$E4#$B8#$8B#$E7#$A7#$BB#$E5#$9B#$BE#$E5#$B1#$82 + '(&D)'), @MoveLayerDownClick);
+  CreateMenuItem(LayerMenu, TR('&Merge Down', '&' + #$E5#$90#$91#$E4#$B8#$8B#$E5#$90#$88#$E5#$B9#$B6), @MergeDownClick, ShortCut(VK_M, [ssMeta, ssShift]));
+  CreateMenuItem(LayerMenu, TR('Toggle &Visibility', #$E5#$88#$87#$E6#$8D#$A2#$E5#$8F#$AF#$E8#$A7#$81#$E6#$80#$A7 + '(&V)'), @ToggleLayerVisibilityClick);
+  CreateMenuItem(LayerMenu, TR('Layer &Opacity...', #$E5#$9B#$BE#$E5#$B1#$82#$E4#$B8#$8D#$E9#$80#$8F#$E6#$98#$8E#$E5#$BA#$A6 + '(&O)...'), @LayerOpacityClick);
   LayerMenu.AddSeparator;
-  CreateMenuItem(LayerMenu, 'Import From &File...', @ImportLayerClick);
-  CreateMenuItem(LayerMenu, 'Layer &Properties...', @LayerPropertiesClick);
+  CreateMenuItem(LayerMenu, TR('Import From &File...', #$E4#$BB#$8E#$E6#$96#$87#$E4#$BB#$B6#$E5#$AF#$BC#$E5#$85#$A5 + '(&F)...'), @ImportLayerClick);
+  CreateMenuItem(LayerMenu, TR('Layer &Properties...', #$E5#$9B#$BE#$E5#$B1#$82#$E5#$B1#$9E#$E6#$80#$A7 + '(&P)...'), @LayerPropertiesClick);
   LayerMenu.AddSeparator;
-  CreateMenuItem(LayerMenu, 'Rotate / &Zoom...', @LayerRotateZoomClick);
+  CreateMenuItem(LayerMenu, TR('Rotate / &Zoom...', #$E6#$97#$8B#$E8#$BD#$AC' / '#$E7#$BC#$A9#$E6#$94#$BE + '(&Z)...'), @LayerRotateZoomClick);
 
   ImageMenu := TMenuItem.Create(FMainMenu);
-  ImageMenu.Caption := '&Image';
+  ImageMenu.Caption := TR('&Image', '&' + #$E5#$9B#$BE#$E5#$83#$8F);
   FMainMenu.Items.Add(ImageMenu);
-  CreateMenuItem(ImageMenu, 'Resize &Image...', @ResizeImageClick);
-  CreateMenuItem(ImageMenu, 'Resize &Canvas...', @ResizeCanvasClick);
-  CreateMenuItem(ImageMenu, 'Rotate 90 &Right', @RotateClockwiseClick);
-  CreateMenuItem(ImageMenu, 'Rotate 90 &Left', @RotateCounterClockwiseClick);
-  CreateMenuItem(ImageMenu, 'Rotate &180', @Rotate180Click);
-  CreateMenuItem(ImageMenu, 'Flip &Horizontal', @FlipHorizontalClick);
-  CreateMenuItem(ImageMenu, 'Flip &Vertical', @FlipVerticalClick);
-  CreateMenuItem(ImageMenu, '&Flatten', @FlattenClick, ShortCut(VK_F, [ssMeta, ssShift]));
+  CreateMenuItem(ImageMenu, TR('Resize &Image...', #$E8#$B0#$83#$E6#$95#$B4#$E5#$9B#$BE#$E5#$83#$8F#$E5#$A4#$A7#$E5#$B0#$8F + '(&I)...'), @ResizeImageClick);
+  CreateMenuItem(ImageMenu, TR('Resize &Canvas...', #$E8#$B0#$83#$E6#$95#$B4#$E7#$94#$BB#$E5#$B8#$83#$E5#$A4#$A7#$E5#$B0#$8F + '(&C)...'), @ResizeCanvasClick);
+  CreateMenuItem(ImageMenu, TR('Rotate 90 &Right', #$E5#$90#$91#$E5#$8F#$B3#$E6#$97#$8B#$E8#$BD#$AC'90'#$C2#$B0'(&R)'), @RotateClockwiseClick);
+  CreateMenuItem(ImageMenu, TR('Rotate 90 &Left', #$E5#$90#$91#$E5#$B7#$A6#$E6#$97#$8B#$E8#$BD#$AC'90'#$C2#$B0'(&L)'), @RotateCounterClockwiseClick);
+  CreateMenuItem(ImageMenu, TR('Rotate &180', #$E6#$97#$8B#$E8#$BD#$AC'&180'#$C2#$B0), @Rotate180Click);
+  CreateMenuItem(ImageMenu, TR('Flip &Horizontal', #$E6#$B0#$B4#$E5#$B9#$B3#$E7#$BF#$BB#$E8#$BD#$AC + '(&H)'), @FlipHorizontalClick);
+  CreateMenuItem(ImageMenu, TR('Flip &Vertical', #$E5#$9E#$82#$E7#$9B#$B4#$E7#$BF#$BB#$E8#$BD#$AC + '(&V)'), @FlipVerticalClick);
+  CreateMenuItem(ImageMenu, TR('&Flatten', '&' + #$E5#$90#$88#$E5#$B9#$B6#$E6#$89#$80#$E6#$9C#$89#$E5#$9B#$BE#$E5#$B1#$82), @FlattenClick, ShortCut(VK_F, [ssMeta, ssShift]));
 
   ViewMenu := TMenuItem.Create(FMainMenu);
-  ViewMenu.Caption := '&View';
+  ViewMenu.Caption := TR('&View', '&' + #$E8#$A7#$86#$E5#$9B#$BE);
   FMainMenu.Items.Add(ViewMenu);
-  CreateMenuItem(ViewMenu, 'Zoom &In', @ZoomInClick, ShortCut(Ord('='), [ssMeta]));
-  CreateMenuItem(ViewMenu, 'Zoom &Out', @ZoomOutClick, ShortCut(Ord('-'), [ssMeta]));
-  CreateMenuItem(ViewMenu, 'Zoom to &Selection', @ZoomToSelectionClick);
+  CreateMenuItem(ViewMenu, TR('Zoom &In', #$E6#$94#$BE#$E5#$A4#$A7 + '(&I)'), @ZoomInClick, ShortCut(Ord('='), [ssMeta]));
+  CreateMenuItem(ViewMenu, TR('Zoom &Out', #$E7#$BC#$A9#$E5#$B0#$8F + '(&O)'), @ZoomOutClick, ShortCut(Ord('-'), [ssMeta]));
+  CreateMenuItem(ViewMenu, TR('Zoom to &Selection', #$E7#$BC#$A9#$E6#$94#$BE#$E5#$88#$B0#$E9#$80#$89#$E5#$8C#$BA + '(&S)'), @ZoomToSelectionClick);
   CreateMenuItem(ViewMenu, '-', nil);
-  CreateMenuItem(ViewMenu, 'Next Tab', @NextTabClick, ShortCut(VK_TAB, [ssCtrl]));
-  CreateMenuItem(ViewMenu, 'Previous Tab', @PrevTabClick, ShortCut(VK_TAB, [ssCtrl, ssShift]));
+  CreateMenuItem(ViewMenu, TR('Next Tab', #$E4#$B8#$8B#$E4#$B8#$80#$E4#$B8#$AA#$E6#$A0#$87#$E7#$AD#$BE), @NextTabClick, ShortCut(VK_TAB, [ssCtrl]));
+  CreateMenuItem(ViewMenu, TR('Previous Tab', #$E4#$B8#$8A#$E4#$B8#$80#$E4#$B8#$AA#$E6#$A0#$87#$E7#$AD#$BE), @PrevTabClick, ShortCut(VK_TAB, [ssCtrl, ssShift]));
   CreateMenuItem(ViewMenu, '-', nil);
-  CreateMenuItem(ViewMenu, '&Actual Size', @ActualSizeClick, ShortCut(VK_0, [ssMeta]));
-  CreateMenuItem(ViewMenu, 'Zoom to &Window', @FitToWindowClick, ShortCut(VK_9, [ssMeta]));
+  CreateMenuItem(ViewMenu, TR('&Actual Size', '&' + #$E5#$AE#$9E#$E9#$99#$85#$E5#$A4#$A7#$E5#$B0#$8F), @ActualSizeClick, ShortCut(VK_0, [ssMeta]));
+  CreateMenuItem(ViewMenu, TR('Zoom to &Window', #$E7#$BC#$A9#$E6#$94#$BE#$E5#$88#$B0#$E7#$AA#$97#$E5#$8F#$A3 + '(&W)'), @FitToWindowClick, ShortCut(VK_9, [ssMeta]));
   FPixelGridMenuItem := TMenuItem.Create(ViewMenu);
-  FPixelGridMenuItem.Caption := 'Pixel &Grid';
+  FPixelGridMenuItem.Caption := TR('Pixel &Grid', #$E5#$83#$8F#$E7#$B4#$A0#$E7#$BD#$91#$E6#$A0#$BC + '(&G)');
   FPixelGridMenuItem.Checked := FShowPixelGrid;
   FPixelGridMenuItem.ShortCut := ShortCut(39, [ssMeta]);
   FPixelGridMenuItem.OnClick := @TogglePixelGridClick;
   ViewMenu.Add(FPixelGridMenuItem);
   FRulersMenuItem := TMenuItem.Create(ViewMenu);
-  FRulersMenuItem.Caption := '&Rulers';
+  FRulersMenuItem.Caption := TR('&Rulers', '&' + #$E6#$A0#$87#$E5#$B0#$BA);
   FRulersMenuItem.Checked := FShowRulers;
   FRulersMenuItem.ShortCut := ShortCut(VK_R, [ssMeta, ssAlt]);
   FRulersMenuItem.OnClick := @ToggleRulersClick;
   ViewMenu.Add(FRulersMenuItem);
   FUnitsMenu := TMenuItem.Create(ViewMenu);
-  FUnitsMenu.Caption := '&Units';
+  FUnitsMenu.Caption := TR('&Units', '&' + #$E5#$8D#$95#$E4#$BD#$8D);
   ViewMenu.Add(FUnitsMenu);
   FUnitPixelsItem := TMenuItem.Create(FUnitsMenu);
-  FUnitPixelsItem.Caption := '&Pixels';
+  FUnitPixelsItem.Caption := TR('&Pixels', '&' + #$E5#$83#$8F#$E7#$B4#$A0);
   FUnitPixelsItem.OnClick := @UnitsPixelsClick;
   FUnitsMenu.Add(FUnitPixelsItem);
   FUnitInchesItem := TMenuItem.Create(FUnitsMenu);
-  FUnitInchesItem.Caption := '&Inches';
+  FUnitInchesItem.Caption := TR('&Inches', '&' + #$E8#$8B#$B1#$E5#$AF#$B8);
   FUnitInchesItem.OnClick := @UnitsInchesClick;
   FUnitsMenu.Add(FUnitInchesItem);
   FUnitCentimetersItem := TMenuItem.Create(FUnitsMenu);
-  FUnitCentimetersItem.Caption := '&Centimeters';
+  FUnitCentimetersItem.Caption := TR('&Centimeters', '&' + #$E5#$8E#$98#$E7#$B1#$B3);
   FUnitCentimetersItem.OnClick := @UnitsCentimetersClick;
   FUnitsMenu.Add(FUnitCentimetersItem);
   RefreshUnitsMenu;
@@ -2050,27 +2052,27 @@ begin
     ViewMenu.Add(PaletteMenuItem);
     FPaletteViewItems[PaletteKind] := PaletteMenuItem;
   end;
-  CreateMenuItem(ViewMenu, 'Reset Window Layout', @ResetPaletteLayoutClick);
+  CreateMenuItem(ViewMenu, TR('Reset Window Layout', #$E9#$87#$8D#$E7#$BD#$AE#$E7#$AA#$97#$E5#$8F#$A3#$E5#$B8#$83#$E5#$B1#$80), @ResetPaletteLayoutClick);
 
   AdjustMenu := TMenuItem.Create(FMainMenu);
-  AdjustMenu.Caption := '&Adjustments';
+  AdjustMenu.Caption := TR('&Adjustments', '&' + #$E8#$B0#$83#$E6#$95#$B4);
   FMainMenu.Items.Add(AdjustMenu);
-  CreateMenuItem(AdjustMenu, '&Auto-Level', @AutoLevelClick);
-  CreateMenuItem(AdjustMenu, '&Invert Colors', @InvertColorsClick);
-  CreateMenuItem(AdjustMenu, '&Grayscale', @GrayscaleClick);
-  CreateMenuItem(AdjustMenu, '&Curves...', @CurvesClick);
-  CreateMenuItem(AdjustMenu, '&Hue / Saturation...', @HueSaturationClick);
-  CreateMenuItem(AdjustMenu, '&Levels...', @LevelsClick);
-  CreateMenuItem(AdjustMenu, '&Brightness / Contrast...', @BrightnessContrastClick);
-  CreateMenuItem(AdjustMenu, '&Sepia', @SepiaClick);
-  CreateMenuItem(AdjustMenu, 'Black and &White...', @BlackAndWhiteClick);
-  CreateMenuItem(AdjustMenu, '&Posterize...', @PosterizeClick);
+  CreateMenuItem(AdjustMenu, TR('&Auto-Level', '&' + #$E8#$87#$AA#$E5#$8A#$A8#$E8#$89#$B2#$E9#$98#$B6), @AutoLevelClick);
+  CreateMenuItem(AdjustMenu, TR('&Invert Colors', '&' + #$E5#$8F#$8D#$E8#$BD#$AC#$E9#$A2#$9C#$E8#$89#$B2), @InvertColorsClick);
+  CreateMenuItem(AdjustMenu, TR('&Grayscale', '&' + #$E7#$81#$B0#$E5#$BA#$A6), @GrayscaleClick);
+  CreateMenuItem(AdjustMenu, TR('&Curves...', '&' + #$E6#$9B#$B2#$E7#$BA#$BF + '...'), @CurvesClick);
+  CreateMenuItem(AdjustMenu, TR('&Hue / Saturation...', '&' + #$E8#$89#$B2#$E7#$9B#$B8 + ' / ' + #$E9#$A5#$B1#$E5#$92#$8C#$E5#$BA#$A6 + '...'), @HueSaturationClick);
+  CreateMenuItem(AdjustMenu, TR('&Levels...', '&' + #$E8#$89#$B2#$E9#$98#$B6 + '...'), @LevelsClick);
+  CreateMenuItem(AdjustMenu, TR('&Brightness / Contrast...', '&' + #$E4#$BA#$AE#$E5#$BA#$A6 + ' / ' + #$E5#$AF#$B9#$E6#$AF#$94#$E5#$BA#$A6 + '...'), @BrightnessContrastClick);
+  CreateMenuItem(AdjustMenu, TR('&Sepia', '&' + #$E6#$B7#$B1#$E8#$A4#$90#$E8#$89#$B2), @SepiaClick);
+  CreateMenuItem(AdjustMenu, TR('Black and &White...', #$E9#$BB#$91#$E7#$99#$BD + '(&W)...'), @BlackAndWhiteClick);
+  CreateMenuItem(AdjustMenu, TR('&Posterize...', '&' + #$E8#$89#$B2#$E8#$B0#$83#$E5#$88#$86#$E7#$A6#$BB + '...'), @PosterizeClick);
 
   EffectsMenu := TMenuItem.Create(FMainMenu);
-  EffectsMenu.Caption := 'Effe&cts';
+  EffectsMenu.Caption := TR('Effe&cts', #$E6#$95#$88#$E6#$9E#$9C + '(&C)');
   FMainMenu.Items.Add(EffectsMenu);
   FRepeatLastEffectItem := TMenuItem.Create(FMainMenu);
-  FRepeatLastEffectItem.Caption := 'Repeat Last Effect';
+  FRepeatLastEffectItem.Caption := TR('Repeat Last Effect', #$E9#$87#$8D#$E5#$A4#$8D#$E4#$B8#$8A#$E6#$AC#$A1#$E6#$95#$88#$E6#$9E#$9C);
   FRepeatLastEffectItem.OnClick := @RepeatLastEffectClick;
   FRepeatLastEffectItem.ShortCut := ShortCut(Ord('F'), [ssMeta]);
   FRepeatLastEffectItem.Enabled := False;
@@ -2078,59 +2080,59 @@ begin
   CreateMenuItem(EffectsMenu, '-', nil);
   { ---------- Blurs sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
-  SubMenu.Caption := '&Blurs';
+  SubMenu.Caption := TR('&Blurs', '&' + #$E6#$A8#$A1#$E7#$B3#$8A);
   EffectsMenu.Add(SubMenu);
-  CreateMenuItem(SubMenu, '&Box Blur...', @BlurClick);
-  CreateMenuItem(SubMenu, '&Gaussian Blur...', @GaussianBlurClick);
-  CreateMenuItem(SubMenu, '&Motion Blur...', @MotionBlurClick);
-  CreateMenuItem(SubMenu, '&Radial Blur...', @RadialBlurClick);
-  CreateMenuItem(SubMenu, '&Surface Blur...', @SurfaceBlurClick);
-  CreateMenuItem(SubMenu, '&Unfocus...', @UnfocusClick);
-  CreateMenuItem(SubMenu, '&Zoom Blur...', @ZoomBlurClick);
+  CreateMenuItem(SubMenu, TR('&Box Blur...', '&' + #$E6#$96#$B9#$E6#$A1#$86#$E6#$A8#$A1#$E7#$B3#$8A + '...'), @BlurClick);
+  CreateMenuItem(SubMenu, TR('&Gaussian Blur...', '&' + #$E9#$AB#$98#$E6#$96#$AF#$E6#$A8#$A1#$E7#$B3#$8A + '...'), @GaussianBlurClick);
+  CreateMenuItem(SubMenu, TR('&Motion Blur...', '&' + #$E8#$BF#$90#$E5#$8A#$A8#$E6#$A8#$A1#$E7#$B3#$8A + '...'), @MotionBlurClick);
+  CreateMenuItem(SubMenu, TR('&Radial Blur...', '&' + #$E5#$BE#$84#$E5#$90#$91#$E6#$A8#$A1#$E7#$B3#$8A + '...'), @RadialBlurClick);
+  CreateMenuItem(SubMenu, TR('&Surface Blur...', '&' + #$E8#$A1#$A8#$E9#$9D#$A2#$E6#$A8#$A1#$E7#$B3#$8A + '...'), @SurfaceBlurClick);
+  CreateMenuItem(SubMenu, TR('&Unfocus...', '&' + #$E5#$A4#$B1#$E7#$84#$A6 + '...'), @UnfocusClick);
+  CreateMenuItem(SubMenu, TR('&Zoom Blur...', '&' + #$E7#$BC#$A9#$E6#$94#$BE#$E6#$A8#$A1#$E7#$B3#$8A + '...'), @ZoomBlurClick);
   { ---------- Distort sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
-  SubMenu.Caption := '&Distort';
+  SubMenu.Caption := TR('&Distort', '&' + #$E6#$89#$AD#$E6#$9B#$B2);
   EffectsMenu.Add(SubMenu);
-  CreateMenuItem(SubMenu, '&Fragment...', @FragmentClick);
-  CreateMenuItem(SubMenu, '&Pixelate...', @PixelateClick);
-  CreateMenuItem(SubMenu, '&Twist...', @TwistClick);
-  CreateMenuItem(SubMenu, '&Bulge...', @BulgeClick);
-  CreateMenuItem(SubMenu, '&Dents...', @DentsClick);
-  CreateMenuItem(SubMenu, 'Tile &Reflection...', @TileReflectionClick);
+  CreateMenuItem(SubMenu, TR('&Fragment...', '&' + #$E7#$A2#$8E#$E7#$89#$87 + '...'), @FragmentClick);
+  CreateMenuItem(SubMenu, TR('&Pixelate...', '&' + #$E5#$83#$8F#$E7#$B4#$A0#$E5#$8C#$96 + '...'), @PixelateClick);
+  CreateMenuItem(SubMenu, TR('&Twist...', '&' + #$E6#$89#$AD#$E6#$9B#$B2 + '...'), @TwistClick);
+  CreateMenuItem(SubMenu, TR('&Bulge...', '&' + #$E8#$86#$A8#$E8#$83#$80 + '...'), @BulgeClick);
+  CreateMenuItem(SubMenu, TR('&Dents...', '&' + #$E5#$87#$B9#$E9#$99#$B7 + '...'), @DentsClick);
+  CreateMenuItem(SubMenu, TR('Tile &Reflection...', #$E7#$93#$B7#$E7#$A0#$96#$E5#$8F#$8D#$E5#$B0#$84 + '(&R)...'), @TileReflectionClick);
   { ---------- Noise sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
-  SubMenu.Caption := '&Noise';
+  SubMenu.Caption := TR('&Noise', '&' + #$E5#$99#$AA#$E7#$82#$B9);
   EffectsMenu.Add(SubMenu);
-  CreateMenuItem(SubMenu, 'Add &Noise...', @AddNoiseClick);
-  CreateMenuItem(SubMenu, '&Median / Denoise...', @MedianFilterClick);
+  CreateMenuItem(SubMenu, TR('Add &Noise...', #$E6#$B7#$BB#$E5#$8A#$A0#$E5#$99#$AA#$E7#$82#$B9 + '(&N)...'), @AddNoiseClick);
+  CreateMenuItem(SubMenu, TR('&Median / Denoise...', '&' + #$E4#$B8#$AD#$E5#$80#$BC + ' / ' + #$E9#$99#$8D#$E5#$99#$AA + '...'), @MedianFilterClick);
   { ---------- Photo sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
-  SubMenu.Caption := '&Photo';
+  SubMenu.Caption := TR('&Photo', '&' + #$E7#$85#$A7#$E7#$89#$87);
   EffectsMenu.Add(SubMenu);
-  CreateMenuItem(SubMenu, '&Glow...', @GlowClick);
-  CreateMenuItem(SubMenu, '&Oil Paint...', @OilPaintClick);
-  CreateMenuItem(SubMenu, '&Red Eye...', @RedEyeClick);
-  CreateMenuItem(SubMenu, '&Sharpen', @SharpenClick);
-  CreateMenuItem(SubMenu, 'S&often', @SoftenClick);
-  CreateMenuItem(SubMenu, '&Vignette...', @VignetteClick);
+  CreateMenuItem(SubMenu, TR('&Glow...', '&' + #$E5#$8F#$91#$E5#$85#$89 + '...'), @GlowClick);
+  CreateMenuItem(SubMenu, TR('&Oil Paint...', '&' + #$E6#$B2#$B9#$E7#$94#$BB + '...'), @OilPaintClick);
+  CreateMenuItem(SubMenu, TR('&Red Eye...', '&' + #$E7#$BA#$A2#$E7#$9C#$BC + '...'), @RedEyeClick);
+  CreateMenuItem(SubMenu, TR('&Sharpen', '&' + #$E9#$94#$90#$E5#$8C#$96), @SharpenClick);
+  CreateMenuItem(SubMenu, TR('S&often', #$E6#$9F#$94#$E5#$8C#$96 + '(&O)'), @SoftenClick);
+  CreateMenuItem(SubMenu, TR('&Vignette...', '&' + #$E6#$9A#$97#$E8#$A7#$92 + '...'), @VignetteClick);
   { ---------- Render sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
-  SubMenu.Caption := '&Render';
+  SubMenu.Caption := TR('&Render', '&' + #$E6#$B8#$B2#$E6#$9F#$93);
   EffectsMenu.Add(SubMenu);
-  CreateMenuItem(SubMenu, '&Clouds', @RenderCloudsClick);
-  CreateMenuItem(SubMenu, '&Frosted Glass...', @FrostedGlassClick);
-  CreateMenuItem(SubMenu, '&Mandelbrot Fractal...', @MandelbrotClick);
-  CreateMenuItem(SubMenu, '&Julia Fractal...', @JuliaClick);
+  CreateMenuItem(SubMenu, TR('&Clouds', '&' + #$E4#$BA#$91#$E5#$BD#$A9), @RenderCloudsClick);
+  CreateMenuItem(SubMenu, TR('&Frosted Glass...', '&' + #$E7#$A3#$A8#$E7#$A0#$82#$E7#$8E#$BB#$E7#$92#$83 + '...'), @FrostedGlassClick);
+  CreateMenuItem(SubMenu, TR('&Mandelbrot Fractal...', '&Mandelbrot ' + #$E5#$88#$86#$E5#$BD#$A2 + '...'), @MandelbrotClick);
+  CreateMenuItem(SubMenu, TR('&Julia Fractal...', '&Julia ' + #$E5#$88#$86#$E5#$BD#$A2 + '...'), @JuliaClick);
   { ---------- Stylize sub-menu ---------- }
   SubMenu := TMenuItem.Create(FMainMenu);
-  SubMenu.Caption := '&Stylize';
+  SubMenu.Caption := TR('&Stylize', '&' + #$E9#$A3#$8E#$E6#$A0#$BC#$E5#$8C#$96);
   EffectsMenu.Add(SubMenu);
-  CreateMenuItem(SubMenu, '&Crystallize...', @CrystallizeClick);
-  CreateMenuItem(SubMenu, 'Detect &Edges', @OutlineClick);
-  CreateMenuItem(SubMenu, '&Emboss', @EmbossClick);
-  CreateMenuItem(SubMenu, '&Ink Sketch...', @InkSketchClick);
-  CreateMenuItem(SubMenu, '&Relief...', @ReliefClick);
-  CreateMenuItem(SubMenu, 'Outline Effe&ct...', @OutlineEffectClick);
+  CreateMenuItem(SubMenu, TR('&Crystallize...', '&' + #$E6#$99#$B6#$E6#$A0#$BC#$E5#$8C#$96 + '...'), @CrystallizeClick);
+  CreateMenuItem(SubMenu, TR('Detect &Edges', #$E8#$BE#$B9#$E7#$BC#$98#$E6#$A3#$80#$E6#$B5#$8B + '(&E)'), @OutlineClick);
+  CreateMenuItem(SubMenu, TR('&Emboss', '&' + #$E6#$B5#$AE#$E9#$9B#$95), @EmbossClick);
+  CreateMenuItem(SubMenu, TR('&Ink Sketch...', '&' + #$E5#$A2#$A8#$E6#$B0#$B4#$E7#$B4#$A0#$E6#$8F#$8F + '...'), @InkSketchClick);
+  CreateMenuItem(SubMenu, TR('&Relief...', '&' + #$E6#$B5#$AE#$E9#$9B#$95#$E6#$95#$88#$E6#$9E#$9C + '...'), @ReliefClick);
+  CreateMenuItem(SubMenu, TR('Outline Effe&ct...', #$E8#$BD#$AE#$E5#$BB#$93#$E6#$95#$88#$E6#$9E#$9C + '(&C)...'), @OutlineEffectClick);
 
   Menu := FMainMenu;
 end;
@@ -2353,6 +2355,7 @@ begin
   for ZoomIndex := 0 to ZoomPresetCount - 1 do
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
+  FZoomCombo.Font.Color := ChromeTextColor;
   FZoomCombo.Hint := 'Zoom preset';
   FZoomCombo.ShowHint := True;
 
@@ -2484,6 +2487,7 @@ begin
   end;
   SyncToolComboSelection;
   FToolCombo.OnChange := @ToolComboChange;
+  FToolCombo.Font.Color := ChromeTextColor;
   FToolCombo.Hint := 'Choose the active tool (single-letter shortcuts work when Command, Control, and Option are not held)';
   FToolCombo.ShowHint := True;
 
@@ -2503,6 +2507,7 @@ begin
   FBrushSpin.MaxValue := 255;
   FBrushSpin.Value := FBrushSize;
   FBrushSpin.OnChange := @BrushSizeChanged;
+  FBrushSpin.Font.Color := ChromeTextColor;
 
   FOpacityLabel := TLabel.Create(FTopPanel);
   FOpacityLabel.Parent := FTopPanel;
@@ -2522,6 +2527,7 @@ begin
   FOpacitySpin.Value := 100;
   FOpacitySpin.Visible := False;
   FOpacitySpin.OnChange := @OpacitySpinChanged;
+  FOpacitySpin.Font.Color := ChromeTextColor;
   FOpacitySpin.Hint := 'Brush opacity (1-100)';
   FOpacitySpin.ShowHint := True;
 
@@ -2543,6 +2549,7 @@ begin
   FHardnessSpin.Value := 100;
   FHardnessSpin.Visible := False;
   FHardnessSpin.OnChange := @HardnessSpinChanged;
+  FHardnessSpin.Font.Color := ChromeTextColor;
   FHardnessSpin.Hint := 'Brush hardness (1=soft, 100=hard)';
   FHardnessSpin.ShowHint := True;
 
@@ -2565,6 +2572,7 @@ begin
   FEraserShapeCombo.ItemIndex := 0;
   FEraserShapeCombo.Visible := False;
   FEraserShapeCombo.OnChange := @EraserShapeComboChanged;
+  FEraserShapeCombo.Font.Color := ChromeTextColor;
   FEraserShapeCombo.Hint := 'Eraser tip shape';
   FEraserShapeCombo.ShowHint := True;
 
@@ -2589,6 +2597,7 @@ begin
   FSelModeCombo.ItemIndex := 0;
   FSelModeCombo.Visible := False;
   FSelModeCombo.OnChange := @SelModeComboChanged;
+  FSelModeCombo.Font.Color := ChromeTextColor;
   FSelModeCombo.Hint := 'Selection combination mode';
   FSelModeCombo.ShowHint := True;
 
@@ -2613,6 +2622,7 @@ begin
   FShapeStyleCombo.ItemIndex := 0;
   FShapeStyleCombo.Visible := False;
   FShapeStyleCombo.OnChange := @ShapeStyleComboChanged;
+  FShapeStyleCombo.Font.Color := ChromeTextColor;
   FShapeStyleCombo.Hint := 'Shape draw style';
   FShapeStyleCombo.ShowHint := True;
 
@@ -2648,6 +2658,7 @@ begin
   FBucketModeCombo.ItemIndex := 0;
   FBucketModeCombo.Visible := False;
   FBucketModeCombo.OnChange := @BucketModeComboChanged;
+  FBucketModeCombo.Font.Color := ChromeTextColor;
   FBucketModeCombo.Hint := 'Fill mode';
   FBucketModeCombo.ShowHint := True;
 
@@ -2671,6 +2682,7 @@ begin
   FFillSampleCombo.ItemIndex := 0;
   FFillSampleCombo.Visible := False;
   FFillSampleCombo.OnChange := @FillSampleComboChanged;
+  FFillSampleCombo.Font.Color := ChromeTextColor;
   FFillSampleCombo.Hint := 'Fill sample source';
   FFillSampleCombo.ShowHint := True;
 
@@ -2679,13 +2691,13 @@ begin
   FWandSampleLabel.Parent := FTopPanel;
   FWandSampleLabel.Caption := 'Sample:';
   FWandSampleLabel.Font.Color := ChromeTextColor;
-  FWandSampleLabel.Left := 348;
+  FWandSampleLabel.Left := 730;
   FWandSampleLabel.Top := ToolbarOptionLabelTop;
   FWandSampleLabel.Visible := False;
 
   FWandSampleCombo := TComboBox.Create(FTopPanel);
   FWandSampleCombo.Parent := FTopPanel;
-  FWandSampleCombo.Left := 400;
+  FWandSampleCombo.Left := 782;
   FWandSampleCombo.Top := ToolbarOptionRowTop;
   FWandSampleCombo.Width := 120;
   FWandSampleCombo.Style := csDropDownList;
@@ -2694,13 +2706,14 @@ begin
   FWandSampleCombo.ItemIndex := 0;
   FWandSampleCombo.Visible := False;
   FWandSampleCombo.OnChange := @WandSampleComboChanged;
+  FWandSampleCombo.Font.Color := ChromeTextColor;
   FWandSampleCombo.Hint := 'Wand sample source';
   FWandSampleCombo.ShowHint := True;
 
   { Wand contiguous checkbox }
   FWandContiguousCheck := TCheckBox.Create(FTopPanel);
   FWandContiguousCheck.Parent := FTopPanel;
-  FWandContiguousCheck.Left := 529;
+  FWandContiguousCheck.Left := 910;
   FWandContiguousCheck.Top := ToolbarOptionCheckTop;
   FWandContiguousCheck.Width := 100;
   FWandContiguousCheck.Caption := 'Contiguous';
@@ -2729,6 +2742,7 @@ begin
   FFillTolSpin.Value := FFillTolerance;
   FFillTolSpin.Visible := False;
   FFillTolSpin.OnChange := @FillTolSpinChanged;
+  FFillTolSpin.Font.Color := ChromeTextColor;
   FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
   FFillTolSpin.ShowHint := True;
 
@@ -2752,6 +2766,7 @@ begin
   FGradientTypeCombo.ItemIndex := 0;
   FGradientTypeCombo.Visible := False;
   FGradientTypeCombo.OnChange := @GradientTypeComboChanged;
+  FGradientTypeCombo.Font.Color := ChromeTextColor;
   FGradientTypeCombo.Hint := 'Gradient type';
   FGradientTypeCombo.ShowHint := True;
 
@@ -2814,6 +2829,7 @@ begin
   FPickerSampleCombo.ItemIndex := 0;
   FPickerSampleCombo.Visible := False;
   FPickerSampleCombo.OnChange := @PickerSampleComboChanged;
+  FPickerSampleCombo.Font.Color := ChromeTextColor;
   FPickerSampleCombo.Hint := 'Pick color from layer or composite image';
   FPickerSampleCombo.ShowHint := True;
 
@@ -2848,6 +2864,7 @@ begin
   FSelFeatherSpin.Value := FSelFeather;
   FSelFeatherSpin.Visible := False;
   FSelFeatherSpin.OnChange := @SelFeatherSpinChanged;
+  FSelFeatherSpin.Font.Color := ChromeTextColor;
 
   UpdateToolOptionControl;
   UpdateZoomControls;
@@ -2895,6 +2912,8 @@ begin
     ToolButton.Flat := True;
     ToolButton.GroupIndex := 1;
     ToolButton.AllowAllUp := False;
+    { Set hint BEFORE overlay so the overlay copies the correct text }
+    ToolButton.Hint := PaintToolDisplayLabel(ToolKind) + ' — ' + PaintToolHint(ToolKind);
     if AttachButtonIconOverlay(ToolButton, PaintToolGlyph(ToolKind), bicTool, ColorToRGB(FToolsPanel.Color)) then
     begin
       RealignButtonIconOverlay(ToolButton, bicTool);
@@ -2903,10 +2922,6 @@ begin
     else
       ToolButton.Caption := PaintToolGlyph(ToolKind);
     ToolButton.Font.Size := 9;
-    ToolButton.Hint := Format(
-      '%s (%s) — %s',
-      [PaintToolDisplayLabel(ToolKind), PaintToolShortcutHint(ToolKind), PaintToolHint(ToolKind)]
-    );
     Inc(VisibleToolIndex);
   end;
   SyncToolButtonSelection;
@@ -2998,20 +3013,13 @@ begin
   CreatePalette(FHistoryPanel, pkHistory);
   CreateButton('Undo', 12, ContentTop, 26, @UndoClick, FHistoryPanel, 0, bicCommand);
   CreateButton('Redo', 42, ContentTop, 26, @RedoClick, FHistoryPanel, 0, bicCommand);
-  FHistoryValueLabel := TLabel.Create(FHistoryPanel);
-  FHistoryValueLabel.Parent := FHistoryPanel;
-  FHistoryValueLabel.Left := 12;
-  FHistoryValueLabel.Top := ContentTop + 30;
-  FHistoryValueLabel.Width := 212;
-  FHistoryValueLabel.Height := 14;
-  FHistoryValueLabel.Font.Color := ChromeMutedTextColor;
-  FHistoryValueLabel.Font.Size := 8;
   FHistoryList := TListBox.Create(FHistoryPanel);
   FHistoryList.Parent := FHistoryPanel;
+  FHistoryList.BorderStyle := bsNone;
   FHistoryList.Left := 12;
-  FHistoryList.Top := ContentTop + 48;
+  FHistoryList.Top := ContentTop + 30;
   FHistoryList.Width := 212;
-  FHistoryList.Height := FHistoryPanel.Height - (ContentTop + 60);
+  FHistoryList.Height := FHistoryPanel.Height - (ContentTop + 42);
   FHistoryList.Anchors := [akTop, akLeft, akRight, akBottom];
   FHistoryList.Color := PaletteListBackgroundColor;
   FHistoryList.Font.Color := ChromeTextColor;
@@ -3026,20 +3034,21 @@ begin
   CreatePalette(FRightPanel, pkLayers);
 
   { Row 1: Add / Duplicate / Delete / Merge }
-  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel, 0, bicCommand);
-  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand);
-  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand);
-  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand);
+  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel, 0, bicCommand).Hint := 'Add new layer';
+  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand).Hint := 'Duplicate layer';
+  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand).Hint := 'Delete layer';
+  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand).Hint := 'Merge down';
   { Row 1 right: Vis / Up / Down }
-  CreateButton('Vis', 132, ContentTop, 26, @ToggleLayerVisibilityClick, FRightPanel, 0, bicCommand);
-  CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand);
-  CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand);
+  CreateButton('Vis', 132, ContentTop, 26, @ToggleLayerVisibilityClick, FRightPanel, 0, bicCommand).Hint := 'Toggle visibility';
+  CreateButton('Up', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up';
+  CreateButton('Dn', 192, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down';
 
   { Row 2: Opacity / Flatten / Rename / Properties }
-  CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel, 0, bicCommand);
-  CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand);
-  CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand);
+  CreateButton('Fade', 12, ContentTop + 28, 26, @LayerOpacityClick, FRightPanel, 0, bicCommand).Hint := 'Layer opacity';
+  CreateButton('Flat', 42, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := 'Flatten image';
+  CreateButton('Name', 72, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand).Hint := 'Rename layer';
   FLayerPropsButton := CreateButton('Props', 102, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel, 0, bicCommand);
+  FLayerPropsButton.Hint := 'Layer properties';
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
@@ -3057,6 +3066,7 @@ begin
   FLayerBlendCombo.Items.Add('Soft Light');
   FLayerBlendCombo.ItemIndex := 0;
   FLayerBlendCombo.OnChange := @LayerBlendModeChanged;
+  FLayerBlendCombo.Font.Color := ChromeTextColor;
 
   FLayerVisibleCheck := TCheckBox.Create(FRightPanel);
   FLayerVisibleCheck.Parent := FRightPanel;
@@ -3081,9 +3091,11 @@ begin
   FLayerOpacitySpin.MinValue := 0;
   FLayerOpacitySpin.MaxValue := 100;
   FLayerOpacitySpin.OnChange := @LayerOpacitySpinChanged;
+  FLayerOpacitySpin.Font.Color := ChromeTextColor;
 
   FLayerList := TListBox.Create(FRightPanel);
   FLayerList.Parent := FRightPanel;
+  FLayerList.BorderStyle := bsNone;
   FLayerList.Left := 12;
   FLayerList.Top := ContentTop + 118;
   FLayerList.Width := 220;
@@ -3296,8 +3308,12 @@ begin
   else
     Result.Height := 26;
   Result.Flat := True;
+  { Large command buttons (New/Open/Save) show rounded rect only on hover }
   if (AIconContext = bicCommand) and (AWidth >= 54) then
-    Result.Flat := False;
+  begin
+    Result.OnMouseEnter := @ToolbarBtnMouseEnter;
+    Result.OnMouseLeave := @ToolbarBtnMouseLeave;
+  end;
   Result.Tag := ATag;
   Result.OnClick := AHandler;
   Result.ParentFont := False;
@@ -3938,8 +3954,9 @@ begin
           end
           else
           begin
-            ACanvas.Pen.Style := psSolid;
             ACanvas.Pen.Width := 1;
+            ACanvas.Pen.Color := clBlack;
+            ACanvas.Pen.Style := psSolid;
             ACanvas.Brush.Style := bsClear;
           end;
           LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
@@ -3947,6 +3964,12 @@ begin
           RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
           BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+          if FCurrentTool = tkSelectRect then
+          begin
+            ACanvas.Pen.Style := psDash;
+            ACanvas.Pen.Color := clWhite;
+            ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+          end;
         end;
       tkCrop:
         begin
@@ -4007,8 +4030,9 @@ begin
           end
           else
           begin
-            ACanvas.Pen.Style := psSolid;
             ACanvas.Pen.Width := 1;
+            ACanvas.Pen.Color := clBlack;
+            ACanvas.Pen.Style := psSolid;
             ACanvas.Brush.Style := bsClear;
           end;
           LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
@@ -4016,6 +4040,12 @@ begin
           RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
           BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+          if FCurrentTool = tkSelectEllipse then
+          begin
+            ACanvas.Pen.Style := psDash;
+            ACanvas.Pen.Color := clWhite;
+            ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+          end;
         end;
       tkSelectLasso, tkFreeformShape:
         if Length(FLassoPoints) > 1 then
@@ -4033,6 +4063,7 @@ begin
           end
           else
           begin
+            ACanvas.Pen.Color := clBlack;
             ACanvas.Pen.Style := psSolid;
             ACanvas.Pen.Width := 1;
           end;
@@ -4045,6 +4076,20 @@ begin
               Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
               Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
             );
+          if FCurrentTool = tkSelectLasso then
+          begin
+            ACanvas.Pen.Style := psDash;
+            ACanvas.Pen.Color := clWhite;
+            ACanvas.MoveTo(
+              Round((FLassoPoints[0].X + 0.5) * FZoomScale),
+              Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
+            );
+            for PointIndex := 1 to High(FLassoPoints) do
+              ACanvas.LineTo(
+                Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
+                Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
+              );
+          end;
           if (FCurrentTool = tkFreeformShape) and (Length(FLassoPoints) > 2) then
             ACanvas.LineTo(
               Round((FLassoPoints[0].X + 0.5) * FZoomScale),
@@ -4195,6 +4240,7 @@ end;
 
 procedure TMainForm.CanvasHostResize(Sender: TObject);
 begin
+  if FIsPanning then Exit;
   { Re-center the canvas whenever the viewport area changes size }
   UpdateCanvasSize;
 end;
@@ -4415,8 +4461,17 @@ begin
     SwatchMargin + SwatchSize
   );
 
-  PaintAlphaSwatch(BackRect, FSecondaryColor);
-  PaintAlphaSwatch(FrontRect, FPrimaryColor);
+  { Paint inactive swatch first, active swatch on top }
+  if FColorEditTarget = 0 then
+  begin
+    PaintAlphaSwatch(BackRect, FSecondaryColor);
+    PaintAlphaSwatch(FrontRect, FPrimaryColor);
+  end
+  else
+  begin
+    PaintAlphaSwatch(FrontRect, FPrimaryColor);
+    PaintAlphaSwatch(BackRect, FSecondaryColor);
+  end;
 
   C.Brush.Style := bsClear;
   C.Pen.Width := 2;
@@ -4751,26 +4806,11 @@ end;
 
 procedure TMainForm.RefreshHistoryPanel;
 var
-  UndoLabel: string;
-  RedoLabel: string;
   UndoCount: Integer;
   RedoCount: Integer;
   RowIndex: Integer;
   OpIndex: Integer;
 begin
-  if Assigned(FHistoryValueLabel) then
-  begin
-    UndoLabel := FDocument.UndoActionLabel;
-    RedoLabel := FDocument.RedoActionLabel;
-    if UndoLabel = '' then
-      UndoLabel := '—';
-    if RedoLabel = '' then
-      RedoLabel := '—';
-    FHistoryValueLabel.Caption := Format(
-      'Undo: %s  |  Redo: %s',
-      [UndoLabel, RedoLabel]
-    );
-  end;
   if not Assigned(FHistoryList) then Exit;
   FHistoryList.OnClick := nil;
   FHistoryList.Items.BeginUpdate;
@@ -5442,12 +5482,17 @@ begin
   HeaderIcon.Proportional := True;
   HeaderIcon.Center := True;
   HeaderIcon.Transparent := True;
-  TryBuildLineButtonGlyph(
+  if not TryLoadButtonIconPicture(
     PaletteTitle(AKind),
     bicUtility,
-    HeaderIcon.Picture.Bitmap,
-    clNone
-  );
+    HeaderIcon.Picture
+  ) then
+    TryBuildLineButtonGlyph(
+      PaletteTitle(AKind),
+      bicUtility,
+      HeaderIcon.Picture.Bitmap,
+      PaletteHeaderColor(AKind)
+    );
   HeaderIcon.OnMouseDown := @PaletteMouseDown;
   HeaderIcon.OnMouseMove := @PaletteMouseMove;
   HeaderIcon.OnMouseUp := @PaletteMouseUp;
@@ -5484,22 +5529,25 @@ begin
   ShortcutLabel.OnMouseMove := @PaletteMouseMove;
   ShortcutLabel.OnMouseUp := @PaletteMouseUp;
 
-  CloseButton := CreateButton(
-    '×',
-    ATarget.Width - 28,
-    2,
-    24,
-    @HidePaletteClick,
-    HeaderPanel,
-    Ord(AKind),
-    bicCommand
-  );
-  CloseButton.Height := 18;
-  CloseButton.Anchors := [akTop, akRight];
-  CloseButton.Hint := Format(
-    'Close %s palette (%s toggles it)',
-    [PaletteTitle(AKind), PaletteShortcutLabel(AKind)]
-  );
+  if AKind <> pkTools then
+  begin
+    CloseButton := CreateButton(
+      '×',
+      ATarget.Width - 28,
+      2,
+      24,
+      @HidePaletteClick,
+      HeaderPanel,
+      Ord(AKind),
+      bicCommand
+    );
+    CloseButton.Height := 18;
+    CloseButton.Anchors := [akTop, akRight];
+    CloseButton.Hint := Format(
+      'Close %s palette (%s toggles it)',
+      [PaletteTitle(AKind), PaletteShortcutLabel(AKind)]
+    );
+  end;
 end;
 
 procedure TMainForm.CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
@@ -6651,13 +6699,20 @@ begin
   if FClipboardSurface = nil then
     Exit;
   FDocument.PushHistory('Paste');
-  FDocument.PasteAsNewLayer(FClipboardSurface, FClipboardOffset.X, FClipboardOffset.Y, 'Pasted Layer');
-  SyncImageMutationUI(True, True);
+  { Paste onto the currently selected (active) layer instead of creating a new one }
+  FDocument.ActiveLayer.Surface.PasteSurface(
+    FClipboardSurface, FClipboardOffset.X, FClipboardOffset.Y);
+  SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.PasteIntoNewLayerClick(Sender: TObject);
 begin
-  PasteClick(Sender);
+  SealPendingStrokeHistory;
+  if FClipboardSurface = nil then
+    Exit;
+  FDocument.PushHistory('Paste into New Layer');
+  FDocument.PasteAsNewLayer(FClipboardSurface, FClipboardOffset.X, FClipboardOffset.Y, 'Pasted Layer');
+  SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.PasteIntoNewImageClick(Sender: TObject);
@@ -7425,25 +7480,97 @@ end;
 procedure TMainForm.SettingsClick(Sender: TObject);
 var
   DisplayUnitIndex: Integer;
+  ChosenLanguage: TAppLanguage;
+  LanguageChanged: Boolean;
 begin
   SealPendingStrokeHistory;
   DisplayUnitIndex := Ord(FDisplayUnit);
-  if not RunSettingsDialog(Self, FNewImageResolutionDPI, DisplayUnitIndex) then
+  ChosenLanguage := AppLanguage;
+  if not RunSettingsDialog(Self, FNewImageResolutionDPI, DisplayUnitIndex, ChosenLanguage) then
     Exit;
   FDisplayUnit := TDisplayUnit(DisplayUnitIndex);
+  LanguageChanged := (ChosenLanguage <> AppLanguage);
+  if LanguageChanged then
+  begin
+    AppLanguage := ChosenLanguage;
+    SaveLanguagePreference;
+  end;
   RefreshUnitsMenu;
+  if LanguageChanged then
+    RefreshLocalizedUI;
+end;
+
+procedure TMainForm.RefreshLocalizedUI;
+var
+  OldMenu: TMainMenu;
+  ToolIndex: Integer;
+  PaletteKind: TPaletteKind;
+  TitleLabel: TLabel;
+  PalettePanel: TPanel;
+  HeaderPanel: TPanel;
+  ChildIndex: Integer;
+begin
+  { 1. Rebuild the main menu bar }
+  OldMenu := FMainMenu;
+  BuildMenus;
+  if Assigned(OldMenu) then
+    OldMenu.Free;
+
+  { 2. Refresh tool combo items }
+  if Assigned(FToolCombo) then
+  begin
+    FToolCombo.Items.BeginUpdate;
+    try
+      FToolCombo.Items.Clear;
+      for ToolIndex := 0 to PaintToolDisplayCount - 1 do
+        FToolCombo.Items.Add(PaintToolDisplayLabel(PaintToolAtDisplayIndex(ToolIndex)));
+      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+    finally
+      FToolCombo.Items.EndUpdate;
+    end;
+  end;
+
+  { 3. Refresh palette panel headers }
+  for PaletteKind := Low(TPaletteKind) to High(TPaletteKind) do
+  begin
+    PalettePanel := PaletteControl(PaletteKind);
+    if not Assigned(PalettePanel) then
+      Continue;
+    HeaderPanel := PaletteHeaderControl(PalettePanel);
+    if not Assigned(HeaderPanel) then
+      Continue;
+    for ChildIndex := 0 to HeaderPanel.ControlCount - 1 do
+    begin
+      if HeaderPanel.Controls[ChildIndex] is TLabel then
+      begin
+        TitleLabel := TLabel(HeaderPanel.Controls[ChildIndex]);
+        TitleLabel.Caption := PaletteTitle(PaletteKind);
+        Break;
+      end;
+    end;
+  end;
+
+  { 4. Refresh status bar tool text }
+  UpdateStatusForTool;
+  UpdateCaption;
 end;
 
 procedure TMainForm.HelpClick(Sender: TObject);
 begin
   MessageDlg(
-    'FlatPaint Help',
-    'Primary shortcuts:'#13#10 +
+    TR('FlatPaint Help', 'FlatPaint ' + #$E5#$B8#$AE#$E5#$8A#$A9),
+    TR('Primary shortcuts:'#13#10 +
     'Cmd+1 Tools  Cmd+2 Colors  Cmd+3 Layers  Cmd+4 History'#13#10 +
     'Cmd+'' Pixel Grid  Cmd+Option+R Rulers'#13#10 +
     'Cmd+N New  Cmd+O Open  Cmd+S Save  Cmd+W Close'#13#10 +
     'Supported open formats:'#13#10 +
     'FlatPaint (.fpd), XCF, PSD, PNG, JPEG, BMP, TIFF, GIF, PCX, PNM, TGA, XPM, XWD',
+    #$E4#$B8#$BB#$E8#$A6#$81#$E5#$BF#$AB#$E6#$8D#$B7#$E9#$94#$AE#$EF#$BC#$9A#13#10 +
+    'Cmd+1 ' + #$E5#$B7#$A5#$E5#$85#$B7 + '  Cmd+2 ' + #$E9#$A2#$9C#$E8#$89#$B2 + '  Cmd+3 ' + #$E5#$9B#$BE#$E5#$B1#$82 + '  Cmd+4 ' + #$E5#$8E#$86#$E5#$8F#$B2#13#10 +
+    'Cmd+'' ' + #$E5#$83#$8F#$E7#$B4#$A0#$E7#$BD#$91#$E6#$A0#$BC + '  Cmd+Option+R ' + #$E6#$A0#$87#$E5#$B0#$BA#13#10 +
+    'Cmd+N ' + #$E6#$96#$B0#$E5#$BB#$BA + '  Cmd+O ' + #$E6#$89#$93#$E5#$BC#$80 + '  Cmd+S ' + #$E4#$BF#$9D#$E5#$AD#$98 + '  Cmd+W ' + #$E5#$85#$B3#$E9#$97#$AD#13#10 +
+    #$E6#$94#$AF#$E6#$8C#$81#$E7#$9A#$84#$E6#$89#$93#$E5#$BC#$80#$E6#$A0#$BC#$E5#$BC#$8F#$EF#$BC#$9A#13#10 +
+    'FlatPaint (.fpd), XCF, PSD, PNG, JPEG, BMP, TIFF, GIF, PCX, PNM, TGA, XPM, XWD'),
     mtInformation,
     [mbOK],
     0
@@ -7613,7 +7740,15 @@ begin
     FDocument.PushHistory('Deselect');
     FDocument.Deselect;
   end;
+  { Save current tool's options before switching }
+  FToolSize[FCurrentTool] := FBrushSize;
+  FToolOpacity[FCurrentTool] := FBrushOpacity;
+  FToolHardness[FCurrentTool] := FBrushHardness;
   FCurrentTool := NewTool;
+  { Restore new tool's remembered options }
+  FBrushSize := FToolSize[FCurrentTool];
+  FBrushOpacity := FToolOpacity[FCurrentTool];
+  FBrushHardness := FToolHardness[FCurrentTool];
   SyncToolComboSelection;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -7638,6 +7773,10 @@ begin
       FDocument.Deselect;
     end;
     FCurrentTool := NewTool;
+    { Restore new tool's remembered options }
+    FBrushSize := FToolSize[FCurrentTool];
+    FBrushOpacity := FToolOpacity[FCurrentTool];
+    FBrushHardness := FToolHardness[FCurrentTool];
   end;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -7676,7 +7815,9 @@ const
   ThumbH  = 28;
   ThumbMarginX = 4;
   ThumbMarginY = 4;
-  NameLeft = ThumbW + ThumbMarginX * 2 + 4;
+  EyeLeft = ThumbW + ThumbMarginX * 2 + 2;
+  EyeSize = 14;
+  NameLeft = EyeLeft + EyeSize + 4;
 var
   LB: TListBox;
   Layer: TRasterLayer;
@@ -7689,6 +7830,7 @@ var
   SW, SH, TX, TY: Integer;
   ThumbR: TRect;
   OldFont: TFont;
+  EyeCX, EyeCY, EyeR: Integer;
 begin
   LB := TListBox(Control);
   if not Assigned(FDocument) then Exit;
@@ -7764,10 +7906,40 @@ begin
     NameText := NameText + ' [Background]';
   if Layer.Opacity < 255 then
     NameText := NameText + Format(' %d%%', [LayerOpacityPercentFromByte(Layer.Opacity)]);
-  if not Layer.Visible then
-    NameText := 'Off ' + NameText
-  else
-    NameText := 'On  ' + NameText;
+
+  { Eye icon — simple drawn glyph }
+  begin
+    EyeCX := ARect.Left + EyeLeft + EyeSize div 2;
+    EyeCY := ARect.Top + (ARect.Bottom - ARect.Top) div 2;
+    EyeR := EyeSize div 2;
+    LB.Canvas.Brush.Style := bsClear;
+    if Layer.Visible then
+    begin
+      { Solid eye: eye outline + pupil }
+      LB.Canvas.Pen.Color := TextCol;
+      LB.Canvas.Pen.Width := 1;
+      LB.Canvas.Pen.Style := psSolid;
+      LB.Canvas.Ellipse(EyeCX - EyeR, EyeCY - EyeR div 2,
+                         EyeCX + EyeR, EyeCY + EyeR div 2);
+      { Pupil dot }
+      LB.Canvas.Brush.Style := bsSolid;
+      LB.Canvas.Brush.Color := TextCol;
+      LB.Canvas.Ellipse(EyeCX - 2, EyeCY - 2, EyeCX + 3, EyeCY + 3);
+    end
+    else
+    begin
+      { Dim eye outline with strikethrough }
+      LB.Canvas.Pen.Color := ChromeMutedTextColor;
+      LB.Canvas.Pen.Width := 1;
+      LB.Canvas.Pen.Style := psSolid;
+      LB.Canvas.Ellipse(EyeCX - EyeR, EyeCY - EyeR div 2,
+                         EyeCX + EyeR, EyeCY + EyeR div 2);
+      { Diagonal strikethrough }
+      LB.Canvas.MoveTo(EyeCX - EyeR + 1, EyeCY + EyeR div 2);
+      LB.Canvas.LineTo(EyeCX + EyeR - 1, EyeCY - EyeR div 2);
+    end;
+    LB.Canvas.Brush.Style := bsSolid;
+  end;
 
   OldFont := TFont.Create;
   try
@@ -7820,12 +7992,31 @@ procedure TMainForm.LayerListMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 var
   HitIndex: Integer;
+  EyeRight: Integer;
 begin
   if (Button <> mbLeft) or not Assigned(FLayerList) then
     Exit;
   HitIndex := FLayerList.ItemAtPos(Point(4, Y), True);
   if (HitIndex < 0) or (HitIndex >= FDocument.LayerCount) then
     Exit;
+
+  { Click in eye-icon area → toggle visibility }
+  EyeRight := 46 + 14 + 4; { EyeLeft + EyeSize + margin }
+  if X < EyeRight then
+  begin
+    FDocument.SetLayerVisibility(HitIndex, not FDocument.Layers[HitIndex].Visible);
+    InvalidatePreparedBitmap;
+    RefreshCanvas;
+    FLayerList.Invalidate;
+    if Assigned(FLayerVisibleCheck) then
+    begin
+      FUpdatingLayerControls := True;
+      FLayerVisibleCheck.Checked := FDocument.Layers[HitIndex].Visible;
+      FUpdatingLayerControls := False;
+    end;
+    Exit;
+  end;
+
   FLayerDragIndex := HitIndex;
   FLayerDragTargetIndex := HitIndex;
   FLayerList.ItemIndex := HitIndex;
@@ -8015,8 +8206,10 @@ begin
 
   { Tool shortcuts and single-letter color shortcuts should only run on
     plain keypresses (Shift is allowed for reverse-cycling). Command/Ctrl/Alt
-    combinations belong to menu shortcuts or tool-specific pointer gestures. }
-  if ToolShortcutUsesPlainKeyOnly(Shift) then
+    combinations belong to menu shortcuts or tool-specific pointer gestures.
+    Skip entirely when an inline text edit is active so typing works. }
+  if ToolShortcutUsesPlainKeyOnly(Shift)
+     and not (Assigned(FInlineTextEdit) and FInlineTextEdit.Visible) then
   begin
     NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
     if NewTool <> FCurrentTool then
@@ -8030,7 +8223,15 @@ begin
         FDocument.PushHistory('Deselect');
         FDocument.Deselect;
       end;
+      { Save current tool's options before switching }
+      FToolSize[FCurrentTool] := FBrushSize;
+      FToolOpacity[FCurrentTool] := FBrushOpacity;
+      FToolHardness[FCurrentTool] := FBrushHardness;
       FCurrentTool := NewTool;
+      { Restore new tool's remembered options }
+      FBrushSize := FToolSize[FCurrentTool];
+      FBrushOpacity := FToolOpacity[FCurrentTool];
+      FBrushHardness := FToolHardness[FCurrentTool];
       SyncToolComboSelection;
       UpdateToolOptionControl;
       UpdateStatusForTool; { refresh label/hint etc }
@@ -8039,12 +8240,6 @@ begin
     end;
 
     case UpCase(Char(Key)) of
-      'C':
-        begin
-          ToggleColorEditTarget;
-          RefreshColorsPanel;
-          Key := 0;
-        end;
       'X':
         begin
           SwapColorsClick(Sender);
@@ -8431,16 +8626,21 @@ begin
         begin
           if Assigned(FCanvasHost) then
           begin
-            FCanvasHost.HorzScrollBar.Position := PannedScrollPosition(
-              FCanvasHost.HorzScrollBar.Position,
-              X,
-              FLastPointerPoint.X
-            );
-            FCanvasHost.VertScrollBar.Position := PannedScrollPosition(
-              FCanvasHost.VertScrollBar.Position,
-              Y,
-              FLastPointerPoint.Y
-            );
+            FIsPanning := True;
+            try
+              FCanvasHost.HorzScrollBar.Position := PannedScrollPosition(
+                FCanvasHost.HorzScrollBar.Position,
+                X,
+                FLastPointerPoint.X
+              );
+              FCanvasHost.VertScrollBar.Position := PannedScrollPosition(
+                FCanvasHost.VertScrollBar.Position,
+                Y,
+                FLastPointerPoint.Y
+              );
+            finally
+              FIsPanning := False;
+            end;
             FLastScrollPosition := Point(
               FCanvasHost.HorzScrollBar.Position,
               FCanvasHost.VertScrollBar.Position
@@ -8630,6 +8830,47 @@ begin
   if Assigned(FPaintBox) then
     FPaintBox.Invalidate;
   RefreshStatus(FLastImagePoint);
+end;
+
+procedure TMainForm.ToolbarBtnMouseEnter(Sender: TObject);
+begin
+  if Sender is TSpeedButton then
+    TSpeedButton(Sender).Flat := False;
+end;
+
+procedure TMainForm.ToolbarBtnMouseLeave(Sender: TObject);
+begin
+  if Sender is TSpeedButton then
+    TSpeedButton(Sender).Flat := True;
+end;
+
+procedure TMainForm.FormResize(Sender: TObject);
+
+  procedure ClampPanel(APanel: TPanel);
+  var
+    Host: TWinControl;
+    MaxRight, MaxBottom: Integer;
+  begin
+    if (APanel = nil) or not APanel.Visible then Exit;
+    Host := APanel.Parent;
+    if Host = nil then Exit;
+    MaxRight := Host.ClientWidth;
+    MaxBottom := Host.ClientHeight;
+    if APanel.Left + APanel.Width > MaxRight then
+      APanel.Left := Max(0, MaxRight - APanel.Width);
+    if APanel.Top + APanel.Height > MaxBottom then
+      APanel.Top := Max(0, MaxBottom - APanel.Height);
+    if APanel.Left < 0 then
+      APanel.Left := 0;
+    if APanel.Top < 0 then
+      APanel.Top := 0;
+  end;
+
+begin
+  ClampPanel(FToolsPanel);
+  ClampPanel(FColorsPanel);
+  ClampPanel(FHistoryPanel);
+  ClampPanel(FRightPanel);
 end;
 
 procedure TMainForm.PlaceTextAtPoint(const AResult: TTextDialogResult;

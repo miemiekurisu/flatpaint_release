@@ -34,6 +34,9 @@ function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TTo
 
 implementation
 
+uses
+  FPI18n;
+
 const
   ToolDisplayOrder: array[0..22] of TToolKind = (
     tkSelectRect,
@@ -65,53 +68,53 @@ function PaintToolName(ATool: TToolKind): string;
 begin
   case ATool of
     tkPencil:
-      Result := 'Pencil';
+      Result := TR('Pencil', #$E9#$93#$85#$E7#$AC#$94);
     tkBrush:
-      Result := 'Brush';
+      Result := TR('Brush', #$E7#$94#$BB#$E7#$AC#$94);
     tkEraser:
-      Result := 'Eraser';
+      Result := TR('Eraser', #$E6#$A9#$A1#$E7#$9A#$AE#$E6#$93#$A6);
     tkFill:
-      Result := 'Paint Bucket';
+      Result := TR('Paint Bucket', #$E6#$B2#$B9#$E6#$BC#$86#$E6#$A1#$B6);
     tkGradient:
-      Result := 'Gradient';
+      Result := TR('Gradient', #$E6#$B8#$90#$E5#$8F#$98);
     tkLine:
-      Result := 'Line';
+      Result := TR('Line', #$E7#$9B#$B4#$E7#$BA#$BF);
     tkRectangle:
-      Result := 'Rectangle';
+      Result := TR('Rectangle', #$E7#$9F#$A9#$E5#$BD#$A2);
     tkRoundedRectangle:
-      Result := 'Rounded Rectangle';
+      Result := TR('Rounded Rectangle', #$E5#$9C#$86#$E8#$A7#$92#$E7#$9F#$A9#$E5#$BD#$A2);
     tkEllipseShape:
-      Result := 'Ellipse';
+      Result := TR('Ellipse', #$E6#$A4#$AD#$E5#$9C#$86);
     tkFreeformShape:
-      Result := 'Freeform Shape';
+      Result := TR('Freeform Shape', #$E8#$87#$AA#$E7#$94#$B1#$E5#$BD#$A2#$E7#$8A#$B6);
     tkSelectRect:
-      Result := 'Rectangle Select';
+      Result := TR('Rectangle Select', #$E7#$9F#$A9#$E5#$BD#$A2#$E9#$80#$89#$E6#$8B#$A9);
     tkSelectEllipse:
-      Result := 'Ellipse Select';
+      Result := TR('Ellipse Select', #$E6#$A4#$AD#$E5#$9C#$86#$E9#$80#$89#$E6#$8B#$A9);
     tkSelectLasso:
-      Result := 'Lasso Select';
+      Result := TR('Lasso Select', #$E5#$A5#$97#$E7#$B4#$A2#$E9#$80#$89#$E6#$8B#$A9);
     tkMagicWand:
-      Result := 'Magic Wand';
+      Result := TR('Magic Wand', #$E9#$AD#$94#$E6#$A3#$92);
     tkMoveSelection:
-      Result := 'Move Selection';
+      Result := TR('Move Selection', #$E7#$A7#$BB#$E5#$8A#$A8#$E9#$80#$89#$E5#$8C#$BA);
     tkMovePixels:
-      Result := 'Move Selected Pixels';
+      Result := TR('Move Selected Pixels', #$E7#$A7#$BB#$E5#$8A#$A8#$E5#$83#$8F#$E7#$B4#$A0);
     tkZoom:
-      Result := 'Zoom';
+      Result := TR('Zoom', #$E7#$BC#$A9#$E6#$94#$BE);
     tkPan:
-      Result := 'Pan';
+      Result := TR('Pan', #$E5#$B9#$B3#$E7#$A7#$BB);
     tkColorPicker:
-      Result := 'Color Picker';
+      Result := TR('Color Picker', #$E5#$8F#$96#$E8#$89#$B2#$E5#$99#$A8);
     tkCrop:
-      Result := 'Crop';
+      Result := TR('Crop', #$E8#$A3#$81#$E5#$89#$AA);
     tkText:
-      Result := 'Text';
+      Result := TR('Text', #$E6#$96#$87#$E6#$9C#$AC);
     tkCloneStamp:
-      Result := 'Clone Stamp';
+      Result := TR('Clone Stamp', #$E4#$BB#$BF#$E5#$88#$B6#$E5#$9B#$BE#$E7#$AB#$A0);
     tkRecolor:
-      Result := 'Recolor';
+      Result := TR('Recolor', #$E9#$87#$8D#$E6#$96#$B0#$E7#$9D#$80#$E8#$89#$B2);
   else
-    Result := 'Tool';
+    Result := TR('Tool', #$E5#$B7#$A5#$E5#$85#$B7);
   end;
 end;
 
@@ -119,53 +122,53 @@ function PaintToolHint(ATool: TToolKind): string;
 begin
   case ATool of
     tkPencil:
-      Result := 'Pencil paints hard-edged strokes';
+      Result := TR('Draws hard-edged freehand strokes', #$E7#$BB#$98#$E5#$88#$B6#$E7#$A1#$AC#$E8#$BE#$B9#$E7#$BC#$98#$E8#$87#$AA#$E7#$94#$B1#$E7#$AC#$94#$E8#$A7#$A6);
     tkBrush:
-      Result := 'Brush paints with the primary or secondary color';
+      Result := TR('Paints soft brush strokes with the foreground color', #$E4#$BD#$BF#$E7#$94#$A8#$E5#$89#$8D#$E6#$99#$AF#$E8#$89#$B2#$E7#$BB#$98#$E5#$88#$B6#$E6#$9F#$94#$E5#$92#$8C#$E7#$AC#$94#$E8#$A7#$A6);
     tkEraser:
-      Result := 'Eraser clears pixels to transparency';
+      Result := TR('Erases pixels to transparency', #$E5#$B0#$86#$E5#$83#$8F#$E7#$B4#$A0#$E6#$93#$A6#$E9#$99#$A4#$E4#$B8#$BA#$E9#$80#$8F#$E6#$98#$8E);
     tkFill:
-      Result := 'Paint Bucket floods adjacent pixels from the clicked point';
+      Result := TR('Fills similarly colored areas with the foreground color', #$E7#$94#$A8#$E5#$89#$8D#$E6#$99#$AF#$E8#$89#$B2#$E5#$A1#$AB#$E5#$85#$85#$E7#$9B#$B8#$E4#$BC#$BC#$E9#$A2#$9C#$E8#$89#$B2#$E5#$8C#$BA#$E5#$9F#$9F);
     tkGradient:
-      Result := 'Gradient drags from primary toward secondary color';
+      Result := TR('Creates a gradual blend between two colors', #$E5#$9C#$A8#$E4#$B8#$A4#$E7#$A7#$8D#$E9#$A2#$9C#$E8#$89#$B2#$E4#$B9#$8B#$E9#$97#$B4#$E5#$88#$9B#$E5#$BB#$BA#$E6#$B8#$90#$E5#$8F#$98#$E6#$B7#$B7#$E5#$90#$88);
     tkLine:
-      Result := 'Line drags a straight segment by default; enable the Bezier option to stage handles and keep chaining segments until Enter or right-click';
+      Result := TR('Draws straight line segments; enable Bezier to add curve handles', #$E7#$BB#$98#$E5#$88#$B6#$E7#$9B#$B4#$E7#$BA#$BF#$E6#$AE#$B5#$EF#$BC#$9B#$E5#$90#$AF#$E7#$94#$A8#$E8#$B4#$9D#$E5#$A1#$9E#$E5#$B0#$94#$E5#$8F#$AF#$E6#$B7#$BB#$E5#$8A#$A0#$E6#$9B#$B2#$E7#$BA#$BF#$E6#$89#$8B#$E6#$9F#$84);
     tkRectangle:
-      Result := 'Rectangle drags an outlined rectangle';
+      Result := TR('Draws rectangular shapes with optional fill', #$E7#$BB#$98#$E5#$88#$B6#$E7#$9F#$A9#$E5#$BD#$A2#$EF#$BC#$8C#$E5#$8F#$AF#$E9#$80#$89#$E5#$A1#$AB#$E5#$85#$85);
     tkRoundedRectangle:
-      Result := 'Rounded Rectangle drags an outlined rounded rectangle';
+      Result := TR('Draws rounded rectangular shapes with optional fill', #$E7#$BB#$98#$E5#$88#$B6#$E5#$9C#$86#$E8#$A7#$92#$E7#$9F#$A9#$E5#$BD#$A2#$EF#$BC#$8C#$E5#$8F#$AF#$E9#$80#$89#$E5#$A1#$AB#$E5#$85#$85);
     tkEllipseShape:
-      Result := 'Ellipse drags an outlined ellipse';
+      Result := TR('Draws ellipses and circles with optional fill', #$E7#$BB#$98#$E5#$88#$B6#$E6#$A4#$AD#$E5#$9C#$86#$E5#$92#$8C#$E5#$9C#$86#$EF#$BC#$8C#$E5#$8F#$AF#$E9#$80#$89#$E5#$A1#$AB#$E5#$85#$85);
     tkFreeformShape:
-      Result := 'Freeform Shape traces a closed freeform outline';
+      Result := TR('Draws a closed freehand shape with optional fill', #$E7#$BB#$98#$E5#$88#$B6#$E5#$B0#$81#$E9#$97#$AD#$E8#$87#$AA#$E7#$94#$B1#$E5#$BD#$A2#$E7#$8A#$B6#$EF#$BC#$8C#$E5#$8F#$AF#$E9#$80#$89#$E5#$A1#$AB#$E5#$85#$85);
     tkSelectRect:
-      Result := 'Rectangle Select drags a rectangular selection';
+      Result := TR('Creates a rectangular selection', #$E5#$88#$9B#$E5#$BB#$BA#$E7#$9F#$A9#$E5#$BD#$A2#$E9#$80#$89#$E5#$8C#$BA);
     tkSelectEllipse:
-      Result := 'Ellipse Select drags an elliptical selection';
+      Result := TR('Creates an elliptical selection', #$E5#$88#$9B#$E5#$BB#$BA#$E6#$A4#$AD#$E5#$9C#$86#$E9#$80#$89#$E5#$8C#$BA);
     tkSelectLasso:
-      Result := 'Lasso Select traces a freeform polygon';
+      Result := TR('Draws a freehand selection border', #$E7#$BB#$98#$E5#$88#$B6#$E8#$87#$AA#$E7#$94#$B1#$E9#$80#$89#$E5#$8C#$BA#$E8#$BE#$B9#$E7#$95#$8C);
     tkMagicWand:
-      Result := 'Magic Wand selects a contiguous color region';
+      Result := TR('Selects similarly colored connected areas', #$E9#$80#$89#$E6#$8B#$A9#$E9#$A2#$9C#$E8#$89#$B2#$E7#$9B#$B8#$E4#$BC#$BC#$E7#$9A#$84#$E8#$BF#$9E#$E6#$8E#$A5#$E5#$8C#$BA#$E5#$9F#$9F);
     tkMoveSelection:
-      Result := 'Move Selection repositions the current selection mask';
+      Result := TR('Moves the selection boundary without affecting pixels', #$E7#$A7#$BB#$E5#$8A#$A8#$E9#$80#$89#$E5#$8C#$BA#$E8#$BE#$B9#$E7#$95#$8C#$EF#$BC#$8C#$E4#$B8#$8D#$E5#$BD#$B1#$E5#$93#$8D#$E5#$83#$8F#$E7#$B4#$A0);
     tkMovePixels:
-      Result := 'Move Selected Pixels repositions selected pixels';
+      Result := TR('Moves the selected pixels to a new location', #$E5#$B0#$86#$E9#$80#$89#$E4#$B8#$AD#$E7#$9A#$84#$E5#$83#$8F#$E7#$B4#$A0#$E7#$A7#$BB#$E5#$8A#$A8#$E5#$88#$B0#$E6#$96#$B0#$E4#$BD#$8D#$E7#$BD#$AE);
     tkZoom:
-      Result := 'Zoom clicks in or out of the canvas view';
+      Result := TR('Magnifies or reduces the view of the canvas', #$E6#$94#$BE#$E5#$A4#$A7#$E6#$88#$96#$E7#$BC#$A9#$E5#$B0#$8F#$E7#$94#$BB#$E5#$B8#$83#$E8#$A7#$86#$E5#$9B#$BE);
     tkPan:
-      Result := 'Pan drags the viewport without changing pixels';
+      Result := TR('Scrolls the canvas within the window', #$E5#$9C#$A8#$E7#$AA#$97#$E5#$8F#$A3#$E5#$86#$85#$E6#$BB#$9A#$E5#$8A#$A8#$E7#$94#$BB#$E5#$B8#$83);
     tkColorPicker:
-      Result := 'Color Picker samples the composite image';
+      Result := TR('Samples a color from the canvas', #$E4#$BB#$8E#$E7#$94#$BB#$E5#$B8#$83#$E4#$B8#$8A#$E9#$87#$87#$E6#$A0#$B7#$E9#$A2#$9C#$E8#$89#$B2);
     tkCrop:
-      Result := 'Crop trims the canvas to a dragged rectangle';
+      Result := TR('Trims the canvas to a selected area', #$E5#$B0#$86#$E7#$94#$BB#$E5#$B8#$83#$E8#$A3#$81#$E5#$89#$AA#$E5#$88#$B0#$E9#$80#$89#$E5#$AE#$9A#$E5#$8C#$BA#$E5#$9F#$9F);
     tkText:
-      Result := 'Text clicks to type inline on the canvas; right-click or Option-click edits text style';
+      Result := TR('Adds and edits text on the canvas', #$E5#$9C#$A8#$E7#$94#$BB#$E5#$B8#$83#$E4#$B8#$8A#$E6#$B7#$BB#$E5#$8A#$A0#$E5#$92#$8C#$E7#$BC#$96#$E8#$BE#$91#$E6#$96#$87#$E6#$9C#$AC);
     tkCloneStamp:
-      Result := 'Clone Stamp samples with right-click or Option-click, then paints sampled pixels with the brush';
+      Result := TR('Paints with a sampled area of the image; Option-click to set source', #$E4#$BD#$BF#$E7#$94#$A8#$E5#$9B#$BE#$E5#$83#$8F#$E7#$9A#$84#$E9#$87#$87#$E6#$A0#$B7#$E5#$8C#$BA#$E5#$9F#$9F#$E7#$BB#$98#$E5#$88#$B6#$EF#$BC#$9B'Option+'#$E5#$8D#$95#$E5#$87#$BB#$E8#$AE#$BE#$E7#$BD#$AE#$E6#$BA#$90);
     tkRecolor:
-      Result := 'Recolor swaps active and inactive swatch colors within the brush tolerance';
+      Result := TR('Replaces a specific color with the foreground color within tolerance', #$E5#$9C#$A8#$E5#$AE#$B9#$E5#$B7#$AE#$E8#$8C#$83#$E5#$9B#$B4#$E5#$86#$85#$E7#$94#$A8#$E5#$89#$8D#$E6#$99#$AF#$E8#$89#$B2#$E6#$9B#$BF#$E6#$8D#$A2#$E7#$89#$B9#$E5#$AE#$9A#$E9#$A2#$9C#$E8#$89#$B2);
   else
-    Result := 'Ready';
+    Result := TR('Ready', #$E5#$B0#$B1#$E7#$BB#$AA);
   end;
 end;
 
@@ -226,17 +229,21 @@ end;
 function PaintToolShortcutKey(ATool: TToolKind): string;
 begin
   case ATool of
-    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand:
-      Result := 'S';
-    tkMoveSelection, tkMovePixels:
+    tkSelectRect, tkSelectEllipse:
       Result := 'M';
+    tkSelectLasso:
+      Result := 'L';
+    tkMagicWand:
+      Result := 'W';
+    tkMoveSelection, tkMovePixels:
+      Result := 'V';
+    tkCrop:
+      Result := 'C';
     tkZoom:
       Result := 'Z';
     tkPan:
       Result := 'H';
-    tkFill:
-      Result := 'F';
-    tkGradient:
+    tkFill, tkGradient:
       Result := 'G';
     tkPencil:
       Result := 'P';
@@ -245,13 +252,13 @@ begin
     tkEraser:
       Result := 'E';
     tkColorPicker:
-      Result := 'K';
+      Result := 'I';
     tkCloneStamp:
-      Result := 'L';
+      Result := 'S';
     tkRecolor:
-      Result := 'R';
+      Result := 'J';
     tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
-      Result := 'O';
+      Result := 'U';
     tkText:
       Result := 'T';
   else
@@ -265,15 +272,18 @@ var
 begin
   KeyLabel := PaintToolShortcutKey(ATool);
   if KeyLabel = '' then
-    Exit('No single-key shortcut is assigned');
+    Exit(TR('No single-key shortcut is assigned',
+            #$E6#$9C#$AA#$E5#$88#$86#$E9#$85#$8D#$E5#$8D#$95#$E9#$94#$AE#$E5#$BF#$AB#$E6#$8D#$B7#$E9#$94#$AE));
 
-  Result := 'Shortcut: ' + KeyLabel;
+  Result := TR('Shortcut: ', #$E5#$BF#$AB#$E6#$8D#$B7#$E9#$94#$AE#$EF#$BC#$9A) + KeyLabel;
   if ATool in [
-    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand,
+    tkSelectRect, tkSelectEllipse,
     tkMoveSelection, tkMovePixels,
+    tkFill, tkGradient,
     tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape
   ] then
-    Result := Result + ' (repeat to cycle related tools, Shift reverses)';
+    Result := Result + TR(' (repeat to cycle related tools, Shift reverses)',
+                          ' (' + #$E9#$87#$8D#$E5#$A4#$8D#$E6#$8C#$89#$E9#$94#$AE#$E5#$88#$87#$E6#$8D#$A2#$E7#$9B#$B8#$E5#$85#$B3#$E5#$B7#$A5#$E5#$85#$B7#$EF#$BC#$8C'Shift'#$E5#$8F#$8D#$E5#$90#$91 + ')');
 end;
 
 function PaintToolDisplayLabel(ATool: TToolKind): string;
@@ -391,20 +401,22 @@ begin
   Result := ACurrent;
   Rev := AReverse;
   case UpCase(AKey) of
-    'S': Cycle := [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
-    'M': Cycle := [tkMoveSelection, tkMovePixels];
+    'M': Cycle := [tkSelectRect, tkSelectEllipse];
+    'L': Cycle := [tkSelectLasso];
+    'W': Cycle := [tkMagicWand];
+    'V': Cycle := [tkMoveSelection, tkMovePixels];
+    'C': Cycle := [tkCrop];
     'Z': Cycle := [tkZoom];
     'H': Cycle := [tkPan];
-    'F': Cycle := [tkFill];
-    'G': Cycle := [tkGradient];
+    'G': Cycle := [tkFill, tkGradient];
     'B': Cycle := [tkBrush];
     'E': Cycle := [tkEraser];
     'P': Cycle := [tkPencil];
-    'K': Cycle := [tkColorPicker];
-    'L': Cycle := [tkCloneStamp];
-    'R': Cycle := [tkRecolor];
+    'I': Cycle := [tkColorPicker];
+    'S': Cycle := [tkCloneStamp];
+    'J': Cycle := [tkRecolor];
     'T': Cycle := [tkText];
-    'O': Cycle := [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
+    'U': Cycle := [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
   else
     Exit;
   end;

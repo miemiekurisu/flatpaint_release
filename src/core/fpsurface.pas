@@ -3103,6 +3103,7 @@ var
   Y: Integer;
   TargetX: Integer;
   TargetY: Integer;
+  Pixel: TRGBA32;
 begin
   if ASelection = nil then
     Exit;
@@ -3117,7 +3118,14 @@ begin
           TargetX := X + DeltaX;
           TargetY := Y + DeltaY;
           if InBounds(TargetX, TargetY) then
-            Pixels[TargetX, TargetY] := Copied[X, Y];
+          begin
+            Pixel := Copied[X, Y];
+            if Pixel.A = 255 then
+              Pixels[TargetX, TargetY] := Pixel
+            else if Pixel.A > 0 then
+              BlendPixel(TargetX, TargetY, Pixel, 255);
+            { A=0: skip — don't overwrite destination with fully transparent }
+          end;
         end;
   finally
     Copied.Free;

@@ -13,6 +13,9 @@ function WindowCaptionForDocument(const ADisplayFileName: string; AIsDirty: Bool
 
 implementation
 
+uses
+  FPI18n;
+
 function PixelGridMinScale: Double;
 begin
   Result := 8.0;
@@ -31,9 +34,9 @@ end;
 function SaveCommandCaption(AHasBoundFileName: Boolean): string;
 begin
   if AHasBoundFileName then
-    Result := '&Save'
+    Result := TR('&Save', '&' + #$E4#$BF#$9D#$E5#$AD#$98)
   else
-    Result := '&Save...';
+    Result := TR('&Save...', '&' + #$E4#$BF#$9D#$E5#$AD#$98 + '...');
 end;
 
 function NeedsDiscardConfirmation(AIsDirty: Boolean): Boolean;
@@ -44,7 +47,7 @@ end;
 function WindowCaptionForDocument(const ADisplayFileName: string; AIsDirty: Boolean): string;
 begin
   if AIsDirty then
-    Result := 'FlatPaint - ' + ADisplayFileName + ' (Edited)'
+    Result := 'FlatPaint - ' + ADisplayFileName + TR(' (Edited)', ' (' + #$E5#$B7#$B2#$E7#$BC#$96#$E8#$BE#$91 + ')')
   else
     Result := 'FlatPaint - ' + ADisplayFileName;
 end;

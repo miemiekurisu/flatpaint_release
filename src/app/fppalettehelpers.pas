@@ -37,12 +37,13 @@ function PaletteActiveRowColor: LongInt;
 function PaletteSelectionTextColor: LongInt;
 function PaletteSurfaceColor(APalette: TPaletteKind; ADragging: Boolean = False): LongInt;
 function PaletteHeaderColor(APalette: TPaletteKind; ADragging: Boolean = False): LongInt;
+function ToolButtonActiveColor: LongInt;
 function SnapPaletteRect(const ARect, AWorkspaceRect: TRect; AThreshold: Integer = 18): TRect;
 
 implementation
 
 uses
-  Math;
+  Math, FPI18n;
 
 const
   PaletteMargin = 12;
@@ -65,15 +66,15 @@ function PaletteTitle(APalette: TPaletteKind): string;
 begin
   case APalette of
     pkTools:
-      Result := 'Tools';
+      Result := TR('Tools', #$E5#$B7#$A5#$E5#$85#$B7);
     pkColors:
-      Result := 'Colors';
+      Result := TR('Colors', #$E9#$A2#$9C#$E8#$89#$B2);
     pkHistory:
-      Result := 'History';
+      Result := TR('History', #$E5#$8E#$86#$E5#$8F#$B2);
     pkLayers:
-      Result := 'Layers';
+      Result := TR('Layers', #$E5#$9B#$BE#$E5#$B1#$82);
   else
-    Result := 'Palette';
+    Result := TR('Palette', #$E8#$B0#$83#$E8#$89#$B2#$E6#$9D#$BF);
   end;
 end;
 
@@ -269,12 +270,14 @@ end;
 
 function PaletteSelectionColor: LongInt;
 begin
-  Result := RgbColor(219, 234, 254);
+  { macOS-style soft blue highlight (unemphasized selected content) }
+  Result := RgbColor(211, 227, 252);
 end;
 
 function PaletteActiveRowColor: LongInt;
 begin
-  Result := RgbColor(239, 246, 255);
+  { macOS alternating content background — neutral warm gray }
+  Result := RgbColor(244, 245, 246);
 end;
 
 function PaletteSelectionTextColor: LongInt;
@@ -284,64 +287,26 @@ end;
 
 function PaletteSurfaceColor(APalette: TPaletteKind; ADragging: Boolean): LongInt;
 begin
-  case APalette of
-    pkTools:
-      if ADragging then
-        Result := RgbColor(240, 245, 255)
-      else
-        Result := RgbColor(252, 252, 253);
-    pkColors:
-      if ADragging then
-        Result := RgbColor(238, 246, 255)
-      else
-        Result := RgbColor(251, 252, 254);
-    pkHistory:
-      if ADragging then
-        Result := RgbColor(240, 244, 251)
-      else
-        Result := RgbColor(251, 251, 252);
-    pkLayers:
-      if ADragging then
-        Result := RgbColor(238, 244, 255)
-      else
-        Result := RgbColor(250, 251, 253);
+  { macOS window-background inspired: light neutral gray, consistent across panels }
+  if ADragging then
+    Result := RgbColor(232, 234, 237)
   else
-    if ADragging then
-      Result := RgbColor(240, 245, 255)
-    else
-      Result := RgbColor(252, 252, 253);
-  end;
+    Result := RgbColor(246, 246, 248);
 end;
 
 function PaletteHeaderColor(APalette: TPaletteKind; ADragging: Boolean): LongInt;
 begin
-  case APalette of
-    pkTools:
-      if ADragging then
-        Result := RgbColor(226, 236, 252)
-      else
-        Result := RgbColor(243, 244, 246);
-    pkColors:
-      if ADragging then
-        Result := RgbColor(227, 238, 252)
-      else
-        Result := RgbColor(244, 245, 247);
-    pkHistory:
-      if ADragging then
-        Result := RgbColor(228, 234, 246)
-      else
-        Result := RgbColor(242, 243, 245);
-    pkLayers:
-      if ADragging then
-        Result := RgbColor(226, 235, 251)
-      else
-        Result := RgbColor(243, 244, 246);
+  { macOS toolbar-background inspired: neutral header, consistent across panels }
+  if ADragging then
+    Result := RgbColor(224, 226, 230)
   else
-    if ADragging then
-      Result := RgbColor(226, 236, 252)
-    else
-      Result := RgbColor(243, 244, 246);
-  end;
+    Result := RgbColor(238, 239, 241);
+end;
+
+function ToolButtonActiveColor: LongInt;
+begin
+  { macOS selectedContentBackgroundColor-inspired soft blue for active tool }
+  Result := RgbColor(211, 227, 252);
 end;
 
 function SnapPaletteRect(const ARect, AWorkspaceRect: TRect; AThreshold: Integer): TRect;
