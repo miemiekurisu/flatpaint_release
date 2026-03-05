@@ -1219,8 +1219,30 @@ var
   Y: Integer;
   TileColor: TRGBA32;
   PixelColor: TRGBA32;
+  DbgLayerPx: TRGBA32;
+  DbgCompPx: TRGBA32;
+  DbgI: Integer;
 begin
+  DbgLog(Format('[BuildDisplay] layers=%d activeIdx=%d lastPt=%d,%d', 
+    [FDocument.LayerCount, FDocument.ActiveLayerIndex, FLastImagePoint.X, FLastImagePoint.Y]));
+  for DbgI := 0 to FDocument.LayerCount - 1 do
+    DbgLog(Format('[BuildDisplay] layer[%d] visible=%s opacity=%d', 
+      [DbgI, BoolToStr(FDocument.Layers[DbgI].Visible, True), FDocument.Layers[DbgI].Opacity]));
+  if (FLastImagePoint.X >= 0) and (FLastImagePoint.X < FDocument.Width) and
+     (FLastImagePoint.Y >= 0) and (FLastImagePoint.Y < FDocument.Height) then
+  begin
+    DbgLayerPx := FDocument.ActiveLayer.Surface[FLastImagePoint.X, FLastImagePoint.Y];
+    DbgLog(Format('[BuildDisplay] ActiveLayer@lastPt=R%dG%dB%dA%d', 
+      [DbgLayerPx.R, DbgLayerPx.G, DbgLayerPx.B, DbgLayerPx.A]));
+  end;
   CompositeSurface := FDocument.Composite;
+  if (FLastImagePoint.X >= 0) and (FLastImagePoint.X < CompositeSurface.Width) and
+     (FLastImagePoint.Y >= 0) and (FLastImagePoint.Y < CompositeSurface.Height) then
+  begin
+    DbgCompPx := CompositeSurface[FLastImagePoint.X, FLastImagePoint.Y];
+    DbgLog(Format('[BuildDisplay] Composite@lastPt=R%dG%dB%dA%d', 
+      [DbgCompPx.R, DbgCompPx.G, DbgCompPx.B, DbgCompPx.A]));
+  end;
   try
     { Reuse FDisplaySurface to avoid a heap alloc + free on every repaint trigger.
       Only reallocate when the document dimensions change. }
@@ -7633,6 +7655,7 @@ begin
   ResetLineCurveState;
   FTempToolActive := False;
   FCurrentTool := TToolKind(TControl(Sender).Tag);
+  DbgLog(Format('[ToolButtonClick] switched to tool=%d', [Ord(FCurrentTool)]));
   SyncToolComboSelection;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -8168,6 +8191,7 @@ procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shi
 var
   ImagePoint: TPoint;
 begin
+  DbgLog(Format('[MouseDown-TOP] tool=%d btn=%d pointerDown=%s', [Ord(FCurrentTool), Ord(Button), BoolToStr(FPointerDown, True)]));
   if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
     SealPendingStrokeHistory;
   if Button = mbMiddle then
