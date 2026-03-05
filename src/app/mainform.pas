@@ -6201,7 +6201,15 @@ var
   DoOutline: Boolean;
   FillColor: TRGBA32;
   PaintSelection: TSelectionMask;
+  DbgBefore, DbgAfter: TRGBA32;
 begin
+  DbgLog(Format('[CommitShapeTool] tool=%d start=(%d,%d) end=(%d,%d) brushSize=%d', [Ord(FCurrentTool), AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y, FBrushSize]));
+  DbgLog(Format('[CommitShapeTool] activeColor=R%dG%dB%dA%d shapeStyle=%d layerIdx=%d', [ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A, FShapeStyle, FDocument.ActiveLayerIndex]));
+  if FDocument.ActiveLayer.Surface.InBounds(AEndPoint.X, AEndPoint.Y) then
+  begin
+    DbgBefore := FDocument.ActiveLayer.Surface[AEndPoint.X, AEndPoint.Y];
+    DbgLog(Format('[CommitShapeTool] BEFORE pixel@end=R%dG%dB%dA%d', [DbgBefore.R, DbgBefore.G, DbgBefore.B, DbgBefore.A]));
+  end;
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
   DoFill := FShapeStyle in [1, 2];
@@ -6360,6 +6368,12 @@ begin
           );
       end;
   end;
+  if FDocument.ActiveLayer.Surface.InBounds(AEndPoint.X, AEndPoint.Y) then
+  begin
+    DbgAfter := FDocument.ActiveLayer.Surface[AEndPoint.X, AEndPoint.Y];
+    DbgLog(Format('[CommitShapeTool] AFTER pixel@end=R%dG%dB%dA%d', [DbgAfter.R, DbgAfter.G, DbgAfter.B, DbgAfter.A]));
+  end;
+  DbgLog(Format('[CommitShapeTool] undoDepth=%d', [FDocument.UndoDepth]));
 end;
 
 procedure TMainForm.ResetDocument(AWidth, AHeight: Integer);
@@ -8559,9 +8573,14 @@ begin
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
   if Assigned(FPreStrokeSnapshot) then
+  begin
+    DbgLog(Format('[MouseUp] committing stroke for tool=%d dirtyRect=(%d,%d,%d,%d)', [Ord(FStrokeTool), FStrokeDirtyRect.Left, FStrokeDirtyRect.Top, FStrokeDirtyRect.Right, FStrokeDirtyRect.Bottom]));
     CommitStrokeHistory(PaintToolName(FStrokeTool));
+    DbgLog(Format('[MouseUp] afterStrokeCommit undoDepth=%d', [FDocument.UndoDepth]));
+  end;
   ImagePoint := CanvasToImage(X, Y);
   FLastImagePoint := ImagePoint;
+  DbgLog(Format('[MouseUp] imagePoint=(%d,%d) tool=%d FDocument=%p', [ImagePoint.X, ImagePoint.Y, Ord(FCurrentTool), Pointer(FDocument)]));
 
   if FCurrentTool = tkLine then
   begin
