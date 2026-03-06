@@ -79,6 +79,7 @@ type
     FIsPanning: Boolean;
     FPointerButton: TMouseButton;
     FDragStart: TPoint;
+    FShiftConstrain: Boolean;  { True while Shift is held during shape drag }
     FLineBezierMode: Boolean;
     FLinePathOpen: Boolean;
     FLineCurvePending: Boolean;
@@ -1845,7 +1846,7 @@ var
   begin
     if not Assigned(ALabel) or not ALabel.Visible then Exit;
     ALabel.Left := X;
-    ALabel.Top := OptionsBarLabelTop;
+    ALabel.Top := (OptionsBarHeight - ALabel.Height) div 2;
     Inc(X, ALabel.Width + LabelGap);
   end;
 
@@ -1853,17 +1854,17 @@ var
   begin
     if not Assigned(AControl) or not AControl.Visible then Exit;
     AControl.Left := X;
-    if AControl is TCheckBox then
-      AControl.Top := OptionsBarCheckTop
-    else
-      AControl.Top := OptionsBarControlTop;
+    AControl.Top := (OptionsBarHeight - AControl.Height) div 2;
     Inc(X, AControl.Width + GroupGap);
   end;
 
 begin
-  { Compute start X from tool name label + divider }
+  { Vertically center the tool name label }
   if Assigned(FToolNameLabel) then
-    X := OptionsBarToolLabelLeft + FToolNameLabel.Width + OptionsBarDividerGap
+  begin
+    FToolNameLabel.Top := (OptionsBarHeight - FToolNameLabel.Height) div 2;
+    X := OptionsBarToolLabelLeft + FToolNameLabel.Width + OptionsBarDividerGap;
+  end
   else
     X := OptionsBarToolLabelLeft + 80;
   { Position the vertical divider between tool name and parameters }
@@ -7036,6 +7037,65 @@ begin
   FLastImagePoint := APoint;
 end;
 
+{ ConstrainShapePoint — apply Shift-key constraints (Photoshop-style).
+  For rectangles/ellipses: force equal width and height (square/circle).
+  For lines: snap angle to nearest 45 degree increment. }
+function ConstrainShapePoint(const AOrigin, ACurrent: TPoint; ATool: TToolKind): TPoint;
+var
+  DX, DY: Integer;
+  Dist: Integer;
+  Angle: Double;
+  SnapAngle: Double;
+  Len: Double;
+begin
+  DX := ACurrent.X - AOrigin.X;
+  DY := ACurrent.Y - AOrigin.Y;
+  case ATool of
+    tkRectangle, tkRoundedRectangle, tkSelectRect, tkCrop:
+      begin
+        { Square constraint — use the larger dimension for both axes }
+        Dist := Max(Abs(DX), Abs(DY));
+        if DX < 0 then
+          Result.X := AOrigin.X - Dist
+        else
+          Result.X := AOrigin.X + Dist;
+        if DY < 0 then
+          Result.Y := AOrigin.Y - Dist
+        else
+          Result.Y := AOrigin.Y + Dist;
+      end;
+    tkEllipseShape, tkSelectEllipse:
+      begin
+        { Circle constraint — use the larger dimension for both axes }
+        Dist := Max(Abs(DX), Abs(DY));
+        if DX < 0 then
+          Result.X := AOrigin.X - Dist
+        else
+          Result.X := AOrigin.X + Dist;
+        if DY < 0 then
+          Result.Y := AOrigin.Y - Dist
+        else
+          Result.Y := AOrigin.Y + Dist;
+      end;
+    tkLine, tkGradient:
+      begin
+        { Snap angle to nearest 45-degree increment }
+        Len := Sqrt(Sqr(Double(DX)) + Sqr(Double(DY)));
+        if Len < 1 then
+        begin
+          Result := ACurrent;
+          Exit;
+        end;
+        Angle := ArcTan2(-DY, DX);  { Standard math: Y up = positive }
+        SnapAngle := Round(Angle / (Pi / 4)) * (Pi / 4);
+        Result.X := AOrigin.X + Round(Len * Cos(SnapAngle));
+        Result.Y := AOrigin.Y - Round(Len * Sin(SnapAngle));
+      end;
+  else
+    Result := ACurrent;
+  end;
+end;
+
 procedure TMainForm.CommitShapeTool(const AStartPoint, AEndPoint: TPoint);
 var
   DoFill: Boolean;
@@ -9559,7 +9619,11 @@ begin
         end;
       tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop:
         begin
-          FLastImagePoint := ImagePoint;
+          FShiftConstrain := ssShift in Shift;
+          if FShiftConstrain then
+            FLastImagePoint := ConstrainShapePoint(FDragStart, ImagePoint, FCurrentTool)
+          else
+            FLastImagePoint := ImagePoint;
           RefreshCanvas;
         end;
       tkRecolor:
@@ -9586,7 +9650,8 @@ begin
     else
       FLineCurveControlPoint := ImagePoint;
   end;
-  if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels]) then
+  if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels,
+    tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop]) then
     FLastImagePoint := ImagePoint;
   if (not FPointerDown) and Assigned(FPaintBox) and
      (
@@ -9618,6 +9683,12 @@ begin
     CommitStrokeHistory(PaintToolName(FStrokeTool));
   end;
   ImagePoint := CanvasToImage(X, Y);
+  { Apply Shift-key constraint for shape tools }
+  if (ssShift in Shift) and (FCurrentTool in [tkLine, tkGradient,
+    tkRectangle, tkRoundedRectangle, tkEllipseShape,
+    tkSelectRect, tkSelectEllipse, tkCrop]) then
+    ImagePoint := ConstrainShapePoint(FDragStart, ImagePoint, FCurrentTool);
+  FShiftConstrain := False;
   FLastImagePoint := ImagePoint;
 
   if FCurrentTool = tkLine then
