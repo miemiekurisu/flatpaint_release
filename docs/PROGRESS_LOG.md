@@ -4,6 +4,25 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 3 tail: brush/recolor/clone stroke writes routed through guarded core surface access)
+
+### Changes
+
+1. **Added guarded mutable-surface core entry for active-layer tool writes** — `TImageDocument` now exposes `MutableActiveLayerSurface`, which returns a writable surface only when `MutationGuard` allows active-layer pixel mutation.
+
+2. **High-frequency brush-like write loops now use core guard-coupled surface access** — `ApplyImmediateTool` brush/eraser/recolor/clone branches were rerouted to use `MutableActiveLayerSurface` instead of unconditional `ActiveLayer.Surface` writes.
+
+3. **A3 tail risk reduced for in-flight stroke routes** — when lock/editability state changes between drag steps, subsequent high-frequency writes now naturally short-circuit at the core guard entry, reducing route-specific invariant drift.
+
+4. **Mutation-guard suite expanded for the new core entry** — added `MutableActiveLayerSurfaceRespectsLockState` in `mutation_guard_tests`.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `270` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
 ## 2026-03-06 (Phase 3 tail: interactive shape/fill/crop commits moved to begin-mutation guards)
 
 ### Changes

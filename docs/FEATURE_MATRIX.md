@@ -7,7 +7,7 @@
 
 ## Evidence snapshot (2026-03-06)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `./dist/flatpaint_tests --all` => 268 tests, 0 failures.
+- Test status: `bash ./scripts/run_tests_ci.sh` => 270 tests, 0 failures.
 - Consequence: regression gate is clean; remaining risk is parity depth and architecture follow-up phases, not immediate failing-suite blockers.
 
 ## Status legend
@@ -35,7 +35,7 @@
 | Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | Shortcut mapping/hint/cycle regressions in `TFPUIHelpersTests` are closed; suite is green. |
 | Iconography | Cohesive icon surface across command/tool/utility controls | Partial | Medium | Runtime icon pipeline exists; final spacing/density and polish remain open. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
-| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 268 tests, 0 failures. |
+| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 270 tests, 0 failures. |
 
 ## Current insufficient items (must close for release confidence)
 1. Route-level parity debt (documented, not fully closed):
@@ -50,7 +50,7 @@
 
 4. Architecture tail debt (active pre-A6 work):
 - layer offset metadata is persisted, but compositor/tool math is still compatibility-mode (not fully offset-driven)
-- stroke history capture cost improved, and lock/history coupling now covers menu/effect + move-pixels + interactive shape/fill/crop commit routes, but brush/recolor/clone high-frequency mutation loops still rely on app-layer direct-surface orchestration
+- stroke history capture cost improved, and lock/history coupling now covers menu/effect + move-pixels + interactive shape/fill/crop commit routes + high-frequency brush/recolor/clone/eraser loops through guarded mutable-surface access; residual A3 debt is now limited to lower-frequency legacy direct-surface commit helpers
 
 ## Explicitly deferred
 - Third-party plugin ecosystem compatibility

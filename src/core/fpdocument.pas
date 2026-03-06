@@ -136,6 +136,7 @@ type
     procedure PushHistory(const ALabel: string = 'Change');
     function BeginActiveLayerMutation(const ALabel: string = 'Change'): Boolean;
     function BeginDocumentMutation(const ALabel: string = 'Change'): Boolean;
+    function MutableActiveLayerSurface: TRasterSurface;
     { Push a region snapshot with already-captured before-pixels (ownership is transferred). }
     procedure PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
     function CanUndo: Boolean;
@@ -517,6 +518,14 @@ begin
   Result := CanMutateDocumentPixels;
   if Result then
     PushHistory(ALabel);
+end;
+
+function TImageDocument.MutableActiveLayerSurface: TRasterSurface;
+begin
+  if CanMutateActiveLayerPixels then
+    Result := ActiveLayer.Surface
+  else
+    Result := nil;
 end;
 
 procedure TImageDocument.PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);

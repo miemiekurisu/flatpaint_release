@@ -7003,6 +7003,7 @@ var
   StrokeStep: Integer;
   StepX, StepY: Integer;
   StrokeRadius: Integer;
+  MutableSurface: TRasterSurface;
 begin
   if FDocument.HasSelection then
     PaintSelection := FDocument.Selection
@@ -7011,95 +7012,115 @@ begin
   case FCurrentTool of
     tkPencil:
       begin
-        StrokeRadius := Max(0, (FBrushSize - 1) div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-        FDocument.ActiveLayer.Surface.DrawLine(
-          FLastImagePoint.X,
-          FLastImagePoint.Y,
-          APoint.X,
-          APoint.Y,
-          StrokeRadius,
-          ActivePaintColor,
-          FBrushOpacity * 255 div 100,
-          255, { pencil always hard }
-          PaintSelection
-        );
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
+        begin
+          StrokeRadius := Max(0, (FBrushSize - 1) div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+          MutableSurface.DrawLine(
+            FLastImagePoint.X,
+            FLastImagePoint.Y,
+            APoint.X,
+            APoint.Y,
+            StrokeRadius,
+            ActivePaintColor,
+            FBrushOpacity * 255 div 100,
+            255, { pencil always hard }
+            PaintSelection
+          );
+        end;
       end;
     tkBrush:
       begin
-        StrokeRadius := Max(1, FBrushSize div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-        FDocument.ActiveLayer.Surface.DrawLine(
-          FLastImagePoint.X,
-          FLastImagePoint.Y,
-          APoint.X,
-          APoint.Y,
-          StrokeRadius,
-          ActivePaintColor,
-          FBrushOpacity * 255 div 100,
-          FBrushHardness * 255 div 100,
-          PaintSelection
-        );
-      end;
-    tkEraser:
-      if FDocument.ActiveLayer.IsBackground then
-      begin
-        StrokeRadius := Max(1, FBrushSize div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-        if FEraserSquareShape then
-          FDocument.ActiveLayer.Surface.DrawSquareLine(
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
+        begin
+          StrokeRadius := Max(1, FBrushSize div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+          MutableSurface.DrawLine(
             FLastImagePoint.X,
             FLastImagePoint.Y,
             APoint.X,
             APoint.Y,
             StrokeRadius,
-            BackgroundToolColor,
-            FBrushOpacity * 255 div 100,
-            FBrushHardness * 255 div 100,
-            PaintSelection
-          )
-        else
-          FDocument.ActiveLayer.Surface.DrawLine(
-            FLastImagePoint.X,
-            FLastImagePoint.Y,
-            APoint.X,
-            APoint.Y,
-            StrokeRadius,
-            BackgroundToolColor,
+            ActivePaintColor,
             FBrushOpacity * 255 div 100,
             FBrushHardness * 255 div 100,
             PaintSelection
           );
+        end;
+      end;
+    tkEraser:
+      if FDocument.ActiveLayer.IsBackground then
+      begin
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
+        begin
+          StrokeRadius := Max(1, FBrushSize div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+          if FEraserSquareShape then
+            MutableSurface.DrawSquareLine(
+              FLastImagePoint.X,
+              FLastImagePoint.Y,
+              APoint.X,
+              APoint.Y,
+              StrokeRadius,
+              BackgroundToolColor,
+              FBrushOpacity * 255 div 100,
+              FBrushHardness * 255 div 100,
+              PaintSelection
+            )
+          else
+            MutableSurface.DrawLine(
+              FLastImagePoint.X,
+              FLastImagePoint.Y,
+              APoint.X,
+              APoint.Y,
+              StrokeRadius,
+              BackgroundToolColor,
+              FBrushOpacity * 255 div 100,
+              FBrushHardness * 255 div 100,
+              PaintSelection
+            );
+        end;
       end
       else if FEraserSquareShape then
       begin
-        StrokeRadius := Max(1, FBrushSize div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-        FDocument.ActiveLayer.Surface.EraseSquareLine(
-          FLastImagePoint.X,
-          FLastImagePoint.Y,
-          APoint.X,
-          APoint.Y,
-          StrokeRadius,
-          FBrushOpacity * 255 div 100,
-          FBrushHardness * 255 div 100,
-          PaintSelection
-        );
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
+        begin
+          StrokeRadius := Max(1, FBrushSize div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+          MutableSurface.EraseSquareLine(
+            FLastImagePoint.X,
+            FLastImagePoint.Y,
+            APoint.X,
+            APoint.Y,
+            StrokeRadius,
+            FBrushOpacity * 255 div 100,
+            FBrushHardness * 255 div 100,
+            PaintSelection
+          );
+        end;
       end
       else
       begin
-        StrokeRadius := Max(1, FBrushSize div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-        FDocument.ActiveLayer.Surface.EraseLine(
-          FLastImagePoint.X,
-          FLastImagePoint.Y,
-          APoint.X,
-          APoint.Y,
-          StrokeRadius,
-          FBrushOpacity * 255 div 100,
-          FBrushHardness * 255 div 100,
-          PaintSelection
-        );
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
+        begin
+          StrokeRadius := Max(1, FBrushSize div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+          MutableSurface.EraseLine(
+            FLastImagePoint.X,
+            FLastImagePoint.Y,
+            APoint.X,
+            APoint.Y,
+            StrokeRadius,
+            FBrushOpacity * 255 div 100,
+            FBrushHardness * 255 div 100,
+            PaintSelection
+          );
+        end;
       end;
     tkFill:
       begin
@@ -7162,97 +7183,105 @@ begin
       end;
     tkRecolor:
       begin
-        { Interpolate along the stroke path from FLastImagePoint to APoint,
-          applying the recolor brush at regular spacing intervals.
-          Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
-        Radius := Max(1, FBrushSize div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
-        StrokeSpacing := Max(1, Radius div 2);
-        StrokeDX := APoint.X - FLastImagePoint.X;
-        StrokeDY := APoint.Y - FLastImagePoint.Y;
-        StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
-        if StrokeDist < 1 then
-          StrokeSteps := 1
-        else
-          StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
-        for StrokeStep := 0 to StrokeSteps - 1 do
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
         begin
-          if StrokeSteps = 1 then
-          begin
-            StepX := APoint.X;
-            StepY := APoint.Y;
-          end
+          { Interpolate along the stroke path from FLastImagePoint to APoint,
+            applying the recolor brush at regular spacing intervals.
+            Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
+          Radius := Max(1, FBrushSize div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
+          StrokeSpacing := Max(1, Radius div 2);
+          StrokeDX := APoint.X - FLastImagePoint.X;
+          StrokeDY := APoint.Y - FLastImagePoint.Y;
+          StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
+          if StrokeDist < 1 then
+            StrokeSteps := 1
           else
+            StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
+          for StrokeStep := 0 to StrokeSteps - 1 do
           begin
-            StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
-            StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
+            if StrokeSteps = 1 then
+            begin
+              StepX := APoint.X;
+              StepY := APoint.Y;
+            end
+            else
+            begin
+              StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
+              StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
+            end;
+            MutableSurface.RecolorBrush(
+              StepX,
+              StepY,
+              Radius,
+              ColorForActiveTarget(not FPickSecondaryTarget),
+              ActivePaintColor,
+              EnsureRange(FRecolorTolerance, 0, 255),
+              FBrushOpacity * 255 div 100,
+              FRecolorPreserveValue,
+              PaintSelection
+            );
           end;
-          FDocument.ActiveLayer.Surface.RecolorBrush(
-            StepX,
-            StepY,
-            Radius,
-            ColorForActiveTarget(not FPickSecondaryTarget),
-            ActivePaintColor,
-            EnsureRange(FRecolorTolerance, 0, 255),
-            FBrushOpacity * 255 div 100,
-            FRecolorPreserveValue,
-            PaintSelection
-          );
         end;
       end;
     tkCloneStamp:
       if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
       begin
-        { Interpolate along the stroke path from FLastImagePoint to APoint,
-          stamping at regular spacing intervals.
-          Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
-        Radius := Max(1, FBrushSize div 2);
-        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
-        StrokeSpacing := Max(1, Radius div 2);
-        StrokeDX := APoint.X - FLastImagePoint.X;
-        StrokeDY := APoint.Y - FLastImagePoint.Y;
-        StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
-        if StrokeDist < 1 then
-          StrokeSteps := 1
-        else
-          StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
-        for StrokeStep := 0 to StrokeSteps - 1 do
+        MutableSurface := FDocument.MutableActiveLayerSurface;
+        if MutableSurface <> nil then
         begin
-          if StrokeSteps = 1 then
-          begin
-            StepX := APoint.X;
-            StepY := APoint.Y;
-          end
+          { Interpolate along the stroke path from FLastImagePoint to APoint,
+            stamping at regular spacing intervals.
+            Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
+          Radius := Max(1, FBrushSize div 2);
+          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
+          StrokeSpacing := Max(1, Radius div 2);
+          StrokeDX := APoint.X - FLastImagePoint.X;
+          StrokeDY := APoint.Y - FLastImagePoint.Y;
+          StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
+          if StrokeDist < 1 then
+            StrokeSteps := 1
           else
+            StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
+          for StrokeStep := 0 to StrokeSteps - 1 do
           begin
-            StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
-            StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
-          end;
-          for DestY := Max(0, StepY - Radius) to Min(FDocument.Height - 1, StepY + Radius) do
-            for DestX := Max(0, StepX - Radius) to Min(FDocument.Width - 1, StepX + Radius) do
+            if StrokeSteps = 1 then
             begin
-              if Round(Sqrt(Sqr(DestX - StepX) + Sqr(DestY - StepY))) > Radius then
-                Continue;
-              if FCloneAligned and FCloneAlignedOffsetValid then
-              begin
-                SourceX := DestX + FCloneAlignedOffset.X;
-                SourceY := DestY + FCloneAlignedOffset.Y;
-              end
-              else
-              begin
-                SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
-                SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
-              end;
-              if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
-                Continue;
-              FDocument.ActiveLayer.Surface.BlendPixel(
-                DestX,
-                DestY,
-                FCloneStampSnapshot[SourceX, SourceY],
-                FBrushOpacity * 255 div 100,
-                PaintSelection
-              );
+              StepX := APoint.X;
+              StepY := APoint.Y;
+            end
+            else
+            begin
+              StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
+              StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
             end;
+            for DestY := Max(0, StepY - Radius) to Min(FDocument.Height - 1, StepY + Radius) do
+              for DestX := Max(0, StepX - Radius) to Min(FDocument.Width - 1, StepX + Radius) do
+              begin
+                if Round(Sqrt(Sqr(DestX - StepX) + Sqr(DestY - StepY))) > Radius then
+                  Continue;
+                if FCloneAligned and FCloneAlignedOffsetValid then
+                begin
+                  SourceX := DestX + FCloneAlignedOffset.X;
+                  SourceY := DestY + FCloneAlignedOffset.Y;
+                end
+                else
+                begin
+                  SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
+                  SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
+                end;
+                if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
+                  Continue;
+                MutableSurface.BlendPixel(
+                  DestX,
+                  DestY,
+                  FCloneStampSnapshot[SourceX, SourceY],
+                  FBrushOpacity * 255 div 100,
+                  PaintSelection
+                );
+              end;
+          end;
         end;
       end;
   end;

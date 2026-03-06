@@ -10,6 +10,7 @@ uses
 type
   TMutationGuardTests = class(TTestCase)
   published
+    procedure MutableActiveLayerSurfaceRespectsLockState;
     procedure BeginActiveLayerMutationRespectsLockAndHistory;
     procedure BeginDocumentMutationRespectsLockAndHistory;
     procedure LockedActiveLayerBlocksAdjustmentMutation;
@@ -20,6 +21,27 @@ type
   end;
 
 implementation
+
+procedure TMutationGuardTests.MutableActiveLayerSurfaceRespectsLockState;
+var
+  Doc: TImageDocument;
+  Surface: TRasterSurface;
+begin
+  Doc := TImageDocument.Create(4, 4);
+  try
+    Surface := Doc.MutableActiveLayerSurface;
+    AssertTrue('unlocked layer should expose mutable surface', Assigned(Surface));
+    Surface[1, 1] := RGBA(12, 34, 56, 255);
+    AssertEquals('write through mutable surface should apply when unlocked', 12, Doc.ActiveLayer.Surface[1, 1].R);
+
+    Doc.ActiveLayer.Locked := True;
+    Surface := Doc.MutableActiveLayerSurface;
+    AssertFalse('locked layer should not expose mutable surface', Assigned(Surface));
+    AssertEquals('locked state should preserve prior written red channel', 12, Doc.ActiveLayer.Surface[1, 1].R);
+  finally
+    Doc.Free;
+  end;
+end;
 
 procedure TMutationGuardTests.BeginActiveLayerMutationRespectsLockAndHistory;
 var

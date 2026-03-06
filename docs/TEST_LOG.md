@@ -4,6 +4,15 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 3 tail: guarded mutable-surface routing for brush/recolor/clone writes)
+- Full CI verification after adding `MutableActiveLayerSurface`, rerouting high-frequency brush-like mutation loops in `ApplyImmediateTool`, and expanding mutation-guard coverage: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `270` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TMutationGuardTests`:
+    - `MutableActiveLayerSurfaceRespectsLockState`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-06 (Phase 3 tail: interactive shape/fill/crop begin-mutation routing)
 - Full CI verification after moving pointer-driven fill/shape/crop commit paths and pending-bezier segment commit to guard-aware begin-mutation entry points: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `269` tests, `0` errors, `0` failures.

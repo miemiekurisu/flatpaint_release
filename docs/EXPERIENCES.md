@@ -16,6 +16,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-06 (high-frequency brush-like loops can drift from lock invariants even after menu/controller guard migration)
+- Problem: brush/recolor/clone/eraser drag loops in `ApplyImmediateTool` still wrote pixels through direct `ActiveLayer.Surface` handles.
+- Core error: high-frequency stroke writes bypassed the new core mutation-entry pattern and depended on outer UI route assumptions.
+- Investigation: re-audited direct-surface mutation lines in `mainform` and traced lock-sensitive write loops that were outside earlier begin-mutation/controller migrations.
+- Root cause: A3 migration closed menu/effect/controller routes first, but stroke-loop write handles remained as legacy direct-surface access.
+- Fix: added `MutableActiveLayerSurface` in `TImageDocument` and rerouted brush/recolor/clone/eraser write loops to this guard-coupled core entry; added `MutableActiveLayerSurfaceRespectsLockState` regression.
+- Reuse note: for interactive tools, do not keep long-lived direct surface handles in UI code; always reacquire writable surface through a guarded core entry per apply step.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-06 (interactive pointer commit paths are another no-op history side channel)
 - Problem: even after menu/effect and controller fixes, several mouse-driven commit flows (fill/shape/crop/bezier-segment) still pushed history before mutation guard checks.
 - Core error: guard-history coupling was incomplete across interaction routes; pointer commits still used legacy `PushHistory` preambles.
