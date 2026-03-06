@@ -1,5 +1,28 @@
 # Development Progress Log
 
+## 2026-03-06 (code-first baseline realignment: PRD/Feature Matrix/SOW + latest verification)
+
+### Changes
+
+1. **Source-of-truth order updated to code-first** — `docs/PRD.md` now explicitly defines current implemented code behavior and automated tests as the authoritative product state, with docs required to follow code when conflicts exist.
+
+2. **UI authority clarified to Figma baseline** — `docs/PRD.md` and `docs/FEATURE_MATRIX.md` now align with the active visual baseline in `flatpaint_design`/`docs/UI_PARITY_AUDIT.md` instead of treating old paint.net visual parity text as authoritative for layout.
+
+3. **Intentional UI deltas documented** — Explicitly tracked that the product intentionally keeps a separate tool-options row, four floating utility palettes, a persistent tab strip, and a dense status strip even when the Figma prototype compresses or omits some of those surfaces.
+
+4. **SOW architecture corrected** — `docs/SOW.md` no longer references Swift package targets; architecture and delivery language now match the active FPC + Lazarus implementation.
+
+5. **Feature matrix rewritten from code/test evidence** — `docs/FEATURE_MATRIX.md` was replaced with a code-backed status table (`Implemented` / `Partial` / `Blocked`) tied to the latest local build/test evidence.
+
+6. **Current regression truth recorded** — Test status is now explicitly captured as of this session: `236` tests executed, `8` failures; this is treated as a release blocker in docs instead of being masked by older optimistic completion text.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **failed**, `236` tests, `8` failures (`TFPUIHelpersTests`, `TFPPaletteHelpersTests`)
+- `bash ./scripts/build.sh`
+  - Result: **passed**, app linked and `dist/FlatPaint.app` refreshed
+
 ## 2026-03-05 (UI/UX polish pass: Preferences menu, close-tab save logic, effect dialog sliders, layer list rewrite, layer lock, toolbar spacing, i18n verification)
 
 ### Changes

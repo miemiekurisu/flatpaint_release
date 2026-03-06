@@ -1,5 +1,15 @@
 # Test Log
 
+## 2026-03-06 (docs/code baseline alignment audit)
+- Full regression run after code-vs-doc alignment audit: `bash ./scripts/run_tests_ci.sh`
+- Result: failed; 236 tests, 0 errors, 8 failures.
+- Failing suites:
+  - `TFPUIHelpersTests` (shortcut/hint/cycle mapping contracts)
+  - `TFPPaletteHelpersTests` (colors panel width contract)
+- GUI build verification in the same session: `bash ./scripts/build.sh`
+- Result: passed; app linked and `dist/FlatPaint.app` refreshed.
+- Follow-up rule: current feature completion and release readiness must be assessed against this failing test state until regressions are closed.
+
 ## 2026-03-05 (six bug fixes + 18 pipeline integration tests)
 - Full CI verification after fixing 6 bugs (OnKeyUp not wired, FTempToolActive not cleared, history panel not refreshed, GMainForm dangling pointer, PushHistory ordering in LayerRotateZoomClick, clone stamp state leak on tab switch) and adding 18 new pipeline integration tests: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; 236 tests, 0 errors, 0 failures (218 existing + 18 new in `TPipelineIntegrationTests`)

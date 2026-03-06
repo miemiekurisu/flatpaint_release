@@ -1638,3 +1638,82 @@ Use the same compact structure every time.
 - Fix: the root cause was fixed by adding the Preferences menu item (see separate entry); no changes needed to `fpi18n.pas`
 - Reuse note: when a feature appears to not save its state, always verify whether the UI path to trigger the save is actually reachable before debugging the persistence code itself; missing menu items can masquerade as broken persistence
 - Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (adding a new tool requires synchronized changes across 6 files and 13 touchpoints)
+- Problem: adding the Mosaic tool (`tkMosaic`) required touching many files with strict ordering dependencies; missing any single touchpoint leaves the tool broken or invisible
+- Core error: the tool infrastructure is distributed across enum definition, display metadata, icon pipeline, options bar, mouse handlers, and preview rendering — there is no single "register tool" entry point
+- Investigation: traced the full lifecycle of an existing tool (tkCrop) to enumerate every registration point
+- Root cause: the tool system evolved incrementally; each subsystem (enum, icons, options bar, mouse handling, preview) has its own registration mechanism
+- Fix: documented the complete 13-step checklist for adding a new tool:
+  1. `fpdocument.pas`: add to `TToolKind` enum
+  2. `fpuihelpers.pas`: expand `ToolDisplayOrder` array size and insert new value
+  3. `fpuihelpers.pas`: add cases to `PaintToolName`, `PaintToolHint`, `PaintToolGlyph`, `PaintToolShortcutKey`
+  4. `fpuihelpers.pas`: add to `NextToolForKey` cycle array if sharing a shortcut key
+  5. `fpuihelpers.pas`: add to `PaintToolShortcutHint` cycle-hint set if applicable
+  6. `fpiconhelpers.pas`: add `TButtonIconKind` enum value, asset name mapping, glyph-to-kind mapping, fallback `DrawIcon` case
+  7. `mainform.pas`: add state fields, default values, Options Bar controls in `BuildToolbar`
+  8. `mainform.pas`: add visibility rules in `UpdateToolOptionControl` and layout in `LayoutOptionRow`
+  9. `mainform.pas`: add MouseDown / MouseMove / MouseUp case branches
+  10. `mainform.pas`: add preview rendering in `PaintCanvasTo`
+  11. `mainform.pas`: add to `FLastImagePoint` exclusion list if tool is drag-based
+  12. `mainform.pas`: add to hover overlay point list if tool shows drag-start crosshair
+  13. Test files: update ordinal and count assertions
+- Reuse note: tool buttons are auto-created by the `BuildSidePanel` loop — no manual button creation needed as long as the tool is in `ToolDisplayOrder`. Consider creating a checklist template or code generator for new tools.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (FLastImagePoint fallback assignment overwrites constrained values for drag-based tools)
+- Problem: Shift-key constraint for shape tools appeared to have no effect — constrained coordinates were being overwritten before the next paint cycle
+- Core error: `PaintBoxMouseMove` has a fallback line near the end: `if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, ...]) then FLastImagePoint := ImagePoint` — this runs AFTER the case-branch that set the constrained value, overwriting it with the raw unconstrained `ImagePoint`
+- Investigation: traced the flow of `FLastImagePoint` assignments in MouseMove; found the case branch correctly set the constrained value but the fallback after the case block re-assigned the raw value
+- Root cause: the fallback exclusion list only contained immediate-painting tools (Pencil, Brush, Eraser) and move tools; drag-based shape tools were not excluded because they were added later
+- Fix: added all drag-based tools (Gradient, Line, Rectangle, RoundedRectangle, EllipseShape, SelectRect, SelectEllipse, Crop, Mosaic) to the fallback exclusion list
+- Reuse note: whenever adding a new drag-based tool that sets `FLastImagePoint` in its own case branch, it MUST also be added to the fallback exclusion list at the end of `PaintBoxMouseMove`, otherwise the assignment will be silently overwritten. This is a non-obvious coupling.
+- Repeat count: `This issue has occurred 2 time(s)`
+
+## 2026-03-06 (tool interaction modes fall into three categories — choose the right pattern)
+- Problem: needed to decide which mouse-handling pattern to use for the Mosaic tool
+- Core error: not an error per se — but choosing the wrong interaction pattern leads to unnecessary complexity or broken UX
+- Investigation: categorized all existing tools by their mouse-handling pattern
+- Root cause: the three patterns are not documented, making it non-obvious which to follow for a new tool
+- Fix: documented the three interaction modes:
+  1. **Immediate brush** (Pencil, Brush, Eraser, Recolor, CloneStamp): MouseDown calls `BeginStrokeHistory`, MouseMove calls `ApplyImmediateTool` per pixel
+  2. **Drag-and-commit** (Rect, Ellipse, Line, Gradient, Crop, Mosaic, selections): MouseDown stores `FDragStart`, MouseMove updates `FLastImagePoint` + `RefreshCanvas`, MouseUp commits the operation once
+  3. **Click action** (Fill, Zoom, ColorPicker): MouseDown executes the full operation immediately, no drag
+- Reuse note: Mosaic uses pattern 2 (identical to tkCrop). When adding a new tool, identify which pattern it follows first, then copy the corresponding tool's mouse handler structure.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (PixelateRect should not clone the entire surface for region-based pixelation)
+- Problem: initial implementation of `PixelateRect` cloned the entire surface (like the full-image `Pixelate` does) for a potentially small rectangular region
+- Core error: the full-image `Pixelate` uses `Source := Clone` because averaging could theoretically be affected by adjacent blocks, but for pixelation each block's average only depends on its own pixels
+- Investigation: analyzed the pixelation algorithm — each block independently averages its own pixels and writes back, so no read-after-write hazard exists between blocks
+- Root cause: copy-pasting from the full `Pixelate` method without analyzing whether the clone was actually necessary
+- Fix: `PixelateRect` operates in-place without cloning; it also aligns blocks to global grid coordinates `(ClipLeft div BlockSize) * BlockSize` so that repeated applications on adjacent regions produce consistent block boundaries
+- Reuse note: when adding region-based variants of full-image effects, always analyze whether the full-image version's defensive copies are actually needed for the region case. Pixelation is inherently block-independent; blur is not (it reads neighboring pixels).
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (drag preview rendering must balance fidelity against performance)
+- Problem: initial mosaic preview implementation rendered the pixelated result in real-time during drag by cloning the surface, pixelating, and writing pixels one-by-one to the canvas — this would be extremely slow for large selections at high zoom
+- Core error: pixel-by-pixel canvas writes via `ACanvas.Pixels[x,y]` are orders of magnitude slower than native canvas drawing primitives
+- Investigation: profiling was not needed — the O(width * height) per-frame cost with canvas pixel writes is obviously prohibitive for interactive use
+- Root cause: trying to show a "perfect" preview instead of an "adequate" preview
+- Fix: replaced the real-time pixelated preview with a simple dashed-rectangle outline (same approach as Snipaste, WeChat screenshot tools). The pixelation is applied instantly on mouse-up. The rectangle outline uses native canvas `Rectangle` calls which are effectively free.
+- Reuse note: for drag-preview rendering in `PaintCanvasTo`, always use native canvas primitives (lines, rectangles, ellipses). Never iterate pixels. If a pixel-accurate preview is essential, pre-render to a `TBitmap` and `StretchDraw` it, rather than setting pixels individually.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (Shift-key constraint function should be standalone, not a form method)
+- Problem: needed a function to constrain shape coordinates based on tool type and Shift key state
+- Core error: initially considered making it a method of `TMainForm`, but it only needs the origin point, current point, and tool kind — no form state
+- Investigation: analyzed the function's dependencies — it uses only its parameters and `Math` unit functions (ArcTan2, Sqrt, etc.)
+- Root cause: tendency to make everything a method of the form class
+- Fix: implemented `ConstrainShapePoint` as a standalone function in the implementation section, taking `(AOrigin, ACurrent: TPoint; ATool: TToolKind): TPoint`. It handles three constraint categories: square (rect/crop tools), circle (ellipse tools), and 45-degree angle snapping (line/gradient tools).
+- Reuse note: pure computational functions that don't access instance state should be standalone functions, not methods. This makes them testable in isolation and reusable. The function is called from three places (MouseMove, MouseUp, and potentially preview) with no coupling to form state.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (dynamic vertical centering is the only reliable alignment strategy for mixed Cocoa controls)
+- Problem: labels and controls in the Options Bar appeared at different vertical positions despite using carefully calculated fixed constants
+- Core error: `OptionsBarControlTop`, `OptionsBarLabelTop`, `OptionsBarCheckTop` were computed assuming uniform control heights, but macOS Cocoa renders `NSPopUpButton` (TComboBox), `NSTextField+NSStepper` (TSpinEdit), `TLabel`, and `TCheckBox` at different actual heights
+- Investigation: user provided a zoomed screenshot showing "Size:" and "Draw:" labels at visibly different heights, and spin/combo controls at different heights
+- Root cause: fixed top-position constants cannot account for varying native widget heights across different Cocoa control types; the constants only work if all controls render at exactly the predicted height
+- Fix: changed `LayoutOptionRow` to compute `Top := (OptionsBarHeight - Control.Height) div 2` for EVERY control dynamically, using the control's actual rendered height after Cocoa layout. The fixed constants are kept only as legacy aliases.
+- Reuse note: on macOS Cocoa, never use fixed Y-position constants for vertically centering mixed control types. Always use `(ContainerHeight - Control.Height) div 2` at layout time. This also handles future macOS versions that may change native control heights.
+- Repeat count: `This issue has occurred 1 time(s)`

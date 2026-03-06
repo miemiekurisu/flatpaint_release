@@ -1,0 +1,373 @@
+==> Compiling native module: fp_magnify.m
+clang: warning: -framework Cocoa: 'linker' input unused [-Wunused-command-line-argument]
+==> Compiling native module: fp_alpha.m
+clang: warning: -framework Cocoa: 'linker' input unused [-Wunused-command-line-argument]
+==> Compiling native module: fp_listbg.m
+clang: warning: -framework Cocoa: 'linker' input unused [-Wunused-command-line-argument]
+==> Compiling native module: fp_appearance.m
+clang: warning: -framework Cocoa: 'linker' input unused [-Wunused-command-line-argument]
+CI: compiling CLI binary...
+Free Pascal Compiler version 3.2.2 [2026/02/06] for aarch64
+Copyright (c) 1993-2021 by Florian Klaempfl and others
+Target OS: Darwin for AArch64
+Compiling src/cli/flatpaint_cli.lpr
+Assembling flatpaintcli
+Linking ./flatpaint_cli
+-macosx_version_min has been renamed to -macos_version_min
+ld: warning: -multiply_defined is obsolete
+1570 lines compiled, 0.7 sec
+CI: compiling test runner...
+Free Pascal Compiler version 3.2.2 [2026/02/06] for aarch64
+Copyright (c) 1993-2021 by Florian Klaempfl and others
+Target OS: Darwin for AArch64
+Compiling ./src/tests/flatpaint_tests.lpr
+Assembling flatpainttests
+Compiling resource ./dist/flatpaint_tests.or
+Linking ./dist/flatpaint_tests
+-macosx_version_min has been renamed to -macos_version_min
+ld: warning: -multiply_defined is obsolete
+ld: warning: ignoring duplicate libraries: '-lc'
+ld: warning: no platform load command found in '/Users/kurisu/Documents/workspace.nosync/project/flatpaint/dist/flatpaint_tests.or', assuming: macOS
+96 lines compiled, 0.7 sec
+CI: running tests...
+true
+ Time:00.251 N:236 E:0 F:8 I:0
+  TFPSurfaceTests Time:00.001 N:43 E:0 F:0 I:0
+    00.000  ZeroRadiusLinePaintsSinglePixelSteps
+    00.000  AutoLevelStretchesVisiblePixelsOnly
+    00.000  HueSaturationShiftsHueAndPreservesAlpha
+    00.000  GammaCurveDarkensMidtonesAndSkipsTransparentPixels
+    00.000  LevelsMapsRangeAndSkipsTransparentPixels
+    00.000  ResizeBilinearBlendsNeighborPixels
+    00.000  RoundedRectangleLeavesHardCornersOpen
+    00.000  PolygonOutlineClosesLastSegmentAndKeepsInteriorOpen
+    00.000  FilledPolygonPaintsInterior
+    00.000  MaskedLineOnlyPaintsInsideSelection
+    00.000  MaskedGradientLeavesUnselectedPixelsUntouched
+    00.000  EmbossShiftsPixelsRelativeToNeighbors
+    00.000  SoftenBlursHighContrastEdge
+    00.000  RecolorBrushReplacesMatchingPixels
+    00.000  RecolorBrushOpacityBlendsTowardTarget
+    00.000  RecolorBrushPreserveValueKeepsShading
+    00.000  RenderCloudsWritesNonTransparentPixels
+    00.000  PixelateBlursPixelsIntoBlocks
+    00.000  VignetteDarkensEdges
+    00.000  DrawLineOpacityScalesAlphaChannel
+    00.000  DrawLineFullOpacityMatchesDirectPaint
+    00.000  EraserLineReducesAlphaChannel
+    00.000  DrawLineSoftHardnessProducesGradientEdge
+    00.000  SquareLineBrushCoversCornerPixels
+    00.000  QuadraticBezierBendsTowardControlPoint
+    00.000  CubicBezierUsesBothControlHandles
+    00.000  MotionBlurChangesPixels
+    00.000  MedianFilterReducesNoise
+    00.000  OilPaintChangesPixels
+    00.000  FrostedGlassDisplacesPixels
+    00.000  ZoomBlurSmearsCentreBrightness
+    00.000  RadialGradientFadesFromCenter
+    00.000  UnfocusSoftensSingleBrightPixel
+    00.000  SurfaceBlurKeepsHardEdgeFromBleeding
+    00.000  BulgePullsGradientTowardCenter
+    00.000  DentsPushesGradientAwayFromCenter
+    00.001  ReliefProducesDirectionalShading
+    00.000  RedEyeReducesRedDominance
+    00.000  TileReflectionMirrorsWithinTiles
+    00.000  CrystallizeCollapsesSingleCellToOneColor
+    00.000  InkSketchChangesHighContrastPixels
+    00.000  MandelbrotRenderWritesVisibleFractal
+    00.000  JuliaRenderWritesVisibleFractal
+  TFPUIHelpersTests Time:00.000 N:22 E:0 F:7 I:0
+    00.000  ToolDisplayOrderStartsWithSelectionTools
+    00.000  ZoomToolAppearsBeforePaintTools
+    00.000  PanAndPencilAppearInExpectedBands
+    00.000  FreeformShapeAppearsAfterBasicShapes
+    00.000  ToolMetadataIsCompleteForDisplayOrder
+    00.000  ToolGlyphsStayCompact
+    00.000  ToolShortcutMetadataStaysAssigned  Failed: "selection tools should share S" expected: <S> but was: <M>
+      Exception:   "selection tools should share S" expected: <S> but was: <M>
+      at   $0000000100286964
+    00.000  ToolDisplayLabelsExposeShortcutHints  Failed: selection label should expose its shortcut
+      Exception:   selection label should expose its shortcut
+      at   $0000000100286964
+    00.000  CropTextCloneRecolorAppearInDisplayOrder
+    00.000  TotalDisplayCountIsCorrect
+    00.000  UtilityGlyphsStayCompact
+    00.000  ShortcutCyclesSelectionTools  Failed:  expected: <11> but was: <21>
+      Exception:    expected: <11> but was: <21>
+      at   $0000000100286964
+    00.000  ShortcutCyclesMoveTools  Failed:  expected: <15> but was: <10>
+      Exception:    expected: <15> but was: <10>
+      at   $0000000100286964
+    00.000  ShortcutCyclesShapeTools  Failed:  expected: <6> but was: <5>
+      Exception:    expected: <6> but was: <5>
+      at   $0000000100286964
+    00.000  ShortcutSingleKeyMaps  Failed:  expected: <18> but was: <16>
+      Exception:    expected: <18> but was: <16>
+      at   $0000000100286964
+    00.000  AdvancedToolsAdvertiseCanvasHoverFeedback
+    00.000  BrushOverlayClassificationStaysFocused
+    00.000  LineToolHintMentionsStraightByDefault
+    00.000  LineToolHintMentionsOptionalBezier
+    00.000  TextToolHintMentionsInlineEditing  Failed: text hint should mention inline editing
+      Exception:   text hint should mention inline editing
+      at   $0000000100286964
+    00.000  ColorShortcutTogglesTarget
+    00.000  LayerOpacityHelpersRoundTripPercentScale
+  TMainFormTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  DefaultToolStartsAsRectangleSelect
+    00.000  SpacebarPanShortcut
+    00.000  MiddleMousePanShortcut
+  TMainFormIntegrationTests Time:00.001 N:7 E:0 F:0 I:0
+    00.000  MetaModifiedShortcutsStayReservedForCommands
+    00.000  PencilStyleStrokeChangesVisibleCompositePixel
+    00.001  BucketMaskIntersectedWithSelectionOnlyFillsInsideSelection
+    00.000  ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel
+    00.000  DefaultLineToolCommitsStraightSegmentOnRelease
+    00.000  DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp
+    00.000  NewMouseDownCommitsPendingBrushStroke
+  TFPDocumentTests Time:00.000 N:16 E:0 F:0 I:0
+    00.000  HistoryDepthTracksUndoAndRedo
+    00.000  HistoryLabelsTrackUndoAndRedo
+    00.000  HistoryTimelineRowCountMatchesDepths
+    00.000  HistoryTimeline_CurrentIndexIsUndoDepth
+    00.000  HistoryTimeline_UndoRestoresPixelState
+    00.000  HistoryTimeline_NavigateViaRowClickSimulation
+    00.000  HistoryTimeline_ClickInitialStateUndoesAll
+    00.000  MagicWandIntersectKeepsOnlySharedRegion
+    00.000  LayerBlendModeDefaultsToNormal
+    00.000  LayerBlendModePreservedInClone
+    00.000  MoveLayerReordersAndTracksActiveLayer
+    00.000  BackgroundLayerStaysLockedAtBottom
+    00.000  BackgroundLayerEraseAndMovePreserveOpacity
+    00.000  StoredSelectionRoundtrips
+    00.000  NewBlankStartsWithWhiteBackground
+    00.000  NewToolKindCountIsCorrect
+  TToolsMoveTests Time:00.000 N:2 E:0 F:0 I:0
+    00.000  MoveSelectionBy_ShiftsSelectionMask
+    00.000  MoveSelectedPixelsBy_MovesPixelsAndSelection
+  TToolsSelectTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  Document_SelectRectangle_ReplaceAndIntersect
+    00.000  Document_SelectEllipse_BasicAndSubtract
+    00.000  Document_SelectLasso_PolygonReplace
+  TFPSelectionTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  RectangleIntersectKeepsOnlyOverlap
+    00.000  PolygonIntersectCanClearToEmpty
+    00.000  FeatherSoftensEdges
+  TFPPaletteHelpersTests Time:00.000 N:14 E:0 F:1 I:0
+    00.000  PaletteTitlesAreNonEmpty
+    00.000  DefaultPaletteRectsMatchCornerClusters
+    00.000  DefaultPaletteRectsDoNotOverlap
+    00.000  WorkspaceAwareDefaultRectsStaySeparated
+    00.000  PaletteShortcutsFollowShortcutPolicy
+    00.000  PaletteShortcutLabelsStayReadable
+    00.000  PaletteChromeMetricsStayCompact
+    00.000  LightThemeUsesBrightMacOSChrome
+    00.000  ChromeAccentBandsStayDistinct
+    00.000  PaletteDragTintDiffersFromRestTint
+    00.000  ToolsPaletteUsesNarrowTwoColumnLayout
+    00.000  SnapPaletteRectAlignsToNearbyWorkspaceEdges
+    00.000  ColorsPanelFitsSystemPickerAndSliderRows  Failed: colors panel wide enough for compact controls
+      Exception:   colors panel wide enough for compact controls
+      at   $0000000100286964
+    00.000  PaletteHeightsFitDeeperPanelControls
+  TFPTabHelpersTests Time:00.000 N:7 E:0 F:0 I:0
+    00.000  TabStripMetricsStayStable
+    00.000  TabCardLeftUsesFixedStride
+    00.000  TabContentWidthIncludesAddButton
+    00.000  DropIndexRoundsToNearestSlot
+    00.000  ActiveTabScrollsIntoView
+    00.000  ActiveIndexTracksForwardReorder
+    00.000  ActiveIndexTracksBackwardReorder
+  TFPIOTests Time:00.003 N:11 E:0 F:0 I:0
+    00.000  DefaultSaveOptionsExposeRealFormatControls
+    00.001  LoaderCanSniffPngWithUnknownExtension
+    00.000  PngRoundTripPreservesAlphaByDefault
+    00.000  TargaRoundTripPreservesPixels
+    00.000  LoaderCanReadMinimalXCFProject
+    00.001  XcfCanLoadLayeredDocument
+    00.000  UnifiedOpenFilterIncludesProjectsAndPSD
+    00.000  KraLoadRaisesDescriptiveError
+    00.000  KraZipLoadExtractsMergedImage
+    00.000  PdnLoadRaisesDescriptiveError
+    00.001  PdnZipLoadExtractsPNG
+  TFPNewImageHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  EstimatedSizeMatchesRGBAFootprint
+    00.000  PixelsConvertToPrintInches
+    00.000  CentimeterPrintSizeConvertsBackToPixels
+  TFPUtilityHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  UtilityStripKeepsSixCommands
+    00.000  UtilityStripStartsWithPaletteWindows
+    00.000  UtilityHintsAreNonEmpty
+    00.000  PaletteWindowsKeepCommandShortcuts
+  TCLIIntegrationTests Time:00.054 N:1 E:0 F:0 I:0
+    00.054  Test_CLI_New_And_Brush
+  TIntegrationDocumentFlowTests Time:00.000 N:1 E:0 F:0 I:0
+    00.000  Test_SaveLoadDocument_PreservesPixels
+  TIntegrationNativeRoundTripTests Time:00.001 N:1 E:0 F:0 I:0
+    00.001  Test_MultiLayer_SaveLoad_PreservesLayersAndPixels
+  TFormatCompatTests Time:00.005 N:2 E:0 F:0 I:0
+    00.001  Test_PNG_RoundTrip_PreservesPixels
+    00.004  Test_ExportDoc_UsingCLI_ProducesComposite
+  TUIAppleScriptTests Time:00.000 N:1 E:0 F:0 I:0
+    00.000  Test_Try_Run_UI_Script_If_App_Present
+  TUIPrototypeTests Time:00.104 N:3 E:0 F:0 I:0
+    00.104  Test_Osascript_Available
+    00.000  Test_LightTheme_UsesReadableContrast
+    00.000  Test_UtilityButtons_StayCompact
+  TPerfSnapshotTests Time:00.012 N:1 E:0 F:0 I:0
+    00.011  Test_PushHistory_MultipleSnapshots_NoException
+  TFPRulerHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  RulerMetricsStayCompact
+    00.000  LowerZoomUsesLargerMajorSteps
+    00.000  MinorStepTracksMajorStep
+  TFPZoomHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  ZoomPresetsStayOrdered
+    00.000  ZoomStepFunctionsUsePresetLadder
+    00.000  ZoomCaptionsStayHumanReadable
+  TFPViewHelpersTests Time:00.000 N:6 E:0 F:0 I:0
+    00.000  PixelGridRequiresExplicitEnable
+    00.000  PixelGridRequiresHighZoom
+    00.000  PixelGridVisualConstantsStayStable
+    00.000  SaveCaptionUsesEllipsisOnlyWhenAFilePromptIsNeeded
+    00.000  DiscardConfirmationTracksDirtyState
+    00.000  WindowCaptionUsesEditedSuffixForDirtyDocuments
+  TFPIconHelpersTests Time:00.000 N:8 E:0 F:0 I:0
+    00.000  ToolIconsCoverEveryDisplayedTool
+    00.000  UtilityIconsCoverEveryUtilityButton
+    00.000  CommandIconsCoverMainToolbarAndLayerActions
+    00.000  CommandIconsCoverColorPanelAndPaletteChrome
+    00.000  TopToolbarCaptionAliasesStayMapped
+    00.000  RepresentativeLucideSourceAssetsExist
+    00.000  RepresentativeRenderedAssetsExist
+    00.000  ToolIconsCanLoadRenderedAssets
+  TFPToolbarHelpersTests Time:00.000 N:5 E:0 F:0 I:0
+    00.000  ToolbarVerticalBandsStayAligned
+    00.000  LeftCommandGroupsUseConsistentSpacing
+    00.000  FileGroupStaysWideEnoughForIconLabels
+    00.000  RightClustersStayAnchoredAndSeparated
+    00.000  ZoomControlsFitInsideZoomCluster
+  TFPCurvesHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  GammaClampStaysWithinDocumentedRange
+    00.000  ParseGammaTextFallsBackAndClamps
+    00.000  SliderMappingRoundTripsToTwoDecimalPrecision
+    00.000  GammaFormattingStaysStable
+  TFPPosterizeHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  PosterizeClampStaysWithinDocumentedRange
+    00.000  ParsePosterizeTextFallsBackAndClamps
+    00.000  SliderMappingMatchesDocumentedRange
+  TFPBlurHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  BlurClampStaysWithinDocumentedRange
+    00.000  ParseBlurTextFallsBackAndClamps
+    00.000  SliderMappingMatchesDocumentedRange
+  TFPNoiseHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  NoiseClampStaysWithinDocumentedRange
+    00.000  ParseNoiseTextFallsBackAndClamps
+    00.000  SliderMappingMatchesDocumentedRange
+  TFPHueSaturationHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  HueClampStaysWithinDocumentedRange
+    00.000  SaturationClampStaysWithinDocumentedRange
+    00.000  ParseDeltaTextFallsBackAndClamps
+  TFPLevelsHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  DefaultSettingsMatchIdentityLevels
+    00.000  InputBoundsStayOrderedDuringNormalization
+    00.000  OutputBoundsKeepIndependentClampRules
+    00.000  ParseLevelTextFallsBackAndClamps
+  TFPBrightnessContrastHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  DefaultSettingsStartNeutral
+    00.000  BrightnessClampStaysWithinDocumentedRange
+    00.000  ContrastClampStaysWithinDocumentedRange
+    00.000  ParseAdjustmentTextFallsBackAndClamps
+  TFPResizeHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  AspectLinkScalesPairedDimension
+    00.000  AspectLinkClampsToAtLeastOnePixel
+    00.000  ResampleModeCaptionsStayStable
+  TFPViewportHelpersTests Time:00.000 N:7 E:0 F:0 I:0
+    00.000  CenteredContentOffsetCentersSmallerCanvas
+    00.000  CenteredContentOffsetClampsLargeCanvasToOrigin
+    00.000  ZoomSliderMappingUsesZoomPresets
+    00.000  ViewportImageCoordinateRespectsCanvasOffset
+    00.000  ScrollPositionForAnchorKeepsAnchorStable
+    00.000  PannedScrollPositionMovesOppositeToDrag
+    00.000  ZoomWheelUsesCrossEditorModifierRule
+  TFPStatusHelpersTests Time:00.000 N:7 E:0 F:0 I:0
+    00.000  ComputedPanelWidthsStayWithinAvailableWidth
+    00.000  ZoomPanelStaysAsDedicatedRightCluster
+    00.000  ZoomPanelLeftEqualsLeadingPanelWidths
+    00.000  ProgressPanelBridgesLayerAndUnitSlots
+    00.000  ProgressWidgetsStayInsideProgressPanel
+    00.000  ZoomLabelWidthLeavesReadableCaptionSpace
+    00.000  ZoomTrackWidthStaysInsideZoomPanel
+  TFPFileMenuHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  AcquirePrefersClipboardWhenImageExists
+    00.000  AcquireFallsBackToFileWhenClipboardIsEmpty
+    00.000  SaveAllUsesSaveAsForUntitledDocument
+    00.000  SaveAllUsesDirectSaveForBoundDocument
+  TPipelineIntegrationTests Time:00.070 N:18 E:0 F:0 I:0
+    00.002  PencilStrokeModifiesSurfacePixels
+    00.001  BrushStrokeModifiesSurfacePixels
+    00.002  EraserStrokeModifiesSurfacePixels
+    00.002  DrawingWithMoveChangesPixels
+    00.002  MouseUpAfterPencilStrokePushesHistory
+    00.001  MouseUpAfterBrushStrokePushesHistory
+    00.020  FillToolPushesHistoryOnMouseDown
+    00.003  AddLayerPushesHistory
+    00.002  MultipleStrokesIncrementHistory
+    00.003  AddLayerIncreasesLayerCount
+    00.002  AddLayerSetsNewLayerAsActive
+    00.001  SpaceKeyActivatesTempPan
+    00.001  SpaceKeyUpDeactivatesTempPan
+    00.002  KeyboardToolSwitchClearsTempPanFlag
+    00.001  ExplicitToolPropertyChangeClearsTempPanFlag
+    00.001  DrawingBumpsRenderRevision
+    00.002  DrawingSetsDirtyFlag
+    00.022  DrawBlackOnWhiteChangesDisplayPixel
+
+Number of run tests: 236
+Number of errors:    0
+Number of failures:  8
+
+List of failures:
+  Failure: 
+    Message:           TFPUIHelpersTests.ToolShortcutMetadataStaysAssigned: "selection tools should share S" expected: <S> but was: <M>
+    Exception class:   EAssertionFailedError
+    Exception message: "selection tools should share S" expected: <S> but was: <M>
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPUIHelpersTests.ToolDisplayLabelsExposeShortcutHints: selection label should expose its shortcut
+    Exception class:   EAssertionFailedError
+    Exception message: selection label should expose its shortcut
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPUIHelpersTests.ShortcutCyclesSelectionTools:  expected: <11> but was: <21>
+    Exception class:   EAssertionFailedError
+    Exception message:  expected: <11> but was: <21>
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPUIHelpersTests.ShortcutCyclesMoveTools:  expected: <15> but was: <10>
+    Exception class:   EAssertionFailedError
+    Exception message:  expected: <15> but was: <10>
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPUIHelpersTests.ShortcutCyclesShapeTools:  expected: <6> but was: <5>
+    Exception class:   EAssertionFailedError
+    Exception message:  expected: <6> but was: <5>
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPUIHelpersTests.ShortcutSingleKeyMaps:  expected: <18> but was: <16>
+    Exception class:   EAssertionFailedError
+    Exception message:  expected: <18> but was: <16>
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPUIHelpersTests.TextToolHintMentionsInlineEditing: text hint should mention inline editing
+    Exception class:   EAssertionFailedError
+    Exception message: text hint should mention inline editing
+        at   $0000000100286964
+  Failure: 
+    Message:           TFPPaletteHelpersTests.ColorsPanelFitsSystemPickerAndSliderRows: colors panel wide enough for compact controls
+    Exception class:   EAssertionFailedError
+    Exception message: colors panel wide enough for compact controls
+        at   $0000000100286964
+
+
+
+

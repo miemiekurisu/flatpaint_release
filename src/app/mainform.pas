@@ -6902,6 +6902,13 @@ var
   SourceX: Integer;
   SourceY: Integer;
   PickedColor: TRGBA32;
+  { Stroke interpolation variables }
+  StrokeDX, StrokeDY: Double;
+  StrokeDist: Double;
+  StrokeSpacing: Integer;
+  StrokeSteps: Integer;
+  StrokeStep: Integer;
+  StepX, StepY: Integer;
 begin
   if FDocument.HasSelection then
     PaintSelection := FDocument.Selection
@@ -7042,48 +7049,97 @@ begin
           FPrimaryColor := AdoptSampledRGBPreservingAlpha(FPrimaryColor, PickedColor);
       end;
     tkRecolor:
-      FDocument.ActiveLayer.Surface.RecolorBrush(
-        APoint.X,
-        APoint.Y,
-        Max(1, FBrushSize div 2),
-        ColorForActiveTarget(not FPickSecondaryTarget),
-        ActivePaintColor,
-        EnsureRange(FRecolorTolerance, 0, 255),
-        FBrushOpacity * 255 div 100,
-        FRecolorPreserveValue,
-        PaintSelection
-      );
+      begin
+        { Interpolate along the stroke path from FLastImagePoint to APoint,
+          applying the recolor brush at regular spacing intervals.
+          Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
+        Radius := Max(1, FBrushSize div 2);
+        StrokeSpacing := Max(1, Radius div 2);
+        StrokeDX := APoint.X - FLastImagePoint.X;
+        StrokeDY := APoint.Y - FLastImagePoint.Y;
+        StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
+        if StrokeDist < 1 then
+          StrokeSteps := 1
+        else
+          StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
+        for StrokeStep := 0 to StrokeSteps - 1 do
+        begin
+          if StrokeSteps = 1 then
+          begin
+            StepX := APoint.X;
+            StepY := APoint.Y;
+          end
+          else
+          begin
+            StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
+            StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
+          end;
+          FDocument.ActiveLayer.Surface.RecolorBrush(
+            StepX,
+            StepY,
+            Radius,
+            ColorForActiveTarget(not FPickSecondaryTarget),
+            ActivePaintColor,
+            EnsureRange(FRecolorTolerance, 0, 255),
+            FBrushOpacity * 255 div 100,
+            FRecolorPreserveValue,
+            PaintSelection
+          );
+        end;
+      end;
     tkCloneStamp:
       if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
       begin
-        { Clone only within the active brush radius, keeping the source offset stable
-          across the stroke. }
+        { Interpolate along the stroke path from FLastImagePoint to APoint,
+          stamping at regular spacing intervals.
+          Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
         Radius := Max(1, FBrushSize div 2);
-        for DestY := Max(0, APoint.Y - Radius) to Min(FDocument.Height - 1, APoint.Y + Radius) do
-          for DestX := Max(0, APoint.X - Radius) to Min(FDocument.Width - 1, APoint.X + Radius) do
+        StrokeSpacing := Max(1, Radius div 2);
+        StrokeDX := APoint.X - FLastImagePoint.X;
+        StrokeDY := APoint.Y - FLastImagePoint.Y;
+        StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
+        if StrokeDist < 1 then
+          StrokeSteps := 1
+        else
+          StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
+        for StrokeStep := 0 to StrokeSteps - 1 do
+        begin
+          if StrokeSteps = 1 then
           begin
-            if Round(Sqrt(Sqr(DestX - APoint.X) + Sqr(DestY - APoint.Y))) > Radius then
-              Continue;
-            if FCloneAligned and FCloneAlignedOffsetValid then
-            begin
-              SourceX := DestX + FCloneAlignedOffset.X;
-              SourceY := DestY + FCloneAlignedOffset.Y;
-            end
-            else
-            begin
-              SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
-              SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
-            end;
-            if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
-              Continue;
-            FDocument.ActiveLayer.Surface.BlendPixel(
-              DestX,
-              DestY,
-              FCloneStampSnapshot[SourceX, SourceY],
-              FBrushOpacity * 255 div 100,
-              PaintSelection
-            );
+            StepX := APoint.X;
+            StepY := APoint.Y;
+          end
+          else
+          begin
+            StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
+            StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
           end;
+          for DestY := Max(0, StepY - Radius) to Min(FDocument.Height - 1, StepY + Radius) do
+            for DestX := Max(0, StepX - Radius) to Min(FDocument.Width - 1, StepX + Radius) do
+            begin
+              if Round(Sqrt(Sqr(DestX - StepX) + Sqr(DestY - StepY))) > Radius then
+                Continue;
+              if FCloneAligned and FCloneAlignedOffsetValid then
+              begin
+                SourceX := DestX + FCloneAlignedOffset.X;
+                SourceY := DestY + FCloneAlignedOffset.Y;
+              end
+              else
+              begin
+                SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
+                SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
+              end;
+              if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
+                Continue;
+              FDocument.ActiveLayer.Surface.BlendPixel(
+                DestX,
+                DestY,
+                FCloneStampSnapshot[SourceX, SourceY],
+                FBrushOpacity * 255 div 100,
+                PaintSelection
+              );
+            end;
+        end;
       end;
   end;
   FLastImagePoint := APoint;
