@@ -10,7 +10,7 @@ uses
 const
   DefaultToolbarHostWidth = 1360;
 
-  TopToolbarHeight = 84;
+  TopToolbarHeight = 88;         { Title (24) + commands (30) + 2px divider + options bar (32) }
   ToolbarTitleBandHeight = 24;
   ToolbarTitleRailWidth = 72;
   ToolbarTitleDotLeft = 12;
@@ -38,9 +38,24 @@ const
   ToolbarDividerHeight = 22;
   ToolbarDividerTopOffset = 4;
 
-  ToolbarOptionRowTop = 56;      { TComboBox / TSpinEdit — NSPopUpButton baseline +16.5, NSTextField baseline +17.0 }
-  ToolbarOptionLabelTop = 60;    { TLabel — NSLabel baseline +13.0 → 60+13 = 73 ≈ 56+17 }
-  ToolbarOptionCheckTop = 60;    { TCheckBox — baseline +13.0, same as TLabel }
+  { Options Bar — dedicated 32px row at the bottom of the top panel }
+  OptionsBarHeight = 32;
+  OptionsBarTop = 56;             { Title (24) + commands (30) + 2px gap }
+  OptionsBarIconLeft = 8;
+  OptionsBarIconSize = 20;
+  OptionsBarIconTop = 6;          { (32 - 20) / 2 }
+  OptionsBarToolLabelLeft = 32;   { IconLeft (8) + IconSize (20) + 4px gap }
+  OptionsBarDividerGap = 8;
+  OptionsBarControlHeight = 20;   { macOS "small" NSPopUpButton / NSTextField height }
+  OptionsBarControlTop = 6;       { (32 - 20) / 2 }
+  OptionsBarLabelTop = 9;         { (32 - ~13) / 2 for 11pt labels }
+  OptionsBarCheckTop = 9;
+  OptionsBarFontSize = 11;        { macOS "small" control size — matches combo/spin text }
+
+  { Legacy aliases kept for any external references }
+  ToolbarOptionRowTop = 56;
+  ToolbarOptionLabelTop = 60;
+  ToolbarOptionCheckTop = 60;
 
   ToolbarZoomButtonInsetLeft = 6;
   ToolbarZoomButtonTop = 2;

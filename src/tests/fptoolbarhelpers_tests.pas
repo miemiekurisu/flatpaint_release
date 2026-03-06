@@ -21,17 +21,15 @@ implementation
 
 procedure TFPToolbarHelpersTests.ToolbarVerticalBandsStayAligned;
 begin
-  AssertEquals('top toolbar height should stay compact', 84, TopToolbarHeight);
+  AssertEquals('top toolbar height accommodates options bar', 88, TopToolbarHeight);
   AssertEquals('title band should stay at mac-style compact height', 24, ToolbarTitleBandHeight);
   AssertEquals('command row should begin just below the title band', ToolbarTitleBandHeight, ToolbarRowTop);
   AssertTrue('command row should fit inside top panel',
     ToolbarRowTop + ToolbarRowHeight <= TopToolbarHeight);
-  AssertTrue('option row should sit below command row',
-    ToolbarOptionRowTop > ToolbarRowTop + (ToolbarRowHeight div 2));
-  AssertTrue('option label should sit slightly below the option row top',
-    ToolbarOptionLabelTop > ToolbarOptionRowTop);
-  AssertTrue('option checkbox should align between row and label',
-    (ToolbarOptionCheckTop >= ToolbarOptionRowTop) and (ToolbarOptionCheckTop <= ToolbarOptionLabelTop));
+  AssertEquals('options bar should sit below command row', 56, OptionsBarTop);
+  AssertEquals('options bar should have comfortable height', 32, OptionsBarHeight);
+  AssertTrue('options bar should fit inside top panel',
+    OptionsBarTop + OptionsBarHeight <= TopToolbarHeight);
 end;
 
 procedure TFPToolbarHelpersTests.LeftCommandGroupsUseConsistentSpacing;

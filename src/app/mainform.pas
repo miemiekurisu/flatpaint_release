@@ -105,6 +105,9 @@ type
     FPixelGridMenuItem: TMenuItem;
     FRulersMenuItem: TMenuItem;
     FTopPanel: TPanel;
+    FOptionsBarPanel: TPanel;
+    FToolIconImage: TImage;
+    FToolNameLabel: TLabel;
     FChromeTitleLabel: TLabel;
     FWorkspacePanel: TPanel;
     FRulerTopBand: TPanel;
@@ -1694,6 +1697,15 @@ begin
 
   FUpdatingToolOption := True;
   try
+    { Update tool icon and name in the Options Bar }
+    if Assigned(FToolNameLabel) then
+      FToolNameLabel.Caption := PaintToolDisplayLabel(FCurrentTool);
+    if Assigned(FToolIconImage) then
+    begin
+      FToolIconImage.Picture.Clear;
+      TryLoadButtonIconPicture(PaintToolGlyph(FCurrentTool), bicTool, FToolIconImage.Picture);
+    end;
+
     IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
     IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
     IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
@@ -1821,19 +1833,19 @@ end;
 
 procedure TMainForm.LayoutOptionRow;
 { Dynamically positions all visible tool-option controls left-to-right
-  with consistent spacing, following Apple HIG guidelines.  This eliminates
-  large gaps when intermediate controls are hidden and prevents overlaps. }
+  in the Options Bar panel with consistent spacing and vertical centering. }
 const
-  OptionStartX = 222;    { Right after tool combo: 50 + 164 + 8 }
   LabelGap = 4;          { Between a label and its paired control }
   GroupGap = 12;          { Between adjacent control groups }
 var
   X: Integer;
+  ToolDivider: TControl;
 
   procedure PlaceLabel(ALabel: TLabel);
   begin
     if not Assigned(ALabel) or not ALabel.Visible then Exit;
     ALabel.Left := X;
+    ALabel.Top := OptionsBarLabelTop;
     Inc(X, ALabel.Width + LabelGap);
   end;
 
@@ -1841,11 +1853,27 @@ var
   begin
     if not Assigned(AControl) or not AControl.Visible then Exit;
     AControl.Left := X;
+    if AControl is TCheckBox then
+      AControl.Top := OptionsBarCheckTop
+    else
+      AControl.Top := OptionsBarControlTop;
     Inc(X, AControl.Width + GroupGap);
   end;
 
 begin
-  X := OptionStartX;
+  { Compute start X from tool name label + divider }
+  if Assigned(FToolNameLabel) then
+    X := OptionsBarToolLabelLeft + FToolNameLabel.Width + OptionsBarDividerGap
+  else
+    X := OptionsBarToolLabelLeft + 80;
+  { Position the vertical divider between tool name and parameters }
+  if Assigned(FOptionsBarPanel) then
+  begin
+    ToolDivider := FOptionsBarPanel.FindChildControl('OptionsBarToolDivider');
+    if Assigned(ToolDivider) then
+      ToolDivider.Left := X - OptionsBarDividerGap + 2;
+  end;
+  Inc(X, OptionsBarDividerGap);
 
   { Size / Tolerance }
   PlaceLabel(FOptionLabel);
@@ -2262,7 +2290,6 @@ end;
 
 procedure TMainForm.BuildToolbar;
 var
-  LabelCtrl: TLabel;
   ToolIndex: Integer;
   ToolKind: TToolKind;
   UtilityPanel: TPanel;
@@ -2600,17 +2627,61 @@ begin
   );
   DividerShape.Anchors := [akTop, akRight];
 
-  LabelCtrl := TLabel.Create(FTopPanel);
-  LabelCtrl.Parent := FTopPanel;
-  LabelCtrl.Caption := 'Tool:';
-  LabelCtrl.Font.Color := ChromeTextColor;
-  LabelCtrl.Left := 12;
-  LabelCtrl.Top := ToolbarOptionLabelTop;
+  { --- Options Bar: dedicated 32px panel for tool icon + name + parameters --- }
+  FOptionsBarPanel := TPanel.Create(FTopPanel);
+  FOptionsBarPanel.Parent := FTopPanel;
+  FOptionsBarPanel.SetBounds(0, OptionsBarTop, FTopPanel.ClientWidth, OptionsBarHeight);
+  FOptionsBarPanel.Anchors := [akTop, akLeft, akRight];
+  FOptionsBarPanel.BevelOuter := bvNone;
+  FOptionsBarPanel.Caption := '';
+  FOptionsBarPanel.Color := ToolbarBackgroundColor;
+  FOptionsBarPanel.ParentColor := False;
+  FOptionsBarPanel.Font.Size := OptionsBarFontSize;
+  FOptionsBarPanel.Font.Color := ChromeTextColor;
 
-  FToolCombo := TComboBox.Create(FTopPanel);
-  FToolCombo.Parent := FTopPanel;
-  FToolCombo.Left := 50;
-  FToolCombo.Top := ToolbarOptionRowTop;
+  { 1px top divider line }
+  DividerShape := TShape.Create(FOptionsBarPanel);
+  DividerShape.Parent := FOptionsBarPanel;
+  DividerShape.Shape := stRectangle;
+  DividerShape.Brush.Color := ChromeDividerColor;
+  DividerShape.Pen.Style := psClear;
+  DividerShape.SetBounds(0, 0, FOptionsBarPanel.ClientWidth, 1);
+  DividerShape.Anchors := [akTop, akLeft, akRight];
+
+  { Current tool icon (20x20) }
+  FToolIconImage := TImage.Create(FOptionsBarPanel);
+  FToolIconImage.Parent := FOptionsBarPanel;
+  FToolIconImage.SetBounds(OptionsBarIconLeft, OptionsBarIconTop, OptionsBarIconSize, OptionsBarIconSize);
+  FToolIconImage.Stretch := False;
+  FToolIconImage.Center := True;
+
+  { Current tool name label }
+  FToolNameLabel := TLabel.Create(FOptionsBarPanel);
+  FToolNameLabel.Parent := FOptionsBarPanel;
+  FToolNameLabel.Left := OptionsBarToolLabelLeft;
+  FToolNameLabel.Top := OptionsBarLabelTop;
+  FToolNameLabel.Caption := PaintToolDisplayLabel(FCurrentTool);
+  FToolNameLabel.Font.Color := ChromeTextColor;
+  FToolNameLabel.Font.Size := OptionsBarFontSize;
+
+  { Vertical divider after tool name — positioned dynamically in LayoutOptionRow }
+  DividerShape := TShape.Create(FOptionsBarPanel);
+  DividerShape.Parent := FOptionsBarPanel;
+  DividerShape.Name := 'OptionsBarToolDivider';
+  DividerShape.Shape := stRectangle;
+  DividerShape.Brush.Color := ChromeDividerColor;
+  DividerShape.Pen.Style := psClear;
+  DividerShape.SetBounds(
+    OptionsBarToolLabelLeft + FToolNameLabel.Width + OptionsBarDividerGap,
+    6, 1, 20
+  );
+
+  { Hidden FToolCombo — still needed for programmatic tool-name resolution }
+  FToolCombo := TComboBox.Create(FOptionsBarPanel);
+  FToolCombo.Parent := FOptionsBarPanel;
+  FToolCombo.Visible := False;
+  FToolCombo.Left := 0;
+  FToolCombo.Top := 0;
   FToolCombo.Width := 164;
   FToolCombo.Style := csDropDownList;
   for ToolIndex := 0 to PaintToolDisplayCount - 1 do
@@ -2627,83 +2698,93 @@ begin
   FToolCombo.OnChange := @ToolComboChange;
   FToolCombo.Color := clWhite;
   FToolCombo.Font.Color := ChromeTextColor;
-  FToolCombo.Hint := 'Choose the active tool (single-letter shortcuts work when Command, Control, and Option are not held)';
-  FToolCombo.ShowHint := True;
 
-  FOptionLabel := TLabel.Create(FTopPanel);
-  FOptionLabel.Parent := FTopPanel;
+  { --- Tool-specific option controls (all parented to FOptionsBarPanel) --- }
+  FOptionLabel := TLabel.Create(FOptionsBarPanel);
+  FOptionLabel.Parent := FOptionsBarPanel;
   FOptionLabel.Caption := 'Size:';
   FOptionLabel.Font.Color := ChromeTextColor;
+  FOptionLabel.Font.Size := OptionsBarFontSize;
   FOptionLabel.Left := 220;
-  FOptionLabel.Top := ToolbarOptionLabelTop;
+  FOptionLabel.Top := OptionsBarLabelTop;
 
-  FBrushSpin := TSpinEdit.Create(FTopPanel);
-  FBrushSpin.Parent := FTopPanel;
+  FBrushSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FBrushSpin.Parent := FOptionsBarPanel;
   FBrushSpin.Left := 272;
-  FBrushSpin.Top := ToolbarOptionRowTop;
+  FBrushSpin.Top := OptionsBarControlTop;
+  FBrushSpin.Height := OptionsBarControlHeight;
   FBrushSpin.Width := 66;
   FBrushSpin.MinValue := 1;
   FBrushSpin.MaxValue := 255;
   FBrushSpin.Value := FBrushSize;
   FBrushSpin.OnChange := @BrushSizeChanged;
+  FBrushSpin.Font.Size := OptionsBarFontSize;
   FBrushSpin.Font.Color := ChromeTextColor;
 
-  FOpacityLabel := TLabel.Create(FTopPanel);
-  FOpacityLabel.Parent := FTopPanel;
+  FOpacityLabel := TLabel.Create(FOptionsBarPanel);
+  FOpacityLabel.Parent := FOptionsBarPanel;
   FOpacityLabel.Caption := 'Opacity:';
+  FOpacityLabel.Font.Size := OptionsBarFontSize;
   FOpacityLabel.Font.Color := ChromeTextColor;
   FOpacityLabel.Left := 348;
-  FOpacityLabel.Top := ToolbarOptionLabelTop;
+  FOpacityLabel.Top := OptionsBarLabelTop;
   FOpacityLabel.Visible := False;
 
-  FOpacitySpin := TSpinEdit.Create(FTopPanel);
-  FOpacitySpin.Parent := FTopPanel;
+  FOpacitySpin := TSpinEdit.Create(FOptionsBarPanel);
+  FOpacitySpin.Parent := FOptionsBarPanel;
   FOpacitySpin.Left := 408;
-  FOpacitySpin.Top := ToolbarOptionRowTop;
+  FOpacitySpin.Top := OptionsBarControlTop;
+  FOpacitySpin.Height := OptionsBarControlHeight;
   FOpacitySpin.Width := 60;
   FOpacitySpin.MinValue := 1;
   FOpacitySpin.MaxValue := 100;
   FOpacitySpin.Value := 100;
   FOpacitySpin.Visible := False;
   FOpacitySpin.OnChange := @OpacitySpinChanged;
+  FOpacitySpin.Font.Size := OptionsBarFontSize;
   FOpacitySpin.Font.Color := ChromeTextColor;
   FOpacitySpin.Hint := 'Brush opacity (1-100)';
   FOpacitySpin.ShowHint := True;
 
-  FHardnessLabel := TLabel.Create(FTopPanel);
-  FHardnessLabel.Parent := FTopPanel;
+  FHardnessLabel := TLabel.Create(FOptionsBarPanel);
+  FHardnessLabel.Parent := FOptionsBarPanel;
   FHardnessLabel.Caption := 'Hardness:';
+  FHardnessLabel.Font.Size := OptionsBarFontSize;
   FHardnessLabel.Font.Color := ChromeTextColor;
   FHardnessLabel.Left := 480;
-  FHardnessLabel.Top := ToolbarOptionLabelTop;
+  FHardnessLabel.Top := OptionsBarLabelTop;
   FHardnessLabel.Visible := False;
 
-  FHardnessSpin := TSpinEdit.Create(FTopPanel);
-  FHardnessSpin.Parent := FTopPanel;
+  FHardnessSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FHardnessSpin.Parent := FOptionsBarPanel;
   FHardnessSpin.Left := 554;
-  FHardnessSpin.Top := ToolbarOptionRowTop;
+  FHardnessSpin.Top := OptionsBarControlTop;
+  FHardnessSpin.Height := OptionsBarControlHeight;
   FHardnessSpin.Width := 60;
   FHardnessSpin.MinValue := 1;
   FHardnessSpin.MaxValue := 100;
   FHardnessSpin.Value := 100;
   FHardnessSpin.Visible := False;
   FHardnessSpin.OnChange := @HardnessSpinChanged;
+  FHardnessSpin.Font.Size := OptionsBarFontSize;
   FHardnessSpin.Font.Color := ChromeTextColor;
   FHardnessSpin.Hint := 'Brush hardness (1=soft, 100=hard)';
   FHardnessSpin.ShowHint := True;
 
-  FEraserShapeLabel := TLabel.Create(FTopPanel);
-  FEraserShapeLabel.Parent := FTopPanel;
+  FEraserShapeLabel := TLabel.Create(FOptionsBarPanel);
+  FEraserShapeLabel.Parent := FOptionsBarPanel;
   FEraserShapeLabel.Caption := 'Shape:';
+  FEraserShapeLabel.Font.Size := OptionsBarFontSize;
   FEraserShapeLabel.Font.Color := ChromeTextColor;
   FEraserShapeLabel.Left := 628;
-  FEraserShapeLabel.Top := ToolbarOptionLabelTop;
+  FEraserShapeLabel.Top := OptionsBarLabelTop;
   FEraserShapeLabel.Visible := False;
 
-  FEraserShapeCombo := TComboBox.Create(FTopPanel);
-  FEraserShapeCombo.Parent := FTopPanel;
+  FEraserShapeCombo := TComboBox.Create(FOptionsBarPanel);
+  FEraserShapeCombo.Parent := FOptionsBarPanel;
   FEraserShapeCombo.Left := 676;
-  FEraserShapeCombo.Top := ToolbarOptionRowTop;
+  FEraserShapeCombo.Top := OptionsBarControlTop;
+  FEraserShapeCombo.Height := OptionsBarControlHeight;
   FEraserShapeCombo.Width := 92;
   FEraserShapeCombo.Style := csDropDownList;
   FEraserShapeCombo.Items.Add('Round');
@@ -2712,22 +2793,25 @@ begin
   FEraserShapeCombo.Visible := False;
   FEraserShapeCombo.OnChange := @EraserShapeComboChanged;
   FEraserShapeCombo.Color := clWhite;
+  FEraserShapeCombo.Font.Size := OptionsBarFontSize;
   FEraserShapeCombo.Font.Color := ChromeTextColor;
   FEraserShapeCombo.Hint := 'Eraser tip shape';
   FEraserShapeCombo.ShowHint := True;
 
-  FSelModeLabel := TLabel.Create(FTopPanel);
-  FSelModeLabel.Parent := FTopPanel;
+  FSelModeLabel := TLabel.Create(FOptionsBarPanel);
+  FSelModeLabel.Parent := FOptionsBarPanel;
   FSelModeLabel.Caption := 'Mode:';
+  FSelModeLabel.Font.Size := OptionsBarFontSize;
   FSelModeLabel.Font.Color := ChromeTextColor;
   FSelModeLabel.Left := 348;
-  FSelModeLabel.Top := ToolbarOptionLabelTop;
+  FSelModeLabel.Top := OptionsBarLabelTop;
   FSelModeLabel.Visible := False;
 
-  FSelModeCombo := TComboBox.Create(FTopPanel);
-  FSelModeCombo.Parent := FTopPanel;
+  FSelModeCombo := TComboBox.Create(FOptionsBarPanel);
+  FSelModeCombo.Parent := FOptionsBarPanel;
   FSelModeCombo.Left := 394;
-  FSelModeCombo.Top := ToolbarOptionRowTop;
+  FSelModeCombo.Top := OptionsBarControlTop;
+  FSelModeCombo.Height := OptionsBarControlHeight;
   FSelModeCombo.Width := 96;
   FSelModeCombo.Style := csDropDownList;
   FSelModeCombo.Items.Add('Replace');
@@ -2738,23 +2822,26 @@ begin
   FSelModeCombo.Visible := False;
   FSelModeCombo.OnChange := @SelModeComboChanged;
   FSelModeCombo.Color := clWhite;
+  FSelModeCombo.Font.Size := OptionsBarFontSize;
   FSelModeCombo.Font.Color := ChromeTextColor;
   FSelModeCombo.Hint := 'Selection combination mode';
   FSelModeCombo.ShowHint := True;
 
   { Shape style combo: Outline / Fill / Outline+Fill }
-  FShapeStyleLabel := TLabel.Create(FTopPanel);
-  FShapeStyleLabel.Parent := FTopPanel;
+  FShapeStyleLabel := TLabel.Create(FOptionsBarPanel);
+  FShapeStyleLabel.Parent := FOptionsBarPanel;
   FShapeStyleLabel.Caption := 'Draw:';
+  FShapeStyleLabel.Font.Size := OptionsBarFontSize;
   FShapeStyleLabel.Font.Color := ChromeTextColor;
   FShapeStyleLabel.Left := 348;
-  FShapeStyleLabel.Top := ToolbarOptionLabelTop;
+  FShapeStyleLabel.Top := OptionsBarLabelTop;
   FShapeStyleLabel.Visible := False;
 
-  FShapeStyleCombo := TComboBox.Create(FTopPanel);
-  FShapeStyleCombo.Parent := FTopPanel;
+  FShapeStyleCombo := TComboBox.Create(FOptionsBarPanel);
+  FShapeStyleCombo.Parent := FOptionsBarPanel;
   FShapeStyleCombo.Left := 394;
-  FShapeStyleCombo.Top := ToolbarOptionRowTop;
+  FShapeStyleCombo.Top := OptionsBarControlTop;
+  FShapeStyleCombo.Height := OptionsBarControlHeight;
   FShapeStyleCombo.Width := 116;
   FShapeStyleCombo.Style := csDropDownList;
   FShapeStyleCombo.Items.Add('Outline');
@@ -2764,15 +2851,17 @@ begin
   FShapeStyleCombo.Visible := False;
   FShapeStyleCombo.OnChange := @ShapeStyleComboChanged;
   FShapeStyleCombo.Color := clWhite;
+  FShapeStyleCombo.Font.Size := OptionsBarFontSize;
   FShapeStyleCombo.Font.Color := ChromeTextColor;
   FShapeStyleCombo.Hint := 'Shape draw style';
   FShapeStyleCombo.ShowHint := True;
 
-  FLineBezierCheck := TCheckBox.Create(FTopPanel);
-  FLineBezierCheck.Parent := FTopPanel;
+  FLineBezierCheck := TCheckBox.Create(FOptionsBarPanel);
+  FLineBezierCheck.Parent := FOptionsBarPanel;
   FLineBezierCheck.Left := 348;
-  FLineBezierCheck.Top := ToolbarOptionCheckTop;
+  FLineBezierCheck.Top := OptionsBarCheckTop;
   FLineBezierCheck.Width := 100;
+  FLineBezierCheck.Font.Size := OptionsBarFontSize;
   FLineBezierCheck.Caption := 'Bezier';
   FLineBezierCheck.Checked := FLineBezierMode;
   FLineBezierCheck.Visible := False;
@@ -2781,18 +2870,20 @@ begin
   FLineBezierCheck.ShowHint := True;
 
   { Bucket fill mode combo: Contiguous / Global }
-  FBucketModeLabel := TLabel.Create(FTopPanel);
-  FBucketModeLabel.Parent := FTopPanel;
+  FBucketModeLabel := TLabel.Create(FOptionsBarPanel);
+  FBucketModeLabel.Parent := FOptionsBarPanel;
   FBucketModeLabel.Caption := 'Fill:';
+  FBucketModeLabel.Font.Size := OptionsBarFontSize;
   FBucketModeLabel.Font.Color := ChromeTextColor;
   FBucketModeLabel.Left := 348;
-  FBucketModeLabel.Top := ToolbarOptionLabelTop;
+  FBucketModeLabel.Top := OptionsBarLabelTop;
   FBucketModeLabel.Visible := False;
 
-  FBucketModeCombo := TComboBox.Create(FTopPanel);
-  FBucketModeCombo.Parent := FTopPanel;
+  FBucketModeCombo := TComboBox.Create(FOptionsBarPanel);
+  FBucketModeCombo.Parent := FOptionsBarPanel;
   FBucketModeCombo.Left := 384;
-  FBucketModeCombo.Top := ToolbarOptionRowTop;
+  FBucketModeCombo.Top := OptionsBarControlTop;
+  FBucketModeCombo.Height := OptionsBarControlHeight;
   FBucketModeCombo.Width := 110;
   FBucketModeCombo.Style := csDropDownList;
   FBucketModeCombo.Items.Add('Contiguous');
@@ -2801,23 +2892,26 @@ begin
   FBucketModeCombo.Visible := False;
   FBucketModeCombo.OnChange := @BucketModeComboChanged;
   FBucketModeCombo.Color := clWhite;
+  FBucketModeCombo.Font.Size := OptionsBarFontSize;
   FBucketModeCombo.Font.Color := ChromeTextColor;
   FBucketModeCombo.Hint := 'Fill mode';
   FBucketModeCombo.ShowHint := True;
 
   { Fill sample source combo: Current Layer / All Layers }
-  FFillSampleLabel := TLabel.Create(FTopPanel);
-  FFillSampleLabel.Parent := FTopPanel;
+  FFillSampleLabel := TLabel.Create(FOptionsBarPanel);
+  FFillSampleLabel.Parent := FOptionsBarPanel;
   FFillSampleLabel.Caption := 'Sample:';
+  FFillSampleLabel.Font.Size := OptionsBarFontSize;
   FFillSampleLabel.Font.Color := ChromeTextColor;
   FFillSampleLabel.Left := 500;
-  FFillSampleLabel.Top := ToolbarOptionLabelTop;
+  FFillSampleLabel.Top := OptionsBarLabelTop;
   FFillSampleLabel.Visible := False;
 
-  FFillSampleCombo := TComboBox.Create(FTopPanel);
-  FFillSampleCombo.Parent := FTopPanel;
+  FFillSampleCombo := TComboBox.Create(FOptionsBarPanel);
+  FFillSampleCombo.Parent := FOptionsBarPanel;
   FFillSampleCombo.Left := 552;
-  FFillSampleCombo.Top := ToolbarOptionRowTop;
+  FFillSampleCombo.Top := OptionsBarControlTop;
+  FFillSampleCombo.Height := OptionsBarControlHeight;
   FFillSampleCombo.Width := 120;
   FFillSampleCombo.Style := csDropDownList;
   FFillSampleCombo.Items.Add('Current Layer');
@@ -2826,23 +2920,26 @@ begin
   FFillSampleCombo.Visible := False;
   FFillSampleCombo.OnChange := @FillSampleComboChanged;
   FFillSampleCombo.Color := clWhite;
+  FFillSampleCombo.Font.Size := OptionsBarFontSize;
   FFillSampleCombo.Font.Color := ChromeTextColor;
   FFillSampleCombo.Hint := 'Fill sample source';
   FFillSampleCombo.ShowHint := True;
 
   { Magic wand sample source combo: Current Layer / All Layers }
-  FWandSampleLabel := TLabel.Create(FTopPanel);
-  FWandSampleLabel.Parent := FTopPanel;
+  FWandSampleLabel := TLabel.Create(FOptionsBarPanel);
+  FWandSampleLabel.Parent := FOptionsBarPanel;
   FWandSampleLabel.Caption := 'Sample:';
+  FWandSampleLabel.Font.Size := OptionsBarFontSize;
   FWandSampleLabel.Font.Color := ChromeTextColor;
   FWandSampleLabel.Left := 730;
-  FWandSampleLabel.Top := ToolbarOptionLabelTop;
+  FWandSampleLabel.Top := OptionsBarLabelTop;
   FWandSampleLabel.Visible := False;
 
-  FWandSampleCombo := TComboBox.Create(FTopPanel);
-  FWandSampleCombo.Parent := FTopPanel;
+  FWandSampleCombo := TComboBox.Create(FOptionsBarPanel);
+  FWandSampleCombo.Parent := FOptionsBarPanel;
   FWandSampleCombo.Left := 782;
-  FWandSampleCombo.Top := ToolbarOptionRowTop;
+  FWandSampleCombo.Top := OptionsBarControlTop;
+  FWandSampleCombo.Height := OptionsBarControlHeight;
   FWandSampleCombo.Width := 120;
   FWandSampleCombo.Style := csDropDownList;
   FWandSampleCombo.Items.Add('Current Layer');
@@ -2851,16 +2948,18 @@ begin
   FWandSampleCombo.Visible := False;
   FWandSampleCombo.OnChange := @WandSampleComboChanged;
   FWandSampleCombo.Color := clWhite;
+  FWandSampleCombo.Font.Size := OptionsBarFontSize;
   FWandSampleCombo.Font.Color := ChromeTextColor;
   FWandSampleCombo.Hint := 'Wand sample source';
   FWandSampleCombo.ShowHint := True;
 
   { Wand contiguous checkbox }
-  FWandContiguousCheck := TCheckBox.Create(FTopPanel);
-  FWandContiguousCheck.Parent := FTopPanel;
+  FWandContiguousCheck := TCheckBox.Create(FOptionsBarPanel);
+  FWandContiguousCheck.Parent := FOptionsBarPanel;
   FWandContiguousCheck.Left := 910;
-  FWandContiguousCheck.Top := ToolbarOptionCheckTop;
+  FWandContiguousCheck.Top := OptionsBarCheckTop;
   FWandContiguousCheck.Width := 100;
+  FWandContiguousCheck.Font.Size := OptionsBarFontSize;
   FWandContiguousCheck.Caption := 'Contiguous';
   FWandContiguousCheck.Checked := FWandContiguous;
   FWandContiguousCheck.Visible := False;
@@ -2869,41 +2968,46 @@ begin
   FWandContiguousCheck.ShowHint := True;
 
   { Fill tolerance spin }
-  FFillTolLabel := TLabel.Create(FTopPanel);
-  FFillTolLabel.Parent := FTopPanel;
+  FFillTolLabel := TLabel.Create(FOptionsBarPanel);
+  FFillTolLabel.Parent := FOptionsBarPanel;
   FFillTolLabel.Caption := 'Tolerance:';
+  FFillTolLabel.Font.Size := OptionsBarFontSize;
   FFillTolLabel.Font.Color := ChromeTextColor;
   FFillTolLabel.Left := 348;
-  FFillTolLabel.Top := ToolbarOptionLabelTop;
+  FFillTolLabel.Top := OptionsBarLabelTop;
   FFillTolLabel.Visible := False;
 
-  FFillTolSpin := TSpinEdit.Create(FTopPanel);
-  FFillTolSpin.Parent := FTopPanel;
+  FFillTolSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FFillTolSpin.Parent := FOptionsBarPanel;
   FFillTolSpin.Left := 420;
-  FFillTolSpin.Top := ToolbarOptionRowTop;
+  FFillTolSpin.Top := OptionsBarControlTop;
+  FFillTolSpin.Height := OptionsBarControlHeight;
   FFillTolSpin.Width := 66;
   FFillTolSpin.MinValue := 0;
   FFillTolSpin.MaxValue := 255;
   FFillTolSpin.Value := FFillTolerance;
   FFillTolSpin.Visible := False;
   FFillTolSpin.OnChange := @FillTolSpinChanged;
+  FFillTolSpin.Font.Size := OptionsBarFontSize;
   FFillTolSpin.Font.Color := ChromeTextColor;
   FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
   FFillTolSpin.ShowHint := True;
 
   { Gradient type combo: Linear / Radial }
-  FGradientTypeLabel := TLabel.Create(FTopPanel);
-  FGradientTypeLabel.Parent := FTopPanel;
+  FGradientTypeLabel := TLabel.Create(FOptionsBarPanel);
+  FGradientTypeLabel.Parent := FOptionsBarPanel;
   FGradientTypeLabel.Caption := 'Type:';
+  FGradientTypeLabel.Font.Size := OptionsBarFontSize;
   FGradientTypeLabel.Font.Color := ChromeTextColor;
   FGradientTypeLabel.Left := 348;
-  FGradientTypeLabel.Top := ToolbarOptionLabelTop;
+  FGradientTypeLabel.Top := OptionsBarLabelTop;
   FGradientTypeLabel.Visible := False;
 
-  FGradientTypeCombo := TComboBox.Create(FTopPanel);
-  FGradientTypeCombo.Parent := FTopPanel;
+  FGradientTypeCombo := TComboBox.Create(FOptionsBarPanel);
+  FGradientTypeCombo.Parent := FOptionsBarPanel;
   FGradientTypeCombo.Left := 384;
-  FGradientTypeCombo.Top := ToolbarOptionRowTop;
+  FGradientTypeCombo.Top := OptionsBarControlTop;
+  FGradientTypeCombo.Height := OptionsBarControlHeight;
   FGradientTypeCombo.Width := 90;
   FGradientTypeCombo.Style := csDropDownList;
   FGradientTypeCombo.Items.Add('Linear');
@@ -2912,16 +3016,18 @@ begin
   FGradientTypeCombo.Visible := False;
   FGradientTypeCombo.OnChange := @GradientTypeComboChanged;
   FGradientTypeCombo.Color := clWhite;
+  FGradientTypeCombo.Font.Size := OptionsBarFontSize;
   FGradientTypeCombo.Font.Color := ChromeTextColor;
   FGradientTypeCombo.Hint := 'Gradient type';
   FGradientTypeCombo.ShowHint := True;
 
   { Gradient reverse checkbox }
-  FGradientReverseCheck := TCheckBox.Create(FTopPanel);
-  FGradientReverseCheck.Parent := FTopPanel;
+  FGradientReverseCheck := TCheckBox.Create(FOptionsBarPanel);
+  FGradientReverseCheck.Parent := FOptionsBarPanel;
   FGradientReverseCheck.Left := 480;
-  FGradientReverseCheck.Top := ToolbarOptionCheckTop;
+  FGradientReverseCheck.Top := OptionsBarCheckTop;
   FGradientReverseCheck.Width := 80;
+  FGradientReverseCheck.Font.Size := OptionsBarFontSize;
   FGradientReverseCheck.Caption := 'Reverse';
   FGradientReverseCheck.Checked := FGradientReverse;
   FGradientReverseCheck.Visible := False;
@@ -2930,11 +3036,12 @@ begin
   FGradientReverseCheck.ShowHint := True;
 
   { Clone aligned checkbox }
-  FCloneAlignedCheck := TCheckBox.Create(FTopPanel);
-  FCloneAlignedCheck.Parent := FTopPanel;
+  FCloneAlignedCheck := TCheckBox.Create(FOptionsBarPanel);
+  FCloneAlignedCheck.Parent := FOptionsBarPanel;
   FCloneAlignedCheck.Left := 480;
-  FCloneAlignedCheck.Top := ToolbarOptionCheckTop;
+  FCloneAlignedCheck.Top := OptionsBarCheckTop;
   FCloneAlignedCheck.Width := 80;
+  FCloneAlignedCheck.Font.Size := OptionsBarFontSize;
   FCloneAlignedCheck.Caption := 'Aligned';
   FCloneAlignedCheck.Checked := FCloneAligned;
   FCloneAlignedCheck.Visible := False;
@@ -2943,11 +3050,12 @@ begin
   FCloneAlignedCheck.ShowHint := True;
 
   { Recolor preserve-value checkbox }
-  FRecolorPreserveValueCheck := TCheckBox.Create(FTopPanel);
-  FRecolorPreserveValueCheck.Parent := FTopPanel;
+  FRecolorPreserveValueCheck := TCheckBox.Create(FOptionsBarPanel);
+  FRecolorPreserveValueCheck.Parent := FOptionsBarPanel;
   FRecolorPreserveValueCheck.Left := 628;
-  FRecolorPreserveValueCheck.Top := ToolbarOptionCheckTop;
+  FRecolorPreserveValueCheck.Top := OptionsBarCheckTop;
   FRecolorPreserveValueCheck.Width := 120;
+  FRecolorPreserveValueCheck.Font.Size := OptionsBarFontSize;
   FRecolorPreserveValueCheck.Caption := 'Preserve Value';
   FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
   FRecolorPreserveValueCheck.Visible := False;
@@ -2956,18 +3064,20 @@ begin
   FRecolorPreserveValueCheck.ShowHint := True;
 
   { Color picker sample source combo }
-  FPickerSampleLabel := TLabel.Create(FTopPanel);
-  FPickerSampleLabel.Parent := FTopPanel;
+  FPickerSampleLabel := TLabel.Create(FOptionsBarPanel);
+  FPickerSampleLabel.Parent := FOptionsBarPanel;
   FPickerSampleLabel.Caption := 'Sample:';
+  FPickerSampleLabel.Font.Size := OptionsBarFontSize;
   FPickerSampleLabel.Font.Color := ChromeTextColor;
   FPickerSampleLabel.Left := 348;
-  FPickerSampleLabel.Top := ToolbarOptionLabelTop;
+  FPickerSampleLabel.Top := OptionsBarLabelTop;
   FPickerSampleLabel.Visible := False;
 
-  FPickerSampleCombo := TComboBox.Create(FTopPanel);
-  FPickerSampleCombo.Parent := FTopPanel;
+  FPickerSampleCombo := TComboBox.Create(FOptionsBarPanel);
+  FPickerSampleCombo.Parent := FOptionsBarPanel;
   FPickerSampleCombo.Left := 400;
-  FPickerSampleCombo.Top := ToolbarOptionRowTop;
+  FPickerSampleCombo.Top := OptionsBarControlTop;
+  FPickerSampleCombo.Height := OptionsBarControlHeight;
   FPickerSampleCombo.Width := 120;
   FPickerSampleCombo.Style := csDropDownList;
   FPickerSampleCombo.Items.Add('Current Layer');
@@ -2976,16 +3086,18 @@ begin
   FPickerSampleCombo.Visible := False;
   FPickerSampleCombo.OnChange := @PickerSampleComboChanged;
   FPickerSampleCombo.Color := clWhite;
+  FPickerSampleCombo.Font.Size := OptionsBarFontSize;
   FPickerSampleCombo.Font.Color := ChromeTextColor;
   FPickerSampleCombo.Hint := 'Pick color from layer or composite image';
   FPickerSampleCombo.ShowHint := True;
 
   { Selection anti-alias checkbox }
-  FSelAntiAliasCheck := TCheckBox.Create(FTopPanel);
-  FSelAntiAliasCheck.Parent := FTopPanel;
+  FSelAntiAliasCheck := TCheckBox.Create(FOptionsBarPanel);
+  FSelAntiAliasCheck.Parent := FOptionsBarPanel;
   FSelAntiAliasCheck.Left := 500;
-  FSelAntiAliasCheck.Top := ToolbarOptionCheckTop;
+  FSelAntiAliasCheck.Top := OptionsBarCheckTop;
   FSelAntiAliasCheck.Width := 90;
+  FSelAntiAliasCheck.Font.Size := OptionsBarFontSize;
   FSelAntiAliasCheck.Caption := 'Anti-alias';
   FSelAntiAliasCheck.Checked := FSelAntiAlias;
   FSelAntiAliasCheck.Visible := False;
@@ -2993,24 +3105,27 @@ begin
   FSelAntiAliasCheck.Hint := 'Smooth selection edges';
   FSelAntiAliasCheck.ShowHint := True;
 
-  FSelFeatherLabel := TLabel.Create(FTopPanel);
-  FSelFeatherLabel.Parent := FTopPanel;
+  FSelFeatherLabel := TLabel.Create(FOptionsBarPanel);
+  FSelFeatherLabel.Parent := FOptionsBarPanel;
   FSelFeatherLabel.Caption := 'Feather:';
   FSelFeatherLabel.Left := 596;
-  FSelFeatherLabel.Top := ToolbarOptionLabelTop;
+  FSelFeatherLabel.Top := OptionsBarLabelTop;
+  FSelFeatherLabel.Font.Size := OptionsBarFontSize;
   FSelFeatherLabel.Font.Color := ChromeTextColor;
   FSelFeatherLabel.Visible := False;
 
-  FSelFeatherSpin := TSpinEdit.Create(FTopPanel);
-  FSelFeatherSpin.Parent := FTopPanel;
+  FSelFeatherSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FSelFeatherSpin.Parent := FOptionsBarPanel;
   FSelFeatherSpin.Left := 656;
-  FSelFeatherSpin.Top := ToolbarOptionRowTop;
+  FSelFeatherSpin.Top := OptionsBarControlTop;
+  FSelFeatherSpin.Height := OptionsBarControlHeight;
   FSelFeatherSpin.Width := 60;
   FSelFeatherSpin.MinValue := 0;
   FSelFeatherSpin.MaxValue := 128;
   FSelFeatherSpin.Value := FSelFeather;
   FSelFeatherSpin.Visible := False;
   FSelFeatherSpin.OnChange := @SelFeatherSpinChanged;
+  FSelFeatherSpin.Font.Size := OptionsBarFontSize;
   FSelFeatherSpin.Font.Color := ChromeTextColor;
 
   UpdateToolOptionControl;
