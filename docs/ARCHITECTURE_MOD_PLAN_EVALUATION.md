@@ -12,14 +12,30 @@
 2. Confirmed each cited line still matches described behavior.
 3. Ran assertion checks for ambiguous claims.
 
-Conclusion: defects A1-A7 are still valid in current code.
+Conclusion: defects A1/A2 moved to mitigated status, A3/A4/A5 moved to partial-mitigation status, and A6/A7 remain fully open.
+
+## Implementation delta (2026-03-06 latest)
+- This evaluation section above is preserved as the pre-renovation baseline verdict.
+- Current code status after latest implementation pass:
+  - **A1**: mitigated by transactional move-pixels workflow (`tool_transaction_tests` green).
+  - **A2**: materially mitigated by byte-coverage propagation through selection transforms, weighted selection-aware apply paths, and native mask persistence (`FPDOC04`, legacy-compatible load) with regression tests.
+  - **A3**: partially mitigated by core `FPMutationGuard` plus direct-route lock guards for remaining menu-surface mutations.
+  - **A4**: partially mitigated by layer offset metadata in core model, native persistence, and XCF metadata capture (compatibility render mode retained).
+  - **A5**: partially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture plus long-stroke undo/redo regression coverage.
+- Remaining priority architecture work still aligns with the plan sequence:
+  - **A4 semantic migration tail** (offset-aware compositor/tool math),
+  - **A5 transaction-service extraction tail** (reduce app-layer history orchestration),
+  - **A6** tool-controller decomposition,
+  - **A7** stored-selection route closure,
+  - **A3 tail-route/no-op-history cleanup** for full route consistency.
 
 ### Additional assertion checks
 - `StoreSelectionForPaste()` usage:
   - Found only declaration/implementation in core.
   - No app-layer call site found in current `src/app` routes.
 - Core lock guards:
-  - Effect/adjustment mutation methods in `TImageDocument` directly call `ActiveLayer.Surface.*` without `Locked` guard in that mutation range.
+  - Current `TImageDocument` mutation methods are now guard-gated through centralized mutation checks.
+  - Remaining consistency debt is concentrated in app-layer routes that can still directly mutate surfaces/history before core command wrappers are used.
 
 ## GIMP architecture reference findings (pattern-level only)
 

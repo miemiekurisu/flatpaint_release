@@ -41,7 +41,7 @@ Highest priority defects:
 - A1: move-selected-pixels is destructive during drag (no transactional floating buffer).
 - A2: soft-selection data exists but many edit paths reduce to boolean mask behavior.
 - A3: lock/editability constraints are route-dependent (mainly UI-guarded).
-- A5: stroke history capture still starts from full-layer clone cost.
+- A5: stroke history capture still starts from full-layer clone cost. (baseline-at-plan-creation; now partially mitigated in current status)
 
 ## 4. Target architecture (lightweight-oriented)
 
@@ -69,9 +69,10 @@ Highest priority defects:
 - Move tool state machines out of `TMainForm`.
 - Keep `TMainForm` as shell, event dispatch, and view synchronization.
 
-6. `LayerGeometry` model extension (deferred but planned)
+6. `LayerGeometry` model extension (started: metadata path)
 - Add per-layer offset metadata in core model.
 - Keep compatibility import path able to preserve offsets structurally.
+- Keep rendering/edit semantics in compatibility mode until local-surface migration is explicitly planned.
 
 ### 4.2 Architecture shape
 - UI Shell (`TMainForm`) -> ToolController -> Guarded Document API -> Core services (`EditSession`, `SelectionEngine`, `HistoryTransaction`) -> Surface/Compositor.
@@ -122,6 +123,16 @@ Exit criteria:
 - Feathered selection affects paint/fill/copy/move as expected.
 - Selection roundtrip tests define and validate persistence contract.
 
+### Phase 4.5: Layer geometry metadata foundation (A4)
+- Introduce per-layer offset metadata into the core layer model.
+- Persist offset metadata in native project format and preserve XCF-imported offsets structurally.
+- Keep compatibility rendering path unchanged (canvas-stamped payload) to avoid broad tool-regression risk in this phase.
+
+Exit criteria:
+- Layer offsets survive clone/history/full snapshot routes.
+- Native save/load roundtrip preserves layer offset metadata.
+- XCF import records source offsets in layer metadata without breaking current render behavior.
+
 ### Phase 5: History optimization (A5)
 - Reduce full-layer clone usage at stroke start where safe.
 - Prefer transaction/region delta snapshots with strict rollback behavior.
@@ -137,6 +148,15 @@ Exit criteria:
 Exit criteria:
 - `mainform.pas` complexity reduced without route regression.
 - Tool controllers independently unit-testable.
+
+### Current implementation status (2026-03-06 latest)
+- Phase 0: complete (baseline gates established).
+- Phase 1: partial (infrastructure introduced, now extended with core `MutationGuard` module).
+- Phase 2: complete (transactional move-pixels flow + `tool_transaction_tests` passing).
+- Phase 3: in progress (core mutation routes guarded; remaining route/no-op-history consolidation still pending).
+- Phase 4: complete (selection byte-coverage semantics propagated through transform/apply/persistence paths with regression coverage).
+- Phase 4.5: in progress (layer offset metadata model + native persistence + XCF metadata preservation landed in compatibility mode).
+- Phase 5: in progress (stroke-start full-layer clone path replaced by incremental region capture with long-stroke undo/redo regression coverage).
 
 ## 6. Test renovation plan (to prevent repeat render breakage)
 
@@ -162,6 +182,7 @@ Exit criteria:
 
 4. `selection_coverage_pipeline_tests.pas`
 - Feather coverage propagation through fill/paint/copy/move.
+- Current status: initial coverage checks are now landed in `fpsurface_tests`, `fpselection_tests`, and `integration_native_roundtrip_tests`; dedicated standalone suite file remains a follow-up.
 
 5. `history_transaction_tests.pas`
 - Grouped undo atomicity for interactive sessions.

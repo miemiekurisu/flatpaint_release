@@ -4,6 +4,52 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 4.5/5: layer-offset metadata + incremental stroke history capture)
+- Full CI verification after landing layer-offset metadata in core/native/XCF compatibility routes and replacing stroke-start full-layer clone with incremental region capture: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `252` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TFPDocumentTests`:
+    - `LayerOffsetMetadataPreservedInClone`
+  - `TIntegrationNativeRoundTripTests`:
+    - `Test_MultiLayer_SaveLoad_PreservesLayersAndPixels` now validates per-layer offset roundtrip
+  - `TPipelineIntegrationTests`:
+    - `UndoRedoAfterLongPencilStrokeRestoresPixels`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-06 (Phase 4 selection coverage propagation + native mask v3)
+- Full CI verification after propagating selection coverage semantics through selection transforms, selection-aware surface mutation paths, background move blend path, and native `.fpd` selection persistence upgrade to `FPDOC03`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `250` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TFPSurfaceTests` added coverage-aware selection application assertions:
+    - `MaskedLineCoverageScalesAlpha`
+    - `FillSelectionCoverageScalesOpacity`
+    - `CopySelectionCoverageScalesAlpha`
+    - `MoveSelectedPixelsCoverageUsesSoftCopyAndSoftErase`
+  - `TFPSelectionTests` added byte-coverage invariants:
+    - `InvertPreservesByteCoverage`
+    - `TransformPathsPreserveCoverageValues`
+  - `TIntegrationNativeRoundTripTests` added native mask persistence check:
+    - `Test_SelectionCoverage_SaveLoad_PreservesByteMask`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-06 (shortcut/colors regression closure + mutation guard suite)
+- Full CI verification after fixing `TFPUIHelpersTests` shortcut/hint/cycle regressions, fixing colors panel width contract, introducing core `MutationGuard`, and adding dedicated guard tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `243` tests, `0` errors, `0` failures.
+- New suite result:
+  - `TMutationGuardTests` passed (`4/4`)
+  - Cases:
+    - `LockedActiveLayerBlocksAdjustmentMutation`
+    - `LockedActiveLayerBlocksSelectionDrivenMutation`
+    - `LockedLayerBlocksDocumentWidePixelMutation`
+    - `UnlockedMutationsStillApply`
+- Follow-up status:
+  - previously failing `TFPUIHelpersTests` set is now green
+  - previously failing `TFPPaletteHelpersTests.ColorsPanelFitsSystemPickerAndSliderRows` is now green
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-06 (Phase 1/2 move-pixels transaction migration)
 - Full regression run after transactional `Move Pixels` migration and new transaction tests: `bash ./scripts/run_tests_ci.sh`
 - Result: failed; `239` tests, `0` errors, `8` failures.

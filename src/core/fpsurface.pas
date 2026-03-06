@@ -130,6 +130,11 @@ begin
   Result := Value;
 end;
 
+function ScaleByCoverage(Value: Integer; Coverage: Byte): Integer; inline;
+begin
+  Result := (Value * Coverage + 127) div 255;
+end;
+
 function ColorsCloseEnough(const AColor, BColor: TRGBA32; Tolerance: Byte): Boolean; inline;
 begin
   Result :=
@@ -400,13 +405,23 @@ end;
 procedure TRasterSurface.BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte; ASelection: TSelectionMask);
 var
   PixelIndex: Integer;
+  Coverage: Byte;
+  EffectiveOpacity: Integer;
 begin
   if not InBounds(X, Y) then
     Exit;
-  if Assigned(ASelection) and not ASelection[X, Y] then
-    Exit;
+  EffectiveOpacity := Opacity;
+  if Assigned(ASelection) then
+  begin
+    Coverage := ASelection.Coverage(X, Y);
+    if Coverage = 0 then
+      Exit;
+    EffectiveOpacity := ScaleByCoverage(EffectiveOpacity, Coverage);
+    if EffectiveOpacity <= 0 then
+      Exit;
+  end;
   PixelIndex := IndexOf(X, Y);
-  FPixels[PixelIndex] := BlendNormal(AColor, FPixels[PixelIndex], Opacity);
+  FPixels[PixelIndex] := BlendNormal(AColor, FPixels[PixelIndex], ClampChannel(EffectiveOpacity));
 end;
 
 procedure TRasterSurface.EraseBrush(X, Y, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
@@ -423,6 +438,7 @@ var
   PixelIndex: Integer;
   PixelColor: TRGBA32;
   NewAlpha: Integer;
+  Coverage: Byte;
 begin
   Radius := Max(0, Radius);
   RadiusSquared := Radius * Radius;
@@ -447,8 +463,15 @@ begin
         Continue;
       if not InBounds(DrawX, DrawY) then
         Continue;
-      if Assigned(ASelection) and not ASelection[DrawX, DrawY] then
-        Continue;
+      if Assigned(ASelection) then
+      begin
+        Coverage := ASelection.Coverage(DrawX, DrawY);
+        if Coverage = 0 then
+          Continue;
+        EffectiveOpacity := ScaleByCoverage(EffectiveOpacity, Coverage);
+        if EffectiveOpacity <= 0 then
+          Continue;
+      end;
       PixelIndex := IndexOf(DrawX, DrawY);
       PixelColor := FPixels[PixelIndex];
       if PixelColor.A = 0 then
@@ -474,6 +497,7 @@ var
   PixelIndex: Integer;
   PixelColor: TRGBA32;
   NewAlpha: Integer;
+  Coverage: Byte;
 begin
   Radius := Max(0, Radius);
   EdgeRadius := Radius * Hardness div 255;
@@ -496,8 +520,15 @@ begin
         Continue;
       if not InBounds(DrawX, DrawY) then
         Continue;
-      if Assigned(ASelection) and not ASelection[DrawX, DrawY] then
-        Continue;
+      if Assigned(ASelection) then
+      begin
+        Coverage := ASelection.Coverage(DrawX, DrawY);
+        if Coverage = 0 then
+          Continue;
+        EffectiveOpacity := ScaleByCoverage(EffectiveOpacity, Coverage);
+        if EffectiveOpacity <= 0 then
+          Continue;
+      end;
       PixelIndex := IndexOf(DrawX, DrawY);
       PixelColor := FPixels[PixelIndex];
       if PixelColor.A = 0 then
@@ -2998,6 +3029,8 @@ var
   PixelVal: Double;
   TargetHue: Double;
   TargetSat: Double;
+  Coverage: Byte;
+  EffectiveOpacity: Integer;
 begin
   for BY := Max(0, Y - Radius) to Min(FHeight - 1, Y + Radius) do
     for BX := Max(0, X - Radius) to Min(FWidth - 1, X + Radius) do
@@ -3005,8 +3038,16 @@ begin
       Dist := Round(Sqrt((BX - X) * (BX - X) + (BY - Y) * (BY - Y)));
       if Dist > Radius then
         Continue;
-      if Assigned(ASelection) and not ASelection[BX, BY] then
-        Continue;
+      EffectiveOpacity := Opacity;
+      if Assigned(ASelection) then
+      begin
+        Coverage := ASelection.Coverage(BX, BY);
+        if Coverage = 0 then
+          Continue;
+        EffectiveOpacity := ScaleByCoverage(EffectiveOpacity, Coverage);
+        if EffectiveOpacity <= 0 then
+          Continue;
+      end;
       Pix := FPixels[IndexOf(BX, BY)];
       DR := Pix.R - SourceColor.R;
       DG := Pix.G - SourceColor.G;
@@ -3027,13 +3068,13 @@ begin
           TargetPix.G := NewColor.G;
           TargetPix.B := NewColor.B;
         end;
-        if Opacity >= 255 then
+        if EffectiveOpacity >= 255 then
           Pix := TargetPix
         else
         begin
-          Pix.R := (Pix.R * (255 - Opacity) + TargetPix.R * Opacity + 127) div 255;
-          Pix.G := (Pix.G * (255 - Opacity) + TargetPix.G * Opacity + 127) div 255;
-          Pix.B := (Pix.B * (255 - Opacity) + TargetPix.B * Opacity + 127) div 255;
+          Pix.R := (Pix.R * (255 - EffectiveOpacity) + TargetPix.R * EffectiveOpacity + 127) div 255;
+          Pix.G := (Pix.G * (255 - EffectiveOpacity) + TargetPix.G * EffectiveOpacity + 127) div 255;
+          Pix.B := (Pix.B * (255 - EffectiveOpacity) + TargetPix.B * EffectiveOpacity + 127) div 255;
         end;
         FPixels[IndexOf(BX, BY)] := Pix;
       end;
@@ -3044,32 +3085,57 @@ procedure TRasterSurface.FillSelection(ASelection: TSelectionMask; const AColor:
 var
   X: Integer;
   Y: Integer;
+  Coverage: Byte;
+  EffectiveOpacity: Integer;
 begin
   if ASelection = nil then
     Exit;
   for Y := 0 to Min(FHeight, ASelection.Height) - 1 do
     for X := 0 to Min(FWidth, ASelection.Width) - 1 do
-      if ASelection[X, Y] then
-        BlendPixel(X, Y, AColor, Opacity);
+    begin
+      Coverage := ASelection.Coverage(X, Y);
+      if Coverage = 0 then
+        Continue;
+      EffectiveOpacity := ScaleByCoverage(Opacity, Coverage);
+      if EffectiveOpacity > 0 then
+        BlendPixel(X, Y, AColor, ClampChannel(EffectiveOpacity));
+    end;
 end;
 
 procedure TRasterSurface.EraseSelection(ASelection: TSelectionMask);
 var
   X: Integer;
   Y: Integer;
+  Coverage: Byte;
+  Pixel: TRGBA32;
+  NewAlpha: Integer;
 begin
   if ASelection = nil then
     Exit;
   for Y := 0 to Min(FHeight, ASelection.Height) - 1 do
     for X := 0 to Min(FWidth, ASelection.Width) - 1 do
-      if ASelection[X, Y] then
-        Pixels[X, Y] := TransparentColor;
+    begin
+      Coverage := ASelection.Coverage(X, Y);
+      if Coverage = 0 then
+        Continue;
+      Pixel := Pixels[X, Y];
+      if Pixel.A = 0 then
+        Continue;
+      NewAlpha := Pixel.A * (255 - Coverage) div 255;
+      if NewAlpha <= 0 then
+        Pixels[X, Y] := TransparentColor
+      else
+        Pixels[X, Y] := RGBA(Pixel.R, Pixel.G, Pixel.B, ClampChannel(NewAlpha));
+    end;
 end;
 
 function TRasterSurface.CopySelection(ASelection: TSelectionMask): TRasterSurface;
 var
   X: Integer;
   Y: Integer;
+  Coverage: Byte;
+  Pixel: TRGBA32;
+  NewAlpha: Integer;
 begin
   Result := TRasterSurface.Create(FWidth, FHeight);
   Result.Clear(TransparentColor);
@@ -3077,8 +3143,19 @@ begin
     Exit;
   for Y := 0 to Min(FHeight, ASelection.Height) - 1 do
     for X := 0 to Min(FWidth, ASelection.Width) - 1 do
-      if ASelection[X, Y] then
-        Result[X, Y] := Pixels[X, Y];
+    begin
+      Coverage := ASelection.Coverage(X, Y);
+      if Coverage = 0 then
+        Continue;
+      Pixel := Pixels[X, Y];
+      if Pixel.A = 0 then
+        Continue;
+      NewAlpha := Pixel.A * Coverage div 255;
+      if NewAlpha <= 0 then
+        Continue;
+      Pixel.A := ClampChannel(NewAlpha);
+      Result[X, Y] := Pixel;
+    end;
 end;
 
 function TRasterSurface.CreateContiguousSelection(X, Y: Integer; Tolerance: Byte): TSelectionMask;
@@ -3161,6 +3238,7 @@ var
   TargetX: Integer;
   TargetY: Integer;
   Pixel: TRGBA32;
+  Coverage: Byte;
 begin
   if ASelection = nil then
     Exit;
@@ -3170,18 +3248,20 @@ begin
     EraseSelection(ASelection);
     for Y := 0 to Min(FHeight, ASelection.Height) - 1 do
       for X := 0 to Min(FWidth, ASelection.Width) - 1 do
-        if ASelection[X, Y] then
+      begin
+        Coverage := ASelection.Coverage(X, Y);
+        if Coverage = 0 then
+          Continue;
+        TargetX := X + DeltaX;
+        TargetY := Y + DeltaY;
+        if InBounds(TargetX, TargetY) then
         begin
-          TargetX := X + DeltaX;
-          TargetY := Y + DeltaY;
-          if InBounds(TargetX, TargetY) then
-          begin
-            Pixel := Copied[X, Y];
-            if Pixel.A > 0 then
-              Pixels[TargetX, TargetY] := Pixel;
-            { A=0: skip — don't overwrite destination with fully transparent }
-          end;
+          Pixel := Copied[X, Y];
+          if Pixel.A > 0 then
+            Pixels[TargetX, TargetY] := Pixel;
+          { A=0: skip — don't overwrite destination with fully transparent }
         end;
+      end;
   finally
     Copied.Free;
   end;

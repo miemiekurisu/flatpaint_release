@@ -9,6 +9,7 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Buttons,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
+  FPToolControllers,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
   FPUtilityHelpers, FPToolbarHelpers, FPI18n;
 
@@ -174,21 +175,11 @@ type
     FLayerOpacityLabel: TLabel;
     FUpdatingLayerControls: Boolean;
     FCloneStampSnapshot: TRasterSurface;
-    { Pre-stroke snapshot for efficient region-based undo (brush/pencil/eraser/recolor/clone).
-      FPreStrokeSnapshot holds a clone of the active layer taken at stroke start.
-      On mouse-up we crop it to FStrokeDirtyRect and push a region history entry. }
-    FPreStrokeSnapshot: TRasterSurface;
-    FStrokeDirtyRect: TRect;
-    FStrokeLayerIndex: Integer;
+    { Tool-session controllers extracted from mainform for A6 decomposition. }
+    FStrokeController: TStrokeHistoryController;
+    FMovePixelsController: TMovePixelsController;
+    FSelectionController: TSelectionToolController;
     FStrokeTool: TToolKind;
-    { Transactional move-pixels state: preview during drag, commit on mouse-up. }
-    FMovePixelsSessionActive: Boolean;
-    FMovePixelsSessionMoved: Boolean;
-    FMovePixelsSessionLayerIndex: Integer;
-    FMovePixelsSessionDelta: TPoint;
-    FMovePixelsBaseSelection: TSelectionMask;
-    FMovePixelsFloatingPixels: TRasterSurface;
-    FMovePixelsPreviewBaseComposite: TRasterSurface;
     { Document tab management }
     FTabDocuments: array of TImageDocument;
     FTabFileNames: array of string;
@@ -323,12 +314,10 @@ type
     procedure SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     function ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
     function PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
-    function SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
     procedure AppendLassoPoint(const APoint: TPoint);
     procedure ResetLineCurveSegmentState;
     procedure ResetLineCurveState;
     procedure CommitPendingLineSegment(AContinuePath: Boolean);
-    procedure ApplySelectionFeather;
     procedure InitializeTextToolDefaults;
     procedure UpdateInlineTextEditStyle;
     procedure UpdateInlineTextEditBounds;
@@ -637,6 +626,11 @@ type
     procedure ToolbarBtnMouseLeave(Sender: TObject);
     procedure FormResize(Sender: TObject);
     { Stroke history helpers }
+    function StrokeRectIsEmpty(const ARect: TRect): Boolean;
+    function StrokeBoundsForSegment(const AFrom, ATo: TPoint; ARadius: Integer): TRect;
+    procedure CaptureStrokeBeforeRect(const ARect: TRect);
+    procedure ClearStrokeHistoryState;
+    function HasPendingStrokeHistory: Boolean;
     procedure SealPendingStrokeHistory;
     procedure BeginStrokeHistory;
     procedure ExpandStrokeDirty(const APoint: TPoint);
@@ -790,7 +784,9 @@ begin
   FTabDragging := False;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
-  FMovePixelsSessionLayerIndex := -1;
+  FStrokeController := TStrokeHistoryController.Create;
+  FMovePixelsController := TMovePixelsController.Create;
+  FSelectionController := TSelectionToolController.Create;
   GMainForm := Self;
 end;
 
@@ -919,7 +915,9 @@ begin
   FTabDragging := False;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
-  FMovePixelsSessionLayerIndex := -1;
+  FStrokeController := TStrokeHistoryController.Create;
+  FMovePixelsController := TMovePixelsController.Create;
+  FSelectionController := TSelectionToolController.Create;
 
   { Default 96-colour swatch palette:
     1 grayscale band + 7 hue bands covering dark, mid, bright and pastel ramps. }
@@ -1179,10 +1177,10 @@ begin
   FreeAndNil(FDisplaySurface);
   FreeAndNil(FClipboardSurface);
   FreeAndNil(FCloneStampSnapshot);
-  FreeAndNil(FPreStrokeSnapshot);  { defensive cleanup in case a stroke was interrupted }
-  FreeAndNil(FMovePixelsBaseSelection);
-  FreeAndNil(FMovePixelsFloatingPixels);
-  FreeAndNil(FMovePixelsPreviewBaseComposite);
+  FreeAndNil(FSelectionController);
+  FreeAndNil(FMovePixelsController);
+  FreeAndNil(FStrokeController);
+  ClearStrokeHistoryState;
   FreeAndNil(FColorWheelBitmap);
   FreeAndNil(FColorSVBitmap);
   { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
@@ -1251,10 +1249,12 @@ var
   TileColor: TRGBA32;
   PixelColor: TRGBA32;
 begin
-  if FMovePixelsSessionActive and FMovePixelsSessionMoved and
-     Assigned(FMovePixelsPreviewBaseComposite) then
+  if Assigned(FMovePixelsController) and
+     FMovePixelsController.Active and
+     FMovePixelsController.Moved and
+     Assigned(FMovePixelsController.PreviewBaseComposite) then
   begin
-    CompositeSurface := FMovePixelsPreviewBaseComposite;
+    CompositeSurface := FMovePixelsController.PreviewBaseComposite;
     OwnsCompositeSurface := False;
   end
   else
@@ -1425,20 +1425,6 @@ begin
   Result := True;
 end;
 
-function TMainForm.SelectionModeFromShift(const Shift: TShiftState): TSelectionCombineMode;
-begin
-  // Map modifiers similar to GIMP: Shift = Add, Ctrl = Subtract, Shift+Ctrl = Intersect
-  // Map modifiers to Photoshop habit: Shift = Add, Alt/Option = Subtract, Shift+Alt = Intersect
-  if (ssShift in Shift) and (ssAlt in Shift) then
-    Result := scIntersect
-  else if ssAlt in Shift then
-    Result := scSubtract
-  else if ssShift in Shift then
-    Result := scAdd
-  else
-    Result := scReplace;
-end;
-
 procedure TMainForm.AppendLassoPoint(const APoint: TPoint);
 var
   PointCount: Integer;
@@ -1482,13 +1468,6 @@ begin
   RefreshTabCardVisuals(FActiveTabIndex);
   RefreshAuxiliaryImageViews(False);
   RefreshHistoryPanel;
-end;
-
-procedure TMainForm.ApplySelectionFeather;
-begin
-  if (not FSelAntiAlias) or (FSelFeather <= 0) or (not Assigned(FDocument)) or (not FDocument.HasSelection) then
-    Exit;
-  FDocument.Selection.Feather(FSelFeather);
 end;
 
 procedure TMainForm.InitializeTextToolDefaults;
@@ -1618,117 +1597,63 @@ end;
 
 procedure TMainForm.ClearMovePixelsTransactionState;
 begin
-  FreeAndNil(FMovePixelsBaseSelection);
-  FreeAndNil(FMovePixelsFloatingPixels);
-  FreeAndNil(FMovePixelsPreviewBaseComposite);
-  FMovePixelsSessionActive := False;
-  FMovePixelsSessionMoved := False;
-  FMovePixelsSessionLayerIndex := -1;
-  FMovePixelsSessionDelta := Point(0, 0);
+  if Assigned(FMovePixelsController) then
+    FMovePixelsController.Clear;
 end;
 
 procedure TMainForm.BeginMovePixelsTransaction;
-var
-  SourceSnapshot: TRasterSurface;
 begin
-  ClearMovePixelsTransactionState;
-  if not Assigned(FDocument) or not FDocument.HasSelection then
+  if not Assigned(FMovePixelsController) then
     Exit;
-  FMovePixelsBaseSelection := FDocument.Selection.Clone;
-  FMovePixelsFloatingPixels := FDocument.ActiveLayer.Surface.CopySelection(FMovePixelsBaseSelection);
-  FMovePixelsSessionLayerIndex := FDocument.ActiveLayerIndex;
-  SourceSnapshot := FDocument.ActiveLayer.Surface.Clone;
-  try
-    if FDocument.ActiveLayer.IsBackground then
-      FDocument.ActiveLayer.Surface.FillSelection(FMovePixelsBaseSelection, BackgroundToolColor, 255)
-    else
-      FDocument.ActiveLayer.Surface.EraseSelection(FMovePixelsBaseSelection);
-    FMovePixelsPreviewBaseComposite := FDocument.Composite;
-  finally
-    FDocument.ActiveLayer.Surface.Assign(SourceSnapshot);
-    SourceSnapshot.Free;
-  end;
-  FMovePixelsSessionDelta := Point(0, 0);
-  FMovePixelsSessionMoved := False;
-  FMovePixelsSessionActive := True;
+  FMovePixelsController.BeginSession(FDocument, BackgroundToolColor);
 end;
 
 procedure TMainForm.UpdateMovePixelsTransaction(DeltaX, DeltaY: Integer);
 begin
-  if not FMovePixelsSessionActive then
+  if not Assigned(FMovePixelsController) then
     Exit;
-  if not Assigned(FMovePixelsBaseSelection) then
+  if not FMovePixelsController.UpdateDelta(FDocument, DeltaX, DeltaY) then
     Exit;
-  if (DeltaX = 0) and (DeltaY = 0) then
-    Exit;
-
-  Inc(FMovePixelsSessionDelta.X, DeltaX);
-  Inc(FMovePixelsSessionDelta.Y, DeltaY);
-  FMovePixelsSessionMoved := (FMovePixelsSessionDelta.X <> 0) or
-    (FMovePixelsSessionDelta.Y <> 0);
-
-  FDocument.Selection.Assign(FMovePixelsBaseSelection);
-  if FMovePixelsSessionMoved then
-    FDocument.Selection.MoveBy(FMovePixelsSessionDelta.X, FMovePixelsSessionDelta.Y);
-
   SyncSelectionOverlayUI(False);
 end;
 
 procedure TMainForm.CommitMovePixelsTransaction;
 var
-  TargetLayer: TRasterLayer;
+  CommitResult: TMovePixelsCommitResult;
 begin
-  if not FMovePixelsSessionActive then
+  if not Assigned(FMovePixelsController) then
     Exit;
-  if not Assigned(FMovePixelsBaseSelection) or not Assigned(FMovePixelsFloatingPixels) then
-  begin
-    ClearMovePixelsTransactionState;
-    Exit;
-  end;
-
-  if not FMovePixelsSessionMoved then
-  begin
-    FDocument.Selection.Assign(FMovePixelsBaseSelection);
-    ClearMovePixelsTransactionState;
-    SyncSelectionOverlayUI(False);
-    Exit;
-  end;
-
-  if (FMovePixelsSessionLayerIndex < 0) or
-     (FMovePixelsSessionLayerIndex >= FDocument.LayerCount) then
-    TargetLayer := FDocument.ActiveLayer
-  else
-    TargetLayer := FDocument.Layers[FMovePixelsSessionLayerIndex];
-
-  FDocument.PushHistory(PaintToolName(tkMovePixels));
-  if TargetLayer.IsBackground then
-    TargetLayer.Surface.FillSelection(FMovePixelsBaseSelection, BackgroundToolColor, 255)
-  else
-    TargetLayer.Surface.EraseSelection(FMovePixelsBaseSelection);
-  TargetLayer.Surface.PasteSurface(
-    FMovePixelsFloatingPixels,
-    FMovePixelsSessionDelta.X,
-    FMovePixelsSessionDelta.Y
+  CommitResult := FMovePixelsController.Commit(
+    FDocument,
+    PaintToolName(tkMovePixels),
+    BackgroundToolColor
   );
-
-  FDocument.Selection.Assign(FMovePixelsBaseSelection);
-  FDocument.Selection.MoveBy(FMovePixelsSessionDelta.X, FMovePixelsSessionDelta.Y);
-
-  ClearMovePixelsTransactionState;
-  SyncImageMutationUI(False, True);
-  RefreshHistoryPanel;
+  case CommitResult of
+    mpcNoSession:
+      Exit;
+    mpcNoMove:
+      begin
+        SyncSelectionOverlayUI(False);
+        Exit;
+      end;
+    mpcCommitted:
+      begin
+        SyncImageMutationUI(False, True);
+        RefreshHistoryPanel;
+      end;
+  end;
 end;
 
 procedure TMainForm.CancelMovePixelsTransaction;
 begin
-  if not FMovePixelsSessionActive then
+  if not Assigned(FMovePixelsController) then
+    Exit;
+  if not FMovePixelsController.Active then
     Exit;
   FPointerDown := False;
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
-  if Assigned(FDocument) and Assigned(FMovePixelsBaseSelection) then
-    FDocument.Selection.Assign(FMovePixelsBaseSelection);
-  ClearMovePixelsTransactionState;
+  FMovePixelsController.Cancel(FDocument);
   SyncSelectionOverlayUI(False);
 end;
 
@@ -4259,32 +4184,9 @@ begin
 end;
 
 procedure TMainForm.RenderMovePixelsTransactionPreview(ASurface: TRasterSurface);
-var
-  X: Integer;
-  Y: Integer;
-  TargetX: Integer;
-  TargetY: Integer;
-  PixelColor: TRGBA32;
 begin
-  if not FMovePixelsSessionActive then
-    Exit;
-  if not FMovePixelsSessionMoved then
-    Exit;
-  if (ASurface = nil) or (FMovePixelsFloatingPixels = nil) then
-    Exit;
-
-  for Y := 0 to FMovePixelsFloatingPixels.Height - 1 do
-    for X := 0 to FMovePixelsFloatingPixels.Width - 1 do
-    begin
-      PixelColor := FMovePixelsFloatingPixels[X, Y];
-      if PixelColor.A = 0 then
-        Continue;
-      TargetX := X + FMovePixelsSessionDelta.X;
-      TargetY := Y + FMovePixelsSessionDelta.Y;
-      if not ASurface.InBounds(TargetX, TargetY) then
-        Continue;
-      ASurface[TargetX, TargetY] := BlendNormal(PixelColor, ASurface[TargetX, TargetY], 255);
-    end;
+  if Assigned(FMovePixelsController) then
+    FMovePixelsController.RenderPreview(ASurface);
 end;
 
 procedure TMainForm.DrawHoverToolOverlay(ACanvas: TCanvas);
@@ -7088,6 +6990,7 @@ var
   StrokeSteps: Integer;
   StrokeStep: Integer;
   StepX, StepY: Integer;
+  StrokeRadius: Integer;
 begin
   if FDocument.HasSelection then
     PaintSelection := FDocument.Selection
@@ -7095,39 +6998,49 @@ begin
     PaintSelection := nil;
   case FCurrentTool of
     tkPencil:
-      FDocument.ActiveLayer.Surface.DrawLine(
-        FLastImagePoint.X,
-        FLastImagePoint.Y,
-        APoint.X,
-        APoint.Y,
-        Max(0, (FBrushSize - 1) div 2),
-        ActivePaintColor,
-        FBrushOpacity * 255 div 100,
-        255, { pencil always hard }
-        PaintSelection
-      );
+      begin
+        StrokeRadius := Max(0, (FBrushSize - 1) div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+        FDocument.ActiveLayer.Surface.DrawLine(
+          FLastImagePoint.X,
+          FLastImagePoint.Y,
+          APoint.X,
+          APoint.Y,
+          StrokeRadius,
+          ActivePaintColor,
+          FBrushOpacity * 255 div 100,
+          255, { pencil always hard }
+          PaintSelection
+        );
+      end;
     tkBrush:
-      FDocument.ActiveLayer.Surface.DrawLine(
-        FLastImagePoint.X,
-        FLastImagePoint.Y,
-        APoint.X,
-        APoint.Y,
-        Max(1, FBrushSize div 2),
-        ActivePaintColor,
-        FBrushOpacity * 255 div 100,
-        FBrushHardness * 255 div 100,
-        PaintSelection
-      );
+      begin
+        StrokeRadius := Max(1, FBrushSize div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
+        FDocument.ActiveLayer.Surface.DrawLine(
+          FLastImagePoint.X,
+          FLastImagePoint.Y,
+          APoint.X,
+          APoint.Y,
+          StrokeRadius,
+          ActivePaintColor,
+          FBrushOpacity * 255 div 100,
+          FBrushHardness * 255 div 100,
+          PaintSelection
+        );
+      end;
     tkEraser:
       if FDocument.ActiveLayer.IsBackground then
       begin
+        StrokeRadius := Max(1, FBrushSize div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
         if FEraserSquareShape then
           FDocument.ActiveLayer.Surface.DrawSquareLine(
             FLastImagePoint.X,
             FLastImagePoint.Y,
             APoint.X,
             APoint.Y,
-            Max(1, FBrushSize div 2),
+            StrokeRadius,
             BackgroundToolColor,
             FBrushOpacity * 255 div 100,
             FBrushHardness * 255 div 100,
@@ -7139,7 +7052,7 @@ begin
             FLastImagePoint.Y,
             APoint.X,
             APoint.Y,
-            Max(1, FBrushSize div 2),
+            StrokeRadius,
             BackgroundToolColor,
             FBrushOpacity * 255 div 100,
             FBrushHardness * 255 div 100,
@@ -7147,27 +7060,35 @@ begin
           );
       end
       else if FEraserSquareShape then
+      begin
+        StrokeRadius := Max(1, FBrushSize div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
         FDocument.ActiveLayer.Surface.EraseSquareLine(
           FLastImagePoint.X,
           FLastImagePoint.Y,
           APoint.X,
           APoint.Y,
-          Max(1, FBrushSize div 2),
+          StrokeRadius,
           FBrushOpacity * 255 div 100,
           FBrushHardness * 255 div 100,
           PaintSelection
-        )
+        );
+      end
       else
+      begin
+        StrokeRadius := Max(1, FBrushSize div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
         FDocument.ActiveLayer.Surface.EraseLine(
           FLastImagePoint.X,
           FLastImagePoint.Y,
           APoint.X,
           APoint.Y,
-          Max(1, FBrushSize div 2),
+          StrokeRadius,
           FBrushOpacity * 255 div 100,
           FBrushHardness * 255 div 100,
           PaintSelection
         );
+      end;
     tkFill:
       begin
         if FFillSampleSource = 1 then
@@ -7233,6 +7154,7 @@ begin
           applying the recolor brush at regular spacing intervals.
           Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
         Radius := Max(1, FBrushSize div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
         StrokeSpacing := Max(1, Radius div 2);
         StrokeDX := APoint.X - FLastImagePoint.X;
         StrokeDY := APoint.Y - FLastImagePoint.Y;
@@ -7273,6 +7195,7 @@ begin
           stamping at regular spacing intervals.
           Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
         Radius := Max(1, FBrushSize div 2);
+        CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
         StrokeSpacing := Max(1, Radius div 2);
         StrokeDX := APoint.X - FLastImagePoint.X;
         StrokeDY := APoint.Y - FLastImagePoint.Y;
@@ -7886,6 +7809,8 @@ procedure TMainForm.PasteClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
   if FClipboardSurface = nil then
+    Exit;
+  if FDocument.ActiveLayer.Locked then
     Exit;
   FDocument.PushHistory('Paste');
   { Paste onto the currently selected (active) layer instead of creating a new one }
@@ -9409,7 +9334,7 @@ begin
     Exit;
   end;
 
-  if (Key = VK_ESCAPE) and FMovePixelsSessionActive then
+  if (Key = VK_ESCAPE) and Assigned(FMovePixelsController) and FMovePixelsController.Active then
   begin
     FPointerDown := False;
     if Assigned(FPaintBox) then
@@ -9528,11 +9453,44 @@ begin
   PaintBoxMouseUp(nil, Button, Shift, X, Y);
 end;
 
+function TMainForm.StrokeRectIsEmpty(const ARect: TRect): Boolean;
+begin
+  Result := (ARect.Right <= ARect.Left) or (ARect.Bottom <= ARect.Top);
+end;
+
+function TMainForm.StrokeBoundsForSegment(const AFrom, ATo: TPoint; ARadius: Integer): TRect;
+var
+  Margin: Integer;
+begin
+  Margin := Max(2, ARadius + 2);
+  Result.Left := Min(AFrom.X, ATo.X) - Margin;
+  Result.Top := Min(AFrom.Y, ATo.Y) - Margin;
+  Result.Right := Max(AFrom.X, ATo.X) + Margin + 1;
+  Result.Bottom := Max(AFrom.Y, ATo.Y) + Margin + 1;
+end;
+
+procedure TMainForm.CaptureStrokeBeforeRect(const ARect: TRect);
+begin
+  if Assigned(FStrokeController) then
+    FStrokeController.CaptureBeforeRect(FDocument, ARect);
+end;
+
+procedure TMainForm.ClearStrokeHistoryState;
+begin
+  if Assigned(FStrokeController) then
+    FStrokeController.Clear;
+end;
+
+function TMainForm.HasPendingStrokeHistory: Boolean;
+begin
+  Result := Assigned(FStrokeController) and FStrokeController.HasPending;
+end;
+
 procedure TMainForm.SealPendingStrokeHistory;
 begin
-  if FMovePixelsSessionActive then
+  if Assigned(FMovePixelsController) and FMovePixelsController.Active then
     CancelMovePixelsTransaction;
-  if not Assigned(FPreStrokeSnapshot) then
+  if not HasPendingStrokeHistory then
     Exit;
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
@@ -9542,58 +9500,29 @@ end;
 
 procedure TMainForm.BeginStrokeHistory;
 begin
-  if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
+  if ShouldCommitPendingStrokeOnMouseDown(HasPendingStrokeHistory) then
     SealPendingStrokeHistory;
   FStrokeTool := FCurrentTool;
-  FStrokeLayerIndex := FDocument.ActiveLayerIndex;
-  FPreStrokeSnapshot := FDocument.ActiveLayer.Surface.Clone;
-  FStrokeDirtyRect := Rect(MaxInt, MaxInt, 0, 0);  { empty sentinel: Left > Right }
+  if Assigned(FStrokeController) then
+    FStrokeController.BeginSession(FDocument, FCurrentTool, FDocument.ActiveLayerIndex);
 end;
 
 procedure TMainForm.ExpandStrokeDirty(const APoint: TPoint);
-var
-  R: Integer;
 begin
-  R := Max(2, (FBrushSize + 1) div 2 + 2);  { brush radius + a small margin }
-  if FStrokeDirtyRect.Left > FStrokeDirtyRect.Right then
-  begin
-    FStrokeDirtyRect := Rect(APoint.X - R, APoint.Y - R,
-                             APoint.X + R + 1, APoint.Y + R + 1);
-  end
-  else
-  begin
-    if APoint.X - R     < FStrokeDirtyRect.Left   then FStrokeDirtyRect.Left   := APoint.X - R;
-    if APoint.Y - R     < FStrokeDirtyRect.Top    then FStrokeDirtyRect.Top    := APoint.Y - R;
-    if APoint.X + R + 1 > FStrokeDirtyRect.Right  then FStrokeDirtyRect.Right  := APoint.X + R + 1;
-    if APoint.Y + R + 1 > FStrokeDirtyRect.Bottom then FStrokeDirtyRect.Bottom := APoint.Y + R + 1;
-  end;
+  { Dirty bounds are now tracked inside FStrokeController via capture rects.
+    Keep this method as a compatibility no-op for existing call sites. }
 end;
 
 procedure TMainForm.CommitStrokeHistory(const ALabel: string);
-var
-  BeforePixels: TRasterSurface;
-  CR: TRect;
 begin
-  if not Assigned(FPreStrokeSnapshot) then Exit;
-  { Clamp dirty rect to document bounds }
-  CR.Left   := Max(0, FStrokeDirtyRect.Left);
-  CR.Top    := Max(0, FStrokeDirtyRect.Top);
-  CR.Right  := Min(FDocument.Width,  FStrokeDirtyRect.Right);
-  CR.Bottom := Min(FDocument.Height, FStrokeDirtyRect.Bottom);
-  if (CR.Right <= CR.Left) or (CR.Bottom <= CR.Top) then
-  begin
-    FreeAndNil(FPreStrokeSnapshot);
+  if not Assigned(FStrokeController) then
     Exit;
+  if FStrokeController.CommitToHistory(FDocument, ALabel) then
+  begin
+    RefreshTabCardVisuals(FActiveTabIndex);
+    RefreshAuxiliaryImageViews(False);
+    RefreshHistoryPanel;
   end;
-  { Crop the pre-stroke layer copy to just the dirty sub-rectangle }
-  BeforePixels := TRasterSurface.Create(CR.Right - CR.Left, CR.Bottom - CR.Top);
-  FPreStrokeSnapshot.CopyRegionTo(BeforePixels, CR.Left, CR.Top);
-  { PushRegionHistory takes ownership of BeforePixels }
-  FDocument.PushRegionHistory(ALabel, FStrokeLayerIndex, CR, BeforePixels);
-  FreeAndNil(FPreStrokeSnapshot);
-  RefreshTabCardVisuals(FActiveTabIndex);
-  RefreshAuxiliaryImageViews(False);
-  RefreshHistoryPanel;
 end;
 
 procedure TMainForm.PaintBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -9606,7 +9535,7 @@ begin
      not (FCurrentTool in [tkZoom, tkPan, tkColorPicker, tkSelectRect,
        tkSelectEllipse, tkSelectLasso, tkMagicWand]) then
     Exit;
-  if ShouldCommitPendingStrokeOnMouseDown(Assigned(FPreStrokeSnapshot)) then
+  if ShouldCommitPendingStrokeOnMouseDown(HasPendingStrokeHistory) then
     SealPendingStrokeHistory;
   if Button = mbMiddle then
   begin
@@ -9686,7 +9615,10 @@ begin
   FDragStart := ImagePoint;
   { Only override combo-selected mode when modifier keys are held }
   if (ssShift in Shift) or (ssAlt in Shift) then
-    FPendingSelectionMode := SelectionModeFromShift(Shift);
+    FPendingSelectionMode := TSelectionToolController.ModeFromModifiers(
+      ssShift in Shift,
+      ssAlt in Shift
+    );
   FPointerButton := Button;
   FPointerDown := True;
   if Assigned(FPaintBox) then
@@ -9731,9 +9663,30 @@ begin
       end;
     tkMagicWand:
       begin
-        FDocument.PushHistory('Magic Wand');
-        FDocument.SelectMagicWand(ImagePoint.X, ImagePoint.Y, EnsureRange(FWandTolerance, 0, 255), FPendingSelectionMode, FWandSampleSource = 1, FWandContiguous);
-        ApplySelectionFeather;
+        if Assigned(FSelectionController) then
+          FSelectionController.CommitMagicWandSelection(
+            FDocument,
+            ImagePoint,
+            FWandTolerance,
+            FPendingSelectionMode,
+            FWandSampleSource = 1,
+            FWandContiguous,
+            FSelAntiAlias,
+            FSelFeather,
+            'Magic Wand'
+          )
+        else
+        begin
+          FDocument.PushHistory('Magic Wand');
+          FDocument.SelectMagicWand(
+            ImagePoint.X,
+            ImagePoint.Y,
+            EnsureRange(FWandTolerance, 0, 255),
+            FPendingSelectionMode,
+            FWandSampleSource = 1,
+            FWandContiguous
+          );
+        end;
         SyncSelectionOverlayUI(True);
         FPointerDown := False;
       end;
@@ -9841,7 +9794,12 @@ begin
         if not FDocument.HasSelection then
           FPointerDown := False
         else if FCurrentTool = tkMoveSelection then
-          FDocument.PushHistory(PaintToolName(FCurrentTool));
+        begin
+          if Assigned(FSelectionController) then
+            FSelectionController.BeginMoveSelection(FDocument, PaintToolName(FCurrentTool))
+          else
+            FDocument.PushHistory(PaintToolName(FCurrentTool));
+        end;
         if FPointerDown and (FCurrentTool = tkMovePixels) then
           BeginMovePixelsTransaction;
       end;
@@ -9904,9 +9862,9 @@ begin
           FLastPointerPoint := Point(X, Y);
         end;
       tkMoveSelection:
-        if (DeltaX <> 0) or (DeltaY <> 0) then
+        if Assigned(FSelectionController) and
+           FSelectionController.MoveSelectionStep(FDocument, DeltaX, DeltaY) then
         begin
-          FDocument.MoveSelectionBy(DeltaX, DeltaY);
           FLastImagePoint := ImagePoint;
           SyncSelectionOverlayUI(True);
         end;
@@ -9983,7 +9941,7 @@ begin
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
-  if Assigned(FPreStrokeSnapshot) then
+  if HasPendingStrokeHistory then
   begin
     CommitStrokeHistory(PaintToolName(FStrokeTool));
   end;
@@ -10076,24 +10034,71 @@ begin
   end;
   if FCurrentTool = tkSelectRect then
   begin
-    FDocument.PushHistory(PaintToolName(FCurrentTool));
-    FDocument.SelectRectangle(FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FPendingSelectionMode);
-    ApplySelectionFeather;
+    if Assigned(FSelectionController) then
+      FSelectionController.CommitRectangleSelection(
+        FDocument,
+        FDragStart,
+        ImagePoint,
+        FPendingSelectionMode,
+        FSelAntiAlias,
+        FSelFeather,
+        PaintToolName(FCurrentTool)
+      )
+    else
+    begin
+      FDocument.PushHistory(PaintToolName(FCurrentTool));
+      FDocument.SelectRectangle(
+        FDragStart.X,
+        FDragStart.Y,
+        ImagePoint.X,
+        ImagePoint.Y,
+        FPendingSelectionMode
+      );
+    end;
     SyncSelectionOverlayUI(True);
   end;
   if FCurrentTool = tkSelectEllipse then
   begin
-    FDocument.PushHistory(PaintToolName(FCurrentTool));
-    FDocument.SelectEllipse(FDragStart.X, FDragStart.Y, ImagePoint.X, ImagePoint.Y, FPendingSelectionMode);
-    ApplySelectionFeather;
+    if Assigned(FSelectionController) then
+      FSelectionController.CommitEllipseSelection(
+        FDocument,
+        FDragStart,
+        ImagePoint,
+        FPendingSelectionMode,
+        FSelAntiAlias,
+        FSelFeather,
+        PaintToolName(FCurrentTool)
+      )
+    else
+    begin
+      FDocument.PushHistory(PaintToolName(FCurrentTool));
+      FDocument.SelectEllipse(
+        FDragStart.X,
+        FDragStart.Y,
+        ImagePoint.X,
+        ImagePoint.Y,
+        FPendingSelectionMode
+      );
+    end;
     SyncSelectionOverlayUI(True);
   end;
   if FCurrentTool = tkSelectLasso then
   begin
     AppendLassoPoint(ImagePoint);
-    FDocument.PushHistory(PaintToolName(FCurrentTool));
-    FDocument.SelectLasso(FLassoPoints, FPendingSelectionMode);
-    ApplySelectionFeather;
+    if Assigned(FSelectionController) then
+      FSelectionController.CommitLassoSelection(
+        FDocument,
+        FLassoPoints,
+        FPendingSelectionMode,
+        FSelAntiAlias,
+        FSelFeather,
+        PaintToolName(FCurrentTool)
+      )
+    else
+    begin
+      FDocument.PushHistory(PaintToolName(FCurrentTool));
+      FDocument.SelectLasso(FLassoPoints, FPendingSelectionMode);
+    end;
     SetLength(FLassoPoints, 0);
     SyncSelectionOverlayUI(True);
   end;
@@ -12001,6 +12006,8 @@ var
   Choice: Integer;
 begin
   if FDocument.LayerCount = 0 then Exit;
+  if FDocument.ActiveLayer.Locked then
+    Exit;
   Choice := MessageDlg(
     'Layer Rotate / Zoom',
     'Choose rotation:'#13#10#13#10 +

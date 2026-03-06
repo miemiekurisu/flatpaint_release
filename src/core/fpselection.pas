@@ -47,6 +47,7 @@ type
     function BoundsRect: TRect;
     procedure Feather(ARadius: Integer);
     function Coverage(X, Y: Integer): Byte;
+    procedure SetCoverage(X, Y: Integer; AValue: Byte);
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
     property Selected[X, Y: Integer]: Boolean read GetSelected write SetSelected; default;
@@ -112,7 +113,7 @@ end;
 procedure TSelectionMask.SelectAll;
 begin
   if Length(FData) > 0 then
-    FillChar(FData[0], Length(FData), 1);
+    FillChar(FData[0], Length(FData), 255);
 end;
 
 procedure TSelectionMask.Invert;
@@ -120,10 +121,7 @@ var
   Index: Integer;
 begin
   for Index := 0 to High(FData) do
-    if FData[Index] = 0 then
-      FData[Index] := 1
-    else
-      FData[Index] := 0;
+    FData[Index] := 255 - FData[Index];
 end;
 
 procedure TSelectionMask.Assign(ASource: TSelectionMask);
@@ -156,7 +154,7 @@ begin
 
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
-      Selected[X, Y] := Selected[X, Y] and AMask[X, Y];
+      FData[IndexOf(X, Y)] := Min(FData[IndexOf(X, Y)], AMask.Coverage(X, Y));
 end;
 
 function TSelectionMask.InBounds(X, Y: Integer): Boolean;
@@ -176,7 +174,7 @@ begin
   if not InBounds(X, Y) then
     Exit;
   if AValue then
-    FData[IndexOf(X, Y)] := 1
+    FData[IndexOf(X, Y)] := 255
   else
     FData[IndexOf(X, Y)] := 0;
 end;
@@ -196,6 +194,13 @@ begin
   if not InBounds(X, Y) then
     Exit(0);
   Result := FData[IndexOf(X, Y)];
+end;
+
+procedure TSelectionMask.SetCoverage(X, Y: Integer; AValue: Byte);
+begin
+  if not InBounds(X, Y) then
+    Exit;
+  FData[IndexOf(X, Y)] := AValue;
 end;
 
 procedure TSelectionMask.Feather(ARadius: Integer);
@@ -503,8 +508,8 @@ begin
     begin
       SourceX := X - DeltaX;
       SourceY := Y - DeltaY;
-      if InBounds(SourceX, SourceY) and Selected[SourceX, SourceY] then
-        NewData[IndexOf(X, Y)] := 1;
+      if InBounds(SourceX, SourceY) then
+        NewData[IndexOf(X, Y)] := Coverage(SourceX, SourceY);
     end;
 
   if Length(FData) > 0 then
@@ -516,15 +521,19 @@ var
   X: Integer;
   Y: Integer;
   HalfWidth: Integer;
-  Temp: Boolean;
+  LeftIndex: Integer;
+  RightIndex: Integer;
+  Temp: Byte;
 begin
   HalfWidth := FWidth div 2;
   for Y := 0 to FHeight - 1 do
     for X := 0 to HalfWidth - 1 do
     begin
-      Temp := Selected[X, Y];
-      Selected[X, Y] := Selected[FWidth - 1 - X, Y];
-      Selected[FWidth - 1 - X, Y] := Temp;
+      LeftIndex := IndexOf(X, Y);
+      RightIndex := IndexOf(FWidth - 1 - X, Y);
+      Temp := FData[LeftIndex];
+      FData[LeftIndex] := FData[RightIndex];
+      FData[RightIndex] := Temp;
     end;
 end;
 
@@ -533,15 +542,19 @@ var
   X: Integer;
   Y: Integer;
   HalfHeight: Integer;
-  Temp: Boolean;
+  TopIndex: Integer;
+  BottomIndex: Integer;
+  Temp: Byte;
 begin
   HalfHeight := FHeight div 2;
   for Y := 0 to HalfHeight - 1 do
     for X := 0 to FWidth - 1 do
     begin
-      Temp := Selected[X, Y];
-      Selected[X, Y] := Selected[X, FHeight - 1 - Y];
-      Selected[X, FHeight - 1 - Y] := Temp;
+      TopIndex := IndexOf(X, Y);
+      BottomIndex := IndexOf(X, FHeight - 1 - Y);
+      Temp := FData[TopIndex];
+      FData[TopIndex] := FData[BottomIndex];
+      FData[BottomIndex] := Temp;
     end;
 end;
 
@@ -555,7 +568,7 @@ begin
   try
     for Y := 0 to FHeight - 1 do
       for X := 0 to FWidth - 1 do
-        Rotated[FHeight - 1 - Y, X] := Selected[X, Y];
+        Rotated.SetCoverage(FHeight - 1 - Y, X, Coverage(X, Y));
     Assign(Rotated);
   finally
     Rotated.Free;
@@ -572,7 +585,7 @@ begin
   try
     for Y := 0 to FHeight - 1 do
       for X := 0 to FWidth - 1 do
-        Rotated[Y, FWidth - 1 - X] := Selected[X, Y];
+        Rotated.SetCoverage(Y, FWidth - 1 - X, Coverage(X, Y));
     Assign(Rotated);
   finally
     Rotated.Free;
@@ -599,7 +612,7 @@ begin
       SourceX := X + TargetX;
       if (SourceX < 0) or (SourceX >= FWidth) then
         Continue;
-      Result[TargetX, TargetY] := Selected[SourceX, SourceY];
+      Result.SetCoverage(TargetX, TargetY, Coverage(SourceX, SourceY));
     end;
   end;
 end;
@@ -620,7 +633,7 @@ begin
     for TargetX := 0 to ANewWidth - 1 do
     begin
       SourceX := Min(FWidth - 1, (TargetX * FWidth) div ANewWidth);
-      Result[TargetX, TargetY] := Selected[SourceX, SourceY];
+      Result.SetCoverage(TargetX, TargetY, Coverage(SourceX, SourceY));
     end;
   end;
 end;

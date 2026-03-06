@@ -735,6 +735,10 @@ begin
             TargetLayer.Name := Format('XCF Layer %d', [ImportedLayerIndex + 1]);
           TargetLayer.Visible := LayerInfo.Visible;
           TargetLayer.Opacity := LayerInfo.Opacity;
+          { Keep source geometry metadata for architecture migration steps.
+            Pixel payload remains canvas-stamped in the current compatibility path. }
+          TargetLayer.OffsetX := LayerInfo.OffsetX;
+          TargetLayer.OffsetY := LayerInfo.OffsetY;
           Inc(ImportedLayerIndex);
         finally
           LayerSurface.Free;

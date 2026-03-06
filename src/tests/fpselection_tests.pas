@@ -13,6 +13,8 @@ type
     procedure RectangleIntersectKeepsOnlyOverlap;
     procedure PolygonIntersectCanClearToEmpty;
     procedure FeatherSoftensEdges;
+    procedure InvertPreservesByteCoverage;
+    procedure TransformPathsPreserveCoverageValues;
   end;
 
 implementation
@@ -66,6 +68,45 @@ begin
     AssertTrue('interior at boundary softens', Selection.Coverage(4, 4) < 255);
     AssertTrue('outside near selection gets partial coverage', Selection.Coverage(3, 7) > 0);
     AssertEquals('far outside stays unselected', 0, Selection.Coverage(0, 0));
+  finally
+    Selection.Free;
+  end;
+end;
+
+procedure TFPSelectionTests.InvertPreservesByteCoverage;
+var
+  Selection: TSelectionMask;
+begin
+  Selection := TSelectionMask.Create(2, 1);
+  try
+    Selection.SetCoverage(0, 0, 64);
+    Selection[1, 0] := True;
+
+    Selection.Invert;
+
+    AssertEquals('partial coverage inverts to 255-coverage', 191, Selection.Coverage(0, 0));
+    AssertEquals('full coverage inverts to zero', 0, Selection.Coverage(1, 0));
+  finally
+    Selection.Free;
+  end;
+end;
+
+procedure TFPSelectionTests.TransformPathsPreserveCoverageValues;
+var
+  Selection: TSelectionMask;
+begin
+  Selection := TSelectionMask.Create(3, 2);
+  try
+    Selection.SetCoverage(0, 0, 64);
+    Selection.SetCoverage(2, 1, 200);
+
+    Selection.FlipHorizontal;
+    AssertEquals('flip keeps first sample coverage', 64, Selection.Coverage(2, 0));
+    AssertEquals('flip keeps second sample coverage', 200, Selection.Coverage(0, 1));
+
+    Selection.Rotate90Clockwise;
+    AssertEquals('rotate keeps first sample coverage', 64, Selection.Coverage(1, 2));
+    AssertEquals('rotate keeps second sample coverage', 200, Selection.Coverage(0, 0));
   finally
     Selection.Free;
   end;

@@ -20,7 +20,11 @@ type
     procedure PolygonOutlineClosesLastSegmentAndKeepsInteriorOpen;
     procedure FilledPolygonPaintsInterior;
     procedure MaskedLineOnlyPaintsInsideSelection;
+    procedure MaskedLineCoverageScalesAlpha;
     procedure MaskedGradientLeavesUnselectedPixelsUntouched;
+    procedure FillSelectionCoverageScalesOpacity;
+    procedure CopySelectionCoverageScalesAlpha;
+    procedure MoveSelectedPixelsCoverageUsesSoftCopyAndSoftErase;
     procedure EmbossShiftsPixelsRelativeToNeighbors;
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
@@ -276,6 +280,28 @@ begin
   end;
 end;
 
+procedure TFPSurfaceTests.MaskedLineCoverageScalesAlpha;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(5, 1);
+  Selection := TSelectionMask.Create(5, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Selection.SetCoverage(2, 0, 128);
+
+    Surface.DrawLine(0, 0, 4, 0, 0, RGBA(255, 0, 0, 255), 255, 255, Selection);
+
+    AssertEquals('unselected pixel stays clear', 0, Surface[1, 0].A);
+    AssertEquals('selected pixel alpha scales by coverage', 128, Surface[2, 0].A);
+    AssertEquals('selected pixel color follows blended alpha', 128, Surface[2, 0].R);
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
 procedure TFPSurfaceTests.MaskedGradientLeavesUnselectedPixelsUntouched;
 var
   Surface: TRasterSurface;
@@ -294,6 +320,74 @@ begin
     AssertEquals('selected left-middle pixel is written', 255, Surface[1, 0].A);
     AssertEquals('selected right-middle pixel is written', 255, Surface[2, 0].A);
     AssertEquals('unselected right pixel stays clear', 0, Surface[3, 0].A);
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.FillSelectionCoverageScalesOpacity;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(1, 1);
+  Selection := TSelectionMask.Create(1, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Selection.SetCoverage(0, 0, 64);
+
+    Surface.FillSelection(Selection, RGBA(200, 10, 20, 255), 255);
+
+    AssertEquals('fill alpha scales with coverage', 64, Surface[0, 0].A);
+    AssertEquals('fill red scales with coverage on transparent dst', 50, Surface[0, 0].R);
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.CopySelectionCoverageScalesAlpha;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+  Copied: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(1, 1);
+  Selection := TSelectionMask.Create(1, 1);
+  try
+    Surface[0, 0] := RGBA(40, 80, 120, 200);
+    Selection.SetCoverage(0, 0, 128);
+
+    Copied := Surface.CopySelection(Selection);
+    try
+      AssertEquals('copied alpha scales with coverage', 100, Copied[0, 0].A);
+      AssertEquals('copied red channel preserved', 40, Copied[0, 0].R);
+    finally
+      Copied.Free;
+    end;
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.MoveSelectedPixelsCoverageUsesSoftCopyAndSoftErase;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(3, 1);
+  Selection := TSelectionMask.Create(3, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Surface[1, 0] := RGBA(220, 100, 10, 200);
+    Selection.SetCoverage(1, 0, 128);
+
+    Surface.MoveSelectedPixels(Selection, 1, 0);
+
+    AssertEquals('source alpha reduced by soft erase', 99, Surface[1, 0].A);
+    AssertEquals('destination alpha uses soft copy', 100, Surface[2, 0].A);
   finally
     Selection.Free;
     Surface.Free;

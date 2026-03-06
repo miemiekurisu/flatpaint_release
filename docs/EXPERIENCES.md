@@ -16,6 +16,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-06 (stroke undo capture should snapshot only touched regions, but must preserve pre-mutation pixels exactly)
+- Problem: brush-like stroke undo path used a full-layer clone at mouse-down, increasing memory cost and latency risk on larger canvases.
+- Core error: region-history existed, but pre-stroke capture strategy was still full-surface-first and crop-later.
+- Investigation: traced `BeginStrokeHistory -> CommitStrokeHistory` in `mainform` and confirmed active-layer clone happened before any stroke mutation, then only at commit time cropped to dirty rect.
+- Root cause: history cost optimization was implemented only at commit granularity, not at capture granularity.
+- Fix: switched to incremental capture of touched segment bounds before each mutation step, union-expanded the cached pre-stroke region while preserving already-captured original pixels, and committed one region snapshot from the captured rect.
+- Reuse note: if undo is region-based, capture must also be region-based. Otherwise the system pays full-layer cost while still pretending to be delta-oriented.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (layer offset metadata can be preserved safely before full semantic migration)
+- Problem: layer-offset architecture work risked regressions if compositing/tool math were switched to offset-aware behavior in one pass.
+- Core error: runtime editing paths still assume canvas-aligned surfaces, but interchange formats (XCF) already carry offset metadata.
+- Investigation: reviewed model/compositor/tool call chains and identified high blast radius if offset semantics were activated immediately across paint/composite/selection routes.
+- Root cause: model lacked offset metadata earlier, and existing tool math was built around full-canvas layer surfaces.
+- Fix: introduced offset metadata in core model and native persistence (`FPDOC04`), captured XCF offsets structurally, and explicitly kept compatibility render behavior unchanged in this phase.
+- Reuse note: when migrating architecture with high UI/render risk, land data-model + persistence first, then perform semantic activation as a separately test-gated phase.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (byte-mask architectures fail when transform/apply routes silently fall back to boolean selection)
+- Problem: selection feather data existed, but many real edit paths still behaved like hard-edged binary masks, causing soft-selection behavior drift.
+- Core error: selection storage was byte-based while several transform/apply routes (`select-all`, invert, move/flip/rotate/crop/resize, fill/copy/move/paint gates, native persistence) consumed or rewrote selection as boolean semantics.
+- Investigation: replayed line-level read/write paths from `FPSelection` data mutations through `FPSurface` selection-aware operations and native `FPNativeIO` save/load behavior.
+- Root cause: mixed semantic model: byte coverage existed in storage, but operational paths were built around convenience boolean accessors and never fully upgraded.
+- Fix: unified selection operations on byte coverage semantics, added explicit `SetCoverage`, propagated weighted coverage into selection-aware surface mutation APIs, upgraded native format to `FPDOC03` for full-byte mask persistence, and kept `FPDOC01/02` legacy compatibility mapping.
+- Reuse note: once a mask is defined as `0..255` coverage, every transform/apply/persist route must preserve that contract. If persistence semantics change, version the format and add explicit legacy-load tests in the same window.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (layer lock invariants drift when mutation checks live only in UI entry points)
+- Problem: locked layers could still be mutated through some non-pointer command routes (for example menu paths that called document/core mutation APIs or direct surface operations), creating route-dependent lock behavior.
+- Core error: lock enforcement was concentrated in selected `mainform` interaction guards instead of being a core mutation invariant.
+- Investigation: compared lock guard coverage in `PaintBoxMouseDown` with `TImageDocument` mutating methods and menu handlers; found many core pixel-mutation APIs had no lock gate.
+- Root cause: mutation authorization and mutation execution were not centrally coupled; each route could forget to enforce lock checks.
+- Fix: introduced `FPMutationGuard` as a core gate and routed `TImageDocument` active-layer/document-wide pixel mutation paths through guard checks; added explicit lock checks for remaining direct-surface menu routes (`Paste`, `Layer Rotate/Zoom`); added `mutation_guard_tests.pas` to lock behavior in regression.
+- Reuse note: if a behavior is an invariant (like editability/lock), enforce it in core mutation APIs first, then keep UI checks as UX hints only. Route-local guards alone will drift over time.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-06 (move-selected-pixels preview must not mutate committed layer pixels)
 - Problem: `Move Pixels` drag path erased source pixels immediately and pushed undo on mouse-down, so an interrupted drag could leave destructive intermediate state.
 - Core error: drag preview and final commit used the same mutation path (`MoveSelectedPixelsBy`), with no transaction boundary between "preview" and "commit".

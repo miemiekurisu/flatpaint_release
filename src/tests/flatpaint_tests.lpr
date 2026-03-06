@@ -15,6 +15,8 @@ uses
   fprulerhelpers_tests, fpzoomhelpers_tests, fpviewhelpers_tests,
   fpiconhelpers_tests,
   fptoolbarhelpers_tests,
+  mutation_guard_tests,
+  tool_controller_tests,
   fpcurveshelpers_tests, fpposterizehelpers_tests, fpblurhelpers_tests,
   fpnoisehelpers_tests, fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpbrightnesscontrasthelpers_tests, fpresizehelpers_tests, fpviewporthelpers_tests,

@@ -5,7 +5,7 @@ unit FPDocument;
 interface
 
 uses
-  Classes, SysUtils, Contnrs, Types, FPColor, FPSurface, FPSelection;
+  Classes, SysUtils, Contnrs, Types, FPColor, FPSurface, FPSelection, FPMutationGuard;
 
 type
   TBlendMode = (
@@ -54,6 +54,8 @@ type
     FOpacity: Byte;
     FBlendMode: TBlendMode;
     FIsBackground: Boolean;
+    FOffsetX: Integer;
+    FOffsetY: Integer;
     FSurface: TRasterSurface;
   public
     constructor Create(const AName: string; AWidth, AHeight: Integer; AIsBackground: Boolean = False);
@@ -65,6 +67,8 @@ type
     property Opacity: Byte read FOpacity write FOpacity;
     property BlendMode: TBlendMode read FBlendMode write FBlendMode;
     property IsBackground: Boolean read FIsBackground write FIsBackground;
+    property OffsetX: Integer read FOffsetX write FOffsetX;
+    property OffsetY: Integer read FOffsetY write FOffsetY;
     property Surface: TRasterSurface read FSurface;
   end;
 
@@ -120,6 +124,9 @@ type
     function PopSnapshot(AStack: TObjectList): TDocumentSnapshot;
     procedure ApplySnapshot(ASnapshot: TDocumentSnapshot);
     function BackgroundReplacementColor(const AColor: TRGBA32): TRGBA32;
+    function AnyLayerLocked: Boolean;
+    function CanMutateActiveLayerPixels: Boolean;
+    function CanMutateDocumentPixels: Boolean;
     procedure EnforceLayerInvariant;
   public
     constructor Create(AWidth, AHeight: Integer);
@@ -245,6 +252,8 @@ begin
   FVisible := True;
   FOpacity := 255;
   FIsBackground := AIsBackground;
+  FOffsetX := 0;
+  FOffsetY := 0;
   FSurface := TRasterSurface.Create(AWidth, AHeight);
 end;
 
@@ -261,6 +270,8 @@ begin
   Result.FLocked := FLocked;
   Result.FOpacity := FOpacity;
   Result.FBlendMode := FBlendMode;
+  Result.FOffsetX := FOffsetX;
+  Result.FOffsetY := FOffsetY;
   Result.Surface.Assign(FSurface);
 end;
 
@@ -397,6 +408,38 @@ end;
 function TImageDocument.BackgroundReplacementColor(const AColor: TRGBA32): TRGBA32;
 begin
   Result := RGBA(AColor.R, AColor.G, AColor.B, 255);
+end;
+
+function TImageDocument.AnyLayerLocked: Boolean;
+var
+  LayerIndex: Integer;
+begin
+  for LayerIndex := 0 to FLayers.Count - 1 do
+    if Layers[LayerIndex].Locked then
+      Exit(True);
+  Result := False;
+end;
+
+function TImageDocument.CanMutateActiveLayerPixels: Boolean;
+var
+  State: TMutationState;
+begin
+  State.HasActiveLayer := FLayers.Count > 0;
+  State.ActiveLayerLocked := State.HasActiveLayer and ActiveLayer.Locked;
+  State.HasAnyLayer := FLayers.Count > 0;
+  State.AnyLayerLocked := AnyLayerLocked;
+  Result := MutationAllowed(State, msActiveLayerPixels);
+end;
+
+function TImageDocument.CanMutateDocumentPixels: Boolean;
+var
+  State: TMutationState;
+begin
+  State.HasActiveLayer := FLayers.Count > 0;
+  State.ActiveLayerLocked := State.HasActiveLayer and ActiveLayer.Locked;
+  State.HasAnyLayer := FLayers.Count > 0;
+  State.AnyLayerLocked := AnyLayerLocked;
+  Result := MutationAllowed(State, msDocumentPixels);
 end;
 
 procedure TImageDocument.EnforceLayerInvariant;
@@ -613,6 +656,8 @@ begin
     Exit;
   if FLayers.Count <= 1 then
   begin
+    if not CanMutateActiveLayerPixels then
+      Exit;
     ActiveLayer.Surface.Clear(TransparentColor);
     Exit;
   end;
@@ -628,6 +673,8 @@ var
   X: Integer;
   Y: Integer;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   if FActiveLayerIndex <= 0 then
     Exit;
 
@@ -647,6 +694,8 @@ var
   CompositeSurface: TRasterSurface;
   FlattenedSurface: TRasterSurface;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   CompositeSurface := Composite;
   try
     FlattenedSurface := TRasterSurface.Create(CompositeSurface.Width, CompositeSurface.Height);
@@ -676,6 +725,8 @@ var
   Cropped: TRasterSurface;
   CroppedSelection: TSelectionMask;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   AWidth := Max(1, AWidth);
   AHeight := Max(1, AHeight);
   for LayerIndex := 0 to FLayers.Count - 1 do
@@ -708,6 +759,8 @@ var
   Resized: TRasterSurface;
   ResizedSelection: TSelectionMask;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   ANewWidth := Max(1, ANewWidth);
   ANewHeight := Max(1, ANewHeight);
   for LayerIndex := 0 to FLayers.Count - 1 do
@@ -743,6 +796,8 @@ procedure TImageDocument.FlipHorizontal;
 var
   LayerIndex: Integer;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
     Layers[LayerIndex].Surface.FlipHorizontal;
   FSelection.FlipHorizontal;
@@ -752,6 +807,8 @@ procedure TImageDocument.FlipVertical;
 var
   LayerIndex: Integer;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
     Layers[LayerIndex].Surface.FlipVertical;
   FSelection.FlipVertical;
@@ -759,6 +816,8 @@ end;
 
 procedure TImageDocument.Rotate180;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   FlipHorizontal;
   FlipVertical;
 end;
@@ -768,6 +827,8 @@ var
   LayerIndex: Integer;
   TempSize: Integer;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
     Layers[LayerIndex].Surface.Rotate90Clockwise;
   FSelection.Rotate90Clockwise;
@@ -781,6 +842,8 @@ var
   LayerIndex: Integer;
   TempSize: Integer;
 begin
+  if not CanMutateDocumentPixels then
+    Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
     Layers[LayerIndex].Surface.Rotate90CounterClockwise;
   FSelection.Rotate90CounterClockwise;
@@ -923,6 +986,8 @@ end;
 function TImageDocument.CutSelectionToSurface(ACropToBounds: Boolean; const ABackgroundColor: TRGBA32): TRasterSurface;
 begin
   Result := CopySelectionToSurface(ACropToBounds);
+  if not CanMutateActiveLayerPixels then
+    Exit;
   if FSelection.HasSelection then
   begin
     if ActiveLayer.IsBackground then
@@ -950,6 +1015,8 @@ procedure TImageDocument.FillSelection(const AColor: TRGBA32; Opacity: Byte);
 begin
   if not FSelection.HasSelection then
     Exit;
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.FillSelection(FSelection, AColor, Opacity);
 end;
 
@@ -961,6 +1028,8 @@ end;
 procedure TImageDocument.EraseSelection(const ABackgroundColor: TRGBA32);
 begin
   if not FSelection.HasSelection then
+    Exit;
+  if not CanMutateActiveLayerPixels then
     Exit;
   if ActiveLayer.IsBackground then
     ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255)
@@ -987,8 +1056,11 @@ var
   Y: Integer;
   TargetX: Integer;
   TargetY: Integer;
+  Coverage: Byte;
 begin
   if not FSelection.HasSelection then
+    Exit;
+  if not CanMutateActiveLayerPixels then
     Exit;
   if not ActiveLayer.IsBackground then
   begin
@@ -1002,16 +1074,18 @@ begin
     ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255);
     for Y := 0 to Min(ActiveLayer.Surface.Height, FSelection.Height) - 1 do
       for X := 0 to Min(ActiveLayer.Surface.Width, FSelection.Width) - 1 do
-        if FSelection[X, Y] then
+      begin
+        Coverage := FSelection.Coverage(X, Y);
+        if Coverage = 0 then
+          Continue;
+        TargetX := X + DeltaX;
+        TargetY := Y + DeltaY;
+        if ActiveLayer.Surface.InBounds(TargetX, TargetY) then
         begin
-          TargetX := X + DeltaX;
-          TargetY := Y + DeltaY;
-          if ActiveLayer.Surface.InBounds(TargetX, TargetY) then
-          begin
-            if Copied[X, Y].A > 0 then
-              ActiveLayer.Surface[TargetX, TargetY] := Copied[X, Y];
-          end;
+          if Copied[X, Y].A > 0 then
+            ActiveLayer.Surface.BlendPixel(TargetX, TargetY, Copied[X, Y], 255);
         end;
+      end;
   finally
     Copied.Free;
   end;
@@ -1024,222 +1098,310 @@ var
 begin
   if not FSelection.HasSelection then
     Exit;
+  if not CanMutateDocumentPixels then
+    Exit;
   Bounds := FSelection.BoundsRect;
   Crop(Bounds.Left, Bounds.Top, Bounds.Right - Bounds.Left, Bounds.Bottom - Bounds.Top);
 end;
 
 procedure TImageDocument.AutoLevel;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AutoLevel;
 end;
 
 procedure TImageDocument.InvertColors;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.InvertColors;
 end;
 
 procedure TImageDocument.Grayscale;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Grayscale;
 end;
 
 procedure TImageDocument.AdjustHueSaturation(HueDelta: Integer; SaturationDelta: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AdjustHueSaturation(HueDelta, SaturationDelta);
 end;
 
 procedure TImageDocument.AdjustGammaCurve(Gamma: Double);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AdjustGammaCurve(Gamma);
 end;
 
 procedure TImageDocument.AdjustLevels(InputLow, InputHigh, OutputLow, OutputHigh: Byte);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AdjustLevels(InputLow, InputHigh, OutputLow, OutputHigh);
 end;
 
 procedure TImageDocument.AdjustBrightness(Delta: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AdjustBrightness(Delta);
 end;
 
 procedure TImageDocument.AdjustContrast(Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AdjustContrast(Amount);
 end;
 
 procedure TImageDocument.Sepia;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Sepia;
 end;
 
 procedure TImageDocument.BlackAndWhite(Threshold: Byte);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.BlackAndWhite(Threshold);
 end;
 
 procedure TImageDocument.Posterize(Levels: Byte);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Posterize(Levels);
 end;
 
 procedure TImageDocument.BoxBlur(Radius: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.BoxBlur(Radius);
 end;
 
 procedure TImageDocument.Sharpen;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Sharpen;
 end;
 
 procedure TImageDocument.AddNoise(Amount: Byte; Seed: Cardinal);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.AddNoise(Amount, Seed);
 end;
 
 procedure TImageDocument.DetectEdges;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.DetectEdges;
 end;
 
 procedure TImageDocument.Emboss;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Emboss;
 end;
 
 procedure TImageDocument.Soften;
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Soften;
 end;
 
 procedure TImageDocument.RenderClouds(Seed: Cardinal);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.RenderClouds(Seed);
 end;
 
 procedure TImageDocument.Pixelate(BlockSize: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Pixelate(BlockSize);
 end;
 
 procedure TImageDocument.Vignette(Strength: Double);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Vignette(Strength);
 end;
 
 procedure TImageDocument.MotionBlur(Angle: Integer; Distance: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.MotionBlur(Angle, Distance);
 end;
 
 procedure TImageDocument.MedianFilter(Radius: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.MedianFilter(Radius);
 end;
 
 procedure TImageDocument.OutlineEffect(const AOutlineColor: TRGBA32; Threshold: Byte);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.OutlineEffect(AOutlineColor, Threshold);
 end;
 
 procedure TImageDocument.GlowEffect(Radius: Integer; Intensity: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.GlowEffect(Radius, Intensity);
 end;
 
 procedure TImageDocument.OilPaint(Radius: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.OilPaint(Radius);
 end;
 
 procedure TImageDocument.FrostedGlass(Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.FrostedGlass(Amount);
 end;
 
 procedure TImageDocument.ZoomBlur(CenterX: Integer; CenterY: Integer; Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.ZoomBlur(CenterX, CenterY, Amount);
 end;
 
 procedure TImageDocument.GaussianBlur(Radius: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.GaussianBlur(Radius);
 end;
 
 procedure TImageDocument.Unfocus(Radius: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Unfocus(Radius);
 end;
 
 procedure TImageDocument.SurfaceBlur(Radius: Integer; Threshold: Byte);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.SurfaceBlur(Radius, Threshold);
 end;
 
 procedure TImageDocument.RadialBlur(Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.RadialBlur(Amount);
 end;
 
 procedure TImageDocument.Twist(Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Twist(Amount);
 end;
 
 procedure TImageDocument.Fragment(Offset: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Fragment(Offset);
 end;
 
 procedure TImageDocument.Bulge(Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Bulge(Amount);
 end;
 
 procedure TImageDocument.Dents(Amount: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Dents(Amount);
 end;
 
 procedure TImageDocument.Relief(Angle: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Relief(Angle);
 end;
 
 procedure TImageDocument.RedEye(Threshold: Byte; Strength: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.RedEye(Threshold, Strength);
 end;
 
 procedure TImageDocument.TileReflection(TileSize: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.TileReflection(TileSize);
 end;
 
 procedure TImageDocument.Crystallize(CellSize: Integer; Seed: Cardinal);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.Crystallize(CellSize, Seed);
 end;
 
 procedure TImageDocument.InkSketch(InkStrength: Integer; Coloring: Integer);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.InkSketch(InkStrength, Coloring);
 end;
 
 procedure TImageDocument.RenderMandelbrot(Iterations: Integer; Zoom: Double);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.RenderMandelbrot(Iterations, Zoom);
 end;
 
 procedure TImageDocument.RenderJulia(Iterations: Integer; Zoom: Double; CReal: Double; CImag: Double);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.RenderJulia(Iterations, Zoom, CReal, CImag);
 end;
 
 procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; PreserveValue: Boolean; ASelection: TSelectionMask);
 begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
   ActiveLayer.Surface.RecolorBrush(X, Y, Radius, SourceColor, NewColor, Tolerance, Opacity, PreserveValue, ASelection);
 end;
 

@@ -10,9 +10,19 @@
 - Rechecked in multiple passes on 2026-03-06 after publication.
 - All cited evidence locations were replayed and still matched their defect claims at the time of review.
 
+## Implementation delta (2026-03-06 latest)
+- This document keeps the pre-renovation defect baseline as historical input.
+- Since that baseline review, five items have moved:
+  - **A1 (move-pixels transaction model):** materially mitigated by the transactional move-pixels session now covered by `tool_transaction_tests`.
+  - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths, and native byte-mask persistence (`FPDOC04` legacy-compatible load path) plus regression tests.
+  - **A3 (lock/editability invariants):** partially mitigated by core `FPMutationGuard` adoption in `TImageDocument` mutating pixel APIs and lock guards on remaining direct-surface menu routes.
+  - **A4 (layer geometry metadata):** partially mitigated by adding per-layer offset metadata, native persistence, and XCF offset metadata capture in compatibility mode.
+  - **A5 (history capture cost):** partially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture for brush-like tools.
+- Defects still treated as open architecture work in the active plan: **A3 (tail-route consistency), A4 (render/tool semantics not yet offset-aware), A5 (transaction service extraction not complete), A6, A7**.
+
 ## Executive summary
 FlatPaint is functionally broad, but several deep architectural gaps remain in selection and edit-transaction design.
-The largest defect is destructive `Move Selected Pixels` behavior without a floating transactional buffer layer, which can alter source pixels during drag rather than at commit.
+The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior; current highest-risk open gaps are layer-geometry modeling, history capture cost, and high-coupling UI orchestration.
 
 Current architecture has reusable strengths (separate core units, region-history primitive), but release-grade editor reliability will require:
 - transactional edit sessions for selection/pixel move
@@ -21,6 +31,8 @@ Current architecture has reusable strengths (separate core units, region-history
 - layer geometry metadata (offset/local bounds) kept as first-class state
 
 ## Critical defect list
+The sections below preserve the originally validated defect evidence snapshot for traceability.
+Current status for each item is defined by the **Implementation delta** section above.
 
 ### A1. No floating selection transaction layer for move-pixels operations (P0)
 - Evidence:
@@ -55,25 +67,26 @@ Current architecture has reusable strengths (separate core units, region-history
 - User-visible risk:
   - Inconsistent lock semantics across tools vs commands.
 
-### A4. Layer geometry model lacks offset metadata; import offsets are flattened (P1)
+### A4. Layer geometry semantics are still compatibility-only (metadata landed, render/tool paths not fully offset-aware) (P1)
 - Evidence:
-  - `TRasterLayer` has no offset fields: `src/core/fpdocument.pas:49`
-  - XCF parser reads layer offsets: `src/core/fpxcfio.pas:263`, `src/core/fpxcfio.pas:264`
-  - Import stamps offset pixels into full-canvas surface, losing structural offset state: `src/core/fpxcfio.pas:731`
+  - `TRasterLayer` now carries `OffsetX/OffsetY` metadata in core model.
+  - XCF parser reads layer offsets and importer now stores them in layer metadata.
+  - Compatibility import path still stamps payload into full-canvas surfaces; compositor and paint routes are not yet driven by offset metadata.
 - Architectural problem:
-  - Layer position is not first-class state in document model.
-  - Compatibility adapters cannot preserve higher-fidelity layer geometry semantics.
+  - Geometry metadata exists, but runtime edit/composite semantics still assume canvas-aligned layer surfaces.
+  - Offset metadata is not yet a fully active model invariant across rendering and tool math.
 - User-visible risk:
-  - Reduced interchange fidelity and constrained future transform workflow.
+  - Interchange fidelity improves structurally, but future local-surface/offset workflows remain constrained until semantic migration is completed.
 
-### A5. Undo architecture is hybrid but still full-layer-heavy at stroke start (P1)
+### A5. Undo architecture remains hybrid (stroke start clone fixed, transaction extraction still incomplete) (P1)
 - Evidence:
   - Full history snapshot clones full document: `src/core/fpdocument.pas:445`, `src/core/fpdocument.pas:447`
-  - Stroke path clones full active layer first, crops later: `src/app/mainform.pas:9358`, `src/app/mainform.pas:9398`, `src/app/mainform.pas:9401`
+  - Brush-like stroke capture now incrementally snapshots touched region before mutation instead of cloning full active layer at stroke begin.
+  - Undo grouping/capture policy for interactive tools is still orchestrated directly in `TMainForm`.
 - Architectural problem:
-  - Region history exists, but capture strategy is still expensive at stroke begin.
+  - Region history exists and stroke-start cost was reduced, but transaction/capture logic is still app-layer-specific instead of a dedicated core history transaction service.
 - User-visible risk:
-  - Memory and latency pressure on large documents/high-frequency brush workflows.
+  - Large-stroke memory pressure is reduced, but long-term maintainability and route consistency risk remain until transaction handling is fully centralized.
 
 ### A6. Main form is a high-coupling orchestration monolith (P2)
 - Evidence:

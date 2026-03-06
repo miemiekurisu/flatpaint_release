@@ -4,6 +4,102 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 4.5/5: layer-offset metadata + stroke-start history cost reduction)
+
+### Changes
+
+1. **Layer geometry metadata landed in core model (`A4` foundation)** — Added `OffsetX/OffsetY` to `TRasterLayer` and clone paths so geometry metadata now survives layer cloning/history full snapshots.
+
+2. **Native project format upgraded for layer offsets** — `FPNativeIO` now writes `FPDOC04`, persisting per-layer offsets while keeping `FPDOC01/02/03` compatibility on load.
+
+3. **XCF import now keeps source offset metadata structurally** — `LoadXCFDocument` continues compatibility stamping into canvas-sized layer surfaces, and now also records source offsets in layer metadata for future semantic migration.
+
+4. **Brush-like stroke history no longer clones full active layer at mouse-down (`A5`)** — Replaced stroke-start `ActiveLayer.Surface.Clone` flow with incremental pre-stroke region capture in `TMainForm`:
+   - touched segment bounds are captured before mutation,
+   - capture grows by union while preserving already-recorded original pixels,
+   - commit pushes one `PushRegionHistory` snapshot from captured region.
+
+5. **History regression coverage expanded for long strokes** — Added `TPipelineIntegrationTests.UndoRedoAfterLongPencilStrokeRestoresPixels` to lock undo/redo correctness on long-segment brush strokes under the new incremental capture path.
+
+6. **A4 persistence regression coverage expanded**:
+   - `TFPDocumentTests.LayerOffsetMetadataPreservedInClone`
+   - `TIntegrationNativeRoundTripTests.Test_MultiLayer_SaveLoad_PreservesLayersAndPixels` now asserts offset roundtrip.
+
+7. **Architecture-reference protocol maintained** — This pass followed the existing GIMP-derived architecture notes for transaction/region-history direction only (no code/name reuse), consistent with anti-GPL contamination constraints.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `252` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-06 (Phase 4 start: selection coverage semantics propagation)
+
+### Changes
+
+1. **Selection mask semantics moved to full-byte coverage contracts** — Updated `FPSelection` so binary helper paths no longer collapse to `0/1` storage:
+   - `SelectAll` now writes `255`,
+   - `Selected := True` now writes `255`,
+   - `Invert` now performs `255 - coverage`,
+   - `MoveBy` / `Flip` / `Rotate` / `Crop` / `ResizeNearest` / `IntersectWith` now preserve byte coverage values.
+
+2. **Selection-aware mutation APIs now consume weighted coverage** — Updated `FPSurface` selection gates from boolean membership to weighted opacity/alpha scaling:
+   - `BlendPixel`, selection-aware `EraseBrush`, `EraseSquareBrush`, and `RecolorBrush` now multiply effective opacity by selection coverage.
+   - `FillSelection`, `EraseSelection`, `CopySelection`, and `MoveSelectedPixels` now use coverage-driven soft application.
+
+3. **Background-layer move path remains opacity-safe under soft selection** — Updated `TImageDocument.MoveSelectedPixelsBy` background branch to blend copied pixels onto destination instead of direct assignment, preserving opaque-background invariant while allowing soft-edge transfer.
+
+4. **Native selection persistence upgraded to byte coverage without breaking legacy files** — `FPNativeIO` now writes `FPDOC03` with full-byte selection mask values; loader keeps `FPDOC01/02` compatibility by mapping legacy non-zero mask bytes to selected (`255`) semantics.
+
+5. **Coverage regression tests added across core + integration routes**:
+   - `TFPSurfaceTests`: selection coverage opacity/alpha behavior for masked draw, fill, copy, and move-selected-pixels.
+   - `TFPSelectionTests`: invert and transform paths preserve byte coverage.
+   - `TIntegrationNativeRoundTripTests`: native save/load round-trip preserves byte coverage mask values.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `250` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-06 (shortcut/layout regression closure + Phase 3 mutation guard start)
+
+### Changes
+
+1. **Closed the previously failing shortcut/metadata contract set** — Updated `FPUIHelpers` to align tool shortcut metadata and cycle behavior with the current tested policy:
+   - selection family unified to `S`,
+   - move family unified to `M`,
+   - shape family unified to `O`,
+   - picker single-key mapped to `K`,
+   - crop bare-key shortcut cleared,
+   - text tool hint now explicitly mentions inline editing.
+
+2. **Closed the colors panel width contract regression** — Increased `ColorsPaletteWidth` (`220 -> 240`) in `FPPaletteHelpers` so the compact system-picker + slider layout contract remains satisfiable under current panel geometry tests.
+
+3. **Started Architecture Renovation Phase 3 (`MutationGuard`) in core** — Added new core guard module `src/core/fpmutationguard.pas` and routed `TImageDocument` mutating pixel APIs through centralized guard checks:
+   - active-layer pixel mutation paths now block on locked active layer,
+   - document-wide pixel mutation paths now block when any layer is locked.
+
+4. **Extended route consistency at app edge for remaining direct-surface commands** — Added explicit lock guards to menu routes that were still mutating `ActiveLayer.Surface` directly (`Paste`, `Layer Rotate/Zoom`) so they follow the same lock invariant as tool and core-command routes.
+
+5. **Added dedicated mutation-guard regression suite** — New `src/tests/mutation_guard_tests.pas` covers:
+   - locked active layer blocks adjustments,
+   - locked active layer blocks selection-driven pixel mutation (`fill` / `erase` / `move selected pixels`),
+   - locked layer blocks document-wide pixel mutations (`flip` path),
+   - unlocked paths still mutate as expected.
+
+6. **Code-first docs realigned after regression closure** — Updated `PRD` and `Feature Matrix` evidence snapshot from failing to passing regression baseline and removed stale “shortcut/colors test blocked” status.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `243` tests, `0` failures.
+  - New suite status: `TMutationGuardTests` `4/4` passed.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed on the same change window.
+
 ## 2026-03-06 (Phase 1/2: move-selected-pixels transaction migration)
 
 ### Changes

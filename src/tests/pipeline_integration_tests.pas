@@ -34,6 +34,7 @@ type
     procedure FillToolPushesHistoryOnMouseDown;
     procedure AddLayerPushesHistory;
     procedure MultipleStrokesIncrementHistory;
+    procedure UndoRedoAfterLongPencilStrokeRestoresPixels;
 
     { Layer pipeline }
     procedure AddLayerIncreasesLayerCount;
@@ -243,6 +244,40 @@ begin
     F.SimulateMouseDown(mbLeft, [ssLeft], 40, 40);
     F.SimulateMouseUp(mbLeft, [], 40, 40);
     AssertEquals('UndoDepth should be 3 after third stroke', 3, F.TestDocument.UndoDepth);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.UndoRedoAfterLongPencilStrokeRestoresPixels;
+var
+  F: TMainForm;
+  BeforeMid: TRGBA32;
+  AfterMid: TRGBA32;
+  UndoMid: TRGBA32;
+  RedoMid: TRGBA32;
+begin
+  F := CreateTestForm(tkPencil);
+  try
+    BeforeMid := F.TestDocument.ActiveLayer.Surface[35, 20];
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 20);
+    F.SimulateMouseMove([ssLeft], 60, 20);
+    F.SimulateMouseUp(mbLeft, [], 60, 20);
+
+    AfterMid := F.TestDocument.ActiveLayer.Surface[35, 20];
+    AssertFalse('long pencil stroke should change a middle pixel',
+      RGBAEqual(BeforeMid, AfterMid));
+
+    F.TestDocument.Undo;
+    UndoMid := F.TestDocument.ActiveLayer.Surface[35, 20];
+    AssertTrue('undo should restore middle pixel from long stroke',
+      RGBAEqual(BeforeMid, UndoMid));
+
+    F.TestDocument.Redo;
+    RedoMid := F.TestDocument.ActiveLayer.Surface[35, 20];
+    AssertTrue('redo should reapply middle pixel from long stroke',
+      RGBAEqual(AfterMid, RedoMid));
   finally
     F.Destroy;
   end;

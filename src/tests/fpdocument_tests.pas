@@ -20,6 +20,7 @@ type
     procedure MagicWandIntersectKeepsOnlySharedRegion;
     procedure LayerBlendModeDefaultsToNormal;
     procedure LayerBlendModePreservedInClone;
+    procedure LayerOffsetMetadataPreservedInClone;
     procedure MoveLayerReordersAndTracksActiveLayer;
     procedure BackgroundLayerStaysLockedAtBottom;
     procedure BackgroundLayerEraseAndMovePreserveOpacity;
@@ -290,6 +291,27 @@ begin
     Layer2 := Document.ActiveLayer.Clone;
     try
       AssertEquals('clone preserves blend mode', Ord(bmMultiply), Ord(Layer2.BlendMode));
+    finally
+      Layer2.Free;
+    end;
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.LayerOffsetMetadataPreservedInClone;
+var
+  Document: TImageDocument;
+  Layer2: TRasterLayer;
+begin
+  Document := TImageDocument.Create(4, 4);
+  try
+    Document.ActiveLayer.OffsetX := 12;
+    Document.ActiveLayer.OffsetY := -7;
+    Layer2 := Document.ActiveLayer.Clone;
+    try
+      AssertEquals('clone preserves layer offset x', 12, Layer2.OffsetX);
+      AssertEquals('clone preserves layer offset y', -7, Layer2.OffsetY);
     finally
       Layer2.Free;
     end;

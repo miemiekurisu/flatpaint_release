@@ -165,7 +165,7 @@ begin
     tkCrop:
       Result := TR('Trims the canvas to a selected area', #$E5#$B0#$86#$E7#$94#$BB#$E5#$B8#$83#$E8#$A3#$81#$E5#$89#$AA#$E5#$88#$B0#$E9#$80#$89#$E5#$AE#$9A#$E5#$8C#$BA#$E5#$9F#$9F);
     tkText:
-      Result := TR('Adds and edits text on the canvas', #$E5#$9C#$A8#$E7#$94#$BB#$E5#$B8#$83#$E4#$B8#$8A#$E6#$B7#$BB#$E5#$8A#$A0#$E5#$92#$8C#$E7#$BC#$96#$E8#$BE#$91#$E6#$96#$87#$E6#$9C#$AC);
+      Result := TR('Adds and edits inline text on the canvas', #$E5#$9C#$A8#$E7#$94#$BB#$E5#$B8#$83#$E4#$B8#$8A#$E6#$B7#$BB#$E5#$8A#$A0#$E5#$92#$8C#$E7#$BC#$96#$E8#$BE#$91#$E6#$96#$87#$E6#$9C#$AC);
     tkCloneStamp:
       Result := TR('Paints with a sampled area of the image; Option-click to set source', #$E4#$BD#$BF#$E7#$94#$A8#$E5#$9B#$BE#$E5#$83#$8F#$E7#$9A#$84#$E9#$87#$87#$E6#$A0#$B7#$E5#$8C#$BA#$E5#$9F#$9F#$E7#$BB#$98#$E5#$88#$B6#$EF#$BC#$9B'Option+'#$E5#$8D#$95#$E5#$87#$BB#$E8#$AE#$BE#$E7#$BD#$AE#$E6#$BA#$90);
     tkRecolor:
@@ -236,16 +236,12 @@ end;
 function PaintToolShortcutKey(ATool: TToolKind): string;
 begin
   case ATool of
-    tkSelectRect, tkSelectEllipse:
-      Result := 'M';
-    tkSelectLasso:
-      Result := 'L';
-    tkMagicWand:
-      Result := 'W';
+    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand:
+      Result := 'S';
     tkMoveSelection, tkMovePixels:
-      Result := 'V';
+      Result := 'M';
     tkCrop:
-      Result := 'C';
+      Result := '';
     tkZoom:
       Result := 'Z';
     tkPan:
@@ -259,13 +255,13 @@ begin
     tkEraser:
       Result := 'E';
     tkColorPicker:
-      Result := 'I';
+      Result := 'K';
     tkCloneStamp:
-      Result := 'S';
+      Result := 'C';
     tkRecolor, tkMosaic:
       Result := 'J';
     tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
-      Result := 'U';
+      Result := 'O';
     tkText:
       Result := 'T';
   else
@@ -284,7 +280,7 @@ begin
 
   Result := TR('Shortcut: ', #$E5#$BF#$AB#$E6#$8D#$B7#$E9#$94#$AE#$EF#$BC#$9A) + KeyLabel;
   if ATool in [
-    tkSelectRect, tkSelectEllipse,
+    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand,
     tkMoveSelection, tkMovePixels,
     tkFill, tkGradient,
     tkRecolor, tkMosaic,
@@ -409,22 +405,19 @@ begin
   Result := ACurrent;
   Rev := AReverse;
   case UpCase(AKey) of
-    'M': Cycle := [tkSelectRect, tkSelectEllipse];
-    'L': Cycle := [tkSelectLasso];
-    'W': Cycle := [tkMagicWand];
-    'V': Cycle := [tkMoveSelection, tkMovePixels];
-    'C': Cycle := [tkCrop];
+    'S': Cycle := [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
+    'M': Cycle := [tkMoveSelection, tkMovePixels];
     'Z': Cycle := [tkZoom];
     'H': Cycle := [tkPan];
     'G': Cycle := [tkFill, tkGradient];
     'B': Cycle := [tkBrush];
     'E': Cycle := [tkEraser];
     'P': Cycle := [tkPencil];
-    'I': Cycle := [tkColorPicker];
-    'S': Cycle := [tkCloneStamp];
+    'K': Cycle := [tkColorPicker];
+    'C': Cycle := [tkCloneStamp];
     'J': Cycle := [tkRecolor, tkMosaic];
     'T': Cycle := [tkText];
-    'U': Cycle := [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
+    'O': Cycle := [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
   else
     Exit;
   end;
