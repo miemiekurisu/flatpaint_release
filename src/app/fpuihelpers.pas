@@ -38,7 +38,7 @@ uses
   FPI18n;
 
 const
-  ToolDisplayOrder: array[0..22] of TToolKind = (
+  ToolDisplayOrder: array[0..23] of TToolKind = (
     tkSelectRect,
     tkSelectEllipse,
     tkSelectLasso,
@@ -56,6 +56,7 @@ const
     tkColorPicker,
     tkCloneStamp,
     tkRecolor,
+    tkMosaic,
     tkLine,
     tkRectangle,
     tkRoundedRectangle,
@@ -113,6 +114,8 @@ begin
       Result := TR('Clone Stamp', #$E4#$BB#$BF#$E5#$88#$B6#$E5#$9B#$BE#$E7#$AB#$A0);
     tkRecolor:
       Result := TR('Recolor', #$E9#$87#$8D#$E6#$96#$B0#$E7#$9D#$80#$E8#$89#$B2);
+    tkMosaic:
+      Result := TR('Mosaic', #$E9#$A9#$AC#$E8#$B5#$9B#$E5#$85#$8B);
   else
     Result := TR('Tool', #$E5#$B7#$A5#$E5#$85#$B7);
   end;
@@ -167,6 +170,8 @@ begin
       Result := TR('Paints with a sampled area of the image; Option-click to set source', #$E4#$BD#$BF#$E7#$94#$A8#$E5#$9B#$BE#$E5#$83#$8F#$E7#$9A#$84#$E9#$87#$87#$E6#$A0#$B7#$E5#$8C#$BA#$E5#$9F#$9F#$E7#$BB#$98#$E5#$88#$B6#$EF#$BC#$9B'Option+'#$E5#$8D#$95#$E5#$87#$BB#$E8#$AE#$BE#$E7#$BD#$AE#$E6#$BA#$90);
     tkRecolor:
       Result := TR('Replaces a specific color with the foreground color within tolerance', #$E5#$9C#$A8#$E5#$AE#$B9#$E5#$B7#$AE#$E8#$8C#$83#$E5#$9B#$B4#$E5#$86#$85#$E7#$94#$A8#$E5#$89#$8D#$E6#$99#$AF#$E8#$89#$B2#$E6#$9B#$BF#$E6#$8D#$A2#$E7#$89#$B9#$E5#$AE#$9A#$E9#$A2#$9C#$E8#$89#$B2);
+    tkMosaic:
+      Result := TR('Drag a rectangle to pixelate an area', #$E6#$8B#$96#$E6#$8B#$BD#$E7#$9F#$A9#$E5#$BD#$A2#$E5#$8C#$BA#$E5#$9F#$9F#$E8#$BF#$9B#$E8#$A1#$8C#$E5#$83#$8F#$E7#$B4#$A0#$E5#$8C#$96);
   else
     Result := TR('Ready', #$E5#$B0#$B1#$E7#$BB#$AA);
   end;
@@ -207,6 +212,8 @@ begin
       Result := '⧉';
     tkRecolor:
       Result := '◐';
+    tkMosaic:
+      Result := '▦';
     tkLine:
       Result := '／';
     tkRectangle:
@@ -255,7 +262,7 @@ begin
       Result := 'I';
     tkCloneStamp:
       Result := 'S';
-    tkRecolor:
+    tkRecolor, tkMosaic:
       Result := 'J';
     tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape:
       Result := 'U';
@@ -280,6 +287,7 @@ begin
     tkSelectRect, tkSelectEllipse,
     tkMoveSelection, tkMovePixels,
     tkFill, tkGradient,
+    tkRecolor, tkMosaic,
     tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape
   ] then
     Result := Result + TR(' (repeat to cycle related tools, Shift reverses)',
@@ -414,7 +422,7 @@ begin
     'P': Cycle := [tkPencil];
     'I': Cycle := [tkColorPicker];
     'S': Cycle := [tkCloneStamp];
-    'J': Cycle := [tkRecolor];
+    'J': Cycle := [tkRecolor, tkMosaic];
     'T': Cycle := [tkText];
     'U': Cycle := [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
   else

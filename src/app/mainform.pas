@@ -260,6 +260,10 @@ type
     FCloneAlignedOffsetValid: Boolean;
     { Recolor tool tolerance (separate from FWandTolerance) }
     FRecolorTolerance: Integer;
+    { Mosaic tool block size }
+    FMosaicBlockSize: Integer;
+    FMosaicBlockSpin: TSpinEdit;
+    FMosaicBlockLabel: TLabel;
     { Fill sample source: 0=Current Layer, 1=All Layers }
     FFillSampleSource: Integer;
     { Color picker sample source: 0=Current Layer, 1=All Layers }
@@ -557,6 +561,7 @@ type
     procedure GradientReverseChanged(Sender: TObject);
     procedure CloneAlignedChanged(Sender: TObject);
     procedure RecolorPreserveValueChanged(Sender: TObject);
+    procedure MosaicBlockSpinChanged(Sender: TObject);
     procedure PickerSampleComboChanged(Sender: TObject);
     procedure SelAntiAliasChanged(Sender: TObject);
     procedure SelFeatherSpinChanged(Sender: TObject);
@@ -853,6 +858,7 @@ begin
   FCloneAligned := True;
   FRecolorPreserveValue := True;
   FRecolorTolerance := 32;
+  FMosaicBlockSize := 10;
   FCloneAlignedOffset := Point(0, 0);
   FCloneAlignedOffsetValid := False;
   FPickerSampleSource := 0;
@@ -1772,6 +1778,9 @@ begin
     if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
+    if Assigned(FMosaicBlockLabel) then FMosaicBlockLabel.Visible := FCurrentTool = tkMosaic;
+    if Assigned(FMosaicBlockSpin) then FMosaicBlockSpin.Visible := FCurrentTool = tkMosaic;
+    if Assigned(FMosaicBlockSpin) then FMosaicBlockSpin.Value := FMosaicBlockSize;
     if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
     if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
     if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
@@ -1932,6 +1941,10 @@ begin
 
   { Recolor Preserve Value }
   PlaceControl(FRecolorPreserveValueCheck);
+
+  { Mosaic Block Size }
+  PlaceLabel(FMosaicBlockLabel);
+  PlaceControl(FMosaicBlockSpin);
 
   { Gradient Reverse }
   PlaceControl(FGradientReverseCheck);
@@ -3063,6 +3076,29 @@ begin
   FRecolorPreserveValueCheck.OnChange := @RecolorPreserveValueChanged;
   FRecolorPreserveValueCheck.Hint := 'Keep original brightness while shifting the color';
   FRecolorPreserveValueCheck.ShowHint := True;
+
+  { Mosaic tool block size }
+  FMosaicBlockLabel := TLabel.Create(FOptionsBarPanel);
+  FMosaicBlockLabel.Parent := FOptionsBarPanel;
+  FMosaicBlockLabel.Left := 0;
+  FMosaicBlockLabel.Top := OptionsBarLabelTop;
+  FMosaicBlockLabel.Caption := 'Block:';
+  FMosaicBlockLabel.Font.Size := OptionsBarFontSize;
+  FMosaicBlockLabel.Font.Color := ChromeTextColor;
+  FMosaicBlockLabel.Visible := False;
+
+  FMosaicBlockSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FMosaicBlockSpin.Parent := FOptionsBarPanel;
+  FMosaicBlockSpin.Left := 0;
+  FMosaicBlockSpin.Top := OptionsBarControlTop;
+  FMosaicBlockSpin.Width := 60;
+  FMosaicBlockSpin.Height := OptionsBarControlHeight;
+  FMosaicBlockSpin.Font.Size := OptionsBarFontSize;
+  FMosaicBlockSpin.MinValue := 2;
+  FMosaicBlockSpin.MaxValue := 64;
+  FMosaicBlockSpin.Value := FMosaicBlockSize;
+  FMosaicBlockSpin.Visible := False;
+  FMosaicBlockSpin.OnChange := @MosaicBlockSpinChanged;
 
   { Color picker sample source combo }
   FPickerSampleLabel := TLabel.Create(FOptionsBarPanel);
@@ -4430,11 +4466,27 @@ begin
               Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
             );
         end;
+      tkMosaic:
+        begin
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          { Dashed border around the mosaic area }
+          ACanvas.Pen.Style := psSolid;
+          ACanvas.Pen.Color := clBlack;
+          ACanvas.Pen.Width := 1;
+          ACanvas.Brush.Style := bsClear;
+          ACanvas.Rectangle(LeftX - 1, TopY - 1, RightX + 1, BottomY + 1);
+          ACanvas.Pen.Style := psDash;
+          ACanvas.Pen.Color := clWhite;
+          ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+        end;
     end;
 
     case FCurrentTool of
       tkLine, tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape,
-      tkSelectRect, tkSelectEllipse, tkCrop:
+      tkSelectRect, tkSelectEllipse, tkCrop, tkMosaic:
         DrawPointHoverOverlay(ACanvas, FDragStart);
       tkSelectLasso, tkFreeformShape:
         if Length(FLassoPoints) > 0 then
@@ -9505,6 +9557,11 @@ begin
         { Crop: drag rectangle on mouse up }
         RefreshCanvas;
       end;
+    tkMosaic:
+      begin
+        { Mosaic: drag rectangle, pixelate on mouse up }
+        RefreshCanvas;
+      end;
     tkZoom:
       begin
         if FPickSecondaryTarget then
@@ -9617,7 +9674,7 @@ begin
           FLastImagePoint := ImagePoint;
           RefreshCanvas;
         end;
-      tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop:
+      tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop, tkMosaic:
         begin
           FShiftConstrain := ssShift in Shift;
           if FShiftConstrain then
@@ -9651,7 +9708,7 @@ begin
       FLineCurveControlPoint := ImagePoint;
   end;
   if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels,
-    tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop]) then
+    tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop, tkMosaic]) then
     FLastImagePoint := ImagePoint;
   if (not FPointerDown) and Assigned(FPaintBox) and
      (
@@ -9738,6 +9795,23 @@ begin
       );
       UpdateCanvasSize;
       SyncImageMutationUI(True, True);
+    end;
+  end;
+  if FCurrentTool = tkMosaic then
+  begin
+    { Commit mosaic if drag was meaningful }
+    if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
+    begin
+      FDocument.PushHistory('Mosaic');
+      FDocument.ActiveLayer.Surface.PixelateRect(
+        Min(FDragStart.X, ImagePoint.X),
+        Min(FDragStart.Y, ImagePoint.Y),
+        Max(FDragStart.X, ImagePoint.X),
+        Max(FDragStart.Y, ImagePoint.Y),
+        FMosaicBlockSize
+      );
+      InvalidatePreparedBitmap;
+      SyncImageMutationUI(False, True);
     end;
   end;
   if FCurrentTool = tkFreeformShape then
@@ -11633,6 +11707,13 @@ begin
   if not Assigned(FRecolorPreserveValueCheck) then Exit;
   FRecolorPreserveValue := FRecolorPreserveValueCheck.Checked;
   RefreshCanvas;
+end;
+
+procedure TMainForm.MosaicBlockSpinChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FMosaicBlockSpin) then Exit;
+  FMosaicBlockSize := EnsureRange(FMosaicBlockSpin.Value, 2, 64);
 end;
 
 procedure TMainForm.PickerSampleComboChanged(Sender: TObject);

@@ -267,7 +267,7 @@ end;
 
 procedure TFPUIHelpersTests.TotalDisplayCountIsCorrect;
 begin
-  AssertEquals('total tool display count', 23, PaintToolDisplayCount);
+  AssertEquals('total tool display count', 24, PaintToolDisplayCount);
 end;
 
 procedure TFPUIHelpersTests.UtilityGlyphsStayCompact;

@@ -420,8 +420,9 @@ end;
 
 procedure TFPDocumentTests.NewToolKindCountIsCorrect;
 begin
-  { TToolKind should now have 23 values: 0..22 }
+  { TToolKind should now have 24 values: 0..23 }
   AssertEquals('tkRecolor ordinal', 22, Ord(tkRecolor));
+  AssertEquals('tkMosaic ordinal', 23, Ord(tkMosaic));
   AssertEquals('tkCrop ordinal', 19, Ord(tkCrop));
   AssertEquals('tkText ordinal', 20, Ord(tkText));
   AssertEquals('tkCloneStamp ordinal', 21, Ord(tkCloneStamp));

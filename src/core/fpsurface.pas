@@ -77,6 +77,7 @@ type
     procedure Soften;
     procedure RenderClouds(Seed: Cardinal = 1);
     procedure Pixelate(BlockSize: Integer);
+    procedure PixelateRect(ALeft, ATop, ARight, ABottom, BlockSize: Integer);
     procedure Vignette(Strength: Double);
     procedure MotionBlur(Angle: Integer; Distance: Integer);
     procedure MedianFilter(Radius: Integer);
@@ -1999,6 +2000,62 @@ begin
     end;
   finally
     Source.Free;
+  end;
+end;
+
+procedure TRasterSurface.PixelateRect(ALeft, ATop, ARight, ABottom, BlockSize: Integer);
+var
+  X, Y: Integer;
+  BX, BY: Integer;
+  BlockStartX, BlockStartY: Integer;
+  BlockEndX, BlockEndY: Integer;
+  Count: Integer;
+  SumR, SumG, SumB, SumA: Integer;
+  AvgColor: TRGBA32;
+  ClipLeft, ClipTop, ClipRight, ClipBottom: Integer;
+begin
+  if BlockSize <= 1 then Exit;
+  { Clamp rectangle to surface bounds }
+  ClipLeft := Max(0, Min(ALeft, ARight));
+  ClipTop := Max(0, Min(ATop, ABottom));
+  ClipRight := Min(FWidth - 1, Max(ALeft, ARight));
+  ClipBottom := Min(FHeight - 1, Max(ATop, ABottom));
+  if (ClipLeft > ClipRight) or (ClipTop > ClipBottom) then Exit;
+  { Align block grid to global coordinates so repeated applications are consistent }
+  Y := (ClipTop div BlockSize) * BlockSize;
+  while Y <= ClipBottom do
+  begin
+    BlockStartY := Max(ClipTop, Y);
+    BlockEndY := Min(ClipBottom, Y + BlockSize - 1);
+    X := (ClipLeft div BlockSize) * BlockSize;
+    while X <= ClipRight do
+    begin
+      BlockStartX := Max(ClipLeft, X);
+      BlockEndX := Min(ClipRight, X + BlockSize - 1);
+      SumR := 0; SumG := 0; SumB := 0; SumA := 0;
+      Count := 0;
+      for BY := BlockStartY to BlockEndY do
+        for BX := BlockStartX to BlockEndX do
+        begin
+          Inc(SumR, FPixels[IndexOf(BX, BY)].R);
+          Inc(SumG, FPixels[IndexOf(BX, BY)].G);
+          Inc(SumB, FPixels[IndexOf(BX, BY)].B);
+          Inc(SumA, FPixels[IndexOf(BX, BY)].A);
+          Inc(Count);
+        end;
+      if Count > 0 then
+      begin
+        AvgColor.R := SumR div Count;
+        AvgColor.G := SumG div Count;
+        AvgColor.B := SumB div Count;
+        AvgColor.A := SumA div Count;
+        for BY := BlockStartY to BlockEndY do
+          for BX := BlockStartX to BlockEndX do
+            FPixels[IndexOf(BX, BY)] := AvgColor;
+      end;
+      Inc(X, BlockSize);
+    end;
+    Inc(Y, BlockSize);
   end;
 end;
 

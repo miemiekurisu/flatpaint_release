@@ -89,6 +89,7 @@ type
     bikPicker,
     bikClone,
     bikRecolor,
+    bikMosaic,
     bikLine,
     bikRectangle,
     bikRoundedRect,
@@ -205,6 +206,8 @@ begin
       Result := 'stamp.svg.png';
     bikRecolor:
       Result := 'droplets.svg.png';
+    bikMosaic:
+      Result := 'grid-2x2.svg.png';
     bikLine:
       Result := 'slash.svg.png';
     bikRectangle:
@@ -415,6 +418,7 @@ begin
   if ACaption = '⌖' then Exit(bikPicker);
   if ACaption = '⧉' then Exit(bikClone);
   if ACaption = '◐' then Exit(bikRecolor);
+  if ACaption = '▦' then Exit(bikMosaic);
   if ACaption = '／' then Exit(bikLine);
   if ACaption = '□' then Exit(bikRectangle);
   if ACaption = '▢' then Exit(bikRoundedRect);
@@ -770,6 +774,21 @@ begin
         C.Ellipse(3, 3, 12, 12);
         C.Line(7, 3, 7, 12);
         C.Line(7, 8, 12, 8);
+      end;
+    bikMosaic:
+      begin
+        { 4x4 checkerboard grid }
+        C.Pen.Width := 1;
+        C.Brush.Color := IconForegroundColor;
+        C.FillRect(3, 3, 7, 7);
+        C.FillRect(11, 3, 15, 7);
+        C.FillRect(3, 11, 7, 15);
+        C.FillRect(11, 11, 15, 15);
+        C.Brush.Color := clWhite;
+        C.FillRect(7, 3, 11, 7);
+        C.FillRect(3, 7, 7, 11);
+        C.FillRect(7, 11, 11, 15);
+        C.FillRect(11, 7, 15, 11);
       end;
     bikLine:
       begin

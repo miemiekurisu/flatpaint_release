@@ -42,7 +42,8 @@ type
     tkCrop,
     tkText,
     tkCloneStamp,
-    tkRecolor
+    tkRecolor,
+    tkMosaic
   );
 
   TRasterLayer = class
