@@ -13,6 +13,7 @@ type
     procedure StrokeControllerCommitRestoresViaUndo;
     procedure StrokeControllerUnionCapturePreservesEarlierOriginalPixels;
     procedure MovePixelsControllerCommitMovesPixelsAndSelection;
+    procedure MovePixelsControllerCommitBlockedByLockedLayer;
     procedure MovePixelsControllerCancelRestoresSelectionWithoutHistory;
     procedure SelectionModeMappingFollowsModifierContract;
     procedure SelectionRectangleCommitPushesHistoryAndSelection;
@@ -122,6 +123,41 @@ begin
     AssertEquals('destination pixel keeps moved red channel', 200, Pixel.R);
     AssertEquals('destination pixel keeps alpha', 255, Pixel.A);
     AssertTrue('selection moved with pixels', Doc.Selection[5, 3]);
+  finally
+    Controller.Free;
+    Doc.Free;
+  end;
+end;
+
+procedure TToolControllerTests.MovePixelsControllerCommitBlockedByLockedLayer;
+var
+  Doc: TImageDocument;
+  Controller: TMovePixelsController;
+  CommitResult: TMovePixelsCommitResult;
+  Pixel: TRGBA32;
+begin
+  Doc := TImageDocument.Create(12, 12);
+  Controller := TMovePixelsController.Create;
+  try
+    Doc.AddLayer('Paint');
+    Doc.ActiveLayerIndex := 1;
+    Doc.ActiveLayer.Surface.Clear(TransparentColor);
+    Doc.ActiveLayer.Surface[3, 3] := RGBA(200, 40, 20, 255);
+    Doc.SelectRectangle(3, 3, 3, 3);
+
+    Controller.BeginSession(Doc, RGBA(255, 255, 255, 255));
+    AssertTrue('session should activate when selection exists', Controller.Active);
+    AssertTrue('delta update should be accepted', Controller.UpdateDelta(Doc, 2, 0));
+    Doc.ActiveLayer.Locked := True;
+
+    CommitResult := Controller.Commit(Doc, 'Move Pixels', RGBA(255, 255, 255, 255));
+    AssertEquals('locked layer should block commit', Ord(mpcBlocked), Ord(CommitResult));
+    AssertEquals('blocked commit should not push history', 0, Doc.UndoDepth);
+
+    Pixel := Doc.ActiveLayer.Surface[3, 3];
+    AssertEquals('source pixel should stay untouched when blocked', 200, Pixel.R);
+    AssertTrue('selection should return to original location when blocked', Doc.Selection[3, 3]);
+    AssertFalse('selection should not stay at moved location when blocked', Doc.Selection[5, 3]);
   finally
     Controller.Free;
     Doc.Free;

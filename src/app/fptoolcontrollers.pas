@@ -9,7 +9,7 @@ uses
   FPHistoryTransaction;
 
 type
-  TMovePixelsCommitResult = (mpcNoSession, mpcNoMove, mpcCommitted);
+  TMovePixelsCommitResult = (mpcNoSession, mpcNoMove, mpcBlocked, mpcCommitted);
 
   TStrokeHistoryController = class
   private
@@ -393,7 +393,7 @@ end;
 
 function TMovePixelsController.Commit(ADocument: TImageDocument; const AHistoryLabel: string; const ABackgroundColor: TRGBA32): TMovePixelsCommitResult;
 var
-  TargetLayer: TRasterLayer;
+  SavedActiveLayerIndex: Integer;
 begin
   if not FActive then
     Exit(mpcNoSession);
@@ -410,22 +410,32 @@ begin
     Exit(mpcNoMove);
   end;
 
-  if (FLayerIndex < 0) or (FLayerIndex >= ADocument.LayerCount) then
-    TargetLayer := ADocument.ActiveLayer
-  else
-    TargetLayer := ADocument.Layers[FLayerIndex];
+  SavedActiveLayerIndex := ADocument.ActiveLayerIndex;
+  if (FLayerIndex >= 0) and (FLayerIndex < ADocument.LayerCount) then
+    ADocument.ActiveLayerIndex := FLayerIndex;
+  try
+    ADocument.Selection.Assign(FBaseSelection);
+    if not ADocument.BeginActiveLayerMutation(AHistoryLabel) then
+    begin
+      ADocument.Selection.Assign(FBaseSelection);
+      Clear;
+      Exit(mpcBlocked);
+    end;
 
-  ADocument.PushHistory(AHistoryLabel);
-  if TargetLayer.IsBackground then
-    TargetLayer.Surface.FillSelection(FBaseSelection, ABackgroundColor, 255)
-  else
-    TargetLayer.Surface.EraseSelection(FBaseSelection);
-  TargetLayer.Surface.PasteSurface(FFloatingPixels, FDelta.X, FDelta.Y);
-
-  ADocument.Selection.Assign(FBaseSelection);
-  ADocument.Selection.MoveBy(FDelta.X, FDelta.Y);
-  Clear;
-  Result := mpcCommitted;
+    ADocument.EraseSelection(ABackgroundColor);
+    ADocument.PasteSurfaceToActiveLayer(FFloatingPixels, FDelta.X, FDelta.Y);
+    ADocument.Selection.Assign(FBaseSelection);
+    ADocument.Selection.MoveBy(FDelta.X, FDelta.Y);
+    Clear;
+    Result := mpcCommitted;
+  finally
+    if ADocument.LayerCount > 0 then
+      ADocument.ActiveLayerIndex := EnsureRange(
+        SavedActiveLayerIndex,
+        0,
+        ADocument.LayerCount - 1
+      );
+  end;
 end;
 
 function TMovePixelsController.Cancel(ADocument: TImageDocument): Boolean;

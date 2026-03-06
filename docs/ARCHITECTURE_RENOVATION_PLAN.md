@@ -154,7 +154,7 @@ Exit criteria:
 - Phase 0: complete (baseline gates established).
 - Phase 1: partial (infrastructure introduced, now extended with core `MutationGuard` module).
 - Phase 2: complete (transactional move-pixels flow + `tool_transaction_tests` passing).
-- Phase 3: in progress (core mutation routes expanded with guarded active-layer paste/pixelate-rect/rotate wrappers, and no-op-history cleanup landed for lock-sensitive menu/effect routes via `BeginActiveLayerMutation` / `BeginDocumentMutation`; residual debt remains in direct high-frequency tool-surface mutation paths).
+- Phase 3: in progress (core mutation routes expanded with guarded active-layer paste/pixelate-rect/rotate wrappers; no-op-history cleanup landed for lock-sensitive menu/effect routes via `BeginActiveLayerMutation` / `BeginDocumentMutation`; move-pixels controller commit path is now guard-coupled; interactive fill/shape/crop/pending-line-segment commit routes are now begin-mutation guarded; residual debt remains in brush/recolor/clone high-frequency direct-surface loops).
 - Phase 4: complete (selection byte-coverage semantics propagated through transform/apply/persistence paths with regression coverage).
 - Phase 4.5: in progress (layer offset metadata model + native persistence + XCF metadata preservation landed in compatibility mode).
 - Phase 5: in progress (stroke-start full-layer clone path replaced by incremental region capture with long-stroke undo/redo regression coverage).

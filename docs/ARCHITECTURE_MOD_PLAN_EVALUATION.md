@@ -19,7 +19,7 @@ Conclusion: defects A1/A2 moved to mitigated status, A3/A4/A5 moved to partial-m
 - Current code status after latest implementation pass:
   - **A1**: mitigated by transactional move-pixels workflow (`tool_transaction_tests` green).
   - **A2**: materially mitigated by byte-coverage propagation through selection transforms, weighted selection-aware apply paths, and native mask persistence (`FPDOC04`, legacy-compatible load) with regression tests.
-  - **A3**: partially mitigated by core `FPMutationGuard`, additional guarded core APIs for formerly UI-direct mutations (active-layer paste/pixelate-rect/rotate routes), and guard-coupled history begin APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect routes to prevent no-op history entries.
+  - **A3**: partially mitigated by core `FPMutationGuard`, additional guarded core APIs for formerly UI-direct mutations (active-layer paste/pixelate-rect/rotate routes), guard-coupled history begin APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive fill/shape/crop routes to prevent no-op history entries, and move-pixels controller commit migration to guarded core mutation APIs.
   - **A4**: partially mitigated by layer offset metadata in core model, native persistence, and XCF metadata capture (compatibility render mode retained).
   - **A5**: partially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture plus long-stroke undo/redo regression coverage.
   - **A6**: partially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with dedicated `tool_controller_tests`.
@@ -36,7 +36,7 @@ Conclusion: defects A1/A2 moved to mitigated status, A3/A4/A5 moved to partial-m
 - Core lock guards:
   - Current `TImageDocument` mutation methods are now guard-gated through centralized mutation checks.
   - Guard-aware begin-mutation APIs now couple lock checks and history push, eliminating routed no-op-history noise.
-  - Remaining consistency debt is concentrated in app-layer routes that can still directly mutate surfaces in high-frequency tool loops.
+  - Remaining consistency debt is concentrated in app-layer routes that can still directly mutate surfaces in high-frequency brush/recolor/clone loops outside the migrated move-pixels and interactive-shape commit paths.
 
 ## GIMP architecture reference findings (pattern-level only)
 

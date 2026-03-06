@@ -1457,7 +1457,12 @@ procedure TMainForm.CommitPendingLineSegment(AContinuePath: Boolean);
 begin
   if not FLineCurvePending then
     Exit;
-  FDocument.PushHistory(PaintToolName(FCurrentTool));
+  if not FDocument.BeginActiveLayerMutation(PaintToolName(FCurrentTool)) then
+  begin
+    ResetLineCurveState;
+    RefreshCanvas;
+    Exit;
+  end;
   CommitShapeTool(FDragStart, FLineCurveEndPoint);
   SetDirty(True);
   InvalidatePreparedBitmap;
@@ -1634,6 +1639,11 @@ begin
     mpcNoSession:
       Exit;
     mpcNoMove:
+      begin
+        SyncSelectionOverlayUI(False);
+        Exit;
+      end;
+    mpcBlocked:
       begin
         SyncSelectionOverlayUI(False);
         Exit;
@@ -9674,9 +9684,11 @@ begin
           RefreshStatus(ImagePoint);
           Exit;
         end;
-        FDocument.PushHistory(PaintToolName(FCurrentTool));
-        ApplyImmediateTool(ImagePoint);
-        SyncImageMutationUI(False, True);
+        if FDocument.BeginActiveLayerMutation(PaintToolName(FCurrentTool)) then
+        begin
+          ApplyImmediateTool(ImagePoint);
+          SyncImageMutationUI(False, True);
+        end;
         FPointerDown := False;
       end;
     tkSelectLasso:
@@ -10003,9 +10015,11 @@ begin
       end
       else
       begin
-        FDocument.PushHistory(PaintToolName(FCurrentTool));
-        CommitShapeTool(FDragStart, ImagePoint);
-        SyncImageMutationUI(False, True);
+        if FDocument.BeginActiveLayerMutation(PaintToolName(FCurrentTool)) then
+        begin
+          CommitShapeTool(FDragStart, ImagePoint);
+          SyncImageMutationUI(False, True);
+        end;
       end;
     end;
     RefreshStatus(ImagePoint);
@@ -10013,24 +10027,28 @@ begin
   end;
   if FCurrentTool in [tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape] then
   begin
-    FDocument.PushHistory(PaintToolName(FCurrentTool));
-    CommitShapeTool(FDragStart, ImagePoint);
-    SyncImageMutationUI(False, True);
+    if FDocument.BeginActiveLayerMutation(PaintToolName(FCurrentTool)) then
+    begin
+      CommitShapeTool(FDragStart, ImagePoint);
+      SyncImageMutationUI(False, True);
+    end;
   end;
   if FCurrentTool = tkCrop then
   begin
     { Commit crop if drag was meaningful }
     if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
     begin
-      FDocument.PushHistory('Crop');
-      FDocument.Crop(
-        Min(FDragStart.X, ImagePoint.X),
-        Min(FDragStart.Y, ImagePoint.Y),
-        Abs(ImagePoint.X - FDragStart.X),
-        Abs(ImagePoint.Y - FDragStart.Y)
-      );
-      UpdateCanvasSize;
-      SyncImageMutationUI(True, True);
+      if FDocument.BeginDocumentMutation('Crop') then
+      begin
+        FDocument.Crop(
+          Min(FDragStart.X, ImagePoint.X),
+          Min(FDragStart.Y, ImagePoint.Y),
+          Abs(ImagePoint.X - FDragStart.X),
+          Abs(ImagePoint.Y - FDragStart.Y)
+        );
+        UpdateCanvasSize;
+        SyncImageMutationUI(True, True);
+      end;
     end;
   end;
   if FCurrentTool = tkMosaic then
@@ -10055,9 +10073,11 @@ begin
     AppendLassoPoint(ImagePoint);
     if Length(FLassoPoints) > 1 then
     begin
-      FDocument.PushHistory(PaintToolName(FCurrentTool));
-      CommitShapeTool(FDragStart, ImagePoint);
-      SyncImageMutationUI(False, True);
+      if FDocument.BeginActiveLayerMutation(PaintToolName(FCurrentTool)) then
+      begin
+        CommitShapeTool(FDragStart, ImagePoint);
+        SyncImageMutationUI(False, True);
+      end;
     end;
     SetLength(FLassoPoints, 0);
     RefreshCanvas;

@@ -4,6 +4,48 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 3 tail: interactive shape/fill/crop commits moved to begin-mutation guards)
+
+### Changes
+
+1. **Interactive mouse-driven commit routes now avoid pre-guard history pushes** — Updated `PaintBoxMouseDown/MouseUp` paths to use guarded begin-mutation APIs for:
+   - fill-tool click commit,
+   - line/gradient/rectangle/rounded-rectangle/ellipse/freeform-shape commit,
+   - drag-crop commit (`BeginDocumentMutation('Crop')`).
+
+2. **Bezier line pending-segment commit now guard-coupled** — `CommitPendingLineSegment` uses `BeginActiveLayerMutation` before committing geometry, preventing blocked-lock no-op history entries in that route.
+
+3. **A3 tail consistency improved in interactive routes** — lock-sensitive pointer commit paths now align better with the same core guard+history policy introduced for menu/effect commands.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `269` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-06 (Phase 3 tail: move-pixels commit path now guard-coupled in controller)
+
+### Changes
+
+1. **Move-pixels controller commit path no longer mutates layer surfaces directly without guard gate** — `TMovePixelsController.Commit` now routes commit through core guarded mutation begin (`BeginActiveLayerMutation`) and core mutation APIs (`EraseSelection`, `PasteSurfaceToActiveLayer`) instead of direct `TargetLayer.Surface.*` writes.
+
+2. **Blocked commit state made explicit** — Added `mpcBlocked` to `TMovePixelsCommitResult`; `mainform` commit handler now handles blocked commit as a non-mutating exit path with selection overlay sync.
+
+3. **Layer-target consistency retained** — Commit still honors the session-captured layer index and restores prior active-layer index after commit/cancel decision.
+
+4. **Controller regression coverage expanded** — Added `MovePixelsControllerCommitBlockedByLockedLayer` in `tool_controller_tests` to verify:
+   - locked layer blocks commit,
+   - blocked commit does not push history,
+   - source pixels and selection origin remain intact.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `269` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
 ## 2026-03-06 (Phase 3 tail: no-op history cleanup through core begin-mutation guards)
 
 ### Changes

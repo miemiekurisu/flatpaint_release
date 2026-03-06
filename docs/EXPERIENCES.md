@@ -16,6 +16,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-06 (interactive pointer commit paths are another no-op history side channel)
+- Problem: even after menu/effect and controller fixes, several mouse-driven commit flows (fill/shape/crop/bezier-segment) still pushed history before mutation guard checks.
+- Core error: guard-history coupling was incomplete across interaction routes; pointer commits still used legacy `PushHistory` preambles.
+- Investigation: audited `PaintBoxMouseDown/MouseUp` and `CommitPendingLineSegment` for direct `PushHistory` calls on lock-sensitive pixel mutations.
+- Root cause: A3 migration was performed by route family (menu/effect, then controller), leaving part of pointer commit family untouched.
+- Fix: replaced those preambles with `BeginActiveLayerMutation` / `BeginDocumentMutation` in fill/shape/crop and pending-line-segment paths.
+- Reuse note: for invariant migrations, verify by mutation intent matrix (menu, controller, pointer) rather than by UI entry-surface type; otherwise side channels remain.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (controller-level tool commit paths can silently bypass core lock invariants)
+- Problem: `MovePixelsController.Commit` still mutated target layer surfaces directly and called `PushHistory` itself, so controller-level commits could bypass centralized lock guard semantics.
+- Core error: high-frequency tool-controller commit path was not coupled to core guard begin APIs.
+- Investigation: traced `TMovePixelsController.Commit` and found direct `TargetLayer.Surface.FillSelection/EraseSelection/PasteSurface` writes with no `BeginActiveLayerMutation` gate.
+- Root cause: earlier lock-centralization focused on `mainform` menu routes and core document methods, leaving controller commit logic as a side channel.
+- Fix: routed move-pixels commit through `BeginActiveLayerMutation`, `EraseSelection`, and `PasteSurfaceToActiveLayer`; added explicit blocked result (`mpcBlocked`) and controller regression test for locked-layer blocked commit without history noise.
+- Reuse note: after migrating UI routes to guarded APIs, re-audit controller/session classes for direct surface mutation paths; these are easy to miss and can reintroduce invariant drift.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-06 (lock-guarded commands can still pollute undo history if history push happens before guard check)
 - Problem: many menu/effect routes called `PushHistory` first and then hit guarded mutation APIs, so locked-layer operations produced empty undo entries.
 - Core error: lock authorization and history-transaction start were separated across UI and core layers.

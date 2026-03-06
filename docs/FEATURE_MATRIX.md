@@ -50,7 +50,7 @@
 
 4. Architecture tail debt (active pre-A6 work):
 - layer offset metadata is persisted, but compositor/tool math is still compatibility-mode (not fully offset-driven)
-- stroke history capture cost improved, but history transaction orchestration is still partly app-layer (`TMainForm`) code despite new core region-transaction extraction and guard-coupled begin-mutation APIs
+- stroke history capture cost improved, and lock/history coupling now covers menu/effect + move-pixels + interactive shape/fill/crop commit routes, but brush/recolor/clone high-frequency mutation loops still rely on app-layer direct-surface orchestration
 
 ## Explicitly deferred
 - Third-party plugin ecosystem compatibility
