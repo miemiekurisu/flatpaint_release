@@ -4,6 +4,47 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 3 tail: begin-mutation guard routes + no-op history cleanup)
+- Full CI verification after adding `BeginActiveLayerMutation` / `BeginDocumentMutation`, rerouting lock-sensitive menu/effect handlers to guard-aware history entry points, and expanding mutation-guard tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `268` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TMutationGuardTests`:
+    - `BeginActiveLayerMutationRespectsLockAndHistory`
+    - `BeginDocumentMutationRespectsLockAndHistory`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-06 (Phase 3 tail: guarded core routes for paste/pixelate/rotate)
+- Full CI verification after introducing guarded core mutation wrappers (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), rerouting `mainform` call sites, and expanding mutation-guard regression coverage: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `263` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TMutationGuardTests`:
+    - `LockedActiveLayerBlocksSurfacePasteAndRotateRoutes`
+    - extended unlocked-route coverage for guarded paste path
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-06 (A7 closure: stored-selection core-route contract)
+- Full CI verification after moving stored-selection capture into core selection-copy routes (`CopySelectionToSurface` / `CopyMergedToSurface`) and adding route regression tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `262` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TFPDocumentTests`:
+    - `CopySelectionStoresSelectionForPasteRoute`
+    - `CopyMergedStoresSelectionForPasteRoute`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-06 (Phase 6: tool-controller decomposition for selection routes)
+- Full CI verification after adding `TSelectionToolController`, wiring `mainform` selection routes through app-layer controllers, and expanding controller-level regression tests: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `260` tests, `0` errors, `0` failures.
+- Controller suite highlights (`TToolControllerTests`, `8/8` passed):
+  - `SelectionModeMappingFollowsModifierContract`
+  - `SelectionRectangleCommitPushesHistoryAndSelection`
+  - `SelectionMoveControllerPushesHistoryAndMovesMask`
+  - `SelectionMagicWandCommitPushesHistoryAndSelectsSample`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-06 (Phase 4.5/5: layer-offset metadata + incremental stroke history capture)
 - Full CI verification after landing layer-offset metadata in core/native/XCF compatibility routes and replacing stroke-start full-layer clone with incremental region capture: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `252` tests, `0` errors, `0` failures.

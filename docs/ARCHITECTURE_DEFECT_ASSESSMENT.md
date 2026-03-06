@@ -15,10 +15,12 @@
 - Since that baseline review, five items have moved:
   - **A1 (move-pixels transaction model):** materially mitigated by the transactional move-pixels session now covered by `tool_transaction_tests`.
   - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths, and native byte-mask persistence (`FPDOC04` legacy-compatible load path) plus regression tests.
-  - **A3 (lock/editability invariants):** partially mitigated by core `FPMutationGuard` adoption in `TImageDocument` mutating pixel APIs and lock guards on remaining direct-surface menu routes.
+  - **A3 (lock/editability invariants):** partially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), and guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect routes to prevent no-op undo noise.
   - **A4 (layer geometry metadata):** partially mitigated by adding per-layer offset metadata, native persistence, and XCF offset metadata capture in compatibility mode.
   - **A5 (history capture cost):** partially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture for brush-like tools.
-- Defects still treated as open architecture work in the active plan: **A3 (tail-route consistency), A4 (render/tool semantics not yet offset-aware), A5 (transaction service extraction not complete), A6, A7**.
+  - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests.
+  - **A7 (stored-selection route closure):** materially mitigated by moving `StoreSelectionForPaste` into core selection-copy routes (`CopySelectionToSurface`/`CopyMergedToSurface`), eliminating app-route dependency.
+- Defects still treated as open architecture work in the active plan: **A3 (tail-route consistency), A4 (render/tool semantics not yet offset-aware), A5 (transaction service extraction not complete)**.
 
 ## Executive summary
 FlatPaint is functionally broad, but several deep architectural gaps remain in selection and edit-transaction design.
@@ -59,13 +61,20 @@ Current status for each item is defined by the **Implementation delta** section 
 
 ### A3. Editability/lock invariants are enforced at UI edge instead of core domain layer (P1)
 - Evidence:
-  - UI mouse-down guard checks lock state: `src/app/mainform.pas:9413`
-  - Core mutation methods generally call `ActiveLayer.Surface.*` directly with no lock guard: `src/core/fpdocument.pas:1086` through `src/core/fpdocument.pas:1238`
+  - UI mouse-down guard still exists: `src/app/mainform.pas` pointer-down editability gate.
+  - Core now contains guard-wrapped mutation routes for formerly UI-direct operations:
+    - `PasteSurfaceToActiveLayer`
+    - `PixelateRect`
+    - `RotateActiveLayer90Clockwise / RotateActiveLayer90CounterClockwise / RotateActiveLayer180`
+  - Core now provides guard-coupled history begin APIs:
+    - `BeginActiveLayerMutation`
+    - `BeginDocumentMutation`
+    and `mainform` lock-sensitive menu/effect routes are routed through them.
+  - Regression coverage expanded in `src/tests/mutation_guard_tests.pas` (`LockedActiveLayerBlocksSurfacePasteAndRotateRoutes`).
 - Architectural problem:
-  - Business invariants depend on entry route.
-  - Menu/effect routes and future automation paths can bypass lock behavior unless each route re-checks manually.
+  - Route consistency has improved materially (including reduced no-op history on blocked routes), but full invariant centralization is not yet complete across every possible future mutation entry.
 - User-visible risk:
-  - Inconsistent lock semantics across tools vs commands.
+  - Reduced versus baseline; residual risk remains for any future mutation route that bypasses core wrappers.
 
 ### A4. Layer geometry semantics are still compatibility-only (metadata landed, render/tool paths not fully offset-aware) (P1)
 - Evidence:
@@ -88,24 +97,30 @@ Current status for each item is defined by the **Implementation delta** section 
 - User-visible risk:
   - Large-stroke memory pressure is reduced, but long-term maintainability and route consistency risk remain until transaction handling is fully centralized.
 
-### A6. Main form is a high-coupling orchestration monolith (P2)
+### A6. Main form is a high-coupling orchestration monolith (partially mitigated, P2)
 - Evidence:
-  - `src/app/mainform.pas` is ~11.8k lines (current workspace audit).
+  - `src/app/mainform.pas` remains a very large shell (~12k lines in current workspace audit).
   - Global callback coupling through `GMainForm`: `src/app/mainform.pas:682`, `src/app/mainform.pas:694`
+  - High-risk tool session logic is now split into dedicated controllers:
+    - `src/app/fptoolcontrollers.pas` (`TMovePixelsController`, `TStrokeHistoryController`, `TSelectionToolController`)
+    - `src/tests/tool_controller_tests.pas` (independent controller regression coverage)
 - Architectural problem:
-  - Tool state, rendering, IO, history routing, panel choreography, and command wiring are concentrated in one class.
+  - Tool-state coupling was reduced for top-risk flows, but rendering/IO/panel choreography and many command routes still live in one form class.
 - User-visible risk:
-  - Regression probability increases with each feature; difficult to isolate behavioral contracts.
+  - Regression risk is lower in extracted tool flows, but non-tool orchestration changes can still have broad blast radius.
 
-### A7. Selection store/paste flow appears underwired at app layer (P2)
+### A7. Selection store/paste flow was underwired at app layer (mitigated, P2)
 - Evidence:
-  - Stored-selection API exists in document core: `src/core/fpdocument.pas:1251`
-  - App path checks and pastes stored selection: `src/app/mainform.pas:10689`
-  - No app-layer call site found for `StoreSelectionForPaste` in current audit.
+  - Stored-selection API exists in core and is now called from core copy routes:
+    - `StoreSelectionForPaste`, `CopySelectionToSurface`, `CopyMergedToSurface` in `src/core/fpdocument.pas`
+  - App path still performs selection paste command dispatch:
+    - `src/app/mainform.pas:10887` (`PasteSelectionClick`)
+  - Regression coverage now validates copy routes store selection for replace-paste:
+    - `src/tests/fpdocument_tests.pas` (`CopySelectionStoresSelectionForPasteRoute`, `CopyMergedStoresSelectionForPasteRoute`)
 - Architectural problem:
-  - Command surface can expose a route whose backing lifecycle is incomplete.
+  - Original issue was lifecycle ownership at app layer; core now owns selection-store contract for selection-copy routes.
 - User-visible risk:
-  - "Paste Selection (Replace)" can behave as a dormant or confusing command depending on prior state.
+  - Reduced for copy/cut/copy-merged workflows; future new copy-like routes must still use the same core APIs to preserve this guarantee.
 
 ## Positive architecture assets to keep
 - Core/unit split (`FPDocument`, `FPSurface`, `FPSelection`, format IO units) is a useful base for refactoring rather than rewrite.

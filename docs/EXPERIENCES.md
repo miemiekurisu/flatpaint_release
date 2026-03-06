@@ -16,6 +16,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-06 (lock-guarded commands can still pollute undo history if history push happens before guard check)
+- Problem: many menu/effect routes called `PushHistory` first and then hit guarded mutation APIs, so locked-layer operations produced empty undo entries.
+- Core error: lock authorization and history-transaction start were separated across UI and core layers.
+- Investigation: traced `mainform` handlers that executed `PushHistory` before guarded commands (`PasteSurfaceToActiveLayer`, `PixelateRect`, rotate wrappers, adjustments/effects, resize/flip/rotate paths).
+- Root cause: `PushHistory` was used as a generic UI preamble, while mutation eligibility remained inside document guard checks.
+- Fix: added core `BeginActiveLayerMutation` and `BeginDocumentMutation` APIs (guard + history in one entry), rerouted lock-sensitive handlers to these APIs, and added mutation-guard tests for blocked-vs-allowed history behavior.
+- Reuse note: for guarded mutators, history begin must be coupled to guard evaluation in the same core API; otherwise no-op history regressions recur.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (UI direct-surface mutation paths drift unless core wrappers exist for each route family)
+- Problem: several mutation routes (`paste`, text stamp, mosaic rect, layer-rotate dialog) still wrote `ActiveLayer.Surface.*` directly in `mainform`, relying on handler-level lock checks.
+- Core error: lock/editability policy and mutation execution were still coupled to UI route code in those paths.
+- Investigation: audited direct `ActiveLayer.Surface` mutations in `mainform` and isolated non-tool command paths still bypassing core wrapper APIs.
+- Root cause: earlier guard migration covered many document methods but did not provide core entry points for every mutation shape used by UI code.
+- Fix: added guarded core wrappers (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), rerouted `mainform` call sites to those APIs, and added mutation-guard regression coverage.
+- Reuse note: when centralizing invariants, create core APIs that match every real mutation pattern the UI currently uses; otherwise teams reintroduce direct-surface calls under delivery pressure.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (selection lifecycle breaks when "store for paste" is left as UI-route responsibility)
+- Problem: `Paste Selection (Replace)` depended on prior app-layer wiring and could become dormant if a copy-like route forgot to call `StoreSelectionForPaste`.
+- Core error: selection-store lifecycle ownership sat in the UI surface instead of the core document copy contract.
+- Investigation: traced `StoreSelectionForPaste` usage and found core API existed but app route coverage was fragile; verified selection-copy operations already funnel through document methods.
+- Root cause: lifecycle guarantee was tied to handler call-order, not to the domain operation that semantically owns it.
+- Fix: moved `StoreSelectionForPaste` into core `CopySelectionToSurface` and `CopyMergedToSurface` selection branches, so copy/cut routes prime replace-paste automatically; added dedicated document tests.
+- Reuse note: if a behavior must always accompany a domain operation, implement it in the domain API, not in individual UI handlers.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-06 (selection tool routes regress when mode mapping / feather / history logic is duplicated across UI handlers)
+- Problem: selection-tool behavior was spread across `mainform` mouse handlers, making mode mapping, history push ordering, and feather application easy to drift between routes.
+- Core error: high-risk selection mutations (rect/ellipse/lasso/magic-wand/move-selection) were orchestrated inline in UI event code, not as a testable controller contract.
+- Investigation: audited `PaintBoxMouseDown/Move/Up` and isolated duplicated selection mutation sequences plus repeated conditional logic.
+- Root cause: tool-state decomposition was only partially applied (`move-pixels` and stroke history were extracted first), leaving selection routes inside the form monolith.
+- Fix: introduced `TSelectionToolController` in `fptoolcontrollers`, routed selection commits and move-selection steps through it, and added dedicated controller tests for mode mapping + selection commits + move-selection behavior.
+- Reuse note: when a tool family has multiple entry points (mouse-down immediate tools + drag tools + mouse-up commits), extract one controller before adding new behavior. Keep `mainform` as dispatch/sync shell, not mutation policy owner.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-06 (stroke undo capture should snapshot only touched regions, but must preserve pre-mutation pixels exactly)
 - Problem: brush-like stroke undo path used a full-layer clone at mouse-down, increasing memory cost and latency risk on larger canvases.
 - Core error: region-history existed, but pre-stroke capture strategy was still full-surface-first and crop-later.

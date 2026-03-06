@@ -16,6 +16,7 @@ uses
   fpiconhelpers_tests,
   fptoolbarhelpers_tests,
   mutation_guard_tests,
+  history_transaction_tests,
   tool_controller_tests,
   fpcurveshelpers_tests, fpposterizehelpers_tests, fpblurhelpers_tests,
   fpnoisehelpers_tests, fphuesaturationhelpers_tests, fplevelshelpers_tests,

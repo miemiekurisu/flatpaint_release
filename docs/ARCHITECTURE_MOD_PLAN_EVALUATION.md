@@ -12,22 +12,22 @@
 2. Confirmed each cited line still matches described behavior.
 3. Ran assertion checks for ambiguous claims.
 
-Conclusion: defects A1/A2 moved to mitigated status, A3/A4/A5 moved to partial-mitigation status, and A6/A7 remain fully open.
+Conclusion: defects A1/A2 moved to mitigated status, A3/A4/A5 moved to partial-mitigation status, A6 moved to partial-mitigation status, and A7 moved to mitigated status.
 
 ## Implementation delta (2026-03-06 latest)
 - This evaluation section above is preserved as the pre-renovation baseline verdict.
 - Current code status after latest implementation pass:
   - **A1**: mitigated by transactional move-pixels workflow (`tool_transaction_tests` green).
   - **A2**: materially mitigated by byte-coverage propagation through selection transforms, weighted selection-aware apply paths, and native mask persistence (`FPDOC04`, legacy-compatible load) with regression tests.
-  - **A3**: partially mitigated by core `FPMutationGuard` plus direct-route lock guards for remaining menu-surface mutations.
+  - **A3**: partially mitigated by core `FPMutationGuard`, additional guarded core APIs for formerly UI-direct mutations (active-layer paste/pixelate-rect/rotate routes), and guard-coupled history begin APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect routes to prevent no-op history entries.
   - **A4**: partially mitigated by layer offset metadata in core model, native persistence, and XCF metadata capture (compatibility render mode retained).
   - **A5**: partially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture plus long-stroke undo/redo regression coverage.
+  - **A6**: partially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with dedicated `tool_controller_tests`.
+  - **A7**: materially mitigated by centralizing selection-store lifecycle in core copy routes (`CopySelectionToSurface` / `CopyMergedToSurface`) with route-level regression tests.
 - Remaining priority architecture work still aligns with the plan sequence:
   - **A4 semantic migration tail** (offset-aware compositor/tool math),
   - **A5 transaction-service extraction tail** (reduce app-layer history orchestration),
-  - **A6** tool-controller decomposition,
-  - **A7** stored-selection route closure,
-  - **A3 tail-route/no-op-history cleanup** for full route consistency.
+  - **A3 tail-route cleanup** for remaining direct high-frequency tool-surface mutation paths.
 
 ### Additional assertion checks
 - `StoreSelectionForPaste()` usage:
@@ -35,7 +35,8 @@ Conclusion: defects A1/A2 moved to mitigated status, A3/A4/A5 moved to partial-m
   - No app-layer call site found in current `src/app` routes.
 - Core lock guards:
   - Current `TImageDocument` mutation methods are now guard-gated through centralized mutation checks.
-  - Remaining consistency debt is concentrated in app-layer routes that can still directly mutate surfaces/history before core command wrappers are used.
+  - Guard-aware begin-mutation APIs now couple lock checks and history push, eliminating routed no-op-history noise.
+  - Remaining consistency debt is concentrated in app-layer routes that can still directly mutate surfaces in high-frequency tool loops.
 
 ## GIMP architecture reference findings (pattern-level only)
 

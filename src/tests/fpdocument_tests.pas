@@ -5,7 +5,7 @@ unit fpdocument_tests;
 interface
 
 uses
-  fpcunit, testregistry, FPColor, FPDocument, FPSelection;
+  fpcunit, testregistry, FPColor, FPSurface, FPDocument, FPSelection;
 
 type
   TFPDocumentTests = class(TTestCase)
@@ -25,6 +25,8 @@ type
     procedure BackgroundLayerStaysLockedAtBottom;
     procedure BackgroundLayerEraseAndMovePreserveOpacity;
     procedure StoredSelectionRoundtrips;
+    procedure CopySelectionStoresSelectionForPasteRoute;
+    procedure CopyMergedStoresSelectionForPasteRoute;
     procedure NewBlankStartsWithWhiteBackground;
     procedure NewToolKindCountIsCorrect;
   end;
@@ -417,6 +419,46 @@ begin
     AssertFalse('selection cleared', Document.HasSelection);
     Document.PasteStoredSelection;
     AssertTrue('selection restored after paste', Document.Selection[2, 2]);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.CopySelectionStoresSelectionForPasteRoute;
+var
+  Document: TImageDocument;
+  Copied: TRasterSurface;
+begin
+  Document := TImageDocument.Create(10, 10);
+  try
+    Document.SelectRectangle(2, 2, 6, 6);
+    AssertFalse('no stored selection before copy route', Document.HasStoredSelection);
+    Copied := Document.CopySelectionToSurface(True);
+    Copied.Free;
+    AssertTrue('copy route stores selection for paste', Document.HasStoredSelection);
+    Document.Deselect;
+    Document.PasteStoredSelection;
+    AssertTrue('stored selection restores after paste route', Document.Selection[4, 4]);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.CopyMergedStoresSelectionForPasteRoute;
+var
+  Document: TImageDocument;
+  Copied: TRasterSurface;
+begin
+  Document := TImageDocument.Create(10, 10);
+  try
+    Document.SelectRectangle(1, 1, 3, 3);
+    AssertFalse('no stored selection before merged copy route', Document.HasStoredSelection);
+    Copied := Document.CopyMergedToSurface(True);
+    Copied.Free;
+    AssertTrue('merged copy route stores selection for paste', Document.HasStoredSelection);
+    Document.Deselect;
+    Document.PasteStoredSelection;
+    AssertTrue('stored selection restores after merged copy paste route', Document.Selection[2, 2]);
   finally
     Document.Free;
   end;

@@ -134,6 +134,8 @@ type
     procedure NewBlank(AWidth, AHeight: Integer);
     procedure ReplaceWithSingleLayer(ASurface: TRasterSurface; const ALayerName: string);
     procedure PushHistory(const ALabel: string = 'Change');
+    function BeginActiveLayerMutation(const ALabel: string = 'Change'): Boolean;
+    function BeginDocumentMutation(const ALabel: string = 'Change'): Boolean;
     { Push a region snapshot with already-captured before-pixels (ownership is transferred). }
     procedure PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
     function CanUndo: Boolean;
@@ -171,12 +173,17 @@ type
     function CutSelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface; overload;
     function CutSelectionToSurface(ACropToBounds: Boolean; const ABackgroundColor: TRGBA32): TRasterSurface; overload;
     procedure PasteAsNewLayer(ASurface: TRasterSurface; OffsetX: Integer = 0; OffsetY: Integer = 0; const ALayerName: string = 'Pasted Layer');
+    procedure PasteSurfaceToActiveLayer(ASurface: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure FillSelection(const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection; overload;
     procedure EraseSelection(const ABackgroundColor: TRGBA32); overload;
     procedure MoveSelectionBy(DeltaX, DeltaY: Integer);
     procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer); overload;
     procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer; const ABackgroundColor: TRGBA32); overload;
+    procedure PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer);
+    procedure RotateActiveLayer90Clockwise;
+    procedure RotateActiveLayer90CounterClockwise;
+    procedure RotateActiveLayer180;
     procedure CropToSelection;
     procedure AutoLevel;
     procedure InvertColors;
@@ -496,6 +503,20 @@ begin
     FHistory.Delete(0);
     FHistoryLabels.Delete(0);
   end;
+end;
+
+function TImageDocument.BeginActiveLayerMutation(const ALabel: string): Boolean;
+begin
+  Result := CanMutateActiveLayerPixels;
+  if Result then
+    PushHistory(ALabel);
+end;
+
+function TImageDocument.BeginDocumentMutation(const ALabel: string): Boolean;
+begin
+  Result := CanMutateDocumentPixels;
+  if Result then
+    PushHistory(ALabel);
 end;
 
 procedure TImageDocument.PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
@@ -940,6 +961,9 @@ begin
   if not FSelection.HasSelection then
     Exit(ActiveLayer.Surface.Clone);
 
+  { Keep a structural snapshot for "Paste Selection (Replace)" routes whenever
+    copy/cut is selection-scoped, so app paths do not need to remember this. }
+  StoreSelectionForPaste;
   Copied := ActiveLayer.Surface.CopySelection(FSelection);
   if not ACropToBounds then
     Exit(Copied);
@@ -961,6 +985,8 @@ begin
   if not FSelection.HasSelection then
     Exit(Composite);
 
+  { Same selection-store contract as layer-only copy path. }
+  StoreSelectionForPaste;
   CompositeSurface := Composite;
   try
     Copied := CompositeSurface.CopySelection(FSelection);
@@ -1009,6 +1035,14 @@ begin
     Exit;
   Layer := AddLayer(ALayerName);
   Layer.Surface.PasteSurface(ASurface, OffsetX, OffsetY);
+end;
+
+procedure TImageDocument.PasteSurfaceToActiveLayer(ASurface: TRasterSurface;
+  OffsetX, OffsetY: Integer; Opacity: Byte; ASelection: TSelectionMask);
+begin
+  if (ASurface = nil) or not CanMutateActiveLayerPixels then
+    Exit;
+  ActiveLayer.Surface.PasteSurface(ASurface, OffsetX, OffsetY, Opacity, ASelection);
 end;
 
 procedure TImageDocument.FillSelection(const AColor: TRGBA32; Opacity: Byte);
@@ -1090,6 +1124,34 @@ begin
     Copied.Free;
   end;
   FSelection.MoveBy(DeltaX, DeltaY);
+end;
+
+procedure TImageDocument.PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer);
+begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
+  ActiveLayer.Surface.PixelateRect(X1, Y1, X2, Y2, BlockSize);
+end;
+
+procedure TImageDocument.RotateActiveLayer90Clockwise;
+begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
+  ActiveLayer.Surface.Rotate90Clockwise;
+end;
+
+procedure TImageDocument.RotateActiveLayer90CounterClockwise;
+begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
+  ActiveLayer.Surface.Rotate90CounterClockwise;
+end;
+
+procedure TImageDocument.RotateActiveLayer180;
+begin
+  if not CanMutateActiveLayerPixels then
+    Exit;
+  ActiveLayer.Surface.Rotate180;
 end;
 
 procedure TImageDocument.CropToSelection;

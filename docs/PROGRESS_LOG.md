@@ -4,6 +4,118 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 3 tail: no-op history cleanup through core begin-mutation guards)
+
+### Changes
+
+1. **Added guard-aware history entry points in core document API (`A3` tail)**:
+   - `BeginActiveLayerMutation`
+   - `BeginDocumentMutation`
+   in `src/core/fpdocument.pas`, so lock checks and history push now share one domain entry.
+
+2. **Rerouted menu/effect/history-sensitive UI commands away from raw `PushHistory`** — `mainform` now uses begin-mutation APIs for lock-sensitive mutation routes including:
+   - inline text commit,
+   - cut/paste to active layer,
+   - resize/canvas-size/rotate/flip/crop-to-selection image commands,
+   - fill/erase selection,
+   - mosaic commit,
+   - layer rotate dialog,
+   - adjustment/effect command handlers.
+
+3. **No-op history noise reduced for locked-layer scenarios** — commands that are mutation-blocked by `MutationGuard` no longer create undo entries first and fail afterward in these routed paths.
+
+4. **Mutation guard regression suite expanded** — added:
+   - `BeginActiveLayerMutationRespectsLockAndHistory`
+   - `BeginDocumentMutationRespectsLockAndHistory`
+   to lock guard + history coupling semantics in tests.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `268` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-06 (Phase 3 tail: additional UI-direct mutation routes moved behind core guards)
+
+### Changes
+
+1. **Added guarded core wrappers for formerly UI-direct active-layer mutations (`A3` tail)**:
+   - `PasteSurfaceToActiveLayer`
+   - `PixelateRect`
+   - `RotateActiveLayer90Clockwise`
+   - `RotateActiveLayer90CounterClockwise`
+   - `RotateActiveLayer180`
+   in `src/core/fpdocument.pas`.
+
+2. **Rerouted `mainform` direct-surface commands to core API**:
+   - `Edit > Paste` now uses `PasteSurfaceToActiveLayer`
+   - text stamp route now uses `PasteSurfaceToActiveLayer`
+   - mosaic commit route now uses `PixelateRect`
+   - `Layer Rotate / Zoom` now uses active-layer rotate wrappers.
+
+3. **Mutation-guard regression suite expanded** — Added `LockedActiveLayerBlocksSurfacePasteAndRotateRoutes` and extended unlocked-path assertions to include guarded paste route behavior.
+
+4. **Architecture docs synchronized for this tail step** — Updated A3 evidence/status wording to reflect expanded core-route guard coverage while keeping A3 in partial-mitigation status.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `263` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-06 (A7 closure: stored-selection lifecycle moved to core copy routes)
+
+### Changes
+
+1. **Stored-selection route no longer depends on app-layer call sites** — Moved `StoreSelectionForPaste` invocation into core document copy paths:
+   - `CopySelectionToSurface`
+   - `CopyMergedToSurface`
+   so selection-scoped copy/cut flows consistently prime `Paste Selection (Replace)` behavior.
+
+2. **Cut path inherits the same contract automatically** — `CutSelectionToSurface` delegates through selection-copy path, so the stored-selection snapshot is captured before destructive erase/fill behavior in the same core route.
+
+3. **A7 regression coverage added in core tests** — Expanded `TFPDocumentTests` with:
+   - `CopySelectionStoresSelectionForPasteRoute`
+   - `CopyMergedStoresSelectionForPasteRoute`
+   asserting replace-paste selection lifecycle after route-level copy operations.
+
+4. **Architecture docs synchronized for A7 status** — Updated defect/evaluation/plan docs to mark A7 as mitigated and removed from open critical-tail set.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `262` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-06 (Phase 6: `TMainForm` decomposition completion for top-risk tool flows)
+
+### Changes
+
+1. **Selection tool controller extraction landed (`A6`)** — Added `TSelectionToolController` in `src/app/fptoolcontrollers.pas` to centralize:
+   - modifier-to-selection-mode mapping (`replace/add/subtract/intersect`),
+   - selection commits for rectangle / ellipse / lasso / magic wand,
+   - optional feather application contract,
+   - move-selection history begin + delta-step routing.
+
+2. **`mainform` selection event routing switched to controller** — `PaintBoxMouseDown/Move/Up` now delegates high-risk selection mutation routes to `FSelectionController` while `TMainForm` remains UI shell + refresh orchestration.
+
+3. **Controller decomposition set now covers `move + selection + paint-history`** — `TMovePixelsController` + `TSelectionToolController` + `TStrokeHistoryController` are all wired in `mainform` lifecycle creation/destruction paths.
+
+4. **Independent controller regression coverage expanded** — `src/tests/tool_controller_tests.pas` now includes selection-controller behavior contracts (mode mapping, rectangle commit, move-selection route, magic-wand route), bringing the suite to 8 tests.
+
+5. **Architecture docs synchronized for phase closure** — Updated architecture assessment/evaluation/renovation docs to reflect A6 as partially mitigated and Phase 6 exit criteria met for top-risk tool-flow decomposition.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `260` tests, `0` failures.
+  - `TToolControllerTests`: `8/8` passed.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
 ## 2026-03-06 (Phase 4.5/5: layer-offset metadata + stroke-start history cost reduction)
 
 ### Changes

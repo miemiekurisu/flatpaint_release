@@ -5,19 +5,16 @@ unit FPToolControllers;
 interface
 
 uses
-  Classes, SysUtils, Types, FPColor, FPSurface, FPSelection, FPDocument;
+  Classes, SysUtils, Types, FPColor, FPSurface, FPSelection, FPDocument,
+  FPHistoryTransaction;
 
 type
   TMovePixelsCommitResult = (mpcNoSession, mpcNoMove, mpcCommitted);
 
   TStrokeHistoryController = class
   private
-    FPreStrokeSnapshot: TRasterSurface;
-    FCaptureRect: TRect;
-    FLayerIndex: Integer;
+    FHistoryTransaction: TRegionHistoryTransaction;
     FToolKind: TToolKind;
-    FActive: Boolean;
-    function RectIsEmpty(const ARect: TRect): Boolean;
   public
     constructor Create;
     destructor Destroy; override;
@@ -116,42 +113,32 @@ implementation
 uses
   Math;
 
-function EmptyRectSentinel: TRect;
-begin
-  Result := Rect(MaxInt, MaxInt, 0, 0);
-end;
-
 { TStrokeHistoryController }
 
 constructor TStrokeHistoryController.Create;
 begin
   inherited Create;
+  FHistoryTransaction := TRegionHistoryTransaction.Create;
   Clear;
 end;
 
 destructor TStrokeHistoryController.Destroy;
 begin
+  FreeAndNil(FHistoryTransaction);
   Clear;
   inherited Destroy;
 end;
 
-function TStrokeHistoryController.RectIsEmpty(const ARect: TRect): Boolean;
-begin
-  Result := (ARect.Right <= ARect.Left) or (ARect.Bottom <= ARect.Top);
-end;
-
 procedure TStrokeHistoryController.Clear;
 begin
-  FreeAndNil(FPreStrokeSnapshot);
-  FCaptureRect := EmptyRectSentinel;
-  FLayerIndex := -1;
+  if Assigned(FHistoryTransaction) then
+    FHistoryTransaction.Clear;
   FToolKind := tkPencil;
-  FActive := False;
 end;
 
 function TStrokeHistoryController.HasPending: Boolean;
 begin
-  Result := FActive;
+  Result := Assigned(FHistoryTransaction) and FHistoryTransaction.HasPending;
 end;
 
 function TStrokeHistoryController.BoundsForSegment(const AFrom, ATo: TPoint; ARadius: Integer): TRect;
@@ -171,104 +158,22 @@ begin
   if (ADocument = nil) or (ADocument.LayerCount <= 0) then
     Exit;
   FToolKind := AToolKind;
-  FLayerIndex := EnsureRange(ALayerIndex, 0, ADocument.LayerCount - 1);
-  FActive := True;
+  if Assigned(FHistoryTransaction) then
+    FHistoryTransaction.BeginSession(ADocument, ALayerIndex);
 end;
 
 procedure TStrokeHistoryController.CaptureBeforeRect(ADocument: TImageDocument; const ARect: TRect);
-var
-  CaptureRect: TRect;
-  OldRect: TRect;
-  UnionRect: TRect;
-  NewSnapshot: TRasterSurface;
-  SourceLayer: TRasterLayer;
 begin
-  if not FActive then
-    Exit;
-  if (ADocument = nil) or (FLayerIndex < 0) or (FLayerIndex >= ADocument.LayerCount) then
-    Exit;
-
-  CaptureRect := ARect;
-  CaptureRect.Left := Max(0, CaptureRect.Left);
-  CaptureRect.Top := Max(0, CaptureRect.Top);
-  CaptureRect.Right := Min(ADocument.Width, CaptureRect.Right);
-  CaptureRect.Bottom := Min(ADocument.Height, CaptureRect.Bottom);
-  if RectIsEmpty(CaptureRect) then
-    Exit;
-
-  SourceLayer := ADocument.Layers[FLayerIndex];
-  if not Assigned(FPreStrokeSnapshot) then
-  begin
-    FCaptureRect := CaptureRect;
-    FPreStrokeSnapshot := TRasterSurface.Create(
-      FCaptureRect.Right - FCaptureRect.Left,
-      FCaptureRect.Bottom - FCaptureRect.Top
-    );
-    SourceLayer.Surface.CopyRegionTo(FPreStrokeSnapshot, FCaptureRect.Left, FCaptureRect.Top);
-    Exit;
-  end;
-
-  OldRect := FCaptureRect;
-  if (CaptureRect.Left >= OldRect.Left) and (CaptureRect.Top >= OldRect.Top) and
-     (CaptureRect.Right <= OldRect.Right) and (CaptureRect.Bottom <= OldRect.Bottom) then
-    Exit;
-
-  UnionRect.Left := Min(OldRect.Left, CaptureRect.Left);
-  UnionRect.Top := Min(OldRect.Top, CaptureRect.Top);
-  UnionRect.Right := Max(OldRect.Right, CaptureRect.Right);
-  UnionRect.Bottom := Max(OldRect.Bottom, CaptureRect.Bottom);
-
-  NewSnapshot := TRasterSurface.Create(
-    UnionRect.Right - UnionRect.Left,
-    UnionRect.Bottom - UnionRect.Top
-  );
-  try
-    SourceLayer.Surface.CopyRegionTo(NewSnapshot, UnionRect.Left, UnionRect.Top);
-    NewSnapshot.OverwriteRegion(
-      FPreStrokeSnapshot,
-      OldRect.Left - UnionRect.Left,
-      OldRect.Top - UnionRect.Top
-    );
-    FreeAndNil(FPreStrokeSnapshot);
-    FPreStrokeSnapshot := NewSnapshot;
-    NewSnapshot := nil;
-    FCaptureRect := UnionRect;
-  finally
-    NewSnapshot.Free;
-  end;
+  if Assigned(FHistoryTransaction) then
+    FHistoryTransaction.CaptureBeforeRect(ADocument, ARect);
 end;
 
 function TStrokeHistoryController.CommitToHistory(ADocument: TImageDocument; const ALabel: string): Boolean;
-var
-  CommitRect: TRect;
-  BeforePixels: TRasterSurface;
 begin
-  Result := False;
-  if not FActive then
-    Exit;
-  try
-    if (ADocument = nil) or not Assigned(FPreStrokeSnapshot) or RectIsEmpty(FCaptureRect) then
-      Exit;
-
-    CommitRect := FCaptureRect;
-    CommitRect.Left := Max(0, CommitRect.Left);
-    CommitRect.Top := Max(0, CommitRect.Top);
-    CommitRect.Right := Min(ADocument.Width, CommitRect.Right);
-    CommitRect.Bottom := Min(ADocument.Height, CommitRect.Bottom);
-    if RectIsEmpty(CommitRect) then
-      Exit;
-
-    BeforePixels := TRasterSurface.Create(CommitRect.Right - CommitRect.Left, CommitRect.Bottom - CommitRect.Top);
-    FPreStrokeSnapshot.CopyRegionTo(
-      BeforePixels,
-      CommitRect.Left - FCaptureRect.Left,
-      CommitRect.Top - FCaptureRect.Top
-    );
-    ADocument.PushRegionHistory(ALabel, FLayerIndex, CommitRect, BeforePixels);
-    Result := True;
-  finally
-    Clear;
-  end;
+  if not Assigned(FHistoryTransaction) then
+    Exit(False);
+  Result := FHistoryTransaction.CommitToHistory(ADocument, ALabel);
+  Clear;
 end;
 
 { TSelectionToolController }

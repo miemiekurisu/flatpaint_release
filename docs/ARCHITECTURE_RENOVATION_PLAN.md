@@ -144,6 +144,7 @@ Exit criteria:
 ### Phase 6: `TMainForm` decomposition (A6, maintainability)
 - Extract highest-risk tool flows first (`move`, `selection`, `paint`).
 - Keep adapter layer to avoid broad one-shot rewrites.
+- Land dedicated tool-session controllers in app layer and lock them with isolated unit tests.
 
 Exit criteria:
 - `mainform.pas` complexity reduced without route regression.
@@ -153,10 +154,12 @@ Exit criteria:
 - Phase 0: complete (baseline gates established).
 - Phase 1: partial (infrastructure introduced, now extended with core `MutationGuard` module).
 - Phase 2: complete (transactional move-pixels flow + `tool_transaction_tests` passing).
-- Phase 3: in progress (core mutation routes guarded; remaining route/no-op-history consolidation still pending).
+- Phase 3: in progress (core mutation routes expanded with guarded active-layer paste/pixelate-rect/rotate wrappers, and no-op-history cleanup landed for lock-sensitive menu/effect routes via `BeginActiveLayerMutation` / `BeginDocumentMutation`; residual debt remains in direct high-frequency tool-surface mutation paths).
 - Phase 4: complete (selection byte-coverage semantics propagated through transform/apply/persistence paths with regression coverage).
 - Phase 4.5: in progress (layer offset metadata model + native persistence + XCF metadata preservation landed in compatibility mode).
 - Phase 5: in progress (stroke-start full-layer clone path replaced by incremental region capture with long-stroke undo/redo regression coverage).
+- Phase 6: complete (top-risk tool flows split into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with independent controller-suite coverage).
+- A7 follow-up: complete (stored-selection lifecycle moved into core selection-copy routes with regression coverage, removing app-route underwiring).
 
 ## 6. Test renovation plan (to prevent repeat render breakage)
 
@@ -179,6 +182,7 @@ Exit criteria:
 
 3. `mutation_guard_tests.pas`
 - Lock/background invariants across menu-equivalent document commands.
+- Guarded begin-mutation history coupling (blocked lock path must not create undo noise).
 
 4. `selection_coverage_pipeline_tests.pas`
 - Feather coverage propagation through fill/paint/copy/move.
@@ -187,6 +191,9 @@ Exit criteria:
 5. `history_transaction_tests.pas`
 - Grouped undo atomicity for interactive sessions.
 - Cancel path should not leave undo noise or pixel residue.
+
+6. `tool_controller_tests.pas`
+- Independent behavioral checks for extracted app-layer tool controllers (`move`, `selection`, `paint` history capture routes).
 
 ### 6.3 Test execution gates
 - Gate A (local commit): core unit + touched integration tests.

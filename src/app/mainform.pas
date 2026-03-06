@@ -1559,10 +1559,12 @@ begin
       TextResult := FTextLastResult;
       TextResult.Text := FInlineTextEdit.Text;
       FTextLastResult.Text := FInlineTextEdit.Text;
-      FDocument.PushHistory('Text');
-      PlaceTextAtPoint(TextResult, FInlineTextAnchor, FInlineTextColor);
-      SyncImageMutationUI(False, True);
-      DidCommit := True;
+      if FDocument.BeginActiveLayerMutation('Text') then
+      begin
+        PlaceTextAtPoint(TextResult, FInlineTextAnchor, FInlineTextColor);
+        SyncImageMutationUI(False, True);
+        DidCommit := True;
+      end;
     end;
     FInlineTextEdit.Visible := False;
     FInlineTextEdit.Text := '';
@@ -7743,7 +7745,8 @@ var
   Bounds: TRect;
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Cut');
+  if not FDocument.BeginActiveLayerMutation('Cut') then
+    Exit;
   FreeAndNil(FClipboardSurface);
   if FDocument.HasSelection then
   begin
@@ -7810,12 +7813,14 @@ begin
   SealPendingStrokeHistory;
   if FClipboardSurface = nil then
     Exit;
-  if FDocument.ActiveLayer.Locked then
+  if not FDocument.BeginActiveLayerMutation('Paste') then
     Exit;
-  FDocument.PushHistory('Paste');
-  { Paste onto the currently selected (active) layer instead of creating a new one }
-  FDocument.ActiveLayer.Surface.PasteSurface(
-    FClipboardSurface, FClipboardOffset.X, FClipboardOffset.Y);
+  { Paste onto the active layer through core guarded mutation route. }
+  FDocument.PasteSurfaceToActiveLayer(
+    FClipboardSurface,
+    FClipboardOffset.X,
+    FClipboardOffset.Y
+  );
   SyncImageMutationUI(False, True);
 end;
 
@@ -8027,7 +8032,8 @@ begin
   ResampleMode := rmNearestNeighbor;
   if not RunResizeImageDialog(Self, TargetWidth, TargetHeight, ResampleMode) then
     Exit;
-  FDocument.PushHistory('Resize Image');
+  if not FDocument.BeginDocumentMutation('Resize Image') then
+    Exit;
   FDocument.ResizeImage(TargetWidth, TargetHeight, ResampleMode);
   SyncImageMutationUI(False, True);
 end;
@@ -8040,7 +8046,8 @@ begin
   SealPendingStrokeHistory;
   if not PromptForSize('Resize Canvas', TargetWidth, TargetHeight) then
     Exit;
-  FDocument.PushHistory('Resize Canvas');
+  if not FDocument.BeginDocumentMutation('Resize Canvas') then
+    Exit;
   FDocument.ResizeCanvas(TargetWidth, TargetHeight);
   SyncImageMutationUI(False, True);
 end;
@@ -8048,7 +8055,8 @@ end;
 procedure TMainForm.RotateClockwiseClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Rotate 90 Right');
+  if not FDocument.BeginDocumentMutation('Rotate 90 Right') then
+    Exit;
   FDocument.Rotate90Clockwise;
   SyncImageMutationUI(False, True);
 end;
@@ -8056,7 +8064,8 @@ end;
 procedure TMainForm.RotateCounterClockwiseClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Rotate 90 Left');
+  if not FDocument.BeginDocumentMutation('Rotate 90 Left') then
+    Exit;
   FDocument.Rotate90CounterClockwise;
   SyncImageMutationUI(False, True);
 end;
@@ -8064,7 +8073,8 @@ end;
 procedure TMainForm.Rotate180Click(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Rotate 180');
+  if not FDocument.BeginDocumentMutation('Rotate 180') then
+    Exit;
   FDocument.Rotate180;
   SyncImageMutationUI(False, True);
 end;
@@ -8072,7 +8082,8 @@ end;
 procedure TMainForm.FlipHorizontalClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Flip Horizontal');
+  if not FDocument.BeginDocumentMutation('Flip Horizontal') then
+    Exit;
   FDocument.FlipHorizontal;
   SyncImageMutationUI(False, True);
 end;
@@ -8080,7 +8091,8 @@ end;
 procedure TMainForm.FlipVerticalClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Flip Vertical');
+  if not FDocument.BeginDocumentMutation('Flip Vertical') then
+    Exit;
   FDocument.FlipVertical;
   SyncImageMutationUI(False, True);
 end;
@@ -8090,7 +8102,8 @@ begin
   SealPendingStrokeHistory;
   BeginStatusProgress('Applying Auto-Level...');
   try
-    FDocument.PushHistory('Auto-Level');
+    if not FDocument.BeginActiveLayerMutation('Auto-Level') then
+      Exit;
     FDocument.AutoLevel;
     SyncImageMutationUI;
   finally
@@ -8103,7 +8116,8 @@ begin
   SealPendingStrokeHistory;
   BeginStatusProgress('Applying Invert Colors...');
   try
-    FDocument.PushHistory('Invert Colors');
+    if not FDocument.BeginActiveLayerMutation('Invert Colors') then
+      Exit;
     FDocument.InvertColors;
     SyncImageMutationUI;
   finally
@@ -8116,7 +8130,8 @@ begin
   SealPendingStrokeHistory;
   BeginStatusProgress('Applying Grayscale...');
   try
-    FDocument.PushHistory('Grayscale');
+    if not FDocument.BeginActiveLayerMutation('Grayscale') then
+      Exit;
     FDocument.Grayscale;
     SyncImageMutationUI;
   finally
@@ -8134,7 +8149,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Curves...');
   try
-    FDocument.PushHistory('Curves');
+    if not FDocument.BeginActiveLayerMutation('Curves') then
+      Exit;
     FDocument.AdjustGammaCurve(GammaValue);
     SyncImageMutationUI;
   finally
@@ -8154,7 +8170,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Hue / Saturation...');
   try
-    FDocument.PushHistory('Hue / Saturation');
+    if not FDocument.BeginActiveLayerMutation('Hue / Saturation') then
+      Exit;
     FDocument.AdjustHueSaturation(HueDelta, SaturationDelta);
     SyncImageMutationUI;
   finally
@@ -8178,7 +8195,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Levels...');
   try
-    FDocument.PushHistory('Levels');
+    if not FDocument.BeginActiveLayerMutation('Levels') then
+      Exit;
     FDocument.AdjustLevels(
       InputLow,
       InputHigh,
@@ -8203,7 +8221,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Brightness / Contrast...');
   try
-    FDocument.PushHistory('Brightness / Contrast');
+    if not FDocument.BeginActiveLayerMutation('Brightness / Contrast') then
+      Exit;
     FDocument.AdjustBrightness(Brightness);
     FDocument.AdjustContrast(Contrast);
     SyncImageMutationUI;
@@ -8217,7 +8236,8 @@ begin
   SealPendingStrokeHistory;
   BeginStatusProgress('Applying Sepia...');
   try
-    FDocument.PushHistory('Sepia');
+    if not FDocument.BeginActiveLayerMutation('Sepia') then
+      Exit;
     FDocument.Sepia;
     SyncImageMutationUI;
   finally
@@ -8235,7 +8255,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Black and White...');
   try
-    FDocument.PushHistory('Black and White');
+    if not FDocument.BeginActiveLayerMutation('Black and White') then
+      Exit;
     FDocument.BlackAndWhite(Val);
     SyncImageMutationUI;
   finally
@@ -8253,7 +8274,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Posterize...');
   try
-    FDocument.PushHistory('Posterize');
+    if not FDocument.BeginActiveLayerMutation('Posterize') then
+      Exit;
     FDocument.Posterize(Levels);
     SyncImageMutationUI;
   finally
@@ -8272,7 +8294,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Blur...');
   try
-    FDocument.PushHistory('Blur');
+    if not FDocument.BeginActiveLayerMutation('Blur') then
+      Exit;
     FDocument.BoxBlur(Radius);
     SyncImageMutationUI;
   finally
@@ -8293,7 +8316,8 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Sharpen...');
   try
-    FDocument.PushHistory('Sharpen');
+    if not FDocument.BeginActiveLayerMutation('Sharpen') then
+      Exit;
     FDocument.Sharpen;
     SyncImageMutationUI;
   finally
@@ -8319,7 +8343,8 @@ begin
     Exit;
   BeginStatusProgress('Applying Add Noise...');
   try
-    FDocument.PushHistory('Add Noise');
+    if not FDocument.BeginActiveLayerMutation('Add Noise') then
+      Exit;
     FDocument.AddNoise(Amount);
     SyncImageMutationUI;
   finally
@@ -8340,7 +8365,8 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Detect Edges...');
   try
-    FDocument.PushHistory('Detect Edges');
+    if not FDocument.BeginActiveLayerMutation('Detect Edges') then
+      Exit;
     FDocument.DetectEdges;
     SyncImageMutationUI;
   finally
@@ -8365,7 +8391,8 @@ begin
   if not RunEffectDialog1(Self, 'Outline Effect', 'Alpha Threshold', 0, 255, 10, ThresholdVal) then Exit;
   BeginStatusProgress('Applying Outline Effect...');
   try
-    FDocument.PushHistory('Outline Effect');
+    if not FDocument.BeginActiveLayerMutation('Outline Effect') then
+      Exit;
     FDocument.OutlineEffect(FPrimaryColor, ThresholdVal);
     SyncImageMutationUI;
   finally
@@ -8409,7 +8436,8 @@ begin
   SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
-  FDocument.PushHistory('Fill Selection');
+  if not FDocument.BeginActiveLayerMutation('Fill Selection') then
+    Exit;
   FDocument.FillSelection(FPrimaryColor);
   SyncImageMutationUI;
 end;
@@ -8419,7 +8447,8 @@ begin
   SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
-  FDocument.PushHistory('Erase Selection');
+  if not FDocument.BeginActiveLayerMutation('Erase Selection') then
+    Exit;
   FDocument.EraseSelection(BackgroundToolColor);
   SyncImageMutationUI;
 end;
@@ -8429,7 +8458,8 @@ begin
   SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
-  FDocument.PushHistory('Crop to Selection');
+  if not FDocument.BeginDocumentMutation('Crop to Selection') then
+    Exit;
   FDocument.CropToSelection;
   SyncImageMutationUI(True, True);
 end;
@@ -10007,9 +10037,9 @@ begin
   begin
     { Commit mosaic if drag was meaningful }
     if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
-    begin
-      FDocument.PushHistory('Mosaic');
-      FDocument.ActiveLayer.Surface.PixelateRect(
+      if FDocument.BeginActiveLayerMutation('Mosaic') then
+      begin
+      FDocument.PixelateRect(
         Min(FDragStart.X, ImagePoint.X),
         Min(FDragStart.Y, ImagePoint.Y),
         Max(FDragStart.X, ImagePoint.X),
@@ -10018,7 +10048,7 @@ begin
       );
       InvalidatePreparedBitmap;
       SyncImageMutationUI(False, True);
-    end;
+      end;
   end;
   if FCurrentTool = tkFreeformShape then
   begin
@@ -10174,8 +10204,13 @@ begin
       PaintSelection := FDocument.Selection
     else
       PaintSelection := nil;
-    FDocument.ActiveLayer.Surface.PasteSurface(TextSurface,
-      APoint.X, APoint.Y, 255, PaintSelection);
+    FDocument.PasteSurfaceToActiveLayer(
+      TextSurface,
+      APoint.X,
+      APoint.Y,
+      255,
+      PaintSelection
+    );
   finally
     TextSurface.Free;
   end;
@@ -10187,7 +10222,8 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Emboss...');
   try
-    FDocument.PushHistory('Emboss');
+    if not FDocument.BeginActiveLayerMutation('Emboss') then
+      Exit;
     FDocument.Emboss;
     SyncImageMutationUI;
   finally
@@ -10208,7 +10244,8 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Soften...');
   try
-    FDocument.PushHistory('Soften');
+    if not FDocument.BeginActiveLayerMutation('Soften') then
+      Exit;
     FDocument.Soften;
     SyncImageMutationUI;
   finally
@@ -10229,7 +10266,8 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   BeginStatusProgress('Applying Render Clouds...');
   try
-    FDocument.PushHistory('Render Clouds');
+    if not FDocument.BeginActiveLayerMutation('Render Clouds') then
+      Exit;
     FDocument.RenderClouds(1);
     SyncImageMutationUI;
   finally
@@ -10254,7 +10292,8 @@ begin
   if not RunEffectDialog1(Self, 'Pixelate', 'Block Size', 1, 100, 10, Val) then Exit;
   BeginStatusProgress('Applying Pixelate...');
   try
-    FDocument.PushHistory('Pixelate');
+    if not FDocument.BeginActiveLayerMutation('Pixelate') then
+      Exit;
     FDocument.Pixelate(Val);
     SyncImageMutationUI;
   finally
@@ -10281,7 +10320,8 @@ begin
   Strength := Val / 100.0;
   BeginStatusProgress('Applying Vignette...');
   try
-    FDocument.PushHistory('Vignette');
+    if not FDocument.BeginActiveLayerMutation('Vignette') then
+      Exit;
     FDocument.Vignette(Strength);
     SyncImageMutationUI;
   finally
@@ -10310,7 +10350,8 @@ begin
     AngleVal, DistVal) then Exit;
   BeginStatusProgress('Applying Motion Blur...');
   try
-    FDocument.PushHistory('Motion Blur');
+    if not FDocument.BeginActiveLayerMutation('Motion Blur') then
+      Exit;
     FDocument.MotionBlur(AngleVal, DistVal);
     SyncImageMutationUI;
   finally
@@ -10335,7 +10376,8 @@ begin
   if not RunEffectDialog1(Self, 'Median Filter (Denoise)', 'Radius', 1, 2, 1, RadiusVal) then Exit;
   BeginStatusProgress('Applying Median Filter...');
   try
-    FDocument.PushHistory('Median Filter');
+    if not FDocument.BeginActiveLayerMutation('Median Filter') then
+      Exit;
     FDocument.MedianFilter(RadiusVal);
     SyncImageMutationUI;
   finally
@@ -10364,7 +10406,8 @@ begin
     RadVal, IntVal) then Exit;
   BeginStatusProgress('Applying Glow Effect...');
   try
-    FDocument.PushHistory('Glow Effect');
+    if not FDocument.BeginActiveLayerMutation('Glow Effect') then
+      Exit;
     FDocument.GlowEffect(RadVal, IntVal);
     SyncImageMutationUI;
   finally
@@ -10389,7 +10432,8 @@ begin
   if not RunEffectDialog1(Self, 'Oil Paint', 'Brush Radius', 1, 8, 4, RadVal) then Exit;
   BeginStatusProgress('Applying Oil Paint...');
   try
-    FDocument.PushHistory('Oil Paint');
+    if not FDocument.BeginActiveLayerMutation('Oil Paint') then
+      Exit;
     FDocument.OilPaint(RadVal);
     SyncImageMutationUI;
   finally
@@ -10414,7 +10458,8 @@ begin
   if not RunEffectDialog1(Self, 'Frosted Glass', 'Amount', 1, 20, 4, AmtVal) then Exit;
   BeginStatusProgress('Applying Frosted Glass...');
   try
-    FDocument.PushHistory('Frosted Glass');
+    if not FDocument.BeginActiveLayerMutation('Frosted Glass') then
+      Exit;
     FDocument.FrostedGlass(AmtVal);
     SyncImageMutationUI;
   finally
@@ -10439,7 +10484,8 @@ begin
   if not RunEffectDialog1(Self, 'Zoom Blur', 'Amount', 1, 30, 8, AmtVal) then Exit;
   BeginStatusProgress('Applying Zoom Blur...');
   try
-    FDocument.PushHistory('Zoom Blur');
+    if not FDocument.BeginActiveLayerMutation('Zoom Blur') then
+      Exit;
     FDocument.ZoomBlur(FDocument.Width div 2, FDocument.Height div 2, AmtVal);
     SyncImageMutationUI;
   finally
@@ -10464,7 +10510,8 @@ begin
   if not RunEffectDialog1(Self, 'Gaussian Blur', 'Radius', 1, 30, 3, RadVal) then Exit;
   BeginStatusProgress('Applying Gaussian Blur...');
   try
-    FDocument.PushHistory('Gaussian Blur');
+    if not FDocument.BeginActiveLayerMutation('Gaussian Blur') then
+      Exit;
     FDocument.GaussianBlur(RadVal);
     SyncImageMutationUI;
   finally
@@ -10489,7 +10536,8 @@ begin
   if not RunEffectDialog1(Self, 'Unfocus', 'Radius', 1, 24, 4, RadiusValue) then Exit;
   BeginStatusProgress('Applying Unfocus...');
   try
-    FDocument.PushHistory('Unfocus');
+    if not FDocument.BeginActiveLayerMutation('Unfocus') then
+      Exit;
     FDocument.Unfocus(RadiusValue);
     SyncImageMutationUI;
   finally
@@ -10519,7 +10567,8 @@ begin
     RadiusValue, ThresholdValue) then Exit;
   BeginStatusProgress('Applying Surface Blur...');
   try
-    FDocument.PushHistory('Surface Blur');
+    if not FDocument.BeginActiveLayerMutation('Surface Blur') then
+      Exit;
     FDocument.SurfaceBlur(RadiusValue, ThresholdValue);
     SyncImageMutationUI;
   finally
@@ -10544,7 +10593,8 @@ begin
   if not RunEffectDialog1(Self, 'Radial Blur', 'Sweep Angle (degrees)', 1, 60, 15, AmtVal) then Exit;
   BeginStatusProgress('Applying Radial Blur...');
   try
-    FDocument.PushHistory('Radial Blur');
+    if not FDocument.BeginActiveLayerMutation('Radial Blur') then
+      Exit;
     FDocument.RadialBlur(AmtVal);
     SyncImageMutationUI;
   finally
@@ -10569,7 +10619,8 @@ begin
   if not RunEffectDialog1(Self, 'Twist', 'Angle (degrees)', -360, 360, 90, AmtVal) then Exit;
   BeginStatusProgress('Applying Twist...');
   try
-    FDocument.PushHistory('Twist');
+    if not FDocument.BeginActiveLayerMutation('Twist') then
+      Exit;
     FDocument.Twist(AmtVal);
     SyncImageMutationUI;
   finally
@@ -10594,7 +10645,8 @@ begin
   if not RunEffectDialog1(Self, 'Fragment', 'Offset (pixels)', 1, 40, 8, OffVal) then Exit;
   BeginStatusProgress('Applying Fragment...');
   try
-    FDocument.PushHistory('Fragment');
+    if not FDocument.BeginActiveLayerMutation('Fragment') then
+      Exit;
     FDocument.Fragment(OffVal);
     SyncImageMutationUI;
   finally
@@ -10619,7 +10671,8 @@ begin
   if not RunEffectDialog1(Self, 'Bulge', 'Strength', 1, 100, 50, AmountValue) then Exit;
   BeginStatusProgress('Applying Bulge...');
   try
-    FDocument.PushHistory('Bulge');
+    if not FDocument.BeginActiveLayerMutation('Bulge') then
+      Exit;
     FDocument.Bulge(AmountValue);
     SyncImageMutationUI;
   finally
@@ -10644,7 +10697,8 @@ begin
   if not RunEffectDialog1(Self, 'Dents', 'Strength', 1, 100, 50, AmountValue) then Exit;
   BeginStatusProgress('Applying Dents...');
   try
-    FDocument.PushHistory('Dents');
+    if not FDocument.BeginActiveLayerMutation('Dents') then
+      Exit;
     FDocument.Dents(AmountValue);
     SyncImageMutationUI;
   finally
@@ -10669,7 +10723,8 @@ begin
   if not RunEffectDialog1(Self, 'Relief', 'Light Angle (degrees)', 0, 359, 45, AngleValue) then Exit;
   BeginStatusProgress('Applying Relief...');
   try
-    FDocument.PushHistory('Relief');
+    if not FDocument.BeginActiveLayerMutation('Relief') then
+      Exit;
     FDocument.Relief(AngleValue);
     SyncImageMutationUI;
   finally
@@ -10699,7 +10754,8 @@ begin
     ThresholdValue, StrengthValue) then Exit;
   BeginStatusProgress('Applying Red Eye...');
   try
-    FDocument.PushHistory('Red Eye');
+    if not FDocument.BeginActiveLayerMutation('Red Eye') then
+      Exit;
     FDocument.RedEye(ThresholdValue, StrengthValue);
     SyncImageMutationUI;
   finally
@@ -10724,7 +10780,8 @@ begin
   if not RunEffectDialog1(Self, 'Tile Reflection', 'Tile Size (pixels)', 2, 256, 32, TileValue) then Exit;
   BeginStatusProgress('Applying Tile Reflection...');
   try
-    FDocument.PushHistory('Tile Reflection');
+    if not FDocument.BeginActiveLayerMutation('Tile Reflection') then
+      Exit;
     FDocument.TileReflection(TileValue);
     SyncImageMutationUI;
   finally
@@ -10749,7 +10806,8 @@ begin
   if not RunEffectDialog1(Self, 'Crystallize', 'Cell Size (pixels)', 2, 128, 24, CellValue) then Exit;
   BeginStatusProgress('Applying Crystallize...');
   try
-    FDocument.PushHistory('Crystallize');
+    if not FDocument.BeginActiveLayerMutation('Crystallize') then
+      Exit;
     FDocument.Crystallize(CellValue, 1);
     SyncImageMutationUI;
   finally
@@ -10779,7 +10837,8 @@ begin
     InkValue, ColorValue) then Exit;
   BeginStatusProgress('Applying Ink Sketch...');
   try
-    FDocument.PushHistory('Ink Sketch');
+    if not FDocument.BeginActiveLayerMutation('Ink Sketch') then
+      Exit;
     FDocument.InkSketch(InkValue, ColorValue);
     SyncImageMutationUI;
   finally
@@ -10809,7 +10868,8 @@ begin
     IterationValue, ZoomValue) then Exit;
   BeginStatusProgress('Applying Mandelbrot Fractal...');
   try
-    FDocument.PushHistory('Mandelbrot Fractal');
+    if not FDocument.BeginActiveLayerMutation('Mandelbrot Fractal') then
+      Exit;
     FDocument.RenderMandelbrot(IterationValue, ZoomValue / 100.0);
     SyncImageMutationUI;
   finally
@@ -10839,7 +10899,8 @@ begin
     IterationValue, ZoomValue) then Exit;
   BeginStatusProgress('Applying Julia Fractal...');
   try
-    FDocument.PushHistory('Julia Fractal');
+    if not FDocument.BeginActiveLayerMutation('Julia Fractal') then
+      Exit;
     FDocument.RenderJulia(IterationValue, ZoomValue / 100.0);
     SyncImageMutationUI;
   finally
@@ -12020,14 +12081,15 @@ begin
   );
   if Choice = mrCancel then
     Exit;
-  FDocument.PushHistory('Rotate Layer');
+  if not FDocument.BeginActiveLayerMutation('Rotate Layer') then
+    Exit;
   case Choice of
     mrYes:
-      FDocument.ActiveLayer.Surface.Rotate90Clockwise;
+      FDocument.RotateActiveLayer90Clockwise;
     mrNo:
-      FDocument.ActiveLayer.Surface.Rotate90CounterClockwise;
+      FDocument.RotateActiveLayer90CounterClockwise;
     mrOK:
-      FDocument.ActiveLayer.Surface.Rotate180;
+      FDocument.RotateActiveLayer180;
   end;
   SyncImageMutationUI;
 end;

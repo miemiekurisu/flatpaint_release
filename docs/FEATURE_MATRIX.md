@@ -7,7 +7,7 @@
 
 ## Evidence snapshot (2026-03-06)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `./dist/flatpaint_tests --all` => 252 tests, 0 failures.
+- Test status: `./dist/flatpaint_tests --all` => 268 tests, 0 failures.
 - Consequence: regression gate is clean; remaining risk is parity depth and architecture follow-up phases, not immediate failing-suite blockers.
 
 ## Status legend
@@ -35,7 +35,7 @@
 | Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | Shortcut mapping/hint/cycle regressions in `TFPUIHelpersTests` are closed; suite is green. |
 | Iconography | Cohesive icon surface across command/tool/utility controls | Partial | Medium | Runtime icon pipeline exists; final spacing/density and polish remain open. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
-| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 252 tests, 0 failures. |
+| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 268 tests, 0 failures. |
 
 ## Current insufficient items (must close for release confidence)
 1. Route-level parity debt (documented, not fully closed):
@@ -50,7 +50,7 @@
 
 4. Architecture tail debt (active pre-A6 work):
 - layer offset metadata is persisted, but compositor/tool math is still compatibility-mode (not fully offset-driven)
-- stroke history capture cost improved, but history transaction orchestration is still largely app-layer (`TMainForm`) code
+- stroke history capture cost improved, but history transaction orchestration is still partly app-layer (`TMainForm`) code despite new core region-transaction extraction and guard-coupled begin-mutation APIs
 
 ## Explicitly deferred
 - Third-party plugin ecosystem compatibility
