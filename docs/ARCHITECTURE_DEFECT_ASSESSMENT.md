@@ -12,15 +12,15 @@
 
 ## Implementation delta (2026-03-06 latest)
 - This document keeps the pre-renovation defect baseline as historical input.
-- Since that baseline review, five items have moved:
+- Since that baseline review, seven items have moved:
   - **A1 (move-pixels transaction model):** materially mitigated by the transactional move-pixels session now covered by `tool_transaction_tests`.
   - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths, and native byte-mask persistence (`FPDOC04` legacy-compatible load path) plus regression tests.
-  - **A3 (lock/editability invariants):** partially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive shape/fill/crop commit routes to prevent no-op undo noise, guard-coupled move-pixels controller commit flow, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
+  - **A3 (lock/editability invariants):** materially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive shape/fill/crop commit routes to prevent no-op undo noise, guard-coupled move-pixels controller commit/begin-session flow, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
   - **A4 (layer geometry metadata):** partially mitigated by adding per-layer offset metadata, native persistence, and XCF offset metadata capture in compatibility mode.
   - **A5 (history capture cost):** partially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture for brush-like tools.
   - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests.
   - **A7 (stored-selection route closure):** materially mitigated by moving `StoreSelectionForPaste` into core selection-copy routes (`CopySelectionToSurface`/`CopyMergedToSurface`), eliminating app-route dependency.
-- Defects still treated as open architecture work in the active plan: **A3 (tail-route consistency), A4 (render/tool semantics not yet offset-aware), A5 (transaction service extraction not complete)**.
+- Defects still treated as open architecture work in the active plan: **A4 (render/tool semantics not yet offset-aware), A5 (transaction service extraction not complete)**.
 
 ## Executive summary
 FlatPaint is functionally broad, but several deep architectural gaps remain in selection and edit-transaction design.
@@ -75,9 +75,9 @@ Current status for each item is defined by the **Implementation delta** section 
   - High-frequency brush/recolor/clone/eraser apply loops now acquire writable surface through core `MutableActiveLayerSurface` entry before writing.
   - Regression coverage expanded in `src/tests/mutation_guard_tests.pas` (`LockedActiveLayerBlocksSurfacePasteAndRotateRoutes`, `MutableActiveLayerSurfaceRespectsLockState`).
 - Architectural problem:
-  - Route consistency has improved materially (including reduced no-op history on blocked routes), but full invariant centralization is not yet complete across every possible future mutation entry.
+  - Route consistency is materially improved for current code paths, with mutation authorization now centralized at core entry points used by runtime tool/menu/controller routes.
 - User-visible risk:
-  - Reduced versus baseline; residual risk is now concentrated in lower-frequency legacy direct-surface commit helpers that remain outside dedicated core wrappers.
+  - Reduced versus baseline; current residual risk is mostly future-regression risk if new mutation routes bypass established guard-coupled core entry points.
 
 ### A4. Layer geometry semantics are still compatibility-only (metadata landed, render/tool paths not fully offset-aware) (P1)
 - Evidence:

@@ -13,6 +13,7 @@ type
     procedure StrokeControllerCommitRestoresViaUndo;
     procedure StrokeControllerUnionCapturePreservesEarlierOriginalPixels;
     procedure MovePixelsControllerCommitMovesPixelsAndSelection;
+    procedure MovePixelsControllerBeginSessionBlockedByLockedLayer;
     procedure MovePixelsControllerCommitBlockedByLockedLayer;
     procedure MovePixelsControllerCancelRestoresSelectionWithoutHistory;
     procedure SelectionModeMappingFollowsModifierContract;
@@ -123,6 +124,31 @@ begin
     AssertEquals('destination pixel keeps moved red channel', 200, Pixel.R);
     AssertEquals('destination pixel keeps alpha', 255, Pixel.A);
     AssertTrue('selection moved with pixels', Doc.Selection[5, 3]);
+  finally
+    Controller.Free;
+    Doc.Free;
+  end;
+end;
+
+procedure TToolControllerTests.MovePixelsControllerBeginSessionBlockedByLockedLayer;
+var
+  Doc: TImageDocument;
+  Controller: TMovePixelsController;
+begin
+  Doc := TImageDocument.Create(12, 12);
+  Controller := TMovePixelsController.Create;
+  try
+    Doc.AddLayer('Paint');
+    Doc.ActiveLayerIndex := 1;
+    Doc.ActiveLayer.Surface.Clear(TransparentColor);
+    Doc.ActiveLayer.Surface[3, 3] := RGBA(200, 40, 20, 255);
+    Doc.SelectRectangle(3, 3, 3, 3);
+    Doc.ActiveLayer.Locked := True;
+
+    Controller.BeginSession(Doc, RGBA(255, 255, 255, 255));
+    AssertFalse('locked layer should prevent move-pixels session begin', Controller.Active);
+    AssertEquals('blocked begin must not create history', 0, Doc.UndoDepth);
+    AssertTrue('selection remains on original pixel after blocked begin', Doc.Selection[3, 3]);
   finally
     Controller.Free;
     Doc.Free;

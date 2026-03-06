@@ -7144,11 +7144,13 @@ begin
           try
             if PaintSelection <> nil then
               FillMask.IntersectWith(PaintSelection);
-            FDocument.ActiveLayer.Surface.FillSelection(
-              FillMask,
-              ActivePaintColor,
-              255
-            );
+            MutableSurface := FDocument.MutableActiveLayerSurface;
+            if MutableSurface <> nil then
+              MutableSurface.FillSelection(
+                FillMask,
+                ActivePaintColor,
+                255
+              );
           finally
             FillMask.Free;
           end;
@@ -7353,11 +7355,15 @@ var
   DoOutline: Boolean;
   FillColor: TRGBA32;
   PaintSelection: TSelectionMask;
+  MutableSurface: TRasterSurface;
 begin
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
   DoFill := FShapeStyle in [1, 2];
   FillColor := RGBA(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A);
+  MutableSurface := FDocument.MutableActiveLayerSurface;
+  if MutableSurface = nil then
+    Exit;
   if FDocument.HasSelection then
     PaintSelection := FDocument.Selection
   else
@@ -7366,7 +7372,7 @@ begin
     tkLine:
       if FLineCurvePending then
         if FLineCurveSecondStage then
-          FDocument.ActiveLayer.Surface.DrawCubicBezier(
+          MutableSurface.DrawCubicBezier(
             AStartPoint.X,
             AStartPoint.Y,
             FLineCurveControlPoint.X,
@@ -7382,7 +7388,7 @@ begin
             PaintSelection
           )
         else
-          FDocument.ActiveLayer.Surface.DrawQuadraticBezier(
+          MutableSurface.DrawQuadraticBezier(
             AStartPoint.X,
             AStartPoint.Y,
             FLineCurveControlPoint.X,
@@ -7396,7 +7402,7 @@ begin
             PaintSelection
           )
       else
-        FDocument.ActiveLayer.Surface.DrawLine(
+        MutableSurface.DrawLine(
           AStartPoint.X,
           AStartPoint.Y,
           AEndPoint.X,
@@ -7414,7 +7420,7 @@ begin
           if FGradientType = 1 then
           begin
             { Radial reversed: secondary in center, primary at edge }
-            FDocument.ActiveLayer.Surface.FillRadialGradient(
+            MutableSurface.FillRadialGradient(
               AStartPoint.X,
               AStartPoint.Y,
               Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
@@ -7425,7 +7431,7 @@ begin
           end
           else
           begin
-            FDocument.ActiveLayer.Surface.FillGradient(
+            MutableSurface.FillGradient(
               AStartPoint.X,
               AStartPoint.Y,
               AEndPoint.X,
@@ -7441,7 +7447,7 @@ begin
           if FGradientType = 1 then
           begin
             { Radial: primary in center, secondary at edge }
-            FDocument.ActiveLayer.Surface.FillRadialGradient(
+            MutableSurface.FillRadialGradient(
               AStartPoint.X,
               AStartPoint.Y,
               Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
@@ -7452,7 +7458,7 @@ begin
           end
           else
           begin
-            FDocument.ActiveLayer.Surface.FillGradient(
+            MutableSurface.FillGradient(
               AStartPoint.X,
               AStartPoint.Y,
               AEndPoint.X,
@@ -7467,42 +7473,42 @@ begin
     tkRectangle:
       begin
         if DoFill then
-          FDocument.ActiveLayer.Surface.DrawRectangle(
+          MutableSurface.DrawRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
             Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
         if DoOutline then
-          FDocument.ActiveLayer.Surface.DrawRectangle(
+          MutableSurface.DrawRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
             Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
       end;
     tkRoundedRectangle:
       begin
         if DoFill then
-          FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
+          MutableSurface.DrawRoundedRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
             Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
         if DoOutline then
-          FDocument.ActiveLayer.Surface.DrawRoundedRectangle(
+          MutableSurface.DrawRoundedRectangle(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
             Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
       end;
     tkEllipseShape:
       begin
         if DoFill then
-          FDocument.ActiveLayer.Surface.DrawEllipse(
+          MutableSurface.DrawEllipse(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
             Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
         if DoOutline then
-          FDocument.ActiveLayer.Surface.DrawEllipse(
+          MutableSurface.DrawEllipse(
             AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
             Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
       end;
     tkFreeformShape:
       begin
         if DoFill then
-          FDocument.ActiveLayer.Surface.FillPolygon(FLassoPoints, FillColor, 255, PaintSelection);
+          MutableSurface.FillPolygon(FLassoPoints, FillColor, 255, PaintSelection);
         if DoOutline then
-          FDocument.ActiveLayer.Surface.DrawPolygon(
+          MutableSurface.DrawPolygon(
             FLassoPoints,
             Max(1, FBrushSize div 3),
             ActivePaintColor,

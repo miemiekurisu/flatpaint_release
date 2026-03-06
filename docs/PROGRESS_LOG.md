@@ -4,6 +4,25 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-06 (Phase 3 closure pass: removed remaining app-layer direct mutation routes)
+
+### Changes
+
+1. **`CommitShapeTool` and fill-mask apply now also use guarded writable-surface acquisition** — these previously lower-frequency commit paths were rerouted from direct `ActiveLayer.Surface.*` writes to `MutableActiveLayerSurface` access.
+
+2. **Move-pixels preview session begin now respects core lock guard** — `TMovePixelsController.BeginSession` now acquires mutable surface via `MutableActiveLayerSurface`; when layer is locked, session begin short-circuits before preview mutation scaffolding.
+
+3. **Controller regression coverage expanded for locked-begin path** — added `MovePixelsControllerBeginSessionBlockedByLockedLayer` in `tool_controller_tests`.
+
+4. **App-layer direct mutation writes eliminated from `mainform` runtime routes** — remaining `ActiveLayer.Surface` usage in `mainform` is now read-only color picking (`InBounds` + pixel read), not mutation.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `271` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
 ## 2026-03-06 (Phase 3 tail: brush/recolor/clone stroke writes routed through guarded core surface access)
 
 ### Changes

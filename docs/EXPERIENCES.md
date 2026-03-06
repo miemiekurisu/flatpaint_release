@@ -16,6 +16,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-06 (A3 tail cleanup can miss preview-session setup writes)
+- Problem: even after commit routes were guard-coupled, `Move Pixels` session begin still used direct surface writes to derive preview base state.
+- Core error: preview-setup temporary writes were outside the "commit route" audit list, so a locked layer could still start a route that should be blocked.
+- Investigation: after eliminating direct writes from `mainform`, re-audited `fptoolcontrollers` and traced `TMovePixelsController.BeginSession` temporary mutate/restore behavior.
+- Root cause: route auditing was grouped by "history commit behavior", which missed "temporary mutate then restore" preview-preparation paths.
+- Fix: `BeginSession` now acquires writable surface via `MutableActiveLayerSurface` (locked layer short-circuits), and `MovePixelsControllerBeginSessionBlockedByLockedLayer` was added to regression coverage.
+- Reuse note: lock-invariant audits must cover three write classes: commit writes, incremental writes, and preview-setup writes (even if restored later).
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-06 (high-frequency brush-like loops can drift from lock invariants even after menu/controller guard migration)
 - Problem: brush/recolor/clone/eraser drag loops in `ApplyImmediateTool` still wrote pixels through direct `ActiveLayer.Surface` handles.
 - Core error: high-frequency stroke writes bypassed the new core mutation-entry pattern and depended on outer UI route assumptions.

@@ -347,24 +347,29 @@ end;
 procedure TMovePixelsController.BeginSession(ADocument: TImageDocument; const ABackgroundColor: TRGBA32);
 var
   SourceSnapshot: TRasterSurface;
+  MutableSurface: TRasterSurface;
 begin
   Clear;
   if (ADocument = nil) or not ADocument.HasSelection or (ADocument.LayerCount <= 0) then
     Exit;
 
+  MutableSurface := ADocument.MutableActiveLayerSurface;
+  if MutableSurface = nil then
+    Exit;
+
   FBaseSelection := ADocument.Selection.Clone;
-  FFloatingPixels := ADocument.ActiveLayer.Surface.CopySelection(FBaseSelection);
+  FFloatingPixels := MutableSurface.CopySelection(FBaseSelection);
   FLayerIndex := ADocument.ActiveLayerIndex;
 
-  SourceSnapshot := ADocument.ActiveLayer.Surface.Clone;
+  SourceSnapshot := MutableSurface.Clone;
   try
     if ADocument.ActiveLayer.IsBackground then
-      ADocument.ActiveLayer.Surface.FillSelection(FBaseSelection, ABackgroundColor, 255)
+      MutableSurface.FillSelection(FBaseSelection, ABackgroundColor, 255)
     else
-      ADocument.ActiveLayer.Surface.EraseSelection(FBaseSelection);
+      MutableSurface.EraseSelection(FBaseSelection);
     FPreviewBaseComposite := ADocument.Composite;
   finally
-    ADocument.ActiveLayer.Surface.Assign(SourceSnapshot);
+    MutableSurface.Assign(SourceSnapshot);
     SourceSnapshot.Free;
   end;
 
