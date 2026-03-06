@@ -5,7 +5,7 @@ unit history_transaction_tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, Types, FPColor, FPDocument,
+  Classes, SysUtils, fpcunit, testregistry, Types, FPColor, FPDocument, FPSurface,
   FPHistoryTransaction;
 
 type
@@ -13,6 +13,7 @@ type
   published
     procedure RegionTransactionCommitRestoresViaUndo;
     procedure RegionTransactionUnionCapturePreservesEarlierOriginalPixels;
+    procedure RegionTransactionSelectionSnapshotRestoresSelectionOnUndoRedo;
     procedure RegionTransactionClearDropsPendingWithoutHistoryNoise;
   end;
 
@@ -84,6 +85,55 @@ begin
     AssertTrue('undo restores second segment original green pixel',
       RGBAEqual(PixelB, RGBA(0, 255, 0, 255)));
   finally
+    Txn.Free;
+    Doc.Free;
+  end;
+end;
+
+procedure THistoryTransactionTests.RegionTransactionSelectionSnapshotRestoresSelectionOnUndoRedo;
+var
+  Doc: TImageDocument;
+  Txn: TRegionHistoryTransaction;
+  Floating: TRasterSurface;
+  Pixel: TRGBA32;
+begin
+  Doc := TImageDocument.Create(16, 16);
+  Txn := TRegionHistoryTransaction.Create;
+  Floating := nil;
+  try
+    Doc.AddLayer('Paint');
+    Doc.ActiveLayerIndex := 1;
+    Doc.ActiveLayer.Surface.Clear(TransparentColor);
+    Doc.ActiveLayer.Surface[4, 4] := RGBA(210, 30, 40, 255);
+    Doc.SelectRectangle(4, 4, 4, 4);
+
+    Txn.BeginSession(Doc, Doc.ActiveLayerIndex, True);
+    Txn.CaptureBeforeRect(Doc, Rect(3, 3, 7, 6));
+
+    Floating := Doc.CopySelectionToSurface(False);
+    Doc.EraseSelection(RGBA(255, 255, 255, 255));
+    Doc.PasteSurfaceToActiveLayer(Floating, 2, 0);
+    Doc.Selection.MoveBy(2, 0);
+
+    AssertTrue('selection-aware transaction should commit successfully',
+      Txn.CommitToHistory(Doc, 'Move Pixels Txn'));
+    AssertEquals('history depth should be 1 after selection-aware commit', 1, Doc.UndoDepth);
+    AssertTrue('selection should be moved before undo', Doc.Selection[6, 4]);
+    AssertFalse('original selection location should be cleared before undo', Doc.Selection[4, 4]);
+
+    Doc.Undo;
+    Pixel := Doc.ActiveLayer.Surface[4, 4];
+    AssertEquals('undo restores source pixel alpha', 255, Pixel.A);
+    AssertTrue('undo restores original selection location', Doc.Selection[4, 4]);
+    AssertFalse('undo clears moved selection location', Doc.Selection[6, 4]);
+
+    Doc.Redo;
+    Pixel := Doc.ActiveLayer.Surface[6, 4];
+    AssertEquals('redo restores moved destination alpha', 255, Pixel.A);
+    AssertTrue('redo restores moved selection location', Doc.Selection[6, 4]);
+    AssertFalse('redo clears original selection location', Doc.Selection[4, 4]);
+  finally
+    Floating.Free;
     Txn.Free;
     Doc.Free;
   end;

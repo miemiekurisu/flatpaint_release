@@ -12,21 +12,20 @@
 2. Confirmed each cited line still matches described behavior.
 3. Ran assertion checks for ambiguous claims.
 
-Conclusion: defects A1/A2/A3/A7 moved to mitigated or materially mitigated status, A4/A5 remain partial-mitigation architecture tails, and A6 is partial-mitigation.
+Conclusion: defects A1/A2/A3/A5/A7 moved to mitigated or materially mitigated status, A4 remains the primary partial-mitigation architecture tail, and A6 remains partial-mitigation.
 
-## Implementation delta (2026-03-06 latest)
+## Implementation delta (2026-03-07 latest)
 - This evaluation section above is preserved as the pre-renovation baseline verdict.
 - Current code status after latest implementation pass:
   - **A1**: mitigated by transactional move-pixels workflow (`tool_transaction_tests` green).
   - **A2**: materially mitigated by byte-coverage propagation through selection transforms, weighted selection-aware apply paths, and native mask persistence (`FPDOC04`, legacy-compatible load) with regression tests.
   - **A3**: materially mitigated by core `FPMutationGuard`, additional guarded core APIs for formerly UI-direct mutations (active-layer paste/pixelate-rect/rotate routes), guard-coupled history begin APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive fill/shape/crop routes to prevent no-op history entries, move-pixels controller commit/begin-session migration to guarded core mutation APIs, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
   - **A4**: partially mitigated by layer offset metadata in core model, native persistence, and XCF metadata capture (compatibility render mode retained).
-  - **A5**: partially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture plus long-stroke undo/redo regression coverage.
+  - **A5**: materially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture, moving move-pixels commit history to dirty-rect + selection-aware region snapshots, and converging both routes on core `TRegionHistoryTransaction` services.
   - **A6**: partially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with dedicated `tool_controller_tests`.
   - **A7**: materially mitigated by centralizing selection-store lifecycle in core copy routes (`CopySelectionToSurface` / `CopyMergedToSurface`) with route-level regression tests.
 - Remaining priority architecture work still aligns with the plan sequence:
-  - **A4 semantic migration tail** (offset-aware compositor/tool math),
-  - **A5 transaction-service extraction tail** (reduce app-layer history orchestration).
+  - **A4 semantic migration tail** (offset-aware compositor/tool math).
 
 ### Additional assertion checks
 - `StoreSelectionForPaste()` usage:

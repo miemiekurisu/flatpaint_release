@@ -13,6 +13,8 @@ type
     procedure StrokeControllerCommitRestoresViaUndo;
     procedure StrokeControllerUnionCapturePreservesEarlierOriginalPixels;
     procedure MovePixelsControllerCommitMovesPixelsAndSelection;
+    procedure MovePixelsControllerUndoRedoRestoresSelectionAndPixels;
+    procedure MovePixelsControllerBackgroundCommitKeepsOpaqueFillAndUndo;
     procedure MovePixelsControllerBeginSessionBlockedByLockedLayer;
     procedure MovePixelsControllerCommitBlockedByLockedLayer;
     procedure MovePixelsControllerCancelRestoresSelectionWithoutHistory;
@@ -124,6 +126,90 @@ begin
     AssertEquals('destination pixel keeps moved red channel', 200, Pixel.R);
     AssertEquals('destination pixel keeps alpha', 255, Pixel.A);
     AssertTrue('selection moved with pixels', Doc.Selection[5, 3]);
+  finally
+    Controller.Free;
+    Doc.Free;
+  end;
+end;
+
+procedure TToolControllerTests.MovePixelsControllerUndoRedoRestoresSelectionAndPixels;
+var
+  Doc: TImageDocument;
+  Controller: TMovePixelsController;
+  CommitResult: TMovePixelsCommitResult;
+  Pixel: TRGBA32;
+begin
+  Doc := TImageDocument.Create(12, 12);
+  Controller := TMovePixelsController.Create;
+  try
+    Doc.AddLayer('Paint');
+    Doc.ActiveLayerIndex := 1;
+    Doc.ActiveLayer.Surface.Clear(TransparentColor);
+    Doc.ActiveLayer.Surface[3, 3] := RGBA(200, 40, 20, 255);
+    Doc.SelectRectangle(3, 3, 3, 3);
+
+    Controller.BeginSession(Doc, RGBA(255, 255, 255, 255));
+    AssertTrue('session should activate when selection exists', Controller.Active);
+    AssertTrue('delta update should be accepted', Controller.UpdateDelta(Doc, 2, 0));
+    CommitResult := Controller.Commit(Doc, 'Move Pixels', RGBA(255, 255, 255, 255));
+    AssertEquals('commit should report committed state', Ord(mpcCommitted), Ord(CommitResult));
+    AssertEquals('history should record one move operation', 1, Doc.UndoDepth);
+
+    Doc.Undo;
+    Pixel := Doc.ActiveLayer.Surface[3, 3];
+    AssertEquals('undo restores source pixel red channel', 200, Pixel.R);
+    AssertEquals('undo restores source pixel alpha', 255, Pixel.A);
+    Pixel := Doc.ActiveLayer.Surface[5, 3];
+    AssertEquals('undo clears destination pixel alpha', 0, Pixel.A);
+    AssertTrue('undo restores original selection location', Doc.Selection[3, 3]);
+    AssertFalse('undo clears moved selection location', Doc.Selection[5, 3]);
+
+    Doc.Redo;
+    Pixel := Doc.ActiveLayer.Surface[3, 3];
+    AssertEquals('redo clears source pixel alpha', 0, Pixel.A);
+    Pixel := Doc.ActiveLayer.Surface[5, 3];
+    AssertEquals('redo restores destination pixel red channel', 200, Pixel.R);
+    AssertEquals('redo restores destination pixel alpha', 255, Pixel.A);
+    AssertTrue('redo restores moved selection location', Doc.Selection[5, 3]);
+    AssertFalse('redo clears original selection location', Doc.Selection[3, 3]);
+  finally
+    Controller.Free;
+    Doc.Free;
+  end;
+end;
+
+procedure TToolControllerTests.MovePixelsControllerBackgroundCommitKeepsOpaqueFillAndUndo;
+var
+  Doc: TImageDocument;
+  Controller: TMovePixelsController;
+  CommitResult: TMovePixelsCommitResult;
+  Pixel: TRGBA32;
+  FillColor: TRGBA32;
+begin
+  Doc := TImageDocument.Create(12, 12);
+  Controller := TMovePixelsController.Create;
+  try
+    FillColor := RGBA(10, 20, 30, 255);
+    Doc.ActiveLayer.Surface.Clear(RGBA(255, 255, 255, 255));
+    Doc.ActiveLayer.Surface[3, 3] := RGBA(200, 40, 20, 255);
+    Doc.SelectRectangle(3, 3, 3, 3);
+
+    Controller.BeginSession(Doc, FillColor);
+    AssertTrue('session should activate on background layer', Controller.Active);
+    AssertTrue('delta update should be accepted', Controller.UpdateDelta(Doc, 2, 0));
+    CommitResult := Controller.Commit(Doc, 'Move Pixels', FillColor);
+    AssertEquals('commit should report committed state', Ord(mpcCommitted), Ord(CommitResult));
+
+    Pixel := Doc.ActiveLayer.Surface[3, 3];
+    AssertTrue('background source fill should remain opaque and match fill color', RGBAEqual(Pixel, FillColor));
+    Pixel := Doc.ActiveLayer.Surface[5, 3];
+    AssertTrue('destination keeps moved foreground pixel', RGBAEqual(Pixel, RGBA(200, 40, 20, 255)));
+
+    Doc.Undo;
+    Pixel := Doc.ActiveLayer.Surface[3, 3];
+    AssertTrue('undo restores original source pixel', RGBAEqual(Pixel, RGBA(200, 40, 20, 255)));
+    Pixel := Doc.ActiveLayer.Surface[5, 3];
+    AssertTrue('undo restores original background at destination', RGBAEqual(Pixel, RGBA(255, 255, 255, 255)));
   finally
     Controller.Free;
     Doc.Free;

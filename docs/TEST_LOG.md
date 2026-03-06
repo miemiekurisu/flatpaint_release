@@ -4,6 +4,18 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-07 (Phase 5 completion: region transaction service now covers stroke + move-pixels history paths)
+- Full CI verification after extending `TRegionHistoryTransaction` with optional selection-state snapshots, routing `TMovePixelsController` history through the core transaction service, and expanding controller/core transaction regressions: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `274` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `THistoryTransactionTests`:
+    - `RegionTransactionSelectionSnapshotRestoresSelectionOnUndoRedo`
+  - `TToolControllerTests`:
+    - `MovePixelsControllerUndoRedoRestoresSelectionAndPixels`
+    - `MovePixelsControllerBackgroundCommitKeepsOpaqueFillAndUndo`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-06 (Phase 3 closure: fill/shape + move-session-begin guard coupling)
 - Full CI verification after routing fill/shape commit writes through `MutableActiveLayerSurface`, guard-coupling `TMovePixelsController.BeginSession`, and adding controller locked-begin regression coverage: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `271` tests, `0` errors, `0` failures.

@@ -4,6 +4,33 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-07 (Phase 5 completion: move-pixels/stroke history now unified under core region transaction service)
+
+### Changes
+
+1. **Region snapshot model now supports optional selection/active-layer restore semantics** — `TDocumentSnapshot` region constructors now optionally carry selection state, and region snapshot application can restore both selection mask and active layer index when requested.
+
+2. **Core history API gained explicit region+selection entry point** — added `PushRegionHistoryWithSelection(...)` in `TImageDocument` to push dirty-rect pixel history while atomically preserving pre-mutation selection state for undo/redo symmetry.
+
+3. **Move-pixels commit no longer relies on full-document history snapshots** — `TMovePixelsController.Commit` now captures the union dirty rect (source + destination), stores pre-mutation pixels through region history with selection-state snapshot, then applies erase/paste commit via core APIs.
+
+4. **Move-pixels history orchestration is now routed through core transaction service (A5 extraction closure)** — `TMovePixelsController` now uses `TRegionHistoryTransaction` (selection-aware begin/capture/commit) instead of manual controller-side region snapshot assembly.
+
+5. **Core transaction service now supports optional selection-state snapshots** — `TRegionHistoryTransaction.BeginSession(..., AIncludeSelectionState)` and commit path now support selection+active-layer restore when needed, while preserving pixel-only transaction mode for brush-like strokes.
+
+6. **Regression coverage expanded across controller and core transaction layers** — added:
+   - `MovePixelsControllerUndoRedoRestoresSelectionAndPixels`
+   - `MovePixelsControllerBackgroundCommitKeepsOpaqueFillAndUndo`
+   - `RegionTransactionSelectionSnapshotRestoresSelectionOnUndoRedo`
+   ensuring undo/redo symmetry for pixel+selection transaction snapshots.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `274` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
 ## 2026-03-06 (Phase 3 closure pass: removed remaining app-layer direct mutation routes)
 
 ### Changes

@@ -86,6 +86,7 @@ type
 
   TMovePixelsController = class
   private
+    FHistoryTransaction: TRegionHistoryTransaction;
     FActive: Boolean;
     FMoved: Boolean;
     FLayerIndex: Integer;
@@ -324,17 +325,21 @@ end;
 constructor TMovePixelsController.Create;
 begin
   inherited Create;
+  FHistoryTransaction := TRegionHistoryTransaction.Create;
   Clear;
 end;
 
 destructor TMovePixelsController.Destroy;
 begin
+  FreeAndNil(FHistoryTransaction);
   Clear;
   inherited Destroy;
 end;
 
 procedure TMovePixelsController.Clear;
 begin
+  if Assigned(FHistoryTransaction) then
+    FHistoryTransaction.Clear;
   FreeAndNil(FBaseSelection);
   FreeAndNil(FFloatingPixels);
   FreeAndNil(FPreviewBaseComposite);
@@ -360,6 +365,8 @@ begin
   FBaseSelection := ADocument.Selection.Clone;
   FFloatingPixels := MutableSurface.CopySelection(FBaseSelection);
   FLayerIndex := ADocument.ActiveLayerIndex;
+  if Assigned(FHistoryTransaction) then
+    FHistoryTransaction.BeginSession(ADocument, FLayerIndex, True);
 
   SourceSnapshot := MutableSurface.Clone;
   try
@@ -399,6 +406,37 @@ end;
 function TMovePixelsController.Commit(ADocument: TImageDocument; const AHistoryLabel: string; const ABackgroundColor: TRGBA32): TMovePixelsCommitResult;
 var
   SavedActiveLayerIndex: Integer;
+  SourceRect: TRect;
+  DestRect: TRect;
+  CommitRect: TRect;
+  MutableSurface: TRasterSurface;
+
+  function RectIsEmpty(const ARect: TRect): Boolean;
+  begin
+    Result := (ARect.Right <= ARect.Left) or (ARect.Bottom <= ARect.Top);
+  end;
+
+  function UnionRectPair(const ARectA, ARectB: TRect): TRect;
+  begin
+    if RectIsEmpty(ARectA) then
+      Exit(ARectB);
+    if RectIsEmpty(ARectB) then
+      Exit(ARectA);
+    Result.Left := Min(ARectA.Left, ARectB.Left);
+    Result.Top := Min(ARectA.Top, ARectB.Top);
+    Result.Right := Max(ARectA.Right, ARectB.Right);
+    Result.Bottom := Max(ARectA.Bottom, ARectB.Bottom);
+  end;
+
+  function ClipRectToDocument(const ARect: TRect): TRect;
+  begin
+    Result.Left := Max(0, ARect.Left);
+    Result.Top := Max(0, ARect.Top);
+    Result.Right := Min(ADocument.Width, ARect.Right);
+    Result.Bottom := Min(ADocument.Height, ARect.Bottom);
+    if RectIsEmpty(Result) then
+      Result := Rect(0, 0, 0, 0);
+  end;
 begin
   if not FActive then
     Exit(mpcNoSession);
@@ -419,18 +457,34 @@ begin
   if (FLayerIndex >= 0) and (FLayerIndex < ADocument.LayerCount) then
     ADocument.ActiveLayerIndex := FLayerIndex;
   try
-    ADocument.Selection.Assign(FBaseSelection);
-    if not ADocument.BeginActiveLayerMutation(AHistoryLabel) then
+    MutableSurface := ADocument.MutableActiveLayerSurface;
+    if MutableSurface = nil then
     begin
       ADocument.Selection.Assign(FBaseSelection);
       Clear;
       Exit(mpcBlocked);
     end;
 
+    SourceRect := FBaseSelection.BoundsRect;
+    DestRect := Rect(
+      SourceRect.Left + FDelta.X,
+      SourceRect.Top + FDelta.Y,
+      SourceRect.Right + FDelta.X,
+      SourceRect.Bottom + FDelta.Y
+    );
+    CommitRect := ClipRectToDocument(UnionRectPair(SourceRect, DestRect));
+    if not RectIsEmpty(CommitRect) and Assigned(FHistoryTransaction) then
+      FHistoryTransaction.CaptureBeforeRect(ADocument, CommitRect);
+
+    ADocument.Selection.Assign(FBaseSelection);
     ADocument.EraseSelection(ABackgroundColor);
     ADocument.PasteSurfaceToActiveLayer(FFloatingPixels, FDelta.X, FDelta.Y);
     ADocument.Selection.Assign(FBaseSelection);
     ADocument.Selection.MoveBy(FDelta.X, FDelta.Y);
+
+    if Assigned(FHistoryTransaction) then
+      FHistoryTransaction.CommitToHistory(ADocument, AHistoryLabel);
+
     Clear;
     Result := mpcCommitted;
   finally

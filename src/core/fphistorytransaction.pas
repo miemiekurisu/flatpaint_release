@@ -5,7 +5,7 @@ unit FPHistoryTransaction;
 interface
 
 uses
-  Classes, SysUtils, Types, FPDocument, FPSurface;
+  Classes, SysUtils, Types, FPDocument, FPSurface, FPSelection;
 
 type
   TRegionHistoryTransaction = class
@@ -13,6 +13,9 @@ type
     FPreMutationSnapshot: TRasterSurface;
     FCaptureRect: TRect;
     FLayerIndex: Integer;
+    FSelectionSnapshot: TSelectionMask;
+    FSelectionLayerIndex: Integer;
+    FCaptureSelectionState: Boolean;
     FActive: Boolean;
     function RectIsEmpty(const ARect: TRect): Boolean;
   public
@@ -20,7 +23,11 @@ type
     destructor Destroy; override;
     procedure Clear;
     function HasPending: Boolean;
-    procedure BeginSession(ADocument: TImageDocument; ALayerIndex: Integer);
+    procedure BeginSession(
+      ADocument: TImageDocument;
+      ALayerIndex: Integer;
+      AIncludeSelectionState: Boolean = False
+    );
     procedure CaptureBeforeRect(ADocument: TImageDocument; const ARect: TRect);
     function CommitToHistory(ADocument: TImageDocument; const ALabel: string): Boolean;
   end;
@@ -55,8 +62,11 @@ end;
 procedure TRegionHistoryTransaction.Clear;
 begin
   FreeAndNil(FPreMutationSnapshot);
+  FreeAndNil(FSelectionSnapshot);
   FCaptureRect := EmptyRectSentinel;
   FLayerIndex := -1;
+  FSelectionLayerIndex := -1;
+  FCaptureSelectionState := False;
   FActive := False;
 end;
 
@@ -65,12 +75,22 @@ begin
   Result := FActive;
 end;
 
-procedure TRegionHistoryTransaction.BeginSession(ADocument: TImageDocument; ALayerIndex: Integer);
+procedure TRegionHistoryTransaction.BeginSession(
+  ADocument: TImageDocument;
+  ALayerIndex: Integer;
+  AIncludeSelectionState: Boolean
+);
 begin
   Clear;
   if (ADocument = nil) or (ADocument.LayerCount <= 0) then
     Exit;
   FLayerIndex := EnsureRange(ALayerIndex, 0, ADocument.LayerCount - 1);
+  FCaptureSelectionState := AIncludeSelectionState;
+  if FCaptureSelectionState then
+  begin
+    FSelectionSnapshot := ADocument.Selection.Clone;
+    FSelectionLayerIndex := ADocument.ActiveLayerIndex;
+  end;
   FActive := True;
 end;
 
@@ -143,6 +163,7 @@ function TRegionHistoryTransaction.CommitToHistory(ADocument: TImageDocument;
 var
   CommitRect: TRect;
   BeforePixels: TRasterSurface;
+  SelectionSnapshot: TSelectionMask;
 begin
   Result := False;
   if not FActive then
@@ -165,7 +186,21 @@ begin
       CommitRect.Left - FCaptureRect.Left,
       CommitRect.Top - FCaptureRect.Top
     );
-    ADocument.PushRegionHistory(ALabel, FLayerIndex, CommitRect, BeforePixels);
+    if FCaptureSelectionState and Assigned(FSelectionSnapshot) then
+    begin
+      SelectionSnapshot := FSelectionSnapshot;
+      FSelectionSnapshot := nil;
+      ADocument.PushRegionHistoryWithSelection(
+        ALabel,
+        FLayerIndex,
+        CommitRect,
+        BeforePixels,
+        SelectionSnapshot,
+        FSelectionLayerIndex
+      );
+    end
+    else
+      ADocument.PushRegionHistory(ALabel, FLayerIndex, CommitRect, BeforePixels);
     Result := True;
   finally
     Clear;

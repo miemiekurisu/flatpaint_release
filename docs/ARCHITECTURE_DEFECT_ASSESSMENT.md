@@ -10,27 +10,24 @@
 - Rechecked in multiple passes on 2026-03-06 after publication.
 - All cited evidence locations were replayed and still matched their defect claims at the time of review.
 
-## Implementation delta (2026-03-06 latest)
+## Implementation delta (2026-03-07 latest)
 - This document keeps the pre-renovation defect baseline as historical input.
 - Since that baseline review, seven items have moved:
   - **A1 (move-pixels transaction model):** materially mitigated by the transactional move-pixels session now covered by `tool_transaction_tests`.
   - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths, and native byte-mask persistence (`FPDOC04` legacy-compatible load path) plus regression tests.
   - **A3 (lock/editability invariants):** materially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive shape/fill/crop commit routes to prevent no-op undo noise, guard-coupled move-pixels controller commit/begin-session flow, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
   - **A4 (layer geometry metadata):** partially mitigated by adding per-layer offset metadata, native persistence, and XCF offset metadata capture in compatibility mode.
-  - **A5 (history capture cost):** partially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture for brush-like tools.
+  - **A5 (history capture cost):** materially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture, switching move-pixels commit to dirty-rect + selection-aware region snapshots, and converging stroke/move transaction routes on core `TRegionHistoryTransaction`.
   - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests.
   - **A7 (stored-selection route closure):** materially mitigated by moving `StoreSelectionForPaste` into core selection-copy routes (`CopySelectionToSurface`/`CopyMergedToSurface`), eliminating app-route dependency.
-- Defects still treated as open architecture work in the active plan: **A4 (render/tool semantics not yet offset-aware), A5 (transaction service extraction not complete)**.
+- Defects still treated as open architecture work in the active plan: **A4 (render/tool semantics not yet offset-aware)**.
 
 ## Executive summary
-FlatPaint is functionally broad, but several deep architectural gaps remain in selection and edit-transaction design.
-The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior; current highest-risk open gaps are layer-geometry modeling, history capture cost, and high-coupling UI orchestration.
+FlatPaint is functionally broad, and most previously critical selection/edit-transaction architecture defects are now materially mitigated.
+The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior; current highest-risk open gaps are layer-geometry semantic activation (A4) and residual high-coupling UI orchestration risk (A6).
 
-Current architecture has reusable strengths (separate core units, region-history primitive), but release-grade editor reliability will require:
-- transactional edit sessions for selection/pixel move
-- true soft-selection coverage propagation
-- model-layer invariants (lock/editability) enforced in core, not only in UI routes
-- layer geometry metadata (offset/local bounds) kept as first-class state
+Current architecture has reusable strengths (separate core units, region-history transaction service, mutation-guarded routes).
+The remaining release-grade architecture priority is completing offset-aware layer semantics on top of already-landed layer geometry metadata.
 
 ## Critical defect list
 The sections below preserve the originally validated defect evidence snapshot for traceability.
@@ -90,15 +87,15 @@ Current status for each item is defined by the **Implementation delta** section 
 - User-visible risk:
   - Interchange fidelity improves structurally, but future local-surface/offset workflows remain constrained until semantic migration is completed.
 
-### A5. Undo architecture remains hybrid (stroke start clone fixed, transaction extraction still incomplete) (P1)
+### A5. Undo architecture hybrid baseline (now materially mitigated) (P1 historical)
 - Evidence:
   - Full history snapshot clones full document: `src/core/fpdocument.pas:445`, `src/core/fpdocument.pas:447`
   - Brush-like stroke capture now incrementally snapshots touched region before mutation instead of cloning full active layer at stroke begin.
   - Undo grouping/capture policy for interactive tools is still orchestrated directly in `TMainForm`.
 - Architectural problem:
-  - Region history exists and stroke-start cost was reduced, but transaction/capture logic is still app-layer-specific instead of a dedicated core history transaction service.
+  - Baseline concern was hybrid transaction orchestration across route families; current status is materially mitigated by converging brush-like stroke and move-pixels undo capture on core region transaction services, including selection-aware snapshot mode where required.
 - User-visible risk:
-  - Large-stroke memory pressure is reduced, but long-term maintainability and route consistency risk remain until transaction handling is fully centralized.
+  - Substantially reduced versus baseline; remaining risk is mainly future-route governance (new interactive tools should reuse the same transaction service rather than reintroduce ad-hoc history paths).
 
 ### A6. Main form is a high-coupling orchestration monolith (partially mitigated, P2)
 - Evidence:

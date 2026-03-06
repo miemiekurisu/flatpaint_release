@@ -77,6 +77,7 @@ type
   TDocumentSnapshot = class
   private
     FKind: TSnapshotKind;
+    FRestoreSelectionState: Boolean;
     { Full-document fields (skFullDocument) }
     FLayers: TObjectList;
     FSelection: TSelectionMask;
@@ -90,11 +91,23 @@ type
   public
     constructor CreateFromDocument(ADocument: TObject);
     { Captures current pixels of ADocument.Layers[ALayerIndex] within ARect. }
-    constructor CreateFromRegion(ADocument: TObject; ALayerIndex: Integer; const ARect: TRect);
+    constructor CreateFromRegion(
+      ADocument: TObject;
+      ALayerIndex: Integer;
+      const ARect: TRect;
+      AIncludeSelectionState: Boolean = False
+    );
     { Takes ownership of APixels (already-captured before-pixels for ARect). }
-    constructor WrapRegionPixels(ALayerIndex: Integer; const ARect: TRect; APixels: TRasterSurface);
+    constructor WrapRegionPixels(
+      ALayerIndex: Integer;
+      const ARect: TRect;
+      APixels: TRasterSurface;
+      ASelection: TSelectionMask = nil;
+      AActiveLayerIndex: Integer = -1
+    );
     destructor Destroy; override;
     property Kind: TSnapshotKind read FKind;
+    property RestoreSelectionState: Boolean read FRestoreSelectionState;
     property Layers: TObjectList read FLayers;
     property Selection: TSelectionMask read FSelection;
     property Width: Integer read FWidth;
@@ -139,6 +152,14 @@ type
     function MutableActiveLayerSurface: TRasterSurface;
     { Push a region snapshot with already-captured before-pixels (ownership is transferred). }
     procedure PushRegionHistory(const ALabel: string; ALayerIndex: Integer; const ADirtyRect: TRect; ABeforePixels: TRasterSurface);
+    procedure PushRegionHistoryWithSelection(
+      const ALabel: string;
+      ALayerIndex: Integer;
+      const ADirtyRect: TRect;
+      ABeforePixels: TRasterSurface;
+      ASelectionBefore: TSelectionMask;
+      AActiveLayerIndexBefore: Integer
+    );
     function CanUndo: Boolean;
     function CanRedo: Boolean;
     procedure Undo;
@@ -290,6 +311,7 @@ var
 begin
   inherited Create;
   FKind := skFullDocument;
+  FRestoreSelectionState := False;
   Document := TImageDocument(ADocument);
   FLayers := TObjectList.Create(True);
   FSelection := Document.Selection.Clone;
@@ -300,13 +322,19 @@ begin
     FLayers.Add(Document.Layers[Index].Clone);
 end;
 
-constructor TDocumentSnapshot.CreateFromRegion(ADocument: TObject; ALayerIndex: Integer; const ARect: TRect);
+constructor TDocumentSnapshot.CreateFromRegion(
+  ADocument: TObject;
+  ALayerIndex: Integer;
+  const ARect: TRect;
+  AIncludeSelectionState: Boolean
+);
 var
   Doc: TImageDocument;
   W, H: Integer;
 begin
   inherited Create;
   FKind := skLayerRegion;
+  FRestoreSelectionState := AIncludeSelectionState;
   Doc := TImageDocument(ADocument);
   FRegionLayerIndex := ALayerIndex;
   FDirtyRect := ARect;
@@ -315,15 +343,34 @@ begin
   FRegionSurface := TRasterSurface.Create(Max(1, W), Max(1, H));
   if (ALayerIndex >= 0) and (ALayerIndex < Doc.LayerCount) then
     Doc.Layers[ALayerIndex].Surface.CopyRegionTo(FRegionSurface, ARect.Left, ARect.Top);
+  if AIncludeSelectionState then
+  begin
+    FSelection := Doc.Selection.Clone;
+    FActiveLayerIndex := Doc.ActiveLayerIndex;
+  end
+  else
+    FActiveLayerIndex := -1;
 end;
 
-constructor TDocumentSnapshot.WrapRegionPixels(ALayerIndex: Integer; const ARect: TRect; APixels: TRasterSurface);
+constructor TDocumentSnapshot.WrapRegionPixels(
+  ALayerIndex: Integer;
+  const ARect: TRect;
+  APixels: TRasterSurface;
+  ASelection: TSelectionMask;
+  AActiveLayerIndex: Integer
+);
 begin
   inherited Create;
   FKind := skLayerRegion;
+  FRestoreSelectionState := Assigned(ASelection);
   FRegionLayerIndex := ALayerIndex;
   FDirtyRect := ARect;
   FRegionSurface := APixels;  { take ownership }
+  FSelection := ASelection;   { take ownership }
+  if FRestoreSelectionState then
+    FActiveLayerIndex := AActiveLayerIndex
+  else
+    FActiveLayerIndex := -1;
 end;
 
 destructor TDocumentSnapshot.Destroy;
@@ -395,6 +442,12 @@ begin
         ASnapshot.RegionSurface,
         ASnapshot.DirtyRect.Left,
         ASnapshot.DirtyRect.Top);
+    if ASnapshot.RestoreSelectionState and Assigned(ASnapshot.Selection) then
+    begin
+      FSelection.Assign(ASnapshot.Selection);
+      FActiveLayerIndex := EnsureRange(ASnapshot.ActiveLayerIndex, 0, Max(0, FLayers.Count - 1));
+      EnforceLayerInvariant;
+    end;
     Exit;
   end;
 
@@ -542,6 +595,35 @@ begin
   end;
 end;
 
+procedure TImageDocument.PushRegionHistoryWithSelection(
+  const ALabel: string;
+  ALayerIndex: Integer;
+  const ADirtyRect: TRect;
+  ABeforePixels: TRasterSurface;
+  ASelectionBefore: TSelectionMask;
+  AActiveLayerIndexBefore: Integer
+);
+{ Ownership of ABeforePixels/ASelectionBefore is transferred to the new snapshot. }
+begin
+  FHistory.Add(
+    TDocumentSnapshot.WrapRegionPixels(
+      ALayerIndex,
+      ADirtyRect,
+      ABeforePixels,
+      ASelectionBefore,
+      AActiveLayerIndexBefore
+    )
+  );
+  FHistoryLabels.Add(ALabel);
+  FRedo.Clear;
+  FRedoLabels.Clear;
+  while FHistory.Count > FMaxHistory do
+  begin
+    FHistory.Delete(0);
+    FHistoryLabels.Delete(0);
+  end;
+end;
+
 function TImageDocument.CanUndo: Boolean;
 begin
   Result := FHistory.Count > 0;
@@ -566,7 +648,14 @@ begin
   try
     { Save current state for redo: region snapshot if undo is region-based }
     if Snapshot.Kind = skLayerRegion then
-      FRedo.Add(TDocumentSnapshot.CreateFromRegion(Self, Snapshot.RegionLayerIndex, Snapshot.DirtyRect))
+      FRedo.Add(
+        TDocumentSnapshot.CreateFromRegion(
+          Self,
+          Snapshot.RegionLayerIndex,
+          Snapshot.DirtyRect,
+          Snapshot.RestoreSelectionState
+        )
+      )
     else
       FRedo.Add(TDocumentSnapshot.CreateFromDocument(Self));
     FRedoLabels.Add(ActionLabel);
@@ -589,7 +678,14 @@ begin
   try
     { Save current state for undo: region snapshot if redo is region-based }
     if Snapshot.Kind = skLayerRegion then
-      FHistory.Add(TDocumentSnapshot.CreateFromRegion(Self, Snapshot.RegionLayerIndex, Snapshot.DirtyRect))
+      FHistory.Add(
+        TDocumentSnapshot.CreateFromRegion(
+          Self,
+          Snapshot.RegionLayerIndex,
+          Snapshot.DirtyRect,
+          Snapshot.RestoreSelectionState
+        )
+      )
     else
       FHistory.Add(TDocumentSnapshot.CreateFromDocument(Self));
     FHistoryLabels.Add(ActionLabel);

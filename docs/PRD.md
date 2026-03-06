@@ -102,10 +102,10 @@ These are explicit product decisions and not treated as parity regressions.
 - Performance: common interactions should feel immediate for typical document sizes.
 - Maintainability: feature work should preserve separation between core image logic and UI routing.
 
-## Current implementation snapshot (as of 2026-03-06)
+## Current implementation snapshot (as of 2026-03-07)
 - App build: passes via `bash ./scripts/build.sh`.
-- Regression run: `271` tests executed, `0` failures (regression-clean).
-- Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, layer-offset metadata persistence, incremental stroke-region history capture baseline, and guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths. Remaining UAT risk is concentrated in parity/polish depth and post-A6 maintainability phases.
+- Regression run: `274` tests executed, `0` failures (regression-clean).
+- Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, layer-offset metadata persistence, and completed Phase-5 history optimization with unified core region-transaction routing (stroke + move-pixels, including selection-aware undo/redo snapshots), plus guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths. Remaining UAT risk is concentrated in parity/polish depth and A4 offset-semantics migration.
 
 ## UAT gate
 FlatPaint is UAT-ready only when all are true:

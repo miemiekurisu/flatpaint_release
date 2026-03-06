@@ -16,6 +16,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-07 (A5 completion requires shared transaction service, not parallel route-specific history logic)
+- Problem: even after move-pixels switched to region+selection snapshots, A5 remained incomplete because move-pixels and stroke history still used different transaction orchestration patterns.
+- Core error: history transaction behavior was duplicated between controller-local logic and core transaction service.
+- Investigation: compared `TMovePixelsController` and `TStrokeHistoryController` history flows against Phase-5 exit criteria, and traced where transaction begin/capture/commit diverged.
+- Root cause: core `TRegionHistoryTransaction` initially handled pixel-region snapshots only, while move-pixels needed selection-state restore semantics.
+- Fix: added optional selection-state mode to `TRegionHistoryTransaction`, routed move-pixels history through the same core transaction service, and expanded regression coverage (`RegionTransactionSelectionSnapshotRestoresSelectionOnUndoRedo` + move-pixels undo/redo tests).
+- Reuse note: when one route needs a richer snapshot contract, extend the shared transaction abstraction instead of introducing a second history orchestration path.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (region history for move-pixels must carry selection state, not pixels only)
+- Problem: moving `Move Pixels` commit from full-document history to dirty-rect history can regress undo/redo selection behavior if only layer pixels are captured.
+- Core error: region snapshots originally restored pixels only; move-pixels commit also mutates selection mask state.
+- Investigation: reviewed undo/redo flow for `skLayerRegion` snapshots and compared existing move-pixels commit semantics that previously relied on full snapshot restore.
+- Root cause: region-history abstraction lacked optional selection/active-layer payload for operations whose history contract includes non-pixel state.
+- Fix: extended region snapshot constructors with optional selection-state capture, added `PushRegionHistoryWithSelection(...)`, made undo/redo region counterpart snapshots mirror selection-restore intent, and added `MovePixelsControllerUndoRedoRestoresSelectionAndPixels` regression coverage.
+- Reuse note: when converting a route from full history to region history, enumerate all mutated state dimensions first (pixels, selection, active layer, metadata) and include each one explicitly in snapshot contract.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-06 (A3 tail cleanup can miss preview-session setup writes)
 - Problem: even after commit routes were guard-coupled, `Move Pixels` session begin still used direct surface writes to derive preview base state.
 - Core error: preview-setup temporary writes were outside the "commit route" audit list, so a locked layer could still start a route that should be blocked.
@@ -1852,3 +1870,137 @@ Use the same compact structure every time.
 - Fix: added stroke interpolation in `ApplyImmediateTool` for both tools. The algorithm: compute Euclidean distance from `FLastImagePoint` to `APoint`; divide by spacing (`max(1, Radius div 2)` ≈ 25% of diameter) to get step count; step linearly along the path and apply the stamp at each position. Both tools now produce smooth, continuous strokes matching Photoshop behavior.
 - Reuse note: any new brush-style tool that applies an effect at a single point (rather than calling a `DrawLine` primitive) MUST include this interpolation loop. The pattern is: compute `StrokeDist := Sqrt(dx^2 + dy^2)`, `StrokeSteps := Max(1, Round(StrokeDist / Spacing))`, then loop `StrokeStep := 0 to StrokeSteps-1` with linear interpolation `StepX := LastX + Round(DX * (Step+1) / Steps)`. Spacing of `max(1, Radius/2)` matches the Photoshop 25%-of-diameter convention. Do NOT use Bresenham (1px steps) for stamp tools — it causes excessive opacity stacking.
 - Repeat count: `This issue has occurred 2 time(s)` (CloneStamp and Recolor)
+
+## 2026-03-07 (anti-aliasing and Apple Silicon optimization research — findings for future implementation)
+
+This entry is a research summary, not a bug or fix. It documents the findings from investigating anti-aliasing and performance optimization strategies for FlatPaint on macOS / Apple Silicon, based on analysis of GIMP source code (in `reference/gimp-src/`), Krita/Pixelmator Pro/Affinity Photo architectural knowledge, and Apple developer documentation.
+
+### Current FlatPaint Rendering Status
+
+| Dimension | Current State | Gap |
+|---|---|---|
+| Line drawing | Bresenham integer stepping (`fpsurface.pas:615`) | No sub-pixel precision, hard staircase edges |
+| Shape edges | Binary inside/outside test (`fpsurface.pas:967`) | Ellipse/rect edges are aliased |
+| Selection AA | `FSelAntiAlias` UI toggle exists but not wired to core | `fpselection.pas` writes only 0 or 255 |
+| Pixel format | TRGBA32 = BGRA 8-bit/channel (`fpcolor.pas:8`) | No higher-precision intermediate format |
+| Compositing | 8-bit integer `div 255` (`fpcolor.pas:66`) | Cumulative rounding errors on many layers |
+| Brush positioning | Integer coordinates throughout | No sub-pixel brush offset |
+| Hardware accel | None — pure CPU scalar Pascal | NEON/Metal/Accelerate all unused |
+| Canvas scaling | LCL `StretchDraw` (`mainform.pas:4263`) | OS-dependent interpolation quality |
+
+### Industry Approaches (from GIMP source code analysis)
+
+**1. Signed Distance Field (SDF) anti-aliasing for shape edges**
+
+GIMP's ellipse selection AA (`reference/gimp-src/app/gegl/gimp-gegl-mask-combine.cc`):
+- Computes signed distance `d` from pixel center to shape boundary (normalized to pixel units)
+- Coverage = `CLAMP(0.5 + d, 0.0, 1.0)` — a 1-pixel-wide smooth transition
+- Only costs one extra `sqrt()` per pixel vs. binary test
+- Selection masks stored in `"Y float"` (32-bit float) format for precision
+- Arbitrary paths use Cairo library with `CAIRO_ANTIALIAS_GRAY`
+
+Applying to FlatPaint: change `DrawEllipse` from:
+```pascal
+if (NX*NX + NY*NY) <= 1.0 then BlendPixel(X, Y, Color, Opacity)
+```
+to:
+```pascal
+Dist := 1.0 - Sqrt(NX*NX + NY*NY);
+Coverage := EnsureRange(Round((Dist + 0.5) * 255), 0, 255);
+if Coverage > 0 then BlendPixel(X, Y, Color, Coverage * Opacity div 255);
+```
+Same pattern applies to `DrawRectangle`, `DrawRoundedRectangle`, and `SelectEllipse`.
+
+**2. Brush sub-pixel positioning via subsample kernels**
+
+GIMP (`reference/gimp-src/app/paint/gimpbrushcore-kernels.h`, `gimpbrushcore-loops.cc`):
+- Pre-computes 5×5 = 25 sets of 3×3 convolution kernels (KERNEL_SUBSAMPLE = 4)
+- Fractional pixel offset selects nearest kernel: `index = (int)(frac * 5)`
+- Brush mask is convolved with the selected kernel to shift it sub-pixel
+- Kernel values sum to 256 for integer arithmetic (no float needed)
+- Eliminates 1px "jumping" artifacts when brush moves slowly
+
+**3. Brush stroke spacing in brush coordinate space**
+
+GIMP (`reference/gimp-src/app/paint/gimpbrushcore.c:448`):
+- Spacing computed in brush's own coordinate system, accounting for scale/rotation
+- Default spacing: 15-25% of brush diameter
+- Dynamic spacing adjusts with pressure/velocity
+- "Stripe algorithm" for small spacings snaps to integer pixel boundaries along the dominant axis
+- Pressure, tilt, velocity are linearly interpolated between dabs
+
+**4. Float precision for selection/compositing**
+
+GIMP promotes to float at critical points:
+- Selection masks always created in `babl_format("Y float")` (`gimpchannel-select.c`)
+- Mask combine operations promote both operands to float (`gimp-gegl-mask-combine.cc:566`)
+- Blend mode intermediates use float when GEGL is involved
+- 8-bit storage only used for final output
+
+**5. SIMD compositing (SSE2/SSE4.1)**
+
+GIMP (`reference/gimp-src/app/operations/layer-modes/gimpoperationnormal-sse2.c`):
+- One RGBA pixel per 128-bit vector (`__v4sf`)
+- Standard Porter-Duff "over" in SSE: `out = src * src_a + dst * (1 - src_a)`
+- Alpha broadcast via `_mm_shuffle_epi32`
+- Runtime CPU dispatch: scalar → SSE2 → SSE4.1
+- Separate SSE2 paths for smudge tool and composite helper
+
+### Apple Silicon Specific Optimization Options
+
+**Option A: Accelerate/vImage framework (CPU, easiest integration)**
+
+Apple's `vImage` provides hardware-optimized image processing primitives that automatically use NEON SIMD on Apple Silicon and SSE on Intel:
+
+| vImage Function | Replaces | Expected Speedup |
+|---|---|---|
+| `vImagePremultipliedAlphaBlend_ARGB8888` | `Composite` per-pixel loop | 10-50× |
+| `vImageBoxConvolve_ARGB8888` | `BoxBlur`, `Soften` | 10-30× |
+| `vImageScale_ARGB8888` (Lanczos) | `Resize` bilinear loop | 5-20× |
+| `vImageConvert_Planar8toF` | future float format conversion | 5-10× |
+| `vImageDilate_*` / `vImageErode_*` | selection expand/contract | 10-30× |
+
+FPC integration: `{$linkframework Accelerate}` + `external 'Accelerate'` function declarations. vImage API is plain C functions, no ObjC needed.
+
+**Pixel layout note:** FlatPaint's TRGBA32 is BGRA. vImage has `_BGRA8888` variants for some functions; others require ARGB. May need `vImagePermuteChannels_ARGB8888` or a layout change.
+
+**Option B: Metal compute shaders (GPU, highest performance ceiling)**
+
+Best suited for: full-image operations (layer compositing, filters, canvas display).
+Not suited for: small-area brush operations (GPU upload/download latency > CPU compute time).
+
+Pragmatic first step: replace canvas display pipeline (`TBitmap` → `StretchDraw`) with `MTKView` texture upload — instant scaling quality and framerate improvement without touching core pixel processing.
+
+FPC integration: requires ObjC bridge (`objcprotocol`) for Metal protocols. High complexity.
+
+**Option C: NEON intrinsics (hand-written SIMD, precise control)**
+
+FPC supports aarch64 inline assembly and partial NEON intrinsics. Best for hot-path micro-optimizations like `BlendNormal`.
+
+Risk: FPC's NEON support is less mature than Clang/GCC. Recommend vImage over hand-written NEON unless vImage lacks a needed operation.
+
+### Recommended Implementation Priority
+
+| Priority | Change | Impact | Difficulty | Files |
+|---|---|---|---|---|
+| **P0** | SDF shape edge AA | All shape drawing + selections | Low | `fpsurface.pas`, `fpselection.pas` |
+| **P0** | Wire selection AA to core | Selection edges become smooth | Low | `fpselection.pas`, `fptoolcontrollers.pas` |
+| **P1** | Brush sub-pixel positioning | Smoother brush strokes | Medium | `fpsurface.pas` (kernel table + convolution) |
+| **P1** | 16-bit or float intermediate compositing | Reduced banding/rounding | Medium | `fpcolor.pas`, `fpdocument.pas` |
+| **P2** | vImage accelerated compositing + blur | Major perf on large images | Medium | new `fpaccelerate.pas` unit |
+| **P2** | Wu's anti-aliased lines | Smooth line tool edges | Low | `fpsurface.pas` |
+| **P3** | NEON BlendNormal | Compositing perf micro-opt | High | `fpcolor.pas` + asm |
+| **P3** | Metal canvas display | Viewport quality + framerate | High | new Metal view unit |
+| **P4** | Metal compute layer compositing | Large-image perf | Very High | architectural rework |
+
+### Key Technical Notes for Future Implementation
+
+1. **SDF transition width**: GIMP uses 1.0 pixel (±0.5). Formula `clamp(0.5 + d, 0, 1)`. No multisampling needed — just one `sqrt()` extra per edge pixel.
+
+2. **vImage pixel layout**: confirm `vImagePremultipliedAlphaBlend_BGRA8888` availability; if absent, either permute channels or change FlatPaint's pixel layout from BGRA to ARGB (which would be a significant but worthwhile refactor).
+
+3. **Float intermediate precision tradeoff**: Converting the entire pipeline to float (like GIMP 3.0 did) is a massive architectural change. Pragmatic approach: use float only for AA edge computation and selection masks; keep pixel storage as 8-bit BGRA.
+
+4. **FPC NEON support**: FPC 3.2+ supports aarch64 inline assembly (`asm ... end`). The `neon` unit provides some intrinsics but documentation is sparse. Prefer vImage (C ABI calls) over hand-written NEON for maintainability.
+
+5. **Metal entry point**: the lowest-risk Metal integration is replacing the viewport display layer (`StretchDraw` → `MTKView` texture blit). This doesn't touch any pixel processing logic but gives immediate scaling quality and FPS improvements. The Lazarus Cocoa widgetset's `TCocoaCustomControl` can host an `MTKView` as a subview.
