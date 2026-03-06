@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <EnvironmentOptions>
+    <LazarusDirectory Value="/Users/kurisu/Documents/workspace.nosync/lazarus/"/>
+    <CompilerFilename Value="/usr/local/bin/fpc"/>
+  </EnvironmentOptions>
+</CONFIG>

@@ -3,6 +3,10 @@
 Keep this file as the cumulative issue log for this project and for similar future image-editor projects.
 Use the same compact structure every time.
 
+## Scope note
+- This is a cumulative historical issue log and includes legacy entries from earlier prototype phases.
+- The active implementation stack for current work is FPC + Lazarus.
+
 ## Template
 - Problem: what failed
 - Core error: main error or direct symptom
@@ -11,6 +15,20 @@ Use the same compact structure every time.
 - Fix: what changed
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
+
+## 2026-03-06 (move-selected-pixels preview must not mutate committed layer pixels)
+- Problem: `Move Pixels` drag path erased source pixels immediately and pushed undo on mouse-down, so an interrupted drag could leave destructive intermediate state.
+- Core error: drag preview and final commit used the same mutation path (`MoveSelectedPixelsBy`), with no transaction boundary between "preview" and "commit".
+- Investigation: traced `PaintBoxMouseDown/Move/Up` and confirmed history was pushed on mouse-down and layer pixels were rewritten on every move event.
+- Root cause: there was no floating-buffer session model for move-selected-pixels; preview state was stored directly in the document layer.
+- Fix: added a dedicated move-pixels transaction lifecycle in `TMainForm`:
+  - begin: capture base selection + floating pixel buffer,
+  - update: move preview delta only and redraw non-destructive preview,
+  - commit: write exactly once on mouse-up with one history entry,
+  - cancel: restore selection and discard preview (`Esc` / context reset paths).
+  Added `tool_transaction_tests.pas` to lock these semantics in regression.
+- Reuse note: any drag tool that conceptually has preview and commit phases must model them separately in code. If preview and commit share the same mutation function, destructive interim-state regressions are likely.
+- Repeat count: `This issue has occurred 1 time(s)`
 
 ## 2026-03-05 (OnKeyUp must always be wired when OnKeyDown is wired)
 - Problem: all tools unable to draw or interact after pressing Space once. History stuck at first entry; layer add appeared to do nothing.

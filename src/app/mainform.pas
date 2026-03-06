@@ -181,6 +181,14 @@ type
     FStrokeDirtyRect: TRect;
     FStrokeLayerIndex: Integer;
     FStrokeTool: TToolKind;
+    { Transactional move-pixels state: preview during drag, commit on mouse-up. }
+    FMovePixelsSessionActive: Boolean;
+    FMovePixelsSessionMoved: Boolean;
+    FMovePixelsSessionLayerIndex: Integer;
+    FMovePixelsSessionDelta: TPoint;
+    FMovePixelsBaseSelection: TSelectionMask;
+    FMovePixelsFloatingPixels: TRasterSurface;
+    FMovePixelsPreviewBaseComposite: TRasterSurface;
     { Document tab management }
     FTabDocuments: array of TImageDocument;
     FTabFileNames: array of string;
@@ -372,6 +380,7 @@ type
     procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawQuadraticCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
     procedure DrawCubicCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint1, AControlPoint2, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
+    procedure RenderMovePixelsTransactionPreview(ASurface: TRasterSurface);
     procedure DrawHoverToolOverlay(ACanvas: TCanvas);
     function ActiveToolOverlayRadius: Integer;
     function TryGetCloneOverlaySourcePoint(out APoint: TPoint): Boolean;
@@ -632,6 +641,11 @@ type
     procedure BeginStrokeHistory;
     procedure ExpandStrokeDirty(const APoint: TPoint);
     procedure CommitStrokeHistory(const ALabel: string);
+    procedure ClearMovePixelsTransactionState;
+    procedure BeginMovePixelsTransaction;
+    procedure UpdateMovePixelsTransaction(DeltaX, DeltaY: Integer);
+    procedure CommitMovePixelsTransaction;
+    procedure CancelMovePixelsTransaction;
   public
     { Public constructor / destructor }
     constructor Create(TheOwner: TComponent); override;
@@ -776,6 +790,7 @@ begin
   FTabDragging := False;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
+  FMovePixelsSessionLayerIndex := -1;
   GMainForm := Self;
 end;
 
@@ -904,6 +919,7 @@ begin
   FTabDragging := False;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
+  FMovePixelsSessionLayerIndex := -1;
 
   { Default 96-colour swatch palette:
     1 grayscale band + 7 hue bands covering dark, mid, bright and pastel ramps. }
@@ -1164,6 +1180,9 @@ begin
   FreeAndNil(FClipboardSurface);
   FreeAndNil(FCloneStampSnapshot);
   FreeAndNil(FPreStrokeSnapshot);  { defensive cleanup in case a stroke was interrupted }
+  FreeAndNil(FMovePixelsBaseSelection);
+  FreeAndNil(FMovePixelsFloatingPixels);
+  FreeAndNil(FMovePixelsPreviewBaseComposite);
   FreeAndNil(FColorWheelBitmap);
   FreeAndNil(FColorSVBitmap);
   { Free all tab documents (FDocument just refers to FTabDocuments[FActiveTabIndex]) }
@@ -1226,12 +1245,23 @@ end;
 function TMainForm.BuildDisplaySurface: TRasterSurface;
 var
   CompositeSurface: TRasterSurface;
+  OwnsCompositeSurface: Boolean;
   X: Integer;
   Y: Integer;
   TileColor: TRGBA32;
   PixelColor: TRGBA32;
 begin
-  CompositeSurface := FDocument.Composite;
+  if FMovePixelsSessionActive and FMovePixelsSessionMoved and
+     Assigned(FMovePixelsPreviewBaseComposite) then
+  begin
+    CompositeSurface := FMovePixelsPreviewBaseComposite;
+    OwnsCompositeSurface := False;
+  end
+  else
+  begin
+    CompositeSurface := FDocument.Composite;
+    OwnsCompositeSurface := True;
+  end;
   try
     { Reuse FDisplaySurface to avoid a heap alloc + free on every repaint trigger.
       Only reallocate when the document dimensions change. }
@@ -1267,8 +1297,11 @@ begin
         end;
       end;
   finally
-    CompositeSurface.Free;
+    if OwnsCompositeSurface then
+      CompositeSurface.Free;
   end;
+
+  RenderMovePixelsTransactionPreview(FDisplaySurface);
 
   { Selection outline pass }
   if FDocument.HasSelection then
@@ -1579,7 +1612,124 @@ begin
   FPointerDown := False;
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
+  ClearMovePixelsTransactionState;
   FPendingSelectionMode := scReplace;
+end;
+
+procedure TMainForm.ClearMovePixelsTransactionState;
+begin
+  FreeAndNil(FMovePixelsBaseSelection);
+  FreeAndNil(FMovePixelsFloatingPixels);
+  FreeAndNil(FMovePixelsPreviewBaseComposite);
+  FMovePixelsSessionActive := False;
+  FMovePixelsSessionMoved := False;
+  FMovePixelsSessionLayerIndex := -1;
+  FMovePixelsSessionDelta := Point(0, 0);
+end;
+
+procedure TMainForm.BeginMovePixelsTransaction;
+var
+  SourceSnapshot: TRasterSurface;
+begin
+  ClearMovePixelsTransactionState;
+  if not Assigned(FDocument) or not FDocument.HasSelection then
+    Exit;
+  FMovePixelsBaseSelection := FDocument.Selection.Clone;
+  FMovePixelsFloatingPixels := FDocument.ActiveLayer.Surface.CopySelection(FMovePixelsBaseSelection);
+  FMovePixelsSessionLayerIndex := FDocument.ActiveLayerIndex;
+  SourceSnapshot := FDocument.ActiveLayer.Surface.Clone;
+  try
+    if FDocument.ActiveLayer.IsBackground then
+      FDocument.ActiveLayer.Surface.FillSelection(FMovePixelsBaseSelection, BackgroundToolColor, 255)
+    else
+      FDocument.ActiveLayer.Surface.EraseSelection(FMovePixelsBaseSelection);
+    FMovePixelsPreviewBaseComposite := FDocument.Composite;
+  finally
+    FDocument.ActiveLayer.Surface.Assign(SourceSnapshot);
+    SourceSnapshot.Free;
+  end;
+  FMovePixelsSessionDelta := Point(0, 0);
+  FMovePixelsSessionMoved := False;
+  FMovePixelsSessionActive := True;
+end;
+
+procedure TMainForm.UpdateMovePixelsTransaction(DeltaX, DeltaY: Integer);
+begin
+  if not FMovePixelsSessionActive then
+    Exit;
+  if not Assigned(FMovePixelsBaseSelection) then
+    Exit;
+  if (DeltaX = 0) and (DeltaY = 0) then
+    Exit;
+
+  Inc(FMovePixelsSessionDelta.X, DeltaX);
+  Inc(FMovePixelsSessionDelta.Y, DeltaY);
+  FMovePixelsSessionMoved := (FMovePixelsSessionDelta.X <> 0) or
+    (FMovePixelsSessionDelta.Y <> 0);
+
+  FDocument.Selection.Assign(FMovePixelsBaseSelection);
+  if FMovePixelsSessionMoved then
+    FDocument.Selection.MoveBy(FMovePixelsSessionDelta.X, FMovePixelsSessionDelta.Y);
+
+  SyncSelectionOverlayUI(False);
+end;
+
+procedure TMainForm.CommitMovePixelsTransaction;
+var
+  TargetLayer: TRasterLayer;
+begin
+  if not FMovePixelsSessionActive then
+    Exit;
+  if not Assigned(FMovePixelsBaseSelection) or not Assigned(FMovePixelsFloatingPixels) then
+  begin
+    ClearMovePixelsTransactionState;
+    Exit;
+  end;
+
+  if not FMovePixelsSessionMoved then
+  begin
+    FDocument.Selection.Assign(FMovePixelsBaseSelection);
+    ClearMovePixelsTransactionState;
+    SyncSelectionOverlayUI(False);
+    Exit;
+  end;
+
+  if (FMovePixelsSessionLayerIndex < 0) or
+     (FMovePixelsSessionLayerIndex >= FDocument.LayerCount) then
+    TargetLayer := FDocument.ActiveLayer
+  else
+    TargetLayer := FDocument.Layers[FMovePixelsSessionLayerIndex];
+
+  FDocument.PushHistory(PaintToolName(tkMovePixels));
+  if TargetLayer.IsBackground then
+    TargetLayer.Surface.FillSelection(FMovePixelsBaseSelection, BackgroundToolColor, 255)
+  else
+    TargetLayer.Surface.EraseSelection(FMovePixelsBaseSelection);
+  TargetLayer.Surface.PasteSurface(
+    FMovePixelsFloatingPixels,
+    FMovePixelsSessionDelta.X,
+    FMovePixelsSessionDelta.Y
+  );
+
+  FDocument.Selection.Assign(FMovePixelsBaseSelection);
+  FDocument.Selection.MoveBy(FMovePixelsSessionDelta.X, FMovePixelsSessionDelta.Y);
+
+  ClearMovePixelsTransactionState;
+  SyncImageMutationUI(False, True);
+  RefreshHistoryPanel;
+end;
+
+procedure TMainForm.CancelMovePixelsTransaction;
+begin
+  if not FMovePixelsSessionActive then
+    Exit;
+  FPointerDown := False;
+  if Assigned(FPaintBox) then
+    FPaintBox.MouseCapture := False;
+  if Assigned(FDocument) and Assigned(FMovePixelsBaseSelection) then
+    FDocument.Selection.Assign(FMovePixelsBaseSelection);
+  ClearMovePixelsTransactionState;
+  SyncSelectionOverlayUI(False);
 end;
 
 procedure TMainForm.SyncSelectionOverlayUI(AMarkDirty: Boolean);
@@ -4106,6 +4256,35 @@ begin
     );
     PrevPoint := NextPoint;
   end;
+end;
+
+procedure TMainForm.RenderMovePixelsTransactionPreview(ASurface: TRasterSurface);
+var
+  X: Integer;
+  Y: Integer;
+  TargetX: Integer;
+  TargetY: Integer;
+  PixelColor: TRGBA32;
+begin
+  if not FMovePixelsSessionActive then
+    Exit;
+  if not FMovePixelsSessionMoved then
+    Exit;
+  if (ASurface = nil) or (FMovePixelsFloatingPixels = nil) then
+    Exit;
+
+  for Y := 0 to FMovePixelsFloatingPixels.Height - 1 do
+    for X := 0 to FMovePixelsFloatingPixels.Width - 1 do
+    begin
+      PixelColor := FMovePixelsFloatingPixels[X, Y];
+      if PixelColor.A = 0 then
+        Continue;
+      TargetX := X + FMovePixelsSessionDelta.X;
+      TargetY := Y + FMovePixelsSessionDelta.Y;
+      if not ASurface.InBounds(TargetX, TargetY) then
+        Continue;
+      ASurface[TargetX, TargetY] := BlendNormal(PixelColor, ASurface[TargetX, TargetY], 255);
+    end;
 end;
 
 procedure TMainForm.DrawHoverToolOverlay(ACanvas: TCanvas);
@@ -9230,6 +9409,16 @@ begin
     Exit;
   end;
 
+  if (Key = VK_ESCAPE) and FMovePixelsSessionActive then
+  begin
+    FPointerDown := False;
+    if Assigned(FPaintBox) then
+      FPaintBox.MouseCapture := False;
+    CancelMovePixelsTransaction;
+    Key := 0;
+    Exit;
+  end;
+
   if (FCurrentTool = tkLine) and FLineBezierMode and (FLineCurvePending or FLinePathOpen) then
     case Key of
       VK_ESCAPE:
@@ -9341,6 +9530,8 @@ end;
 
 procedure TMainForm.SealPendingStrokeHistory;
 begin
+  if FMovePixelsSessionActive then
+    CancelMovePixelsTransaction;
   if not Assigned(FPreStrokeSnapshot) then
     Exit;
   if Assigned(FPaintBox) then
@@ -9649,8 +9840,10 @@ begin
       begin
         if not FDocument.HasSelection then
           FPointerDown := False
-        else
+        else if FCurrentTool = tkMoveSelection then
           FDocument.PushHistory(PaintToolName(FCurrentTool));
+        if FPointerDown and (FCurrentTool = tkMovePixels) then
+          BeginMovePixelsTransaction;
       end;
   end;
   if Assigned(FPaintBox) then
@@ -9720,9 +9913,8 @@ begin
       tkMovePixels:
         if (DeltaX <> 0) or (DeltaY <> 0) then
         begin
-          FDocument.MoveSelectedPixelsBy(DeltaX, DeltaY, BackgroundToolColor);
+          UpdateMovePixelsTransaction(DeltaX, DeltaY);
           FLastImagePoint := ImagePoint;
-          SyncSelectionOverlayUI(True);
         end;
       tkSelectLasso, tkFreeformShape:
         begin
@@ -9907,6 +10099,7 @@ begin
   end;
   if FCurrentTool = tkMovePixels then
   begin
+    CommitMovePixelsTransaction;
     RefreshTabCardVisuals(FActiveTabIndex);
     RefreshAuxiliaryImageViews(True);
   end;
@@ -10790,6 +10983,7 @@ var
   N: Integer;
 begin
   SealPendingStrokeHistory;
+  CancelMovePixelsTransaction;
   { Flush current state to arrays }
   if Length(FTabDocuments) > 0 then
   begin
@@ -10820,6 +11014,7 @@ begin
   if AIndex = FActiveTabIndex then Exit;
   if (AIndex < 0) or (AIndex >= Length(FTabDocuments)) then Exit;
   SealPendingStrokeHistory;
+  CancelMovePixelsTransaction;
   CommitInlineTextEdit(True);
 
   { Save current state }
@@ -10870,6 +11065,7 @@ begin
   N := Length(FTabDocuments);
   if AIndex = FActiveTabIndex then
     SealPendingStrokeHistory;
+  CancelMovePixelsTransaction;
   CommitInlineTextEdit(True);
   if N <= 1 then
   begin

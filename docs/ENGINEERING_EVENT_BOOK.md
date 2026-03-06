@@ -9,18 +9,9 @@ Use one short block per issue.
 - Fix: what changed to resolve it
 - Repeat count: `This issue has occurred N time(s)`
 
-## 2026-02-28
-- Problem: `swift test` could not run in the default workspace sandbox
-- Core error: `sandbox-exec: sandbox_apply: Operation not permitted`
-- Investigation: ran `swift test`, then checked the failure output and saw SwiftPM manifest compilation and cache setup failing under the sandbox
-- Fix: reran `swift test` with elevated execution so SwiftPM could use its required system facilities
-- Repeat count: This issue has occurred 1 time(s)
-
-- Problem: the app target failed to compile because the module had two entry points
-- Core error: `'main' attribute can only apply to one type in a module`
-- Investigation: inspected `Sources/FlatPaintApp` after the build failed and found the generated `FlatPaint.swift` still present next to the new `FlatPaintApp.swift`
-- Fix: deleted the leftover generated `Sources/FlatPaintApp/FlatPaint.swift` file
-- Repeat count: This issue has occurred 1 time(s)
+## Scope note
+- This file tracks the active FPC/Lazarus implementation era.
+- Pre-FPC/Swift-era historical entries are archived in `docs/archive/ENGINEERING_EVENT_BOOK_PRE_FPC.md`.
 
 ## 2026-03-05
 - Problem: Drawing tools (pencil, rectangle, etc.) appeared to work (visual feedback during drag) but strokes never "landed" on canvas. Undo history only showed 0 and 1 entries, never growing to 2, 3, 4.

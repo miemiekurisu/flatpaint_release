@@ -1,5 +1,24 @@
 # Test Log
 
+## Scope note
+- This is a cumulative historical log and includes legacy test records from earlier prototype phases.
+- The active test/build toolchain for current work is FPC + Lazarus.
+
+## 2026-03-06 (Phase 1/2 move-pixels transaction migration)
+- Full regression run after transactional `Move Pixels` migration and new transaction tests: `bash ./scripts/run_tests_ci.sh`
+- Result: failed; `239` tests, `0` errors, `8` failures.
+- Failure set unchanged from previous baseline:
+  - `TFPUIHelpersTests` (shortcut/hint/cycle mapping contracts)
+  - `TFPPaletteHelpersTests` (colors panel width contract)
+- New suite result:
+  - `TToolTransactionTests` passed (`3/3`)
+  - Cases:
+    - `MovePixelsDragDoesNotMutateLayerBeforeMouseUp`
+    - `MovePixelsClickWithoutDeltaDoesNotPushHistory`
+    - `MovePixelsEscapeCancelsPreviewAndRestoresSelection`
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-06 (docs/code baseline alignment audit)
 - Full regression run after code-vs-doc alignment audit: `bash ./scripts/run_tests_ci.sh`
 - Result: failed; 236 tests, 0 errors, 8 failures.

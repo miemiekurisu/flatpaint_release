@@ -7,7 +7,7 @@
 
 ## Evidence snapshot (2026-03-06)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `./dist/flatpaint_tests --all` => 236 tests, 8 failures.
+- Test status: `./dist/flatpaint_tests --all` => 239 tests, 8 failures.
 - Consequence: broad feature coverage exists, but release readiness is blocked by unresolved regressions.
 
 ## Status legend
@@ -24,7 +24,7 @@
 | View surface | Zoom/grid/rulers/units + tab navigation + pan behavior | Partial | High | Major routes are live; remaining parity is around deeper quick-size/status semantics. |
 | Image geometry | Crop/resize/canvas size/rotate/flip/flatten | Implemented | High | Core operations are wired and broadly covered by tests. |
 | Layers | Add/delete/duplicate/reorder/properties/merge/flatten/lock | Implemented | High | Blend modes, locking, drag reorder, thumbnail-backed list are present. |
-| Selection tools | Rect/ellipse/lasso/wand/move-selection/move-pixels + combine modes | Implemented | High | Selection family is implemented in core + UI routes. |
+| Selection tools | Rect/ellipse/lasso/wand/move-selection/move-pixels + combine modes | Implemented | High | Selection family is implemented in core + UI routes; `Move Pixels` now uses transactional drag-preview, mouse-up commit, and escape cancel semantics with dedicated transaction tests. |
 | Paint tools | Fill/gradient/pencil/brush/eraser/picker/clone/recolor/crop/pan | Implemented | High | Tool family is broad and functionally usable. |
 | Draw tools | Text/line/rect/rounded rect/ellipse/freeform shape | Partial | Medium | Baseline present; advanced node-edit parity for line/curve/object workflows is incomplete. |
 | Colors panel | Primary/secondary + alpha-aware edits + fast controls | Partial | Medium | Functional but still under polish; currently includes a failing layout-contract test. |

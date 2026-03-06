@@ -1,5 +1,36 @@
 # Development Progress Log
 
+## Scope note
+- This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
+- The active implementation stack for current work is FPC + Lazarus.
+
+## 2026-03-06 (Phase 1/2: move-selected-pixels transaction migration)
+
+### Changes
+
+1. **Move Pixels entered transactional mode in `TMainForm`** — Added explicit session lifecycle helpers (`BeginMovePixelsTransaction`, `UpdateMovePixelsTransaction`, `CommitMovePixelsTransaction`, `CancelMovePixelsTransaction`) and session state fields so drag interaction no longer writes history on mouse-down.
+
+2. **Drag preview is now non-destructive in document pixels** — During drag, selected pixels are held in a floating buffer and rendered as preview in `BuildDisplaySurface`, while the committed active-layer pixels remain unchanged until mouse-up commit.
+
+3. **Commit/cancel semantics were hardened** — `MouseUp` commits exactly one history entry when the drag moved; no-delta click commits nothing; `Esc` cancels preview and restores the original selection state.
+
+4. **Cross-route cleanup integrated** — Transaction state now clears during transient-state reset and tab/document transition paths to avoid stale session residue when context changes.
+
+5. **New transaction regression suite added** — `src/tests/tool_transaction_tests.pas` now covers:
+   - drag preview does not mutate layer pixels before commit,
+   - click-without-delta does not create undo noise,
+   - `Esc` cancel restores selection and leaves pixels/history unchanged.
+
+6. **Architecture reference protocol followed** — This pass used the previously documented GIMP floating-selection lifecycle only as architecture guidance (transaction boundary and commit/cancel flow), with no code/identifier reuse and no runtime/build dependency on `reference/gimp-src`.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **failed**, `239` tests, `8` failures (same pre-existing failure set: `TFPUIHelpersTests`, `TFPPaletteHelpersTests`)
+  - New transaction suite status: `TToolTransactionTests` `3/3` passed.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, app linked and `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-06 (code-first baseline realignment: PRD/Feature Matrix/SOW + latest verification)
 
 ### Changes

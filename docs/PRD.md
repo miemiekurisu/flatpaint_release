@@ -104,7 +104,7 @@ These are explicit product decisions and not treated as parity regressions.
 
 ## Current implementation snapshot (as of 2026-03-06)
 - App build: passes via `bash ./scripts/build.sh`.
-- Regression run: `236` tests executed, `8` failures (not release-clean).
+- Regression run: `239` tests executed, `8` failures (not release-clean).
 - Product status: functionally broad and highly usable for many workflows, but not UAT-ready due to failing regression subset and remaining parity/polish gaps.
 
 ## UAT gate
