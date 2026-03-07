@@ -14,6 +14,7 @@ uses
   ui_applescript_tests, ui_prototype_tests, perf_snapshot_tests,
   fprulerhelpers_tests, fpzoomhelpers_tests, fpviewhelpers_tests,
   fpiconhelpers_tests,
+  fpshortcuthelpers_tests,
   fptoolbarhelpers_tests,
   mutation_guard_tests,
   history_transaction_tests,

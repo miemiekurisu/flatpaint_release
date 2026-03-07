@@ -7,7 +7,7 @@
 
 ## Evidence snapshot (2026-03-07)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `bash ./scripts/run_tests_ci.sh` => 279 tests, 0 failures.
+- Test status: `bash ./scripts/run_tests_ci.sh` => 284 tests, 0 failures.
 - Consequence: regression gate is clean; remaining risk is parity depth and architecture follow-up phases, not immediate failing-suite blockers.
 
 ## Status legend
@@ -32,15 +32,16 @@
 | Effects | Broad built-in effect families + repeat-last-effect | Implemented | High | Large effect set routed through menu and document operations. |
 | Export/options | Format-specific export controls | Partial | Medium | Practical controls exist; deeper parity for all format-specific workflows remains open. |
 | Compatibility IO | PSD/PDN/XCF/KRA fallback-oriented support | Partial | Medium | Usable baseline with explicit fallbacks; full layered fidelity intentionally out of scope. |
-| Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | Shortcut mapping/hint/cycle regressions in `TFPUIHelpersTests` are closed; suite is green. |
+| Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | Shortcut mapping/hint/cycle regressions in `TFPUIHelpersTests` are closed and test-clean; command-surface parity audit is still not exhaustive (see `docs/SHORTCUT_POLICY.md`). |
 | Iconography | Cohesive icon surface across command/tool/utility controls | Partial | Medium | Runtime icon pipeline exists; overlay re-alignment now runs on deferred startup + resize and loader supports optional `@2x` assets, but full multi-scale packaged asset set and final Retina polish are still incomplete. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
-| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 279 tests, 0 failures. |
+| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 284 tests, 0 failures. |
 
 ## Current insufficient items (must close for release confidence)
 1. Route-level parity debt (documented, not fully closed):
 - not every visible toolbar/tool route has one-to-one route-level automated coverage
 - utility-icon and status quick-action parity still behind documented target
+- shortcut parity coverage vs paint.net command surface is still incomplete (policy-level gaps remain open)
 
 2. UI parity debt against active Figma baseline:
 - top/toolbar/palette visual style still requires convergence and consistency polish

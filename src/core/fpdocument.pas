@@ -19,6 +19,12 @@ type
     bmSoftLight
   );
 
+  TRecolorSamplingMode = (
+    rsmOnce,
+    rsmContinuous,
+    rsmSwatchCompat
+  );
+
   TToolKind = (
     tkPencil,
     tkBrush,
@@ -140,6 +146,13 @@ type
     function AnyLayerLocked: Boolean;
     function CanMutateActiveLayerPixels: Boolean;
     function CanMutateDocumentPixels: Boolean;
+    function CanvasPointToLayerPoint(ALayer: TRasterLayer; X, Y: Integer): TPoint;
+    function TranslateSelectionMask(
+      ASource: TSelectionMask;
+      ADestWidth, ADestHeight: Integer;
+      DeltaX, DeltaY: Integer
+    ): TSelectionMask;
+    function SelectionInLayerSpace(ALayer: TRasterLayer; ASelection: TSelectionMask): TSelectionMask;
     procedure EnforceLayerInvariant;
   public
     constructor Create(AWidth, AHeight: Integer);
@@ -249,11 +262,21 @@ type
     procedure InkSketch(InkStrength: Integer = 75; Coloring: Integer = 50);
     procedure RenderMandelbrot(Iterations: Integer = 64; Zoom: Double = 1.0);
     procedure RenderJulia(Iterations: Integer = 64; Zoom: Double = 1.0; CReal: Double = -0.8; CImag: Double = 0.156);
-    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; PreserveValue: Boolean = False; ASelection: TSelectionMask = nil);
+    procedure RecolorBrush(
+      X, Y, Radius: Integer;
+      SourceColor, NewColor: TRGBA32;
+      Tolerance: Byte;
+      Opacity: Byte = 255;
+      PreserveValue: Boolean = False;
+      ASelection: TSelectionMask = nil;
+      Mode: TRecolorBlendMode = rbmReplaceRGBCompat
+    );
     function HasSelection: Boolean;
     function HasStoredSelection: Boolean;
     procedure StoreSelectionForPaste;
     procedure PasteStoredSelection;
+    function ActiveSelectionInLayerSpace: TSelectionMask;
+    function SelectionToActiveLayerSpace(ASelection: TSelectionMask): TSelectionMask;
     function Composite: TRasterSurface;
     function LayerCount: Integer;
     function UndoDepth: Integer;
@@ -501,6 +524,53 @@ begin
   State.HasAnyLayer := FLayers.Count > 0;
   State.AnyLayerLocked := AnyLayerLocked;
   Result := MutationAllowed(State, msDocumentPixels);
+end;
+
+function TImageDocument.CanvasPointToLayerPoint(ALayer: TRasterLayer; X, Y: Integer): TPoint;
+begin
+  if ALayer = nil then
+    Exit(Point(X, Y));
+  Result := Point(X - ALayer.OffsetX, Y - ALayer.OffsetY);
+end;
+
+function TImageDocument.TranslateSelectionMask(
+  ASource: TSelectionMask;
+  ADestWidth, ADestHeight: Integer;
+  DeltaX, DeltaY: Integer
+): TSelectionMask;
+var
+  X: Integer;
+  Y: Integer;
+  SourceX: Integer;
+  SourceY: Integer;
+begin
+  if ASource = nil then
+    Exit(nil);
+  Result := TSelectionMask.Create(ADestWidth, ADestHeight);
+  for Y := 0 to Result.Height - 1 do
+    for X := 0 to Result.Width - 1 do
+    begin
+      SourceX := X - DeltaX;
+      SourceY := Y - DeltaY;
+      Result.SetCoverage(X, Y, ASource.Coverage(SourceX, SourceY));
+    end;
+end;
+
+function TImageDocument.SelectionInLayerSpace(ALayer: TRasterLayer; ASelection: TSelectionMask): TSelectionMask;
+begin
+  if (ALayer = nil) or (ASelection = nil) then
+    Exit(nil);
+  if (ALayer.OffsetX = 0) and (ALayer.OffsetY = 0) and
+     (ALayer.Surface.Width = ASelection.Width) and
+     (ALayer.Surface.Height = ASelection.Height) then
+    Exit(ASelection.Clone);
+  Result := TranslateSelectionMask(
+    ASelection,
+    ALayer.Surface.Width,
+    ALayer.Surface.Height,
+    -ALayer.OffsetX,
+    -ALayer.OffsetY
+  );
 end;
 
 procedure TImageDocument.EnforceLayerInvariant;
@@ -796,8 +866,12 @@ procedure TImageDocument.MergeDown;
 var
   TopLayer: TRasterLayer;
   BottomLayer: TRasterLayer;
-  X: Integer;
-  Y: Integer;
+  LocalX: Integer;
+  LocalY: Integer;
+  CanvasX: Integer;
+  CanvasY: Integer;
+  BottomX: Integer;
+  BottomY: Integer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
@@ -806,9 +880,17 @@ begin
 
   TopLayer := Layers[FActiveLayerIndex];
   BottomLayer := Layers[FActiveLayerIndex - 1];
-  for Y := 0 to FHeight - 1 do
-    for X := 0 to FWidth - 1 do
-      BottomLayer.Surface.BlendPixel(X, Y, TopLayer.Surface[X, Y], TopLayer.Opacity);
+  for LocalY := 0 to TopLayer.Surface.Height - 1 do
+    for LocalX := 0 to TopLayer.Surface.Width - 1 do
+    begin
+      CanvasX := LocalX + TopLayer.OffsetX;
+      CanvasY := LocalY + TopLayer.OffsetY;
+      BottomX := CanvasX - BottomLayer.OffsetX;
+      BottomY := CanvasY - BottomLayer.OffsetY;
+      if not BottomLayer.Surface.InBounds(BottomX, BottomY) then
+        Continue;
+      BottomLayer.Surface.BlendPixel(BottomX, BottomY, TopLayer.Surface[LocalX, LocalY], TopLayer.Opacity);
+    end;
 
   BottomLayer.Name := BottomLayer.Name + ' + ' + TopLayer.Name;
   FLayers.Delete(FActiveLayerIndex);
@@ -848,6 +930,9 @@ end;
 procedure TImageDocument.Crop(X, Y, AWidth, AHeight: Integer);
 var
   LayerIndex: Integer;
+  Layer: TRasterLayer;
+  LocalCropX: Integer;
+  LocalCropY: Integer;
   Cropped: TRasterSurface;
   CroppedSelection: TSelectionMask;
 begin
@@ -857,9 +942,14 @@ begin
   AHeight := Max(1, AHeight);
   for LayerIndex := 0 to FLayers.Count - 1 do
   begin
-    Cropped := Layers[LayerIndex].Surface.Crop(X, Y, AWidth, AHeight);
+    Layer := Layers[LayerIndex];
+    LocalCropX := X - Layer.OffsetX;
+    LocalCropY := Y - Layer.OffsetY;
+    Cropped := Layer.Surface.Crop(LocalCropX, LocalCropY, AWidth, AHeight);
     try
-      Layers[LayerIndex].Surface.Assign(Cropped);
+      Layer.Surface.Assign(Cropped);
+      Layer.OffsetX := Layer.OffsetX - X;
+      Layer.OffsetY := Layer.OffsetY - Y;
     finally
       Cropped.Free;
     end;
@@ -882,11 +972,15 @@ end;
 procedure TImageDocument.ResizeImage(ANewWidth, ANewHeight: Integer; AResampleMode: TResampleMode);
 var
   LayerIndex: Integer;
+  OldWidth: Integer;
+  OldHeight: Integer;
   Resized: TRasterSurface;
   ResizedSelection: TSelectionMask;
 begin
   if not CanMutateDocumentPixels then
     Exit;
+  OldWidth := FWidth;
+  OldHeight := FHeight;
   ANewWidth := Max(1, ANewWidth);
   ANewHeight := Max(1, ANewHeight);
   for LayerIndex := 0 to FLayers.Count - 1 do
@@ -899,6 +993,8 @@ begin
     end;
     try
       Layers[LayerIndex].Surface.Assign(Resized);
+      Layers[LayerIndex].OffsetX := Round((Layers[LayerIndex].OffsetX * ANewWidth) / Max(1, OldWidth));
+      Layers[LayerIndex].OffsetY := Round((Layers[LayerIndex].OffsetY * ANewHeight) / Max(1, OldHeight));
     finally
       Resized.Free;
     end;
@@ -921,22 +1017,32 @@ end;
 procedure TImageDocument.FlipHorizontal;
 var
   LayerIndex: Integer;
+  Layer: TRasterLayer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
-    Layers[LayerIndex].Surface.FlipHorizontal;
+  begin
+    Layer := Layers[LayerIndex];
+    Layer.Surface.FlipHorizontal;
+    Layer.OffsetX := (FWidth - Layer.Surface.Width) - Layer.OffsetX;
+  end;
   FSelection.FlipHorizontal;
 end;
 
 procedure TImageDocument.FlipVertical;
 var
   LayerIndex: Integer;
+  Layer: TRasterLayer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
-    Layers[LayerIndex].Surface.FlipVertical;
+  begin
+    Layer := Layers[LayerIndex];
+    Layer.Surface.FlipVertical;
+    Layer.OffsetY := (FHeight - Layer.Surface.Height) - Layer.OffsetY;
+  end;
   FSelection.FlipVertical;
 end;
 
@@ -951,12 +1057,22 @@ end;
 procedure TImageDocument.Rotate90Clockwise;
 var
   LayerIndex: Integer;
+  Layer: TRasterLayer;
+  PreviousOffsetX: Integer;
+  PreviousOffsetY: Integer;
   TempSize: Integer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
-    Layers[LayerIndex].Surface.Rotate90Clockwise;
+  begin
+    Layer := Layers[LayerIndex];
+    PreviousOffsetX := Layer.OffsetX;
+    PreviousOffsetY := Layer.OffsetY;
+    Layer.Surface.Rotate90Clockwise;
+    Layer.OffsetX := -PreviousOffsetY;
+    Layer.OffsetY := PreviousOffsetX;
+  end;
   FSelection.Rotate90Clockwise;
   TempSize := FWidth;
   FWidth := FHeight;
@@ -966,12 +1082,22 @@ end;
 procedure TImageDocument.Rotate90CounterClockwise;
 var
   LayerIndex: Integer;
+  Layer: TRasterLayer;
+  PreviousOffsetX: Integer;
+  PreviousOffsetY: Integer;
   TempSize: Integer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
   for LayerIndex := 0 to FLayers.Count - 1 do
-    Layers[LayerIndex].Surface.Rotate90CounterClockwise;
+  begin
+    Layer := Layers[LayerIndex];
+    PreviousOffsetX := Layer.OffsetX;
+    PreviousOffsetY := Layer.OffsetY;
+    Layer.Surface.Rotate90CounterClockwise;
+    Layer.OffsetX := PreviousOffsetY;
+    Layer.OffsetY := -PreviousOffsetX;
+  end;
   FSelection.Rotate90CounterClockwise;
   TempSize := FWidth;
   FWidth := FHeight;
@@ -1011,8 +1137,10 @@ end;
 procedure TImageDocument.SelectMagicWand(X, Y: Integer; Tolerance: Byte; AMode: TSelectionCombineMode; UseAllLayers: Boolean; Contiguous: Boolean);
 var
   SelectionFromWand: TSelectionMask;
+  SelectionInCanvasSpace: TSelectionMask;
   SelectX: Integer;
   SelectY: Integer;
+  SamplePoint: TPoint;
   SampleSurface: TRasterSurface;
   OwnsSampleSurface: Boolean;
 begin
@@ -1020,19 +1148,34 @@ begin
   begin
     SampleSurface := Composite;
     OwnsSampleSurface := True;
+    SamplePoint := Point(X, Y);
   end
   else
   begin
     SampleSurface := ActiveLayer.Surface;
     OwnsSampleSurface := False;
+    SamplePoint := CanvasPointToLayerPoint(ActiveLayer, X, Y);
   end;
   if Contiguous then
-    SelectionFromWand := SampleSurface.CreateContiguousSelection(X, Y, Tolerance)
+    SelectionFromWand := SampleSurface.CreateContiguousSelection(SamplePoint.X, SamplePoint.Y, Tolerance)
   else
-    SelectionFromWand := SampleSurface.CreateGlobalColorSelection(X, Y, Tolerance);
+    SelectionFromWand := SampleSurface.CreateGlobalColorSelection(SamplePoint.X, SamplePoint.Y, Tolerance);
   if OwnsSampleSurface then
     SampleSurface.Free;
   try
+    if not UseAllLayers then
+    begin
+      SelectionInCanvasSpace := TranslateSelectionMask(
+        SelectionFromWand,
+        FSelection.Width,
+        FSelection.Height,
+        ActiveLayer.OffsetX,
+        ActiveLayer.OffsetY
+      );
+      SelectionFromWand.Free;
+      SelectionFromWand := SelectionInCanvasSpace;
+    end;
+
     case AMode of
       scReplace:
         begin
@@ -1061,7 +1204,9 @@ end;
 function TImageDocument.CopySelectionToSurface(ACropToBounds: Boolean): TRasterSurface;
 var
   Copied: TRasterSurface;
+  LocalSelection: TSelectionMask;
   Bounds: TRect;
+  LocalBounds: TRect;
 begin
   if not FSelection.HasSelection then
     Exit(ActiveLayer.Surface.Clone);
@@ -1069,15 +1214,28 @@ begin
   { Keep a structural snapshot for "Paste Selection (Replace)" routes whenever
     copy/cut is selection-scoped, so app paths do not need to remember this. }
   StoreSelectionForPaste;
-  Copied := ActiveLayer.Surface.CopySelection(FSelection);
-  if not ACropToBounds then
-    Exit(Copied);
-
+  LocalSelection := SelectionInLayerSpace(ActiveLayer, FSelection);
   try
-    Bounds := FSelection.BoundsRect;
-    Result := Copied.Crop(Bounds.Left, Bounds.Top, Bounds.Right - Bounds.Left, Bounds.Bottom - Bounds.Top);
+    Copied := ActiveLayer.Surface.CopySelection(LocalSelection);
+    if not ACropToBounds then
+      Exit(Copied);
+    try
+      Bounds := FSelection.BoundsRect;
+      LocalBounds.Left := Bounds.Left - ActiveLayer.OffsetX;
+      LocalBounds.Top := Bounds.Top - ActiveLayer.OffsetY;
+      LocalBounds.Right := Bounds.Right - ActiveLayer.OffsetX;
+      LocalBounds.Bottom := Bounds.Bottom - ActiveLayer.OffsetY;
+      Result := Copied.Crop(
+        LocalBounds.Left,
+        LocalBounds.Top,
+        LocalBounds.Right - LocalBounds.Left,
+        LocalBounds.Bottom - LocalBounds.Top
+      );
+    finally
+      Copied.Free;
+    end;
   finally
-    Copied.Free;
+    LocalSelection.Free;
   end;
 end;
 
@@ -1115,16 +1273,23 @@ begin
 end;
 
 function TImageDocument.CutSelectionToSurface(ACropToBounds: Boolean; const ABackgroundColor: TRGBA32): TRasterSurface;
+var
+  LocalSelection: TSelectionMask;
 begin
   Result := CopySelectionToSurface(ACropToBounds);
   if not CanMutateActiveLayerPixels then
     Exit;
   if FSelection.HasSelection then
   begin
+    LocalSelection := SelectionInLayerSpace(ActiveLayer, FSelection);
+    try
     if ActiveLayer.IsBackground then
-      ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255)
+        ActiveLayer.Surface.FillSelection(LocalSelection, BackgroundReplacementColor(ABackgroundColor), 255)
     else
-      ActiveLayer.Surface.EraseSelection(FSelection);
+        ActiveLayer.Surface.EraseSelection(LocalSelection);
+    finally
+      LocalSelection.Free;
+    end;
   end
   else if ActiveLayer.IsBackground then
     ActiveLayer.Surface.Clear(BackgroundReplacementColor(ABackgroundColor))
@@ -1139,24 +1304,40 @@ begin
   if ASurface = nil then
     Exit;
   Layer := AddLayer(ALayerName);
-  Layer.Surface.PasteSurface(ASurface, OffsetX, OffsetY);
+  Layer.OffsetX := OffsetX;
+  Layer.OffsetY := OffsetY;
+  Layer.Surface.PasteSurface(ASurface, 0, 0);
 end;
 
 procedure TImageDocument.PasteSurfaceToActiveLayer(ASurface: TRasterSurface;
   OffsetX, OffsetY: Integer; Opacity: Byte; ASelection: TSelectionMask);
+var
+  LocalSelection: TSelectionMask;
 begin
   if (ASurface = nil) or not CanMutateActiveLayerPixels then
     Exit;
-  ActiveLayer.Surface.PasteSurface(ASurface, OffsetX, OffsetY, Opacity, ASelection);
+  LocalSelection := SelectionInLayerSpace(ActiveLayer, ASelection);
+  try
+    ActiveLayer.Surface.PasteSurface(ASurface, OffsetX, OffsetY, Opacity, LocalSelection);
+  finally
+    LocalSelection.Free;
+  end;
 end;
 
 procedure TImageDocument.FillSelection(const AColor: TRGBA32; Opacity: Byte);
+var
+  LocalSelection: TSelectionMask;
 begin
   if not FSelection.HasSelection then
     Exit;
   if not CanMutateActiveLayerPixels then
     Exit;
-  ActiveLayer.Surface.FillSelection(FSelection, AColor, Opacity);
+  LocalSelection := SelectionInLayerSpace(ActiveLayer, FSelection);
+  try
+    ActiveLayer.Surface.FillSelection(LocalSelection, AColor, Opacity);
+  finally
+    LocalSelection.Free;
+  end;
 end;
 
 procedure TImageDocument.EraseSelection;
@@ -1165,15 +1346,22 @@ begin
 end;
 
 procedure TImageDocument.EraseSelection(const ABackgroundColor: TRGBA32);
+var
+  LocalSelection: TSelectionMask;
 begin
   if not FSelection.HasSelection then
     Exit;
   if not CanMutateActiveLayerPixels then
     Exit;
+  LocalSelection := SelectionInLayerSpace(ActiveLayer, FSelection);
+  try
   if ActiveLayer.IsBackground then
-    ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255)
+      ActiveLayer.Surface.FillSelection(LocalSelection, BackgroundReplacementColor(ABackgroundColor), 255)
   else
-    ActiveLayer.Surface.EraseSelection(FSelection);
+      ActiveLayer.Surface.EraseSelection(LocalSelection);
+  finally
+    LocalSelection.Free;
+  end;
 end;
 
 procedure TImageDocument.MoveSelectionBy(DeltaX, DeltaY: Integer);
@@ -1190,6 +1378,7 @@ end;
 
 procedure TImageDocument.MoveSelectedPixelsBy(DeltaX, DeltaY: Integer; const ABackgroundColor: TRGBA32);
 var
+  LocalSelection: TSelectionMask;
   Copied: TRasterSurface;
   X: Integer;
   Y: Integer;
@@ -1201,20 +1390,22 @@ begin
     Exit;
   if not CanMutateActiveLayerPixels then
     Exit;
+  LocalSelection := SelectionInLayerSpace(ActiveLayer, FSelection);
+  try
   if not ActiveLayer.IsBackground then
   begin
-    ActiveLayer.Surface.MoveSelectedPixels(FSelection, DeltaX, DeltaY);
+      ActiveLayer.Surface.MoveSelectedPixels(LocalSelection, DeltaX, DeltaY);
     FSelection.MoveBy(DeltaX, DeltaY);
-    Exit;
+      Exit;
   end;
 
-  Copied := ActiveLayer.Surface.CopySelection(FSelection);
+    Copied := ActiveLayer.Surface.CopySelection(LocalSelection);
   try
-    ActiveLayer.Surface.FillSelection(FSelection, BackgroundReplacementColor(ABackgroundColor), 255);
-    for Y := 0 to Min(ActiveLayer.Surface.Height, FSelection.Height) - 1 do
-      for X := 0 to Min(ActiveLayer.Surface.Width, FSelection.Width) - 1 do
+      ActiveLayer.Surface.FillSelection(LocalSelection, BackgroundReplacementColor(ABackgroundColor), 255);
+      for Y := 0 to Min(ActiveLayer.Surface.Height, LocalSelection.Height) - 1 do
+        for X := 0 to Min(ActiveLayer.Surface.Width, LocalSelection.Width) - 1 do
       begin
-        Coverage := FSelection.Coverage(X, Y);
+          Coverage := LocalSelection.Coverage(X, Y);
         if Coverage = 0 then
           Continue;
         TargetX := X + DeltaX;
@@ -1225,17 +1416,25 @@ begin
             ActiveLayer.Surface.BlendPixel(TargetX, TargetY, Copied[X, Y], 255);
         end;
       end;
+    finally
+      Copied.Free;
+    end;
+    FSelection.MoveBy(DeltaX, DeltaY);
   finally
-    Copied.Free;
+    LocalSelection.Free;
   end;
-  FSelection.MoveBy(DeltaX, DeltaY);
 end;
 
 procedure TImageDocument.PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer);
+var
+  LocalStart: TPoint;
+  LocalEnd: TPoint;
 begin
   if not CanMutateActiveLayerPixels then
     Exit;
-  ActiveLayer.Surface.PixelateRect(X1, Y1, X2, Y2, BlockSize);
+  LocalStart := CanvasPointToLayerPoint(ActiveLayer, X1, Y1);
+  LocalEnd := CanvasPointToLayerPoint(ActiveLayer, X2, Y2);
+  ActiveLayer.Surface.PixelateRect(LocalStart.X, LocalStart.Y, LocalEnd.X, LocalEnd.Y, BlockSize);
 end;
 
 procedure TImageDocument.RotateActiveLayer90Clockwise;
@@ -1565,11 +1764,51 @@ begin
   ActiveLayer.Surface.RenderJulia(Iterations, Zoom, CReal, CImag);
 end;
 
-procedure TImageDocument.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; PreserveValue: Boolean; ASelection: TSelectionMask);
+procedure TImageDocument.RecolorBrush(
+  X, Y, Radius: Integer;
+  SourceColor, NewColor: TRGBA32;
+  Tolerance: Byte;
+  Opacity: Byte;
+  PreserveValue: Boolean;
+  ASelection: TSelectionMask;
+  Mode: TRecolorBlendMode
+);
+var
+  LocalSelection: TSelectionMask;
+  LocalPoint: TPoint;
 begin
   if not CanMutateActiveLayerPixels then
     Exit;
-  ActiveLayer.Surface.RecolorBrush(X, Y, Radius, SourceColor, NewColor, Tolerance, Opacity, PreserveValue, ASelection);
+  LocalSelection := SelectionInLayerSpace(ActiveLayer, ASelection);
+  try
+    LocalPoint := CanvasPointToLayerPoint(ActiveLayer, X, Y);
+    ActiveLayer.Surface.RecolorBrush(
+      LocalPoint.X,
+      LocalPoint.Y,
+      Radius,
+      SourceColor,
+      NewColor,
+      Tolerance,
+      Opacity,
+      PreserveValue,
+      LocalSelection,
+      Mode
+    );
+  finally
+    LocalSelection.Free;
+  end;
+end;
+
+function TImageDocument.ActiveSelectionInLayerSpace: TSelectionMask;
+begin
+  if not HasSelection then
+    Exit(nil);
+  Result := SelectionInLayerSpace(ActiveLayer, FSelection);
+end;
+
+function TImageDocument.SelectionToActiveLayerSpace(ASelection: TSelectionMask): TSelectionMask;
+begin
+  Result := SelectionInLayerSpace(ActiveLayer, ASelection);
 end;
 
 function TImageDocument.HasStoredSelection: Boolean;
@@ -1601,8 +1840,10 @@ function TImageDocument.Composite: TRasterSurface;
 var
   ResultSurface: TRasterSurface;
   LayerIndex: Integer;
-  X: Integer;
-  Y: Integer;
+  LocalX: Integer;
+  LocalY: Integer;
+  CanvasX: Integer;
+  CanvasY: Integer;
   Layer: TRasterLayer;
   Dst, Src: TRGBA32;
   A, InvA, Opacity: Integer;
@@ -1620,17 +1861,34 @@ begin
     Opacity := Layer.Opacity;
     if Layer.BlendMode = bmNormal then
     begin
-      for Y := 0 to FHeight - 1 do
-        for X := 0 to FWidth - 1 do
-          ResultSurface.BlendPixel(X, Y, Layer.Surface[X, Y], Opacity);
+      for LocalY := 0 to Layer.Surface.Height - 1 do
+      begin
+        CanvasY := LocalY + Layer.OffsetY;
+        if (CanvasY < 0) or (CanvasY >= FHeight) then
+          Continue;
+        for LocalX := 0 to Layer.Surface.Width - 1 do
+        begin
+          CanvasX := LocalX + Layer.OffsetX;
+          if (CanvasX < 0) or (CanvasX >= FWidth) then
+            Continue;
+          ResultSurface.BlendPixel(CanvasX, CanvasY, Layer.Surface[LocalX, LocalY], Opacity);
+        end;
+      end;
     end
     else
     begin
-      for Y := 0 to FHeight - 1 do
-        for X := 0 to FWidth - 1 do
+      for LocalY := 0 to Layer.Surface.Height - 1 do
+      begin
+        CanvasY := LocalY + Layer.OffsetY;
+        if (CanvasY < 0) or (CanvasY >= FHeight) then
+          Continue;
+        for LocalX := 0 to Layer.Surface.Width - 1 do
         begin
-          Dst := ResultSurface[X, Y];
-          Src := Layer.Surface[X, Y];
+          CanvasX := LocalX + Layer.OffsetX;
+          if (CanvasX < 0) or (CanvasX >= FWidth) then
+            Continue;
+          Dst := ResultSurface[CanvasX, CanvasY];
+          Src := Layer.Surface[LocalX, LocalY];
           if Src.A = 0 then
             Continue;
           A := (Src.A * Opacity) div 255;
@@ -1691,8 +1949,9 @@ begin
           Src.R := EnsureRange(Sr, 0, 255);
           Src.G := EnsureRange(Sg, 0, 255);
           Src.B := EnsureRange(Sb, 0, 255);
-          ResultSurface.BlendPixel(X, Y, Src, Opacity);
+          ResultSurface.BlendPixel(CanvasX, CanvasY, Src, Opacity);
         end;
+      end;
     end;
   end;
 

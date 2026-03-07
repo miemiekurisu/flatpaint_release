@@ -4,6 +4,47 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-07 (docs alignment refresh + functional priority ordering pass)
+
+### Changes
+
+1. **Synced code-first baseline docs to latest regression truth** — updated:
+   - `docs/PRD.md` current snapshot test count from `279` to `284`.
+   - `docs/FEATURE_MATRIX.md` evidence and regression-health rows from `279` to `284`.
+
+2. **Closed shortcut-status wording drift in matrix** — `Menus/shortcuts` row now explicitly states that core mapping is test-clean while command-surface parity audit remains non-exhaustive per `docs/SHORTCUT_POLICY.md`.
+
+3. **Added a dedicated function-side priority document** — created `docs/FEATURE_PRIORITY_ORDER.md` with P0/P1/P2 ranking based on release risk, user value, and regression containment cost.
+
+4. **Linked implementation workflow to the new priority source** — `docs/IMPLEMENTATION_PLAN.md` now references `docs/FEATURE_PRIORITY_ORDER.md` under current implementation targets.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `284` tests, `0` failures.
+
+## 2026-03-07 (recolor research baseline + Text tool visibility restore)
+
+### Changes
+
+1. **Completed recolor reference research before implementation work** — added two new docs to lock behavior/architecture baseline first:
+   - `docs/RECOLOR_FEATURE_RESEARCH.md`
+   - `docs/RECOLOR_DESIGN_SPEC.md`
+   covering Photoshop behavior surface, open-source architecture references (GIMP/Pinta), gap mapping against current FlatPaint code, and anti-GPL implementation guardrails.
+
+2. **Restored default visibility for final tools-row buttons (including Text)** — increased tools palette default height in `fppalettehelpers` from `500` to `540`, matching current 2-column grid row count so the last row is no longer clipped.
+
+3. **Added regression coverage for tools-panel vertical capacity** — `TFPPaletteHelpersTests.ToolsPaletteHeightFitsAllVisibleToolRows` now asserts default tools palette height can contain all visible tool rows (excluding hidden `Zoom` button in the panel grid).
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `284` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+- Execution note:
+  - an earlier parallel run of test/build was discarded due shared output-directory cleanup contention; final evidence above is from serial re-run.
+
 ## 2026-03-07 (UI-only retina/readability stabilization pass: startup relayout + overlay realignment + optional @2x lookup)
 
 ### Changes
@@ -1230,3 +1271,5 @@ Six bugs were identified through systematic trace of the three reported failure 
 - **2026-03-02 — Full-feature implementation pass (blend modes, new tools, new effects, dialogs).** All major remaining feature gaps from `FEATURE_MATRIX.md` were addressed in a single session. `TBlendMode` (8 modes: Normal, Multiply, Screen, Overlay, Darken, Lighten, Difference, SoftLight) was added to `fpdocument.pas`; `Composite()` now applies per-pixel channel math for all non-Normal modes using an integer-only Pegtop formula for Soft Light. `TToolKind` was extended from 19 to 23 values: `tkCrop` (interactive drag-to-crop rectangle), `tkText` (dialog + LCL canvas rasterization), `tkCloneStamp` (right-click sample, left-click/drag stamp), and `tkRecolor` (tolerance-based in-place color replace brush). Four new surface operations were added to `fpsurface.pas`: `Emboss` (zero-sum 3×3 kernel + bias 128), `Soften` (Gaussian 3×3 / 16), `RenderClouds` (sine-wave plasma with seed), and `RecolorBrush` (circular brush with color-distance tolerance). Three new files were created: `fptextdialog.pas` (font combo from `Screen.Fonts`, size slider, bold/italic toggles), `fptextrenderer.pas` (renders `TTextDialogResult` to `TRasterSurface` via LCL canvas + `TransparentizeSurface`), and `fplayerpropertiesdialog.pas` (Name / Opacity / BlendMode combo modal). `fplclbridge.pas` gained `TransparentizeSurface`. `fpuihelpers.pas` was updated to register all 23 tools with display names, hints, and glyphs (`ToolDisplayOrder[0..22]`). In `mainform.pas`: the `Effects` menu was restructured with `Repeat Last Effect` (Cmd+F) at the top plus `Emboss`, `Soften`, and `Render Clouds`; the Layers panel gained a blend-mode `TComboBox` and a `Properties` button; `RefreshLayers` now syncs the combo to the active layer; all four existing effect handlers (`BlurClick`, `SharpenClick`, `AddNoiseClick`, `OutlineClick`) were fixed to call `InvalidatePreparedBitmap`; and full mouse-down/move/up event handling was added for the four new tools. Ten new tests were added across `fpsurface_tests.pas`, `fpdocument_tests.pas`, and `fpuihelpers_tests.pas`, bringing the total from 105 to 115. Build result: 248 lines compiled, 0 errors, 0 warnings. Test result: 115/115 passing. Document tabs remain deferred (significant architectural change — separate `TObjectList` of documents + tab strip).
 - **2026-03-02 — Parity completion pass (document tabs, RGBA colors panel, tool opacity, compat IO stubs).** Seven feature areas were advanced in a single session targeting 90% overall completion. **Document tabs** (`0% → 65%`): `FTabDocuments` / `FTabFileNames` / `FTabDirtyFlags` arrays now manage all open documents; `FTabStrip` panel sits between toolbar and canvas; per-tab label + close buttons plus a `+` new-tab button built by `RefreshTabStrip`; full lifecycle covered by `AddDocumentTab`, `SwitchToTab`, `CloseDocumentTab`, `OpenFileInNewTab`; `FormCloseQuery` counts all unsaved tabs before quitting. **Colors panel** (`45% → 80%`): R/G/B/A `TSpinEdit` fields and an 8-digit RRGGBBAA `TEdit` hex field added; `UpdateColorSpins`, `ColorSpinChanged`, and `ColorHexChanged` keep all controls bi-directionally in sync with `FPrimaryColor`; `ColorsPaletteWidth`/`Height` expanded to 254×306. **Tool opacity** (`40% → 75%`): `FOpacitySpin` (1–100%) shown for paint tools; `FSelModeCombo` (Replace/Add/Subtract/Intersect) shown for selection tools; `FBrushOpacity` wired as the 7th `DrawLine` parameter so brush opacity actually affects painted pixels. **Layers menu** (`+`): `Paste &Selection`, `Import From &File...`, `Layer &Properties...`, and `Rotate / &Zoom...` added; `LayerRotateZoomClick` shows a four-option dialog (CW90/CCW90/180/cancel) and calls the matching `TRasterSurface` rotate method. **Iconography** (`35% → 45%`): toolbar buttons updated to descriptive full-word labels (`Fore`/`Back` for color buttons, `Ruler`); all buttons carry accurate keyboard-shortcut hints visible on hover. **Compatibility IO** (`40% → 55%`): `.kra` and `.pdn` added to the open dialog filter and `SurfaceOpenPattern`; both extension paths in `LoadSurfaceUsingKnownReaders` now raise a descriptive user-facing error message directing to export-as-PNG from the source app. **Tests** (`115 → 120`): `DrawLineOpacityScalesAlphaChannel`, `DrawLineFullOpacityMatchesDirectPaint` in `fpsurface_tests.pas`; `ColorsPanelFitsRGBASpinsAndHexField` in `fppalettehelpers_tests.pas`; `KraLoadRaisesDescriptiveError`, `PdnLoadRaisesDescriptiveError`, and updated `UnifiedOpenFilterIncludesProjectsAndPSD` in `fpio_tests.pas`. Build result: 4656 lines compiled, 0 errors, 0 warnings. Test result: 120/120 passing.
 - **2026-03-07 — Selection-scope regression fix (Fill/Gradient).** Fixed a tool-switch regression where switching from any selection tool to non-selection tools (`ToolButtonClick`, `ToolComboChange`, keyboard shortcut path in `FormKeyDown`) auto-cleared the active selection, causing bucket/gradient operations to run globally. Selection is now preserved across tool switches so fill-family tools honor selection scope consistently.
+- **2026-03-07 — Selection masking policy split (drawing vs fill-family).** Adjusted paint routing so active selection masking now applies only to area-fill tools (`Fill`, `Gradient`) while drawing/shape tools no longer clip to selection presence. This restores the expected behavior where line/shape/brush-style drawing is not constrained by an existing selection, without regressing fill-family selection scope.
+- **2026-03-07 — Selection overlay visual differentiation (dashed committed outline).** Updated the committed selection boundary raster overlay from a fully continuous 1px ant-line to a dashed ant-line pattern with explicit gap segments, so completed selection regions are visually distinct from shape/square drawing outlines.

@@ -5,7 +5,7 @@ unit fppalettehelpers_tests;
 interface
 
 uses
-  fpcunit, testregistry, Types, FPPaletteHelpers;
+  fpcunit, testregistry, Types, FPDocument, FPUIHelpers, FPPaletteHelpers;
 
 type
   TFPPaletteHelpersTests = class(TTestCase)
@@ -24,6 +24,7 @@ type
     procedure SnapPaletteRectAlignsToNearbyWorkspaceEdges;
     procedure ColorsPanelFitsSystemPickerAndSliderRows;
     procedure PaletteHeightsFitDeeperPanelControls;
+    procedure ToolsPaletteHeightFitsAllVisibleToolRows;
   end;
 
 implementation
@@ -227,6 +228,34 @@ begin
   AssertTrue(
     'layers palette should be tall enough for inline controls and list',
     (PaletteDefaultRect(pkLayers).Bottom - PaletteDefaultRect(pkLayers).Top) >= 300
+  );
+end;
+
+procedure TFPPaletteHelpersTests.ToolsPaletteHeightFitsAllVisibleToolRows;
+var
+  ToolIndex: Integer;
+  VisibleTools: Integer;
+  RowCount: Integer;
+  RequiredHeight: Integer;
+  ToolsHeight: Integer;
+const
+  ContentTop = 30;
+  ToolRowStride = 42;
+  ToolButtonHeight = 40;
+  BottomPadding = 8;
+begin
+  VisibleTools := 0;
+  for ToolIndex := 0 to PaintToolDisplayCount - 1 do
+    if PaintToolAtDisplayIndex(ToolIndex) <> tkZoom then
+      Inc(VisibleTools);
+  RowCount := (VisibleTools + ToolsPaletteColumnCount - 1) div ToolsPaletteColumnCount;
+  if RowCount < 1 then
+    RowCount := 1;
+  RequiredHeight := ContentTop + (RowCount - 1) * ToolRowStride + ToolButtonHeight + BottomPadding;
+  ToolsHeight := PaletteDefaultRect(pkTools).Bottom - PaletteDefaultRect(pkTools).Top;
+  AssertTrue(
+    'tools palette height should fit all visible tool rows',
+    ToolsHeight >= RequiredHeight
   );
 end;
 

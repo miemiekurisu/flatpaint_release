@@ -30,6 +30,10 @@ type
     procedure RecolorBrushReplacesMatchingPixels;
     procedure RecolorBrushOpacityBlendsTowardTarget;
     procedure RecolorBrushPreserveValueKeepsShading;
+    procedure RecolorBrushColorModePreservesValue;
+    procedure RecolorBrushHueModeShiftsHueOnly;
+    procedure RecolorBrushSaturationModeShiftsSaturationOnly;
+    procedure RecolorBrushLuminosityModeShiftsValueOnly;
     procedure RenderCloudsWritesNonTransparentPixels;
     procedure PixelateBlursPixelsIntoBlocks;
     procedure VignetteDarkensEdges;
@@ -491,6 +495,90 @@ begin
     AssertTrue('green channel shifts toward target hue', Surface[2, 2].G > Surface[2, 2].R);
     AssertTrue('preserved value stays darker than raw target', Surface[2, 2].G < 200);
     AssertTrue('preserved value stays above original red floor', Surface[2, 2].G > 30);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushColorModePreservesValue;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(120, 30, 30, 255));
+    Source := RGBA(120, 30, 30, 255);
+    Target := RGBA(50, 200, 50, 255);
+
+    Surface.RecolorBrush(2, 2, 2, Source, Target, 10, 255, False, nil, rbmColor);
+
+    AssertTrue('color mode should keep hue closer to target', Surface[2, 2].G > Surface[2, 2].R);
+    AssertTrue('color mode should keep original brightness envelope', Surface[2, 2].G < 200);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushHueModeShiftsHueOnly;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(200, 50, 50, 255));
+    Source := RGBA(200, 50, 50, 255);
+    Target := RGBA(50, 50, 200, 255);
+
+    Surface.RecolorBrush(2, 2, 2, Source, Target, 10, 255, False, nil, rbmHue);
+
+    AssertTrue('hue mode should move output toward blue hue', Surface[2, 2].B > Surface[2, 2].R);
+    AssertTrue('hue mode should keep strong saturation/value envelope', Surface[2, 2].B >= 180);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushSaturationModeShiftsSaturationOnly;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(120, 90, 90, 255));
+    Source := RGBA(120, 90, 90, 255);
+    Target := RGBA(30, 220, 30, 255);
+
+    Surface.RecolorBrush(2, 2, 2, Source, Target, 10, 255, False, nil, rbmSaturation);
+
+    AssertTrue('saturation mode should keep source hue dominance', Surface[2, 2].R > Surface[2, 2].G);
+    AssertTrue('saturation mode should increase channel separation', Surface[2, 2].R - Surface[2, 2].G >= 20);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushLuminosityModeShiftsValueOnly;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(200, 50, 50, 255));
+    Source := RGBA(200, 50, 50, 255);
+    Target := RGBA(20, 20, 60, 255);
+
+    Surface.RecolorBrush(2, 2, 2, Source, Target, 10, 255, False, nil, rbmLuminosity);
+
+    AssertTrue('luminosity mode should darken the source color', Surface[2, 2].R < 120);
+    AssertTrue('luminosity mode should keep source hue family', Surface[2, 2].R > Surface[2, 2].G);
   finally
     Surface.Free;
   end;

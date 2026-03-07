@@ -49,6 +49,7 @@
 
 ## Current implementation target
 - Harden the current launchable app toward UAT usability
+- Prioritize functional closure using `docs/FEATURE_PRIORITY_ORDER.md`
 - Drive command completion from `docs/COMMAND_SURFACE_BASELINE.md` instead of from rough menu-category coverage
 - Complete the missing menu/shortcut/config parity items that are easy to miss
 - Expose hidden file-dialog workflow capabilities instead of leaving them implicit

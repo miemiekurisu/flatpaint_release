@@ -4,6 +4,18 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-07 (doc-alignment and prioritization verification pass)
+- Full CI verification during doc-sync updates (`PRD`, `FEATURE_MATRIX`, `IMPLEMENTATION_PLAN`) and new `FEATURE_PRIORITY_ORDER` baseline creation: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `284` tests, `0` errors, `0` failures.
+
+## 2026-03-07 (recolor research docs + tools palette height regression fix)
+- Full CI verification after adding recolor research/design docs, increasing tools palette default height to prevent last-row clipping, and adding `ToolsPaletteHeightFitsAllVisibleToolRows` regression coverage: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `284` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+- Execution note:
+  - an earlier parallel test/build attempt was discarded because both scripts clean shared build outputs; final evidence above is from serial execution.
+
 ## 2026-03-07 (UI-only retina/readability stabilization pass)
 - Full CI verification after startup multi-pass relayout (`FDeferredLayoutPassesRemaining`), resize-time top/status relayout hookup, global overlay realignment helper, DPI-aware overlay sizing, and optional `@2x` icon lookup support: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `279` tests, `0` errors, `0` failures.
@@ -850,3 +862,7 @@
 - Current breakdown: 92 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
 - Selection-scope regression rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:281 E:0 F:0`, including new pipeline regressions `SwitchingFromSelectionToFillKeepsSelectionAndConstrainsScope` and `SwitchingFromSelectionToGradientKeepsSelectionAndConstrainsScope`.
 - Build verification (2026-03-07): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Selection-vs-drawing policy rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:282 E:0 F:0` after adding `LineDragIgnoresExistingSelectionMask`, while existing fill/gradient selection-scope regressions remained green.
+- Build verification (2026-03-07, post-policy split): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Selection-overlay dashed-border rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:283 E:0 F:0` after adding `SelectionOverlayUsesDashedBoundaryPattern`.
+- Build verification (2026-03-07, dashed-border pass): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.

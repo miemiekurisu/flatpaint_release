@@ -28,6 +28,8 @@ type
     procedure StoredSelectionRoundtrips;
     procedure CopySelectionStoresSelectionForPasteRoute;
     procedure CopyMergedStoresSelectionForPasteRoute;
+    procedure CompositeAppliesLayerOffsetsAtRuntime;
+    procedure FillSelectionUsesLayerOffsetMapping;
     procedure NewBlankStartsWithWhiteBackground;
     procedure NewToolKindCountIsCorrect;
   end;
@@ -486,6 +488,63 @@ begin
     Document.PasteStoredSelection;
     AssertTrue('stored selection restores after merged copy paste route', Document.Selection[2, 2]);
   finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.CompositeAppliesLayerOffsetsAtRuntime;
+var
+  Document: TImageDocument;
+  CompositeSurface: TRasterSurface;
+begin
+  Document := TImageDocument.Create(6, 6);
+  CompositeSurface := nil;
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayerIndex := 1;
+    Document.ActiveLayer.Surface.Clear(TransparentColor);
+    Document.ActiveLayer.Surface[0, 0] := RGBA(255, 0, 0, 255);
+    Document.ActiveLayer.OffsetX := 2;
+    Document.ActiveLayer.OffsetY := 3;
+
+    CompositeSurface := Document.Composite;
+    AssertTrue('offset layer pixel lands at runtime offset location',
+      RGBAEqual(CompositeSurface[2, 3], RGBA(255, 0, 0, 255)));
+    AssertFalse('source local coordinate should stay untouched in composite',
+      RGBAEqual(CompositeSurface[0, 0], RGBA(255, 0, 0, 255)));
+  finally
+    CompositeSurface.Free;
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.FillSelectionUsesLayerOffsetMapping;
+var
+  Document: TImageDocument;
+  CompositeSurface: TRasterSurface;
+begin
+  Document := TImageDocument.Create(6, 6);
+  CompositeSurface := nil;
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayerIndex := 1;
+    Document.ActiveLayer.Surface.Clear(TransparentColor);
+    Document.ActiveLayer.OffsetX := 2;
+    Document.ActiveLayer.OffsetY := 1;
+
+    Document.SelectRectangle(2, 1, 2, 1, scReplace);
+    Document.FillSelection(RGBA(0, 120, 255, 255), 255);
+
+    AssertTrue('fill writes active layer local pixel',
+      RGBAEqual(Document.ActiveLayer.Surface[0, 0], RGBA(0, 120, 255, 255)));
+    AssertTrue('fill should not write same canvas coordinate in local space',
+      RGBAEqual(Document.ActiveLayer.Surface[2, 1], TransparentColor));
+
+    CompositeSurface := Document.Composite;
+    AssertTrue('composite shows filled pixel at selected canvas location',
+      RGBAEqual(CompositeSurface[2, 1], RGBA(0, 120, 255, 255)));
+  finally
+    CompositeSurface.Free;
     Document.Free;
   end;
 end;

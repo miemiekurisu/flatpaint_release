@@ -26,10 +26,16 @@ type
     procedure PencilStrokeModifiesSurfacePixels;
     procedure BrushStrokeModifiesSurfacePixels;
     procedure EraserStrokeModifiesSurfacePixels;
+    procedure SelectionOverlayUsesDashedBoundaryPattern;
     procedure DrawingWithMoveChangesPixels;
     procedure LineDragCommitsPixels;
+    procedure LineDragIgnoresExistingSelectionMask;
     procedure RectangleDragCommitsPixels;
     procedure EllipseDragCommitsPixels;
+    procedure OffsetLayerLineDragCommitsPixelsAtLayerLocalPosition;
+    procedure RecolorToolRespectsSelectionScopeAndUndoRedo;
+    procedure RecolorOnceSamplingKeepsInitialSourceAcrossDrag;
+    procedure RecolorContinuousSamplingResamplesAcrossDrag;
 
     { History pipeline }
     procedure MouseUpAfterPencilStrokePushesHistory;
@@ -139,6 +145,27 @@ begin
   end;
 end;
 
+procedure TPipelineIntegrationTests.SelectionOverlayUsesDashedBoundaryPattern;
+var
+  F: TMainForm;
+  DashOnPixel: TRGBA32;
+  DashOffPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    DashOnPixel := F.DisplayPixelForTest(12, 10);
+    DashOffPixel := F.DisplayPixelForTest(14, 10);
+
+    AssertTrue('selection dash-on segment should render an outline pixel',
+      RGBAEqual(DashOnPixel, RGBA(0, 0, 0, 255)));
+    AssertTrue('selection dash-off segment should leave the base pixel visible',
+      RGBAEqual(DashOffPixel, RGBA(255, 255, 255, 255)));
+  finally
+    F.Destroy;
+  end;
+end;
+
 procedure TPipelineIntegrationTests.DrawingWithMoveChangesPixels;
 var
   F: TMainForm;
@@ -172,6 +199,30 @@ begin
     F.SimulateMouseUp(mbLeft, [], 30, 20);
     AfterMid := F.TestDocument.ActiveLayer.Surface[25, 20];
     AssertFalse('line drag should commit visible pixels on mouse-up',
+      RGBAEqual(BeforeMid, AfterMid));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.LineDragIgnoresExistingSelectionMask;
+var
+  F: TMainForm;
+  BeforeMid: TRGBA32;
+  AfterMid: TRGBA32;
+begin
+  F := CreateTestForm(tkLine);
+  try
+    F.TestDocument.SelectRectangle(1, 1, 4, 4, scReplace);
+    AssertTrue('selection should exist before drawing', F.TestDocument.HasSelection);
+
+    BeforeMid := F.TestDocument.ActiveLayer.Surface[25, 20];
+    F.SimulateMouseDown(mbLeft, [ssLeft], 20, 20);
+    F.SimulateMouseMove([ssLeft], 30, 20);
+    F.SimulateMouseUp(mbLeft, [], 30, 20);
+    AfterMid := F.TestDocument.ActiveLayer.Surface[25, 20];
+
+    AssertFalse('line drawing should not be clipped by an unrelated selection',
       RGBAEqual(BeforeMid, AfterMid));
   finally
     F.Destroy;
@@ -213,6 +264,155 @@ begin
     AfterTop := F.TestDocument.ActiveLayer.Surface[25, 20];
     AssertFalse('ellipse drag should commit outline pixels on mouse-up',
       RGBAEqual(BeforeTop, AfterTop));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.OffsetLayerLineDragCommitsPixelsAtLayerLocalPosition;
+var
+  F: TMainForm;
+  BeforeLocalMid: TRGBA32;
+  AfterLocalMid: TRGBA32;
+  BeforeWrongMid: TRGBA32;
+  AfterWrongMid: TRGBA32;
+begin
+  F := CreateTestForm(tkLine);
+  try
+    F.TestDocument.AddLayer('Offset Layer');
+    F.TestDocument.ActiveLayerIndex := 1;
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    F.TestDocument.ActiveLayer.OffsetX := 8;
+    F.TestDocument.ActiveLayer.OffsetY := 0;
+
+    BeforeLocalMid := F.TestDocument.ActiveLayer.Surface[17, 20];
+    BeforeWrongMid := F.TestDocument.ActiveLayer.Surface[30, 20];
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 20, 20);
+    F.SimulateMouseMove([ssLeft], 30, 20);
+    F.SimulateMouseUp(mbLeft, [], 30, 20);
+
+    AfterLocalMid := F.TestDocument.ActiveLayer.Surface[17, 20];
+    AfterWrongMid := F.TestDocument.ActiveLayer.Surface[30, 20];
+    AssertFalse('line should land at layer-local midpoint when offset exists',
+      RGBAEqual(BeforeLocalMid, AfterLocalMid));
+    AssertTrue('line should not paint the old un-offset midpoint',
+      RGBAEqual(BeforeWrongMid, AfterWrongMid));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.RecolorToolRespectsSelectionScopeAndUndoRedo;
+var
+  F: TMainForm;
+  SourceColor: TRGBA32;
+  TargetColor: TRGBA32;
+  InsideBefore: TRGBA32;
+  OutsideBefore: TRGBA32;
+  InsideAfter: TRGBA32;
+  OutsideAfter: TRGBA32;
+  UndoInside: TRGBA32;
+  RedoInside: TRGBA32;
+  DepthBefore: Integer;
+begin
+  F := CreateTestForm(tkRecolor);
+  try
+    SourceColor := RGBA(220, 30, 30, 255);
+    TargetColor := RGBA(20, 200, 80, 255);
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    F.TestDocument.ActiveLayer.Surface[15, 15] := SourceColor;
+    F.TestDocument.ActiveLayer.Surface[40, 40] := SourceColor;
+    F.SetPrimaryColorForTest(TargetColor);
+    F.SetSecondaryColorForTest(SourceColor);
+    F.SetRecolorOptionsForTest(rsmSwatchCompat, rbmReplaceRGBCompat, 0, False);
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+
+    DepthBefore := F.TestDocument.UndoDepth;
+    InsideBefore := F.TestDocument.ActiveLayer.Surface[15, 15];
+    OutsideBefore := F.TestDocument.ActiveLayer.Surface[40, 40];
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 15, 15);
+    F.SimulateMouseUp(mbLeft, [], 15, 15);
+
+    InsideAfter := F.TestDocument.ActiveLayer.Surface[15, 15];
+    OutsideAfter := F.TestDocument.ActiveLayer.Surface[40, 40];
+
+    AssertFalse('recolor should change inside selected pixel', RGBAEqual(InsideBefore, InsideAfter));
+    AssertTrue('recolor should leave outside pixel unchanged when selected',
+      RGBAEqual(OutsideBefore, OutsideAfter));
+    AssertEquals('recolor stroke should push one history entry',
+      DepthBefore + 1, F.TestDocument.UndoDepth);
+
+    F.TestDocument.Undo;
+    UndoInside := F.TestDocument.ActiveLayer.Surface[15, 15];
+    AssertTrue('undo should restore original inside pixel', RGBAEqual(InsideBefore, UndoInside));
+
+    F.TestDocument.Redo;
+    RedoInside := F.TestDocument.ActiveLayer.Surface[15, 15];
+    AssertTrue('redo should restore recolored inside pixel', RGBAEqual(InsideAfter, RedoInside));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.RecolorOnceSamplingKeepsInitialSourceAcrossDrag;
+var
+  F: TMainForm;
+  SourceA: TRGBA32;
+  SourceB: TRGBA32;
+  TargetColor: TRGBA32;
+begin
+  F := CreateTestForm(tkRecolor);
+  try
+    SourceA := RGBA(220, 30, 30, 255);
+    SourceB := RGBA(30, 30, 220, 255);
+    TargetColor := RGBA(30, 220, 80, 255);
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    F.TestDocument.ActiveLayer.Surface[10, 20] := SourceA;
+    F.TestDocument.ActiveLayer.Surface[40, 20] := SourceB;
+    F.SetPrimaryColorForTest(TargetColor);
+    F.SetRecolorOptionsForTest(rsmOnce, rbmReplaceRGBCompat, 0, False);
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 20);
+    F.SimulateMouseMove([ssLeft], 40, 20);
+    F.SimulateMouseUp(mbLeft, [], 40, 20);
+
+    AssertTrue('once sampling recolors first sampled family',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[10, 20], TargetColor));
+    AssertTrue('once sampling should not resample and recolor second family',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[40, 20], SourceB));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.RecolorContinuousSamplingResamplesAcrossDrag;
+var
+  F: TMainForm;
+  SourceA: TRGBA32;
+  SourceB: TRGBA32;
+  TargetColor: TRGBA32;
+begin
+  F := CreateTestForm(tkRecolor);
+  try
+    SourceA := RGBA(220, 30, 30, 255);
+    SourceB := RGBA(30, 30, 220, 255);
+    TargetColor := RGBA(30, 220, 80, 255);
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    F.TestDocument.ActiveLayer.Surface[10, 20] := SourceA;
+    F.TestDocument.ActiveLayer.Surface[40, 20] := SourceB;
+    F.SetPrimaryColorForTest(TargetColor);
+    F.SetRecolorOptionsForTest(rsmContinuous, rbmReplaceRGBCompat, 0, False);
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 20);
+    F.SimulateMouseMove([ssLeft], 40, 20);
+    F.SimulateMouseUp(mbLeft, [], 40, 20);
+
+    AssertTrue('continuous sampling recolors first sampled family',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[10, 20], TargetColor));
+    AssertTrue('continuous sampling should resample and recolor second family',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[40, 20], TargetColor));
   finally
     F.Destroy;
   end;

@@ -13,6 +13,14 @@ type
     rmBilinear
   );
 
+  TRecolorBlendMode = (
+    rbmReplaceRGBCompat,
+    rbmColor,
+    rbmHue,
+    rbmSaturation,
+    rbmLuminosity
+  );
+
   TRasterSurface = class
   private
     FWidth: Integer;
@@ -101,7 +109,15 @@ type
     procedure InkSketch(InkStrength: Integer = 75; Coloring: Integer = 50);
     procedure RenderMandelbrot(Iterations: Integer = 64; Zoom: Double = 1.0);
     procedure RenderJulia(Iterations: Integer = 64; Zoom: Double = 1.0; CReal: Double = -0.8; CImag: Double = 0.156);
-    procedure RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte = 255; PreserveValue: Boolean = False; ASelection: TSelectionMask = nil);
+    procedure RecolorBrush(
+      X, Y, Radius: Integer;
+      SourceColor, NewColor: TRGBA32;
+      Tolerance: Byte;
+      Opacity: Byte = 255;
+      PreserveValue: Boolean = False;
+      ASelection: TSelectionMask = nil;
+      Mode: TRecolorBlendMode = rbmReplaceRGBCompat
+    );
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
     function CopySelection(ASelection: TSelectionMask): TRasterSurface;
@@ -3015,7 +3031,15 @@ begin
     end;
 end;
 
-procedure TRasterSurface.RecolorBrush(X, Y, Radius: Integer; SourceColor, NewColor: TRGBA32; Tolerance: Byte; Opacity: Byte; PreserveValue: Boolean; ASelection: TSelectionMask);
+procedure TRasterSurface.RecolorBrush(
+  X, Y, Radius: Integer;
+  SourceColor, NewColor: TRGBA32;
+  Tolerance: Byte;
+  Opacity: Byte;
+  PreserveValue: Boolean;
+  ASelection: TSelectionMask;
+  Mode: TRecolorBlendMode
+);
 var
   BX, BY: Integer;
   Dist: Integer;
@@ -3027,8 +3051,10 @@ var
   IgnoreSat: Double;
   IgnoreVal: Double;
   PixelVal: Double;
+  PixelSat: Double;
   TargetHue: Double;
   TargetSat: Double;
+  TargetVal: Double;
   Coverage: Byte;
   EffectiveOpacity: Integer;
 begin
@@ -3064,9 +3090,36 @@ begin
         end
         else
         begin
-          TargetPix.R := NewColor.R;
-          TargetPix.G := NewColor.G;
-          TargetPix.B := NewColor.B;
+          case Mode of
+            rbmColor:
+              begin
+                RGBToHSV(Pix, IgnoreHue, IgnoreSat, PixelVal);
+                RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
+                TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Pix.A);
+              end;
+            rbmHue:
+              begin
+                RGBToHSV(Pix, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(NewColor, TargetHue, IgnoreSat, IgnoreVal);
+                TargetPix := HSVToRGBA(TargetHue, PixelSat, PixelVal, Pix.A);
+              end;
+            rbmSaturation:
+              begin
+                RGBToHSV(Pix, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
+                TargetPix := HSVToRGBA(IgnoreHue, TargetSat, PixelVal, Pix.A);
+              end;
+            rbmLuminosity:
+              begin
+                RGBToHSV(Pix, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(NewColor, TargetHue, TargetSat, TargetVal);
+                TargetPix := HSVToRGBA(IgnoreHue, PixelSat, TargetVal, Pix.A);
+              end;
+          else
+            TargetPix.R := NewColor.R;
+            TargetPix.G := NewColor.G;
+            TargetPix.B := NewColor.B;
+          end;
         end;
         if EffectiveOpacity >= 255 then
           Pix := TargetPix

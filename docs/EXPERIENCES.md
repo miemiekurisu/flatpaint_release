@@ -16,6 +16,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-07 (tool palette row growth can silently hide the final tools when panel height is fixed)
+- Problem: user reported that `Text` tool could not be found in the tools panel even though the tool is implemented.
+- Core error: tool metadata/display order included `tkText`, but default tools palette height was too short for the current two-column row count, so the final row was clipped.
+- Investigation: traced `ToolDisplayOrder` + `BuildSidePanel` row layout constants and compared computed last-row bottom against `ToolsPaletteHeight`.
+- Root cause: tools list expanded over time while `ToolsPaletteHeight` remained a static legacy value (`500`) that no longer matched actual row geometry.
+- Fix: raised default tools palette height to `540` and added `ToolsPaletteHeightFitsAllVisibleToolRows` regression in `fppalettehelpers_tests`.
+- Reuse note: whenever tool-count or row metrics change, enforce a geometric fit assertion in tests; do not rely on visual/manual checks for final-row visibility.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-07 (first-open toolbar/options overlap and icon vertical drift are relayout-contract problems, not tool-logic problems)
 - Problem: on first app launch the options row could overlap text/controls, and icon overlays across toolbars/palettes could appear vertically uneven until later interactions.
 - Core error: UI geometry depended on one-shot startup layout and creation-time control metrics, while Cocoa/LCL final control bounds can settle after initial handle/layout passes.

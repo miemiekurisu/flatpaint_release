@@ -90,6 +90,7 @@ type
     FActive: Boolean;
     FMoved: Boolean;
     FLayerIndex: Integer;
+    FLayerOffset: TPoint;
     FDelta: TPoint;
     FBaseSelection: TSelectionMask;
     FFloatingPixels: TRasterSurface;
@@ -346,11 +347,13 @@ begin
   FActive := False;
   FMoved := False;
   FLayerIndex := -1;
+  FLayerOffset := Point(0, 0);
   FDelta := Point(0, 0);
 end;
 
 procedure TMovePixelsController.BeginSession(ADocument: TImageDocument; const ABackgroundColor: TRGBA32);
 var
+  LocalSelection: TSelectionMask;
   SourceSnapshot: TRasterSurface;
   MutableSurface: TRasterSurface;
 begin
@@ -363,7 +366,9 @@ begin
     Exit;
 
   FBaseSelection := ADocument.Selection.Clone;
-  FFloatingPixels := MutableSurface.CopySelection(FBaseSelection);
+  FLayerOffset := Point(ADocument.ActiveLayer.OffsetX, ADocument.ActiveLayer.OffsetY);
+  LocalSelection := ADocument.SelectionToActiveLayerSpace(FBaseSelection);
+  FFloatingPixels := MutableSurface.CopySelection(LocalSelection);
   FLayerIndex := ADocument.ActiveLayerIndex;
   if Assigned(FHistoryTransaction) then
     FHistoryTransaction.BeginSession(ADocument, FLayerIndex, True);
@@ -371,13 +376,14 @@ begin
   SourceSnapshot := MutableSurface.Clone;
   try
     if ADocument.ActiveLayer.IsBackground then
-      MutableSurface.FillSelection(FBaseSelection, ABackgroundColor, 255)
+      MutableSurface.FillSelection(LocalSelection, ABackgroundColor, 255)
     else
-      MutableSurface.EraseSelection(FBaseSelection);
+      MutableSurface.EraseSelection(LocalSelection);
     FPreviewBaseComposite := ADocument.Composite;
   finally
     MutableSurface.Assign(SourceSnapshot);
     SourceSnapshot.Free;
+    LocalSelection.Free;
   end;
 
   FDelta := Point(0, 0);
@@ -408,6 +414,8 @@ var
   SavedActiveLayerIndex: Integer;
   SourceRect: TRect;
   DestRect: TRect;
+  SourceRectLocal: TRect;
+  DestRectLocal: TRect;
   CommitRect: TRect;
   MutableSurface: TRasterSurface;
 
@@ -472,7 +480,19 @@ begin
       SourceRect.Right + FDelta.X,
       SourceRect.Bottom + FDelta.Y
     );
-    CommitRect := ClipRectToDocument(UnionRectPair(SourceRect, DestRect));
+    SourceRectLocal := Rect(
+      SourceRect.Left - FLayerOffset.X,
+      SourceRect.Top - FLayerOffset.Y,
+      SourceRect.Right - FLayerOffset.X,
+      SourceRect.Bottom - FLayerOffset.Y
+    );
+    DestRectLocal := Rect(
+      DestRect.Left - FLayerOffset.X,
+      DestRect.Top - FLayerOffset.Y,
+      DestRect.Right - FLayerOffset.X,
+      DestRect.Bottom - FLayerOffset.Y
+    );
+    CommitRect := ClipRectToDocument(UnionRectPair(SourceRectLocal, DestRectLocal));
     if not RectIsEmpty(CommitRect) and Assigned(FHistoryTransaction) then
       FHistoryTransaction.CaptureBeforeRect(ADocument, CommitRect);
 
@@ -524,8 +544,8 @@ begin
       PixelColor := FFloatingPixels[X, Y];
       if PixelColor.A = 0 then
         Continue;
-      TargetX := X + FDelta.X;
-      TargetY := Y + FDelta.Y;
+      TargetX := X + FLayerOffset.X + FDelta.X;
+      TargetY := Y + FLayerOffset.Y + FDelta.Y;
       if not ASurface.InBounds(TargetX, TargetY) then
         Continue;
       ASurface[TargetX, TargetY] := BlendNormal(PixelColor, ASurface[TargetX, TargetY], 255);

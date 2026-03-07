@@ -323,10 +323,12 @@ procedure TFPIOTests.XcfImportPreservesLayerOffsetMetadata;
 var
   XCFPath: string;
   LoadedDocument: TImageDocument;
+  CompositeSurface: TRasterSurface;
 begin
   XCFPath := UniqueTempFile('.xcf');
   CreateMinimalXCFFIle(XCFPath, 2, 1, -1, 0);
   LoadedDocument := nil;
+  CompositeSurface := nil;
   try
     AssertTrue(
       'xcf should load as a layered document',
@@ -336,10 +338,21 @@ begin
     AssertEquals('imported layer offset x is preserved', -1, LoadedDocument.Layers[0].OffsetX);
     AssertEquals('imported layer offset y is preserved', 0, LoadedDocument.Layers[0].OffsetY);
     AssertTrue(
-      'stamped payload reflects negative x offset clipping behavior',
-      RGBAEqual(LoadedDocument.Layers[0].Surface[0, 0], RGBA(0, 255, 0, 128))
+      'layer payload stays in local coordinates (left pixel)',
+      RGBAEqual(LoadedDocument.Layers[0].Surface[0, 0], RGBA(255, 0, 0, 255))
     );
+    AssertTrue(
+      'layer payload stays in local coordinates (right pixel)',
+      RGBAEqual(LoadedDocument.Layers[0].Surface[1, 0], RGBA(0, 255, 0, 128))
+    );
+    CompositeSurface := LoadedDocument.Composite;
+    AssertTrue(
+      'composite applies offset at runtime and keeps green payload visible',
+      (CompositeSurface[0, 0].G > 0) and (CompositeSurface[0, 0].R = 0)
+    );
+    AssertEquals('composite keeps shifted alpha', 128, CompositeSurface[0, 0].A);
   finally
+    CompositeSurface.Free;
     LoadedDocument.Free;
     DeleteFile(XCFPath);
   end;

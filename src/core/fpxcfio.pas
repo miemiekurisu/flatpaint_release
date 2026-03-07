@@ -728,7 +728,9 @@ begin
           else
             TargetLayer := ADocument.AddLayer;
           TargetLayer.Surface.Clear(TransparentColor);
-          StampSurfaceWithOffset(TargetLayer.Surface, LayerSurface, LayerInfo.OffsetX, LayerInfo.OffsetY);
+          { Runtime A4 path: keep payload in layer-local coordinates and let
+            compositor/tool math consume OffsetX/OffsetY as geometry metadata. }
+          StampSurfaceWithOffset(TargetLayer.Surface, LayerSurface, 0, 0);
           if Trim(LayerInfo.Name) <> '' then
             TargetLayer.Name := LayerInfo.Name
           else

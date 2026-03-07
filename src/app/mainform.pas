@@ -256,6 +256,14 @@ type
     FCloneAlignedCheck: TCheckBox;
     FRecolorPreserveValue: Boolean;
     FRecolorPreserveValueCheck: TCheckBox;
+    FRecolorSamplingMode: TRecolorSamplingMode;
+    FRecolorSamplingLabel: TLabel;
+    FRecolorSamplingCombo: TComboBox;
+    FRecolorBlendMode: TRecolorBlendMode;
+    FRecolorModeLabel: TLabel;
+    FRecolorModeCombo: TComboBox;
+    FRecolorStrokeSourceColor: TRGBA32;
+    FRecolorStrokeSourceValid: Boolean;
     FCloneAlignedOffset: TPoint;
     FCloneAlignedOffsetValid: Boolean;
     { Recolor tool tolerance (separate from FWandTolerance) }
@@ -288,6 +296,8 @@ type
     function BuildDisplaySurface: TRasterSurface;
     function ToolHintText: string;
     function ImageOriginInViewport: TPoint;
+    function ActiveLayerLocalPoint(const APoint: TPoint): TPoint;
+    function RecolorSourceAtPoint(const ACanvasPoint: TPoint; out AColor: TRGBA32): Boolean;
     function DisplayUnitSuffix: string;
     function PixelsToDisplayValue(APixels: Integer): Double;
     function DisplayValueToPixels(AValue: Double): Double;
@@ -562,6 +572,8 @@ type
     procedure GradientReverseChanged(Sender: TObject);
     procedure CloneAlignedChanged(Sender: TObject);
     procedure RecolorPreserveValueChanged(Sender: TObject);
+    procedure RecolorSamplingModeChanged(Sender: TObject);
+    procedure RecolorModeChanged(Sender: TObject);
     procedure MosaicBlockSpinChanged(Sender: TObject);
     procedure PickerSampleComboChanged(Sender: TObject);
     procedure SelAntiAliasChanged(Sender: TObject);
@@ -663,6 +675,14 @@ type
     procedure SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseMove(Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SetPrimaryColorForTest(const AColor: TRGBA32);
+    procedure SetSecondaryColorForTest(const AColor: TRGBA32);
+    procedure SetRecolorOptionsForTest(
+      ASamplingMode: TRecolorSamplingMode;
+      ABlendMode: TRecolorBlendMode;
+      ATolerance: Integer;
+      APreserveValue: Boolean
+    );
     property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
     property TestDocument: TImageDocument read FDocument;
     property RenderRevisionForTest: QWord read FRenderRevision;
@@ -683,7 +703,8 @@ uses
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
-  FPTextRenderer, FPLayerPropertiesDialog, FPMagnifyBridge, FPAlphaBridge,
+  FPTextRenderer, FPLayerPropertiesDialog, FPShortcutHelpers,
+  FPMagnifyBridge, FPAlphaBridge,
   FPListBgBridge, FPAppearanceBridge;
 
 const
@@ -875,6 +896,10 @@ begin
   FGradientReverse := False;
   FCloneAligned := True;
   FRecolorPreserveValue := True;
+  FRecolorSamplingMode := rsmOnce;
+  FRecolorBlendMode := rbmColor;
+  FRecolorStrokeSourceColor := FPrimaryColor;
+  FRecolorStrokeSourceValid := False;
   FRecolorTolerance := 32;
   FMosaicBlockSize := 10;
   FCloneAlignedOffset := Point(0, 0);
@@ -1248,6 +1273,31 @@ begin
   Result.Y := EnsureRange(Trunc(Y / FZoomScale), 0, FDocument.Height - 1);
 end;
 
+function TMainForm.ActiveLayerLocalPoint(const APoint: TPoint): TPoint;
+begin
+  if (FDocument = nil) or (FDocument.LayerCount <= 0) then
+    Exit(APoint);
+  Result := Point(
+    APoint.X - FDocument.ActiveLayer.OffsetX,
+    APoint.Y - FDocument.ActiveLayer.OffsetY
+  );
+end;
+
+function TMainForm.RecolorSourceAtPoint(const ACanvasPoint: TPoint; out AColor: TRGBA32): Boolean;
+var
+  LocalPoint: TPoint;
+begin
+  Result := False;
+  AColor := ColorForActiveTarget(not FPickSecondaryTarget);
+  if (FDocument = nil) or (FDocument.LayerCount <= 0) then
+    Exit;
+  LocalPoint := ActiveLayerLocalPoint(ACanvasPoint);
+  if not FDocument.ActiveLayer.Surface.InBounds(LocalPoint.X, LocalPoint.Y) then
+    Exit;
+  AColor := FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y];
+  Result := True;
+end;
+
 function TMainForm.BuildDisplaySurface: TRasterSurface;
 var
   CompositeSurface: TRasterSurface;
@@ -1256,6 +1306,13 @@ var
   Y: Integer;
   TileColor: TRGBA32;
   PixelColor: TRGBA32;
+  EdgeHorizontal: Boolean;
+  EdgeVertical: Boolean;
+  DashIndex: Integer;
+const
+  SelectionDashLength = 5;
+  SelectionDashGap = 3;
+  SelectionDashPeriod = SelectionDashLength + SelectionDashGap;
 begin
   if Assigned(FMovePixelsController) and
      FMovePixelsController.Active and
@@ -1315,17 +1372,30 @@ begin
   if FDocument.HasSelection then
     for Y := 0 to FDisplaySurface.Height - 1 do
       for X := 0 to FDisplaySurface.Width - 1 do
-        if FDocument.Selection[X, Y] and
-           (
-             (not FDocument.Selection[X - 1, Y]) or
-             (not FDocument.Selection[X + 1, Y]) or
-             (not FDocument.Selection[X, Y - 1]) or
-             (not FDocument.Selection[X, Y + 1])
-           ) then
-          if ((X + Y) and 1) = 0 then
-            FDisplaySurface[X, Y] := RGBA(0, 0, 0, 255)
+        if FDocument.Selection[X, Y] then
+        begin
+          EdgeHorizontal :=
+            (not FDocument.Selection[X, Y - 1]) or
+            (not FDocument.Selection[X, Y + 1]);
+          EdgeVertical :=
+            (not FDocument.Selection[X - 1, Y]) or
+            (not FDocument.Selection[X + 1, Y]);
+          if not (EdgeHorizontal or EdgeVertical) then
+            Continue;
+
+          if EdgeHorizontal and not EdgeVertical then
+            DashIndex := X
+          else if EdgeVertical and not EdgeHorizontal then
+            DashIndex := Y
           else
-            FDisplaySurface[X, Y] := RGBA(255, 255, 255, 255);
+            DashIndex := X + Y;
+
+          if (DashIndex mod SelectionDashPeriod) < SelectionDashLength then
+            if ((X + Y) and 1) = 0 then
+              FDisplaySurface[X, Y] := RGBA(0, 0, 0, 255)
+            else
+              FDisplaySurface[X, Y] := RGBA(255, 255, 255, 255);
+        end;
 
   { Return the cached surface — caller must NOT free it }
   Result := FDisplaySurface;
@@ -1873,6 +1943,20 @@ begin
     if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
+    if Assigned(FRecolorSamplingLabel) then FRecolorSamplingLabel.Visible := FCurrentTool = tkRecolor;
+    if Assigned(FRecolorSamplingCombo) then FRecolorSamplingCombo.Visible := FCurrentTool = tkRecolor;
+    if Assigned(FRecolorSamplingCombo) then FRecolorSamplingCombo.ItemIndex := Ord(FRecolorSamplingMode);
+    if Assigned(FRecolorModeLabel) then FRecolorModeLabel.Visible := FCurrentTool = tkRecolor;
+    if Assigned(FRecolorModeCombo) then FRecolorModeCombo.Visible := FCurrentTool = tkRecolor;
+    if Assigned(FRecolorModeCombo) then
+      case FRecolorBlendMode of
+        rbmColor: FRecolorModeCombo.ItemIndex := 0;
+        rbmHue: FRecolorModeCombo.ItemIndex := 1;
+        rbmSaturation: FRecolorModeCombo.ItemIndex := 2;
+        rbmLuminosity: FRecolorModeCombo.ItemIndex := 3;
+      else
+        FRecolorModeCombo.ItemIndex := 4;
+      end;
     if Assigned(FMosaicBlockLabel) then FMosaicBlockLabel.Visible := FCurrentTool = tkMosaic;
     if Assigned(FMosaicBlockSpin) then FMosaicBlockSpin.Visible := FCurrentTool = tkMosaic;
     if Assigned(FMosaicBlockSpin) then FMosaicBlockSpin.Value := FMosaicBlockSize;
@@ -2036,6 +2120,14 @@ begin
 
   { Recolor Preserve Value }
   PlaceControl(FRecolorPreserveValueCheck);
+
+  { Recolor Sampling }
+  PlaceLabel(FRecolorSamplingLabel);
+  PlaceControl(FRecolorSamplingCombo);
+
+  { Recolor Mode }
+  PlaceLabel(FRecolorModeLabel);
+  PlaceControl(FRecolorModeCombo);
 
   { Mosaic Block Size }
   PlaceLabel(FMosaicBlockLabel);
@@ -2215,18 +2307,43 @@ begin
   CreateMenuItem(EditMenu, TR('&Redo', '&' + #$E9#$87#$8D#$E5#$81#$9A), @RedoClick, ShortCut(VK_Z, [ssMeta, ssShift]));
   CreateMenuItem(EditMenu, TR('Cu&t', #$E5#$89#$AA#$E5#$88#$87 + '(&T)'), @CutClick, ShortCut(VK_X, [ssMeta]));
   CreateMenuItem(EditMenu, TR('&Copy', '&' + #$E5#$A4#$8D#$E5#$88#$B6), @CopyClick, ShortCut(VK_C, [ssMeta]));
-  CreateMenuItem(EditMenu, TR('Copy Selection', #$E5#$A4#$8D#$E5#$88#$B6#$E9#$80#$89#$E5#$8C#$BA), @CopySelectionClick);
+  CreateMenuItem(
+    EditMenu,
+    TR('Copy Selection', #$E5#$A4#$8D#$E5#$88#$B6#$E9#$80#$89#$E5#$8C#$BA),
+    @CopySelectionClick,
+    CoreShortcut(cscCopySelection)
+  );
   CreateMenuItem(EditMenu, TR('Copy &Merged', #$E5#$A4#$8D#$E5#$88#$B6#$E5#$90#$88#$E5#$B9#$B6 + '(&M)'), @CopyMergedClick, ShortCut(VK_C, [ssMeta, ssShift]));
   CreateMenuItem(EditMenu, TR('&Paste', '&' + #$E7#$B2#$98#$E8#$B4#$B4), @PasteClick, ShortCut(VK_V, [ssMeta]));
-  CreateMenuItem(EditMenu, TR('Paste into New Layer', #$E7#$B2#$98#$E8#$B4#$B4#$E5#$88#$B0#$E6#$96#$B0#$E5#$9B#$BE#$E5#$B1#$82), @PasteIntoNewLayerClick);
-  CreateMenuItem(EditMenu, TR('Paste into New Image', #$E7#$B2#$98#$E8#$B4#$B4#$E5#$88#$B0#$E6#$96#$B0#$E5#$9B#$BE#$E5#$83#$8F), @PasteIntoNewImageClick);
+  CreateMenuItem(
+    EditMenu,
+    TR('Paste into New Layer', #$E7#$B2#$98#$E8#$B4#$B4#$E5#$88#$B0#$E6#$96#$B0#$E5#$9B#$BE#$E5#$B1#$82),
+    @PasteIntoNewLayerClick,
+    CoreShortcut(cscPasteIntoNewLayer)
+  );
+  CreateMenuItem(
+    EditMenu,
+    TR('Paste into New Image', #$E7#$B2#$98#$E8#$B4#$B4#$E5#$88#$B0#$E6#$96#$B0#$E5#$9B#$BE#$E5#$83#$8F),
+    @PasteIntoNewImageClick,
+    CoreShortcut(cscPasteIntoNewImage)
+  );
   CreateMenuItem(EditMenu, TR('Paste &Selection (Replace)', #$E7#$B2#$98#$E8#$B4#$B4#$E9#$80#$89#$E5#$8C#$BA#$EF#$BC#$88#$E6#$9B#$BF#$E6#$8D#$A2#$EF#$BC#$89 + '(&S)'), @PasteSelectionClick);
   CreateMenuItem(EditMenu, TR('Select &All', #$E5#$85#$A8#$E9#$80#$89 + '(&A)'), @SelectAllClick, ShortCut(VK_A, [ssMeta]));
   CreateMenuItem(EditMenu, TR('&Deselect', '&' + #$E5#$8F#$96#$E6#$B6#$88#$E9#$80#$89#$E6#$8B#$A9), @DeselectClick, ShortCut(VK_D, [ssMeta]));
   CreateMenuItem(EditMenu, TR('&Invert Selection', '&' + #$E5#$8F#$8D#$E9#$80#$89), @InvertSelectionClick, ShortCut(VK_I, [ssMeta, ssAlt]));
-  CreateMenuItem(EditMenu, TR('Fill Selection', #$E5#$A1#$AB#$E5#$85#$85#$E9#$80#$89#$E5#$8C#$BA), @FillSelectionClick);
+  CreateMenuItem(
+    EditMenu,
+    TR('Fill Selection', #$E5#$A1#$AB#$E5#$85#$85#$E9#$80#$89#$E5#$8C#$BA),
+    @FillSelectionClick,
+    CoreShortcut(cscFillSelection)
+  );
   CreateMenuItem(EditMenu, TR('Erase Selection', #$E6#$93#$A6#$E9#$99#$A4#$E9#$80#$89#$E5#$8C#$BA), @EraseSelectionClick, VK_DELETE);
-  CreateMenuItem(EditMenu, TR('Crop To Selection', #$E8#$A3#$81#$E5#$89#$AA#$E5#$88#$B0#$E9#$80#$89#$E5#$8C#$BA), @CropToSelectionClick);
+  CreateMenuItem(
+    EditMenu,
+    TR('Crop To Selection', #$E8#$A3#$81#$E5#$89#$AA#$E5#$88#$B0#$E9#$80#$89#$E5#$8C#$BA),
+    @CropToSelectionClick,
+    CoreShortcut(cscCropToSelection)
+  );
   EditMenu.AddSeparator;
   CreateMenuItem(EditMenu, TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...'), @SettingsClick, ShortCut($BC, [ssMeta]));
 
@@ -3174,6 +3291,64 @@ begin
   FRecolorPreserveValueCheck.OnChange := @RecolorPreserveValueChanged;
   FRecolorPreserveValueCheck.Hint := 'Keep original brightness while shifting the color';
   FRecolorPreserveValueCheck.ShowHint := True;
+
+  FRecolorSamplingLabel := TLabel.Create(FOptionsBarPanel);
+  FRecolorSamplingLabel.Parent := FOptionsBarPanel;
+  FRecolorSamplingLabel.Caption := 'Sampling:';
+  FRecolorSamplingLabel.Font.Size := OptionsBarFontSize;
+  FRecolorSamplingLabel.Font.Color := ChromeTextColor;
+  FRecolorSamplingLabel.Left := 756;
+  FRecolorSamplingLabel.Top := OptionsBarLabelTop;
+  FRecolorSamplingLabel.Visible := False;
+
+  FRecolorSamplingCombo := TComboBox.Create(FOptionsBarPanel);
+  FRecolorSamplingCombo.Parent := FOptionsBarPanel;
+  FRecolorSamplingCombo.Left := 824;
+  FRecolorSamplingCombo.Top := OptionsBarControlTop;
+  FRecolorSamplingCombo.Height := OptionsBarControlHeight;
+  FRecolorSamplingCombo.Width := 126;
+  FRecolorSamplingCombo.Style := csDropDownList;
+  FRecolorSamplingCombo.Items.Add('Once');
+  FRecolorSamplingCombo.Items.Add('Continuous');
+  FRecolorSamplingCombo.Items.Add('Swatch (Compat)');
+  FRecolorSamplingCombo.ItemIndex := Ord(FRecolorSamplingMode);
+  FRecolorSamplingCombo.Visible := False;
+  FRecolorSamplingCombo.OnChange := @RecolorSamplingModeChanged;
+  FRecolorSamplingCombo.Color := clWhite;
+  FRecolorSamplingCombo.Font.Size := OptionsBarFontSize;
+  FRecolorSamplingCombo.Font.Color := ChromeTextColor;
+  FRecolorSamplingCombo.Hint := 'Source sampling behavior for recolor strokes';
+  FRecolorSamplingCombo.ShowHint := True;
+
+  FRecolorModeLabel := TLabel.Create(FOptionsBarPanel);
+  FRecolorModeLabel.Parent := FOptionsBarPanel;
+  FRecolorModeLabel.Caption := 'Mode:';
+  FRecolorModeLabel.Font.Size := OptionsBarFontSize;
+  FRecolorModeLabel.Font.Color := ChromeTextColor;
+  FRecolorModeLabel.Left := 958;
+  FRecolorModeLabel.Top := OptionsBarLabelTop;
+  FRecolorModeLabel.Visible := False;
+
+  FRecolorModeCombo := TComboBox.Create(FOptionsBarPanel);
+  FRecolorModeCombo.Parent := FOptionsBarPanel;
+  FRecolorModeCombo.Left := 1004;
+  FRecolorModeCombo.Top := OptionsBarControlTop;
+  FRecolorModeCombo.Height := OptionsBarControlHeight;
+  FRecolorModeCombo.Width := 112;
+  FRecolorModeCombo.Style := csDropDownList;
+  FRecolorModeCombo.Items.Add('Color');
+  FRecolorModeCombo.Items.Add('Hue');
+  FRecolorModeCombo.Items.Add('Saturation');
+  FRecolorModeCombo.Items.Add('Luminosity');
+  FRecolorModeCombo.Items.Add('Replace (Compat)');
+  FRecolorModeCombo.ItemIndex := 0;
+  FRecolorModeCombo.Visible := False;
+  FRecolorModeCombo.OnChange := @RecolorModeChanged;
+  FRecolorModeCombo.Color := clWhite;
+  FRecolorModeCombo.Font.Size := OptionsBarFontSize;
+  FRecolorModeCombo.Font.Color := ChromeTextColor;
+  FRecolorModeCombo.Hint := 'How recolor mixes target color into matching pixels';
+  FRecolorModeCombo.ShowHint := True;
 
   { Mosaic tool block size }
   FMosaicBlockLabel := TLabel.Create(FOptionsBarPanel);
@@ -7066,12 +7241,21 @@ begin
   RefreshCanvas;
 end;
 
+function ToolPaintPathUsesActiveSelection(ATool: TToolKind): Boolean;
+begin
+  { Keep selection masking only for area fill + recolor routes.
+    Shape/line/brush tools render regardless of selection presence. }
+  Result := ATool in [tkFill, tkGradient, tkRecolor];
+end;
+
 procedure TMainForm.ApplyImmediateTool(const APoint: TPoint);
 var
   CompositeSurface: TRasterSurface;
   SampleSurface: TRasterSurface;
   FillMask: TSelectionMask;
+  LocalFillMask: TSelectionMask;
   PaintSelection: TSelectionMask;
+  OwnedPaintSelection: TSelectionMask;
   Radius: Integer;
   DestX: Integer;
   DestY: Integer;
@@ -7084,151 +7268,196 @@ var
   StrokeSpacing: Integer;
   StrokeSteps: Integer;
   StrokeStep: Integer;
-  StepX, StepY: Integer;
+  StepCanvasPoint: TPoint;
+  StepLocalPoint: TPoint;
+  LocalPoint: TPoint;
+  LocalLastPoint: TPoint;
+  LocalDragStart: TPoint;
+  LocalCloneSource: TPoint;
   StrokeRadius: Integer;
   MutableSurface: TRasterSurface;
+  RecolorSourceColor: TRGBA32;
 begin
-  if FDocument.HasSelection then
-    PaintSelection := FDocument.Selection
-  else
-    PaintSelection := nil;
-  case FCurrentTool of
-    tkPencil:
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
+  OwnedPaintSelection := nil;
+  FillMask := nil;
+  LocalFillMask := nil;
+  try
+    if ToolPaintPathUsesActiveSelection(FCurrentTool) and FDocument.HasSelection then
+      OwnedPaintSelection := FDocument.ActiveSelectionInLayerSpace;
+    PaintSelection := OwnedPaintSelection;
+    LocalPoint := ActiveLayerLocalPoint(APoint);
+    LocalLastPoint := ActiveLayerLocalPoint(FLastImagePoint);
+    LocalDragStart := ActiveLayerLocalPoint(FDragStart);
+    LocalCloneSource := ActiveLayerLocalPoint(FCloneStampSource);
+
+    case FCurrentTool of
+      tkPencil:
         begin
-          StrokeRadius := Max(0, (FBrushSize - 1) div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-          MutableSurface.DrawLine(
-            FLastImagePoint.X,
-            FLastImagePoint.Y,
-            APoint.X,
-            APoint.Y,
-            StrokeRadius,
-            ActivePaintColor,
-            FBrushOpacity * 255 div 100,
-            255, { pencil always hard }
-            PaintSelection
-          );
-        end;
-      end;
-    tkBrush:
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
-        begin
-          StrokeRadius := Max(1, FBrushSize div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-          MutableSurface.DrawLine(
-            FLastImagePoint.X,
-            FLastImagePoint.Y,
-            APoint.X,
-            APoint.Y,
-            StrokeRadius,
-            ActivePaintColor,
-            FBrushOpacity * 255 div 100,
-            FBrushHardness * 255 div 100,
-            PaintSelection
-          );
-        end;
-      end;
-    tkEraser:
-      if FDocument.ActiveLayer.IsBackground then
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
-        begin
-          StrokeRadius := Max(1, FBrushSize div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-          if FEraserSquareShape then
-            MutableSurface.DrawSquareLine(
-              FLastImagePoint.X,
-              FLastImagePoint.Y,
-              APoint.X,
-              APoint.Y,
-              StrokeRadius,
-              BackgroundToolColor,
-              FBrushOpacity * 255 div 100,
-              FBrushHardness * 255 div 100,
-              PaintSelection
-            )
-          else
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            StrokeRadius := Max(0, (FBrushSize - 1) div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
             MutableSurface.DrawLine(
-              FLastImagePoint.X,
-              FLastImagePoint.Y,
-              APoint.X,
-              APoint.Y,
+              LocalLastPoint.X,
+              LocalLastPoint.Y,
+              LocalPoint.X,
+              LocalPoint.Y,
               StrokeRadius,
-              BackgroundToolColor,
+              ActivePaintColor,
+              FBrushOpacity * 255 div 100,
+              255, { pencil always hard }
+              PaintSelection
+            );
+          end;
+        end;
+      tkBrush:
+        begin
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            StrokeRadius := Max(1, FBrushSize div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
+            MutableSurface.DrawLine(
+              LocalLastPoint.X,
+              LocalLastPoint.Y,
+              LocalPoint.X,
+              LocalPoint.Y,
+              StrokeRadius,
+              ActivePaintColor,
               FBrushOpacity * 255 div 100,
               FBrushHardness * 255 div 100,
               PaintSelection
             );
+          end;
         end;
-      end
-      else if FEraserSquareShape then
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
+      tkEraser:
+        if FDocument.ActiveLayer.IsBackground then
         begin
-          StrokeRadius := Max(1, FBrushSize div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-          MutableSurface.EraseSquareLine(
-            FLastImagePoint.X,
-            FLastImagePoint.Y,
-            APoint.X,
-            APoint.Y,
-            StrokeRadius,
-            FBrushOpacity * 255 div 100,
-            FBrushHardness * 255 div 100,
-            PaintSelection
-          );
-        end;
-      end
-      else
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            StrokeRadius := Max(1, FBrushSize div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
+            if FEraserSquareShape then
+              MutableSurface.DrawSquareLine(
+                LocalLastPoint.X,
+                LocalLastPoint.Y,
+                LocalPoint.X,
+                LocalPoint.Y,
+                StrokeRadius,
+                BackgroundToolColor,
+                FBrushOpacity * 255 div 100,
+                FBrushHardness * 255 div 100,
+                PaintSelection
+              )
+            else
+              MutableSurface.DrawLine(
+                LocalLastPoint.X,
+                LocalLastPoint.Y,
+                LocalPoint.X,
+                LocalPoint.Y,
+                StrokeRadius,
+                BackgroundToolColor,
+                FBrushOpacity * 255 div 100,
+                FBrushHardness * 255 div 100,
+                PaintSelection
+              );
+          end;
+        end
+        else if FEraserSquareShape then
         begin
-          StrokeRadius := Max(1, FBrushSize div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, StrokeRadius));
-          MutableSurface.EraseLine(
-            FLastImagePoint.X,
-            FLastImagePoint.Y,
-            APoint.X,
-            APoint.Y,
-            StrokeRadius,
-            FBrushOpacity * 255 div 100,
-            FBrushHardness * 255 div 100,
-            PaintSelection
-          );
-        end;
-      end;
-    tkFill:
-      begin
-        if FFillSampleSource = 1 then
-          SampleSurface := FDocument.Composite
-        else
-          SampleSurface := FDocument.ActiveLayer.Surface;
-        try
-          if FBucketFloodMode = 1 then
-            FillMask := SampleSurface.CreateGlobalColorSelection(
-              APoint.X,
-              APoint.Y,
-              EnsureRange(FFillTolerance, 0, 255)
-            )
-          else
-            FillMask := SampleSurface.CreateContiguousSelection(
-              APoint.X,
-              APoint.Y,
-              EnsureRange(FFillTolerance, 0, 255)
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            StrokeRadius := Max(1, FBrushSize div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
+            MutableSurface.EraseSquareLine(
+              LocalLastPoint.X,
+              LocalLastPoint.Y,
+              LocalPoint.X,
+              LocalPoint.Y,
+              StrokeRadius,
+              FBrushOpacity * 255 div 100,
+              FBrushHardness * 255 div 100,
+              PaintSelection
             );
+          end;
+        end
+        else
+        begin
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            StrokeRadius := Max(1, FBrushSize div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
+            MutableSurface.EraseLine(
+              LocalLastPoint.X,
+              LocalLastPoint.Y,
+              LocalPoint.X,
+              LocalPoint.Y,
+              StrokeRadius,
+              FBrushOpacity * 255 div 100,
+              FBrushHardness * 255 div 100,
+              PaintSelection
+            );
+          end;
+        end;
+      tkFill:
+        begin
+          if FFillSampleSource = 1 then
+            SampleSurface := FDocument.Composite
+          else
+            SampleSurface := FDocument.ActiveLayer.Surface;
           try
-            if PaintSelection <> nil then
-              FillMask.IntersectWith(PaintSelection);
+            if FBucketFloodMode = 1 then
+            begin
+              if FFillSampleSource = 1 then
+                FillMask := SampleSurface.CreateGlobalColorSelection(
+                  APoint.X,
+                  APoint.Y,
+                  EnsureRange(FFillTolerance, 0, 255)
+                )
+              else
+                FillMask := SampleSurface.CreateGlobalColorSelection(
+                  LocalPoint.X,
+                  LocalPoint.Y,
+                  EnsureRange(FFillTolerance, 0, 255)
+                );
+            end
+            else
+            begin
+              if FFillSampleSource = 1 then
+                FillMask := SampleSurface.CreateContiguousSelection(
+                  APoint.X,
+                  APoint.Y,
+                  EnsureRange(FFillTolerance, 0, 255)
+                )
+              else
+                FillMask := SampleSurface.CreateContiguousSelection(
+                  LocalPoint.X,
+                  LocalPoint.Y,
+                  EnsureRange(FFillTolerance, 0, 255)
+                );
+            end;
+
+            if FillMask <> nil then
+            begin
+              if FFillSampleSource = 1 then
+              begin
+                if FDocument.HasSelection then
+                  FillMask.IntersectWith(FDocument.Selection);
+                LocalFillMask := FDocument.SelectionToActiveLayerSpace(FillMask);
+                FillMask.Free;
+                FillMask := LocalFillMask;
+                LocalFillMask := nil;
+              end
+              else if PaintSelection <> nil then
+                FillMask.IntersectWith(PaintSelection);
+            end;
+
             MutableSurface := FDocument.MutableActiveLayerSurface;
-            if MutableSurface <> nil then
+            if (MutableSurface <> nil) and (FillMask <> nil) then
               MutableSurface.FillSelection(
                 FillMask,
                 ActivePaintColor,
@@ -7236,139 +7465,155 @@ begin
               );
           finally
             FillMask.Free;
+            FillMask := nil;
+            if FFillSampleSource = 1 then
+              SampleSurface.Free;
           end;
-        finally
-          if FFillSampleSource = 1 then
-            SampleSurface.Free;
         end;
-      end;
-    tkColorPicker:
-      begin
-        PickedColor := ColorForActiveTarget(FPickSecondaryTarget);
-        if FPickerSampleSource = 1 then
+      tkColorPicker:
         begin
-          { Sample from composite image }
-          CompositeSurface := FDocument.Composite;
-          try
-            PickedColor := CompositeSurface[APoint.X, APoint.Y];
-          finally
-            CompositeSurface.Free;
-          end;
-        end
-        else
-        begin
-          { Sample from current layer only }
-          if FDocument.ActiveLayer.Surface.InBounds(APoint.X, APoint.Y) then
-            PickedColor := FDocument.ActiveLayer.Surface[APoint.X, APoint.Y];
-        end;
-        if FPickSecondaryTarget then
-          FSecondaryColor := AdoptSampledRGBPreservingAlpha(FSecondaryColor, PickedColor)
-        else
-          FPrimaryColor := AdoptSampledRGBPreservingAlpha(FPrimaryColor, PickedColor);
-      end;
-    tkRecolor:
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
-        begin
-          { Interpolate along the stroke path from FLastImagePoint to APoint,
-            applying the recolor brush at regular spacing intervals.
-            Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
-          Radius := Max(1, FBrushSize div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
-          StrokeSpacing := Max(1, Radius div 2);
-          StrokeDX := APoint.X - FLastImagePoint.X;
-          StrokeDY := APoint.Y - FLastImagePoint.Y;
-          StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
-          if StrokeDist < 1 then
-            StrokeSteps := 1
-          else
-            StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
-          for StrokeStep := 0 to StrokeSteps - 1 do
+          PickedColor := ColorForActiveTarget(FPickSecondaryTarget);
+          if FPickerSampleSource = 1 then
           begin
-            if StrokeSteps = 1 then
-            begin
-              StepX := APoint.X;
-              StepY := APoint.Y;
-            end
-            else
-            begin
-              StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
-              StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
+            { Sample from composite image }
+            CompositeSurface := FDocument.Composite;
+            try
+              PickedColor := CompositeSurface[APoint.X, APoint.Y];
+            finally
+              CompositeSurface.Free;
             end;
-            MutableSurface.RecolorBrush(
-              StepX,
-              StepY,
-              Radius,
-              ColorForActiveTarget(not FPickSecondaryTarget),
-              ActivePaintColor,
-              EnsureRange(FRecolorTolerance, 0, 255),
-              FBrushOpacity * 255 div 100,
-              FRecolorPreserveValue,
-              PaintSelection
-            );
-          end;
-        end;
-      end;
-    tkCloneStamp:
-      if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
-      begin
-        MutableSurface := FDocument.MutableActiveLayerSurface;
-        if MutableSurface <> nil then
-        begin
-          { Interpolate along the stroke path from FLastImagePoint to APoint,
-            stamping at regular spacing intervals.
-            Spacing = max(1, Radius/2) ≈ 25% of diameter (Photoshop convention). }
-          Radius := Max(1, FBrushSize div 2);
-          CaptureStrokeBeforeRect(StrokeBoundsForSegment(FLastImagePoint, APoint, Radius));
-          StrokeSpacing := Max(1, Radius div 2);
-          StrokeDX := APoint.X - FLastImagePoint.X;
-          StrokeDY := APoint.Y - FLastImagePoint.Y;
-          StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
-          if StrokeDist < 1 then
-            StrokeSteps := 1
+          end
           else
-            StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
-          for StrokeStep := 0 to StrokeSteps - 1 do
           begin
-            if StrokeSteps = 1 then
-            begin
-              StepX := APoint.X;
-              StepY := APoint.Y;
-            end
+            { Sample from current layer only }
+            if FDocument.ActiveLayer.Surface.InBounds(LocalPoint.X, LocalPoint.Y) then
+              PickedColor := FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y];
+          end;
+          if FPickSecondaryTarget then
+            FSecondaryColor := AdoptSampledRGBPreservingAlpha(FSecondaryColor, PickedColor)
+          else
+            FPrimaryColor := AdoptSampledRGBPreservingAlpha(FPrimaryColor, PickedColor);
+        end;
+      tkRecolor:
+        begin
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            Radius := Max(1, FBrushSize div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, Radius));
+            StrokeSpacing := Max(1, Radius div 2);
+            StrokeDX := APoint.X - FLastImagePoint.X;
+            StrokeDY := APoint.Y - FLastImagePoint.Y;
+            StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
+            if StrokeDist < 1 then
+              StrokeSteps := 1
             else
+              StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
+            for StrokeStep := 0 to StrokeSteps - 1 do
             begin
-              StepX := FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps);
-              StepY := FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps);
-            end;
-            for DestY := Max(0, StepY - Radius) to Min(FDocument.Height - 1, StepY + Radius) do
-              for DestX := Max(0, StepX - Radius) to Min(FDocument.Width - 1, StepX + Radius) do
-              begin
-                if Round(Sqrt(Sqr(DestX - StepX) + Sqr(DestY - StepY))) > Radius then
-                  Continue;
-                if FCloneAligned and FCloneAlignedOffsetValid then
-                begin
-                  SourceX := DestX + FCloneAlignedOffset.X;
-                  SourceY := DestY + FCloneAlignedOffset.Y;
-                end
-                else
-                begin
-                  SourceX := FCloneStampSource.X + (DestX - FDragStart.X);
-                  SourceY := FCloneStampSource.Y + (DestY - FDragStart.Y);
-                end;
-                if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
-                  Continue;
-                MutableSurface.BlendPixel(
-                  DestX,
-                  DestY,
-                  FCloneStampSnapshot[SourceX, SourceY],
-                  FBrushOpacity * 255 div 100,
-                  PaintSelection
+              if StrokeSteps = 1 then
+                StepCanvasPoint := APoint
+              else
+                StepCanvasPoint := Point(
+                  FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps),
+                  FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps)
                 );
+              StepLocalPoint := ActiveLayerLocalPoint(StepCanvasPoint);
+
+              case FRecolorSamplingMode of
+                rsmContinuous:
+                  begin
+                    if not RecolorSourceAtPoint(StepCanvasPoint, RecolorSourceColor) and
+                       FRecolorStrokeSourceValid then
+                      RecolorSourceColor := FRecolorStrokeSourceColor;
+                  end;
+                rsmSwatchCompat:
+                  RecolorSourceColor := ColorForActiveTarget(not FPickSecondaryTarget);
+              else
+                begin
+                  if not FRecolorStrokeSourceValid then
+                  begin
+                    if RecolorSourceAtPoint(FDragStart, FRecolorStrokeSourceColor) then
+                      FRecolorStrokeSourceValid := True
+                    else
+                      FRecolorStrokeSourceColor := ColorForActiveTarget(not FPickSecondaryTarget);
+                  end;
+                  RecolorSourceColor := FRecolorStrokeSourceColor;
+                end;
               end;
+
+              MutableSurface.RecolorBrush(
+                StepLocalPoint.X,
+                StepLocalPoint.Y,
+                Radius,
+                RecolorSourceColor,
+                ActivePaintColor,
+                EnsureRange(FRecolorTolerance, 0, 255),
+                FBrushOpacity * 255 div 100,
+                FRecolorPreserveValue,
+                PaintSelection,
+                FRecolorBlendMode
+              );
+            end;
           end;
         end;
-      end;
+      tkCloneStamp:
+        if FCloneStampSampled and (FCloneStampSnapshot <> nil) then
+        begin
+          MutableSurface := FDocument.MutableActiveLayerSurface;
+          if MutableSurface <> nil then
+          begin
+            Radius := Max(1, FBrushSize div 2);
+            CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, Radius));
+            StrokeSpacing := Max(1, Radius div 2);
+            StrokeDX := APoint.X - FLastImagePoint.X;
+            StrokeDY := APoint.Y - FLastImagePoint.Y;
+            StrokeDist := Sqrt(StrokeDX * StrokeDX + StrokeDY * StrokeDY);
+            if StrokeDist < 1 then
+              StrokeSteps := 1
+            else
+              StrokeSteps := Max(1, Round(StrokeDist / StrokeSpacing));
+            for StrokeStep := 0 to StrokeSteps - 1 do
+            begin
+              if StrokeSteps = 1 then
+                StepCanvasPoint := APoint
+              else
+                StepCanvasPoint := Point(
+                  FLastImagePoint.X + Round(StrokeDX * (StrokeStep + 1) / StrokeSteps),
+                  FLastImagePoint.Y + Round(StrokeDY * (StrokeStep + 1) / StrokeSteps)
+                );
+              StepLocalPoint := ActiveLayerLocalPoint(StepCanvasPoint);
+              for DestY := Max(0, StepLocalPoint.Y - Radius) to Min(MutableSurface.Height - 1, StepLocalPoint.Y + Radius) do
+                for DestX := Max(0, StepLocalPoint.X - Radius) to Min(MutableSurface.Width - 1, StepLocalPoint.X + Radius) do
+                begin
+                  if Round(Sqrt(Sqr(DestX - StepLocalPoint.X) + Sqr(DestY - StepLocalPoint.Y))) > Radius then
+                    Continue;
+                  if FCloneAligned and FCloneAlignedOffsetValid then
+                  begin
+                    SourceX := DestX + FCloneAlignedOffset.X;
+                    SourceY := DestY + FCloneAlignedOffset.Y;
+                  end
+                  else
+                  begin
+                    SourceX := LocalCloneSource.X + (DestX - LocalDragStart.X);
+                    SourceY := LocalCloneSource.Y + (DestY - LocalDragStart.Y);
+                  end;
+                  if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
+                    Continue;
+                  MutableSurface.BlendPixel(
+                    DestX,
+                    DestY,
+                    FCloneStampSnapshot[SourceX, SourceY],
+                    FBrushOpacity * 255 div 100,
+                    PaintSelection
+                  );
+                end;
+            end;
+          end;
+        end;
+    end;
+  finally
+    OwnedPaintSelection.Free;
   end;
   FLastImagePoint := APoint;
 end;
@@ -7438,7 +7683,15 @@ var
   DoOutline: Boolean;
   FillColor: TRGBA32;
   PaintSelection: TSelectionMask;
+  OwnedPaintSelection: TSelectionMask;
   MutableSurface: TRasterSurface;
+  LocalStartPoint: TPoint;
+  LocalEndPoint: TPoint;
+  LocalCurveEndPoint: TPoint;
+  LocalCurveControlPoint: TPoint;
+  LocalCurveControlPoint2: TPoint;
+  LocalLassoPoints: array of TPoint;
+  LassoIndex: Integer;
 begin
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
@@ -7447,159 +7700,171 @@ begin
   MutableSurface := FDocument.MutableActiveLayerSurface;
   if MutableSurface = nil then
     Exit;
-  if FDocument.HasSelection then
-    PaintSelection := FDocument.Selection
-  else
-    PaintSelection := nil;
-  case FCurrentTool of
-    tkLine:
-      if FLineCurvePending then
-        if FLineCurveSecondStage then
-          MutableSurface.DrawCubicBezier(
-            AStartPoint.X,
-            AStartPoint.Y,
-            FLineCurveControlPoint.X,
-            FLineCurveControlPoint.Y,
-            FLineCurveControlPoint2.X,
-            FLineCurveControlPoint2.Y,
-            FLineCurveEndPoint.X,
-            FLineCurveEndPoint.Y,
+  OwnedPaintSelection := nil;
+  if ToolPaintPathUsesActiveSelection(FCurrentTool) and FDocument.HasSelection then
+    OwnedPaintSelection := FDocument.ActiveSelectionInLayerSpace;
+  PaintSelection := OwnedPaintSelection;
+  LocalStartPoint := ActiveLayerLocalPoint(AStartPoint);
+  LocalEndPoint := ActiveLayerLocalPoint(AEndPoint);
+  LocalCurveEndPoint := ActiveLayerLocalPoint(FLineCurveEndPoint);
+  LocalCurveControlPoint := ActiveLayerLocalPoint(FLineCurveControlPoint);
+  LocalCurveControlPoint2 := ActiveLayerLocalPoint(FLineCurveControlPoint2);
+  try
+    case FCurrentTool of
+      tkLine:
+        if FLineCurvePending then
+          if FLineCurveSecondStage then
+            MutableSurface.DrawCubicBezier(
+              LocalStartPoint.X,
+              LocalStartPoint.Y,
+              LocalCurveControlPoint.X,
+              LocalCurveControlPoint.Y,
+              LocalCurveControlPoint2.X,
+              LocalCurveControlPoint2.Y,
+              LocalCurveEndPoint.X,
+              LocalCurveEndPoint.Y,
+              Max(1, FBrushSize div 2),
+              ActivePaintColor,
+              255,
+              255,
+              PaintSelection
+            )
+          else
+            MutableSurface.DrawQuadraticBezier(
+              LocalStartPoint.X,
+              LocalStartPoint.Y,
+              LocalCurveControlPoint.X,
+              LocalCurveControlPoint.Y,
+              LocalCurveEndPoint.X,
+              LocalCurveEndPoint.Y,
+              Max(1, FBrushSize div 2),
+              ActivePaintColor,
+              255,
+              255,
+              PaintSelection
+            )
+        else
+          MutableSurface.DrawLine(
+            LocalStartPoint.X,
+            LocalStartPoint.Y,
+            LocalEndPoint.X,
+            LocalEndPoint.Y,
             Max(1, FBrushSize div 2),
             ActivePaintColor,
             255,
-            255,
-            PaintSelection
-          )
-        else
-          MutableSurface.DrawQuadraticBezier(
-            AStartPoint.X,
-            AStartPoint.Y,
-            FLineCurveControlPoint.X,
-            FLineCurveControlPoint.Y,
-            FLineCurveEndPoint.X,
-            FLineCurveEndPoint.Y,
-            Max(1, FBrushSize div 2),
-            ActivePaintColor,
-            255,
-            255,
-            PaintSelection
-          )
-      else
-        MutableSurface.DrawLine(
-          AStartPoint.X,
-          AStartPoint.Y,
-          AEndPoint.X,
-          AEndPoint.Y,
-          Max(1, FBrushSize div 2),
-          ActivePaintColor,
-          255,
-          255,
-          PaintSelection
-        );
-    tkGradient:
-      begin
-        if FGradientReverse then
-        begin
-          if FGradientType = 1 then
-          begin
-            { Radial reversed: secondary in center, primary at edge }
-            MutableSurface.FillRadialGradient(
-              AStartPoint.X,
-              AStartPoint.Y,
-              Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
-              FSecondaryColor,
-              FPrimaryColor,
-              PaintSelection
-            );
-          end
-          else
-          begin
-            MutableSurface.FillGradient(
-              AStartPoint.X,
-              AStartPoint.Y,
-              AEndPoint.X,
-              AEndPoint.Y,
-              FSecondaryColor,
-              FPrimaryColor,
-              PaintSelection
-            );
-          end;
-        end
-        else
-        begin
-          if FGradientType = 1 then
-          begin
-            { Radial: primary in center, secondary at edge }
-            MutableSurface.FillRadialGradient(
-              AStartPoint.X,
-              AStartPoint.Y,
-              Round(Sqrt(Sqr(AEndPoint.X - AStartPoint.X) + Sqr(AEndPoint.Y - AStartPoint.Y))),
-              FPrimaryColor,
-              FSecondaryColor,
-              PaintSelection
-            );
-          end
-          else
-          begin
-            MutableSurface.FillGradient(
-              AStartPoint.X,
-              AStartPoint.Y,
-              AEndPoint.X,
-              AEndPoint.Y,
-              FPrimaryColor,
-              FSecondaryColor,
-              PaintSelection
-            );
-          end;
-        end;
-      end;
-    tkRectangle:
-      begin
-        if DoFill then
-          MutableSurface.DrawRectangle(
-            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
-        if DoOutline then
-          MutableSurface.DrawRectangle(
-            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
-      end;
-    tkRoundedRectangle:
-      begin
-        if DoFill then
-          MutableSurface.DrawRoundedRectangle(
-            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
-        if DoOutline then
-          MutableSurface.DrawRoundedRectangle(
-            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
-      end;
-    tkEllipseShape:
-      begin
-        if DoFill then
-          MutableSurface.DrawEllipse(
-            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
-        if DoOutline then
-          MutableSurface.DrawEllipse(
-            AStartPoint.X, AStartPoint.Y, AEndPoint.X, AEndPoint.Y,
-            Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
-      end;
-    tkFreeformShape:
-      begin
-        if DoFill then
-          MutableSurface.FillPolygon(FLassoPoints, FillColor, 255, PaintSelection);
-        if DoOutline then
-          MutableSurface.DrawPolygon(
-            FLassoPoints,
-            Max(1, FBrushSize div 3),
-            ActivePaintColor,
-            True,
             255,
             PaintSelection
           );
-      end;
+      tkGradient:
+        begin
+          if FGradientReverse then
+          begin
+            if FGradientType = 1 then
+            begin
+              { Radial reversed: secondary in center, primary at edge }
+              MutableSurface.FillRadialGradient(
+                LocalStartPoint.X,
+                LocalStartPoint.Y,
+                Round(Sqrt(Sqr(LocalEndPoint.X - LocalStartPoint.X) + Sqr(LocalEndPoint.Y - LocalStartPoint.Y))),
+                FSecondaryColor,
+                FPrimaryColor,
+                PaintSelection
+              );
+            end
+            else
+            begin
+              MutableSurface.FillGradient(
+                LocalStartPoint.X,
+                LocalStartPoint.Y,
+                LocalEndPoint.X,
+                LocalEndPoint.Y,
+                FSecondaryColor,
+                FPrimaryColor,
+                PaintSelection
+              );
+            end;
+          end
+          else
+          begin
+            if FGradientType = 1 then
+            begin
+              { Radial: primary in center, secondary at edge }
+              MutableSurface.FillRadialGradient(
+                LocalStartPoint.X,
+                LocalStartPoint.Y,
+                Round(Sqrt(Sqr(LocalEndPoint.X - LocalStartPoint.X) + Sqr(LocalEndPoint.Y - LocalStartPoint.Y))),
+                FPrimaryColor,
+                FSecondaryColor,
+                PaintSelection
+              );
+            end
+            else
+            begin
+              MutableSurface.FillGradient(
+                LocalStartPoint.X,
+                LocalStartPoint.Y,
+                LocalEndPoint.X,
+                LocalEndPoint.Y,
+                FPrimaryColor,
+                FSecondaryColor,
+                PaintSelection
+              );
+            end;
+          end;
+        end;
+      tkRectangle:
+        begin
+          if DoFill then
+            MutableSurface.DrawRectangle(
+              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+              Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
+          if DoOutline then
+            MutableSurface.DrawRectangle(
+              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+              Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
+        end;
+      tkRoundedRectangle:
+        begin
+          if DoFill then
+            MutableSurface.DrawRoundedRectangle(
+              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+              Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
+          if DoOutline then
+            MutableSurface.DrawRoundedRectangle(
+              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+              Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
+        end;
+      tkEllipseShape:
+        begin
+          if DoFill then
+            MutableSurface.DrawEllipse(
+              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+              Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
+          if DoOutline then
+            MutableSurface.DrawEllipse(
+              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+              Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
+        end;
+      tkFreeformShape:
+        begin
+          SetLength(LocalLassoPoints, Length(FLassoPoints));
+          for LassoIndex := 0 to High(FLassoPoints) do
+            LocalLassoPoints[LassoIndex] := ActiveLayerLocalPoint(FLassoPoints[LassoIndex]);
+          if DoFill then
+            MutableSurface.FillPolygon(LocalLassoPoints, FillColor, 255, PaintSelection);
+          if DoOutline then
+            MutableSurface.DrawPolygon(
+              LocalLassoPoints,
+              Max(1, FBrushSize div 3),
+              ActivePaintColor,
+              True,
+              255,
+              PaintSelection
+            );
+        end;
+    end;
+  finally
+    OwnedPaintSelection.Free;
   end;
 end;
 
@@ -7946,8 +8211,8 @@ begin
   { Paste onto the active layer through core guarded mutation route. }
   FDocument.PasteSurfaceToActiveLayer(
     FClipboardSurface,
-    FClipboardOffset.X,
-    FClipboardOffset.Y
+    FClipboardOffset.X - FDocument.ActiveLayer.OffsetX,
+    FClipboardOffset.Y - FDocument.ActiveLayer.OffsetY
   );
   SyncImageMutationUI(False, True);
 end;
@@ -9598,6 +9863,31 @@ begin
   PaintBoxMouseUp(nil, Button, Shift, X, Y);
 end;
 
+procedure TMainForm.SetPrimaryColorForTest(const AColor: TRGBA32);
+begin
+  FPrimaryColor := AColor;
+  SyncStrokeColorToActiveTarget;
+end;
+
+procedure TMainForm.SetSecondaryColorForTest(const AColor: TRGBA32);
+begin
+  FSecondaryColor := AColor;
+end;
+
+procedure TMainForm.SetRecolorOptionsForTest(
+  ASamplingMode: TRecolorSamplingMode;
+  ABlendMode: TRecolorBlendMode;
+  ATolerance: Integer;
+  APreserveValue: Boolean
+);
+begin
+  FRecolorSamplingMode := ASamplingMode;
+  FRecolorBlendMode := ABlendMode;
+  FRecolorTolerance := EnsureRange(ATolerance, 0, 255);
+  FRecolorPreserveValue := APreserveValue;
+  FRecolorStrokeSourceValid := False;
+end;
+
 function TMainForm.StrokeRectIsEmpty(const ARect: TRect): Boolean;
 begin
   Result := (ARect.Right <= ARect.Left) or (ARect.Bottom <= ARect.Top);
@@ -9892,6 +10182,21 @@ begin
       end;
     tkRecolor:
       begin
+        FRecolorStrokeSourceValid := False;
+        case FRecolorSamplingMode of
+          rsmOnce:
+            begin
+              if RecolorSourceAtPoint(ImagePoint, FRecolorStrokeSourceColor) then
+                FRecolorStrokeSourceValid := True
+              else
+                FRecolorStrokeSourceColor := ColorForActiveTarget(not FPickSecondaryTarget);
+            end;
+          rsmSwatchCompat:
+            begin
+              FRecolorStrokeSourceColor := ColorForActiveTarget(not FPickSecondaryTarget);
+              FRecolorStrokeSourceValid := True;
+            end;
+        end;
         BeginStrokeHistory;
         ApplyImmediateTool(ImagePoint);
         ExpandStrokeDirty(ImagePoint);
@@ -10085,6 +10390,8 @@ begin
   if Button = mbMiddle then
     DeactivateTempPan;
   FPointerDown := False;
+  if FCurrentTool = tkRecolor then
+    FRecolorStrokeSourceValid := False;
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
@@ -10322,6 +10629,7 @@ procedure TMainForm.PlaceTextAtPoint(const AResult: TTextDialogResult;
 var
   TextSurface: TRasterSurface;
   PaintSelection: TSelectionMask;
+  LocalPoint: TPoint;
 begin
   TextSurface := RenderTextToSurface(AResult, AColor);
   if TextSurface = nil then
@@ -10331,10 +10639,11 @@ begin
       PaintSelection := FDocument.Selection
     else
       PaintSelection := nil;
+    LocalPoint := ActiveLayerLocalPoint(APoint);
     FDocument.PasteSurfaceToActiveLayer(
       TextSurface,
-      APoint.X,
-      APoint.Y,
+      LocalPoint.X,
+      LocalPoint.Y,
       255,
       PaintSelection
     );
@@ -12151,6 +12460,35 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FRecolorPreserveValueCheck) then Exit;
   FRecolorPreserveValue := FRecolorPreserveValueCheck.Checked;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.RecolorSamplingModeChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FRecolorSamplingCombo) then Exit;
+  case EnsureRange(FRecolorSamplingCombo.ItemIndex, 0, 2) of
+    0: FRecolorSamplingMode := rsmOnce;
+    1: FRecolorSamplingMode := rsmContinuous;
+  else
+    FRecolorSamplingMode := rsmSwatchCompat;
+  end;
+  FRecolorStrokeSourceValid := False;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.RecolorModeChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FRecolorModeCombo) then Exit;
+  case EnsureRange(FRecolorModeCombo.ItemIndex, 0, 4) of
+    0: FRecolorBlendMode := rbmColor;
+    1: FRecolorBlendMode := rbmHue;
+    2: FRecolorBlendMode := rbmSaturation;
+    3: FRecolorBlendMode := rbmLuminosity;
+  else
+    FRecolorBlendMode := rbmReplaceRGBCompat;
+  end;
   RefreshCanvas;
 end;
 
