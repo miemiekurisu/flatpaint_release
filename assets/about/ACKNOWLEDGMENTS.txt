@@ -1,0 +1,29 @@
+ACKNOWLEDGMENTS
+
+FlatPaint was made possible by the following projects and people.
+
+-- Toolchain --
+
+Free Pascal Compiler (FPC)
+  Compiler and runtime library for the Pascal language.
+  https://www.freepascal.org/
+
+Lazarus IDE and LCL
+  The cross-platform IDE and component library that powers the UI.
+  https://www.lazarus-ide.org/
+
+-- Icons --
+
+Lucide Icons
+  Beautiful and consistent open-source icon set.
+  https://lucide.dev/
+
+-- Testing --
+
+[Friend Name 1] - [contribution description, e.g. beta testing, UX feedback]
+[Friend Name 2] - [contribution description]
+[Friend Name 3] - [contribution description]
+
+-- Special Thanks --
+
+[Any additional acknowledgments]

@@ -2367,7 +2367,23 @@ Based on all findings, the strategy is revised from the previous entry's generic
 
 6. **FlatPaint's existing ObjC bridge pattern is the universal escape hatch** — For any Apple framework not in FPC's headers (Metal, vImage, Core ML, etc.), writing a `.m` or `.c` bridge file + Pascal `external` declarations takes minimal effort. The `compile_native_modules()` build system function already handles this. No architectural changes needed.
 
-## 2026-03-07 (selection lifecycle behavior alignment + P1 closure hardening)
+## 2026-03-07 (canvas overscroll: zoomed-in canvas edge could not reach viewport center for edge-pixel editing)
+- Problem: when zoomed in, the canvas edge could only scroll to the viewport edge, not to the viewport center. This made precise editing of edge pixels difficult because tools need cursor space around the target.
+- Core error: `CenteredContentOffset` returned 0 when content was larger than viewport, so `FPaintBox.Left/Top = 0` and the TScrollBox scroll range stopped exactly at the content edge — no overscroll margin.
+- Investigation: analyzed `UpdateCanvasSize` → `CenteredContentOffset` → `MaxViewportScrollPosition` chain; researched GIMP's `OVERPAN_FACTOR = 0.5` approach in `gimpdisplayshell-scroll.c`; confirmed Photoshop uses equivalent half-viewport overscroll.
+- Root cause: `CenteredContentOffset(ViewportSize, ContentSize)` returned `Max(0, (V - C) div 2)` — when content > viewport this is 0, meaning no leading margin. TScrollBox derives scroll range from `child.Left + child.Width`, so no overscroll space was available.
+- Fix: changed `CenteredContentOffset` to return `ViewportSize div 2` when content > viewport. This adds half-viewport leading margin to `FPaintBox.Left/Top`, and TScrollBox's right/bottom extent (`Left + Width`) provides equivalent trailing overscroll. Now any edge pixel can be scrolled to the viewport center, matching GIMP/Photoshop behavior.
+- Reuse note: the TScrollBox approach derives scroll range from child bounds. To control overscroll, manipulate the child's position/size rather than trying to override scroll bar ranges directly. The formula `CanvasOffset + ContentSize - ViewportSize` in `MaxViewportScrollPosition` automatically reflects the new offset.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (GPL-safety: GIMP-prefixed identifier names in XCF reader violated Development Rule 16)
+- Problem: `fpxcfio.pas` contained constants named `GIMP_RGB_IMAGE`, `GIMP_RGBA_IMAGE`, etc. and `PROP_END`, `PROP_COMPRESSION`, etc. — verbatim identifier names from GIMP's GPLv3 source (`gimpbaseenums.h`, `xcf-private.h`)
+- Core error: the numeric values are XCF format specification constants (required for correct parsing), but the identifier names are GIMP's own naming choices — copying them violates Rule 16 ("Do not copy code, comments, data tables, or identifier names")
+- Investigation: GPL contamination audit searched all 107 source files for GIMP-prefixed identifiers, GPL license headers, copied data tables, and comment references
+- Root cause: XCF reader was originally prototyped using GIMP header naming conventions; these were never renamed to FlatPaint conventions before commit
+- Fix: renamed all constants to FlatPaint-native naming: `GIMP_RGB_IMAGE` → `XCF_TYPE_RGB`, `GIMP_RGBA_IMAGE` → `XCF_TYPE_RGBA`, etc.; `PROP_END` → `XCF_PROP_END`, `PROP_COMPRESSION` → `XCF_PROP_COMPRESSION`, etc. Also neutralized a source comment in `mainform.pas` that referenced "GIMP-like" behavior.
+- Reuse note: when implementing file format readers using a GPL project as reference, always use your own identifier naming conventions from the start. Format-mandated numeric constants are fine (they are part of the specification), but naming must be original. Rule 16 applies to identifier names, not just code logic.
+- Repeat count: `This issue has occurred 1 time(s)`
 
 - Investigation: reviewed Photoshop and GIMP selection behavior references before finalizing the change. Photoshop explicitly documents deselect via click-outside path in selection workflows, while GIMP documentation keeps selection as an explicit mask state until replaced/cleared. References used: `https://helpx.adobe.com/photoshop/using/selecting-deselecting-areas.html`, `https://docs.gimp.org/2.10/en/gimp-tools-selection.html`, and `https://docs.gimp.org/2.10/en/gimp-tool-rect-select.html`.
 - Fix: refined the earlier blanket switch rule to a tool-family matrix: keep auto-deselect on blank click (selection tools), preserve selection when switching to selection-aware tools (`Fill`/`Gradient`/`Recolor`), auto-clear when switching to free-draw/shape/text tools, and preserve when switching within selection tools.

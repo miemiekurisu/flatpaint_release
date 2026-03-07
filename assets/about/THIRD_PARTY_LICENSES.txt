@@ -1,0 +1,129 @@
+THIRD-PARTY LICENSES
+
+FlatPaint includes or links against the following open-source software.
+Their licenses require the following notices to be distributed with
+the application.
+
+========================================================================
+FREE PASCAL COMPILER RUNTIME LIBRARY (RTL) AND FREE COMPONENT LIBRARY (FCL)
+========================================================================
+
+Copyright (c) 1993-2021 by Florian Klaempfl and others.
+
+Licensed under the GNU Lesser General Public License v2 or later,
+with the following static linking exception:
+
+  As a special exception, the copyright holders of this library give
+  you permission to link this library with independent modules to
+  produce an executable, regardless of the license terms of these
+  independent modules, and to copy and distribute the resulting
+  executable under terms of your choice, provided that you also meet,
+  for each linked independent module, the terms and conditions of the
+  license of that module. An independent module is a module which is
+  not derived from or based on this library. If you modify this
+  library, you may extend this exception to your version of the
+  library, but you are not obligated to do so. If you do not wish to
+  do so, delete this exception statement from your version.
+
+Source: https://www.freepascal.org/
+
+========================================================================
+LAZARUS COMPONENT LIBRARY (LCL)
+========================================================================
+
+Copyright (c) the Lazarus Development Team.
+
+Licensed under the GNU Lesser General Public License v2 or later,
+with the following linking exception:
+
+  As a special exception, the copyright holders of this library give
+  you permission to link this library with independent modules to
+  produce an executable, regardless of the license terms of these
+  independent modules, and to copy and distribute the resulting
+  executable under terms of your choice, provided that you also meet,
+  for each linked independent module, the terms and conditions of the
+  license of that module. An independent module is a module which is
+  not derived from or based on this library. If you modify this
+  library, you may extend this exception to your version of the
+  library, but you are not obligated to do so. If you do not wish to
+  do so, delete this exception statement from your version.
+
+Source: https://www.lazarus-ide.org/
+
+========================================================================
+LUCIDE ICONS
+========================================================================
+
+ISC License
+
+Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022
+as part of Feather (MIT). All other copyright (c) for Lucide are held
+by Lucide Contributors 2022.
+
+Permission to use, copy, modify, and/or distribute this software for
+any purpose with or without fee is hereby granted, provided that the
+above copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
+DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
+PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+PERFORMANCE OF THIS SOFTWARE.
+
+Source: https://lucide.dev/
+
+========================================================================
+ZLIB COMPRESSION LIBRARY
+========================================================================
+
+Copyright (c) 1995-2024 Jean-loup Gailly and Mark Adler.
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must
+     not claim that you wrote the original software. If you use this
+     software in a product, an acknowledgment in the product
+     documentation would be appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must
+     not be misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source
+     distribution.
+
+Source: https://zlib.net/
+
+Note: FlatPaint uses the PasZLib Pascal translation by Jacques Nomssi Nzali,
+Copyright (C) 1998-2000, distributed under the same zlib license terms.
+
+========================================================================
+JPEG COMPRESSION LIBRARY
+========================================================================
+
+Based on the Independent JPEG Group (IJG) library release 6b.
+Pascal translation (PasJPEG) by Jacques Nomssi Nzali.
+Copyright (C) 1996-1998 Jacques Nomssi Nzali.
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+  1. The origin of this software must not be misrepresented; you must
+     not claim that you wrote the original software. If you use this
+     software in a product, an acknowledgment in the product
+     documentation would be appreciated but is not required.
+  2. Altered source versions must be plainly marked as such, and must
+     not be misrepresented as being the original software.
+  3. This notice may not be removed or altered from any source
+     distribution.

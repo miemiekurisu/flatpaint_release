@@ -1,0 +1,6 @@
+FlatPaint
+Version 1.0
+
+A lightweight raster image editor for macOS.
+
+Copyright (c) 2026 [Author Name]. All rights reserved.

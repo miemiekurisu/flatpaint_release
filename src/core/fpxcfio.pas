@@ -20,23 +20,23 @@ uses
 const
   XCFMagic = 'gimp xcf ';
 
-  PROP_END = 0;
-  PROP_COLORMAP = 1;
-  PROP_OPACITY = 6;
-  PROP_VISIBLE = 8;
-  PROP_OFFSETS = 15;
-  PROP_COMPRESSION = 17;
-  PROP_GROUP_ITEM = 29;
+  XCF_PROP_END = 0;
+  XCF_PROP_COLORMAP = 1;
+  XCF_PROP_OPACITY = 6;
+  XCF_PROP_VISIBLE = 8;
+  XCF_PROP_OFFSETS = 15;
+  XCF_PROP_COMPRESSION = 17;
+  XCF_PROP_GROUP_ITEM = 29;
 
   COMPRESS_NONE = 0;
   COMPRESS_RLE = 1;
 
-  GIMP_RGB_IMAGE = 0;
-  GIMP_RGBA_IMAGE = 1;
-  GIMP_GRAY_IMAGE = 2;
-  GIMP_GRAYA_IMAGE = 3;
-  GIMP_INDEXED_IMAGE = 4;
-  GIMP_INDEXEDA_IMAGE = 5;
+  XCF_TYPE_RGB = 0;
+  XCF_TYPE_RGBA = 1;
+  XCF_TYPE_GRAY = 2;
+  XCF_TYPE_GRAYA = 3;
+  XCF_TYPE_INDEXED = 4;
+  XCF_TYPE_INDEXEDA = 5;
 
 type
   TInt64Array = array of Int64;
@@ -174,11 +174,11 @@ begin
   begin
     PropertyType := ReadUInt32BE(AStream);
     PropertySize := ReadUInt32BE(AStream);
-    if PropertyType = PROP_END then
+    if PropertyType = XCF_PROP_END then
       Exit;
 
     case PropertyType of
-      PROP_COMPRESSION:
+      XCF_PROP_COMPRESSION:
         begin
           if PropertySize > 0 then
           begin
@@ -186,7 +186,7 @@ begin
             SkipBytes(AStream, PropertySize - 1);
           end;
         end;
-      PROP_COLORMAP:
+      XCF_PROP_COLORMAP:
         begin
           if PropertySize >= 4 then
           begin
@@ -232,11 +232,11 @@ begin
   begin
     PropertyType := ReadUInt32BE(AStream);
     PropertySize := ReadUInt32BE(AStream);
-    if PropertyType = PROP_END then
+    if PropertyType = XCF_PROP_END then
       Exit;
 
     case PropertyType of
-      PROP_OPACITY:
+      XCF_PROP_OPACITY:
         begin
           if PropertySize >= 4 then
           begin
@@ -246,7 +246,7 @@ begin
           else
             SkipBytes(AStream, PropertySize);
         end;
-      PROP_VISIBLE:
+      XCF_PROP_VISIBLE:
         begin
           if PropertySize >= 4 then
           begin
@@ -256,7 +256,7 @@ begin
           else
             SkipBytes(AStream, PropertySize);
         end;
-      PROP_OFFSETS:
+      XCF_PROP_OFFSETS:
         begin
           if PropertySize >= 8 then
           begin
@@ -267,7 +267,7 @@ begin
           else
             SkipBytes(AStream, PropertySize);
         end;
-      PROP_GROUP_ITEM:
+      XCF_PROP_GROUP_ITEM:
         begin
           ALayer.IsGroup := True;
           SkipBytes(AStream, PropertySize);
@@ -305,17 +305,17 @@ end;
 function BytesPerPixelForLayerType(ALayerType: Cardinal): Integer;
 begin
   case ALayerType of
-    GIMP_RGB_IMAGE:
+    XCF_TYPE_RGB:
       Result := 3;
-    GIMP_RGBA_IMAGE:
+    XCF_TYPE_RGBA:
       Result := 4;
-    GIMP_GRAY_IMAGE:
+    XCF_TYPE_GRAY:
       Result := 1;
-    GIMP_GRAYA_IMAGE:
+    XCF_TYPE_GRAYA:
       Result := 2;
-    GIMP_INDEXED_IMAGE:
+    XCF_TYPE_INDEXED:
       Result := 1;
-    GIMP_INDEXEDA_IMAGE:
+    XCF_TYPE_INDEXEDA:
       Result := 2;
   else
     Result := 0;
@@ -420,28 +420,28 @@ var
 begin
   ByteIndex := APixelIndex * BytesPerPixelForLayerType(ALayerType);
   case ALayerType of
-    GIMP_RGB_IMAGE:
+    XCF_TYPE_RGB:
       Result := RGBA(ABytes[ByteIndex], ABytes[ByteIndex + 1], ABytes[ByteIndex + 2], 255);
-    GIMP_RGBA_IMAGE:
+    XCF_TYPE_RGBA:
       Result := RGBA(ABytes[ByteIndex], ABytes[ByteIndex + 1], ABytes[ByteIndex + 2], ABytes[ByteIndex + 3]);
-    GIMP_GRAY_IMAGE:
+    XCF_TYPE_GRAY:
       begin
         GrayValue := ABytes[ByteIndex];
         Result := RGBA(GrayValue, GrayValue, GrayValue, 255);
       end;
-    GIMP_GRAYA_IMAGE:
+    XCF_TYPE_GRAYA:
       begin
         GrayValue := ABytes[ByteIndex];
         Result := RGBA(GrayValue, GrayValue, GrayValue, ABytes[ByteIndex + 1]);
       end;
-    GIMP_INDEXED_IMAGE:
+    XCF_TYPE_INDEXED:
       begin
         PaletteIndex := ABytes[ByteIndex] * 3;
         if PaletteIndex + 2 >= Length(AColorMap) then
           Exit(TransparentColor);
         Result := RGBA(AColorMap[PaletteIndex], AColorMap[PaletteIndex + 1], AColorMap[PaletteIndex + 2], 255);
       end;
-    GIMP_INDEXEDA_IMAGE:
+    XCF_TYPE_INDEXEDA:
       begin
         PaletteIndex := ABytes[ByteIndex] * 3;
         if PaletteIndex + 2 >= Length(AColorMap) then
