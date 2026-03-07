@@ -38,6 +38,8 @@ type
     procedure PixelateBlursPixelsIntoBlocks;
     procedure VignetteDarkensEdges;
     procedure DrawLineOpacityScalesAlphaChannel;
+    procedure DashedLineLeavesExpectedGapPixels;
+    procedure DashedPolylineClosesOutlineWithVisibleGaps;
     procedure DrawLineFullOpacityMatchesDirectPaint;
     procedure EraserLineReducesAlphaChannel;
     procedure DrawLineSoftHardnessProducesGradientEdge;
@@ -651,6 +653,45 @@ begin
     Surface.DrawLine(0, 0, 9, 0, 0, RGBA(255, 0, 0, 255), 128);
     AssertTrue('half opacity alpha above zero', Surface[5, 0].A > 0);
     AssertTrue('half opacity alpha less than full', Surface[5, 0].A < 255);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DashedLineLeavesExpectedGapPixels;
+var
+  Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(64, 16);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.DrawDashedLine(5, 8, 45, 8, 0, RGBA(255, 0, 0, 255), 6, 4);
+
+    AssertEquals('dash-on pixel should be painted', 255, Surface[6, 8].A);
+    AssertEquals('first dash gap should stay transparent', 0, Surface[13, 8].A);
+    AssertEquals('second dash should resume painting', 255, Surface[18, 8].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DashedPolylineClosesOutlineWithVisibleGaps;
+var
+  Surface: TRasterSurface;
+  Points: array[0..3] of TPoint;
+begin
+  Surface := TRasterSurface.Create(48, 32);
+  try
+    Surface.Clear(TransparentColor);
+    Points[0] := Point(10, 10);
+    Points[1] := Point(30, 10);
+    Points[2] := Point(30, 20);
+    Points[3] := Point(10, 20);
+    Surface.DrawDashedPolyline(Points, 1, RGBA(255, 0, 0, 255), True, 6, 4);
+
+    AssertEquals('top edge should have painted dash segments', 255, Surface[11, 10].A);
+    AssertEquals('top edge should retain dash gaps', 0, Surface[18, 10].A);
+    AssertEquals('closing edge should be painted', 255, Surface[10, 15].A);
   finally
     Surface.Free;
   end;

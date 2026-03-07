@@ -62,6 +62,8 @@ type
     FPendingSelectionMode: TSelectionCombineMode;
     { 0=Outline, 1=Fill, 2=Outline+Fill }
     FShapeStyle: Integer;
+    { 0=Solid, 1=Dashed }
+    FShapeLineStyle: Integer;
     { 0=Contiguous, 1=Global }
     FBucketFloodMode: Integer;
     { 0=Current Layer, 1=All Layers }
@@ -231,6 +233,8 @@ type
     FSelModeLabel: TLabel;
     FShapeStyleCombo: TComboBox;
     FShapeStyleLabel: TLabel;
+    FShapeLineStyleCombo: TComboBox;
+    FShapeLineStyleLabel: TLabel;
     FLineBezierCheck: TCheckBox;
     FBucketModeCombo: TComboBox;
     FBucketModeLabel: TLabel;
@@ -286,8 +290,13 @@ type
     FSelFeatherSpin: TSpinEdit;
     FLayerDragIndex: Integer;
     FLayerDragTargetIndex: Integer;
+    FLayerLockClosedIcon: TPicture;
+    FLayerLockOpenIcon: TPicture;
+    FLayerEyeOnIcon: TPicture;
+    FLayerEyeOffIcon: TPicture;
     FMagnifyInstalled: Boolean;
     FAquaAppearanceApplied: Boolean;
+    FScrollElasticityDisabled: Boolean;
     function ActivePaintColor: TRGBA32;
     function BackgroundToolColor: TRGBA32;
     function ColorForActiveTarget(AAlternate: Boolean = False): TRGBA32;
@@ -344,6 +353,13 @@ type
     procedure BeginStatusProgress(const ACaption: string);
     procedure UpdateStatusProgress(APercent: Integer; const ACaption: string = '');
     procedure EndStatusProgress;
+    procedure AutoDeselectSelection(const AReason: string);
+    procedure MaybeAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind);
+    function ShouldAutoDeselectFromBlankClick(
+      const APoint: TPoint;
+      AButton: TMouseButton;
+      AShift: TShiftState
+    ): Boolean;
     procedure UpdateToolOptionControl;
     procedure LayoutOptionRow;
     procedure SyncToolButtonSelection;
@@ -361,6 +377,12 @@ type
     );
     procedure RelayoutButtonIconOverlays;
     procedure RelayoutTopChrome;
+    procedure EnsureLayerRowIcons;
+    procedure DrawLayerRowIcon(
+      ACanvas: TCanvas;
+      const ARect: TRect;
+      AIcon: TPicture
+    );
     function AttachButtonIconOverlay(
       AButton: TSpeedButton;
       const ACaption: string;
@@ -562,6 +584,7 @@ type
     procedure EraserShapeComboChanged(Sender: TObject);
     procedure SelModeComboChanged(Sender: TObject);
     procedure ShapeStyleComboChanged(Sender: TObject);
+    procedure ShapeLineStyleComboChanged(Sender: TObject);
     procedure LineBezierChanged(Sender: TObject);
     procedure BucketModeComboChanged(Sender: TObject);
     procedure FillSampleComboChanged(Sender: TObject);
@@ -675,6 +698,7 @@ type
     procedure SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseMove(Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SimulateToolButtonSwitch(ATool: TToolKind);
     procedure SetPrimaryColorForTest(const AColor: TRGBA32);
     procedure SetSecondaryColorForTest(const AColor: TRGBA32);
     procedure SetRecolorOptionsForTest(
@@ -683,6 +707,8 @@ type
       ATolerance: Integer;
       APreserveValue: Boolean
     );
+    procedure SetBrushSizeForTest(ASize: Integer);
+    procedure SetShapeLineStyleForTest(AStyleIndex: Integer);
     property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
     property TestDocument: TImageDocument read FDocument;
     property RenderRevisionForTest: QWord read FRenderRevision;
@@ -704,7 +730,7 @@ uses
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
   FPTextRenderer, FPLayerPropertiesDialog, FPShortcutHelpers,
-  FPMagnifyBridge, FPAlphaBridge,
+  FPMagnifyBridge, FPAlphaBridge, FPScrollViewBridge,
   FPListBgBridge, FPAppearanceBridge;
 
 const
@@ -712,6 +738,29 @@ const
   ToolbarLargeCommandCaptionPrefix = '         '; { reserve icon lane for 20px overlay }
   ToolbarLargeCommandIconLeft = 6;
   ToolbarLargeCommandMaxIconSize = 20;
+  LayerRowIconSize = 16;
+  LayerRowIconMargin = 6;
+  LayerRowLockLeft = 4;
+  LayerRowEyeLeft = LayerRowLockLeft + LayerRowIconSize + LayerRowIconMargin;
+
+procedure LayerRowIconRects(const AItemRect: TRect; out ALockRect, AEyeRect: TRect);
+var
+  IconTop: Integer;
+begin
+  IconTop := AItemRect.Top + ((AItemRect.Bottom - AItemRect.Top - LayerRowIconSize) div 2);
+  ALockRect := Rect(
+    AItemRect.Left + LayerRowLockLeft,
+    IconTop,
+    AItemRect.Left + LayerRowLockLeft + LayerRowIconSize,
+    IconTop + LayerRowIconSize
+  );
+  AEyeRect := Rect(
+    AItemRect.Left + LayerRowEyeLeft,
+    IconTop,
+    AItemRect.Left + LayerRowEyeLeft + LayerRowIconSize,
+    IconTop + LayerRowIconSize
+  );
+end;
 
 var
   GMainForm: TMainForm = nil;
@@ -794,6 +843,7 @@ begin
   end;
   FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
+  FShapeLineStyle := 0;
   FRenderRevision := 1;
   FPreparedRevision := 0;
   FStatusProgressActive := False;
@@ -806,6 +856,9 @@ begin
   FDeferredLayoutPass := True;
   FDeferredLayoutPassesRemaining := 3;
   FLastScrollPosition := Point(0, 0);
+  FMagnifyInstalled := False;
+  FAquaAppearanceApplied := False;
+  FScrollElasticityDisabled := False;
   FActiveColorSlider := -1;
   FTabPressedIndex := -1;
   FTabDragOrigin := Point(0, 0);
@@ -877,6 +930,7 @@ begin
   FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
   FShapeStyle := 0;
+  FShapeLineStyle := 0;
   FBucketFloodMode := 0;
   FLineBezierMode := False;
   FLinePathOpen := False;
@@ -1209,6 +1263,10 @@ begin
   FreeAndNil(FPreparedBitmap);
   FreeAndNil(FDisplaySurface);
   FreeAndNil(FClipboardSurface);
+  FreeAndNil(FLayerLockClosedIcon);
+  FreeAndNil(FLayerLockOpenIcon);
+  FreeAndNil(FLayerEyeOnIcon);
+  FreeAndNil(FLayerEyeOffIcon);
   FreeAndNil(FCloneStampSnapshot);
   FreeAndNil(FSelectionController);
   FreeAndNil(FMovePixelsController);
@@ -1310,8 +1368,8 @@ var
   EdgeVertical: Boolean;
   DashIndex: Integer;
 const
-  SelectionDashLength = 5;
-  SelectionDashGap = 3;
+  SelectionDashLength = 3;
+  SelectionDashGap = 2;
   SelectionDashPeriod = SelectionDashLength + SelectionDashGap;
 begin
   if Assigned(FMovePixelsController) and
@@ -1384,9 +1442,9 @@ begin
             Continue;
 
           if EdgeHorizontal and not EdgeVertical then
-            DashIndex := X
+            DashIndex := X + (Y * 2)
           else if EdgeVertical and not EdgeHorizontal then
-            DashIndex := Y
+            DashIndex := Y + (X * 2)
           else
             DashIndex := X + Y;
 
@@ -1755,6 +1813,56 @@ begin
   RefreshCanvas;
 end;
 
+procedure TMainForm.AutoDeselectSelection(const AReason: string);
+begin
+  if not Assigned(FDocument) or not FDocument.HasSelection then
+    Exit;
+  FDocument.PushHistory(AReason);
+  FDocument.Deselect;
+  SyncSelectionOverlayUI(True);
+end;
+
+function ShouldPreserveSelectionAcrossToolSwitch(ANewTool: TToolKind): Boolean;
+begin
+  { Selection tools always keep the current selection.
+    Selection-aware paint tools (fill/gradient/recolor) also keep it, so the
+    user can continue scoped operations after finishing selection. }
+  Result := IsSelectionTool(ANewTool) or
+    (ANewTool in [tkFill, tkGradient, tkRecolor]);
+end;
+
+procedure TMainForm.MaybeAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind);
+begin
+  if AOldTool = ANewTool then
+    Exit;
+  if not IsSelectionTool(AOldTool) then
+    Exit;
+  if ShouldPreserveSelectionAcrossToolSwitch(ANewTool) then
+    Exit;
+  AutoDeselectSelection('Deselect');
+end;
+
+function TMainForm.ShouldAutoDeselectFromBlankClick(
+  const APoint: TPoint;
+  AButton: TMouseButton;
+  AShift: TShiftState
+): Boolean;
+begin
+  if not IsSelectionTool(FCurrentTool) then
+    Exit(False);
+  if not Assigned(FDocument) then
+    Exit(False);
+  if not FDocument.HasSelection then
+    Exit(False);
+  if AButton <> mbLeft then
+    Exit(False);
+  if (ssShift in AShift) or (ssAlt in AShift) or (ssCtrl in AShift) or (ssMeta in AShift) then
+    Exit(False);
+  if FDocument.Selection[APoint.X, APoint.Y] then
+    Exit(False);
+  Result := True;
+end;
+
 procedure TMainForm.SyncImageMutationUI(ARefreshLayers: Boolean; AMarkDirty: Boolean);
 begin
   if FStatusProgressActive then
@@ -1860,6 +1968,7 @@ var
   IsHardnessTool: Boolean;
   IsEraserShapeTool: Boolean;
   IsShapeTool: Boolean;
+  IsLineStyleTool: Boolean;
   IsBucketTool: Boolean;
   IsToleranceTool: Boolean;
   IsFeatherTool: Boolean;
@@ -1883,6 +1992,7 @@ begin
     IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
     IsEraserShapeTool := FCurrentTool = tkEraser;
     IsShapeTool := FCurrentTool in [tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
+    IsLineStyleTool := FCurrentTool in [tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkFreeformShape];
     IsBucketTool := FCurrentTool = tkFill;
     IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
     IsFeatherTool := IsSelTool;
@@ -1901,6 +2011,9 @@ begin
     if Assigned(FShapeStyleLabel) then FShapeStyleLabel.Visible := IsShapeTool;
     if Assigned(FShapeStyleCombo) then FShapeStyleCombo.Visible := IsShapeTool;
     if Assigned(FShapeStyleCombo) then FShapeStyleCombo.ItemIndex := FShapeStyle;
+    if Assigned(FShapeLineStyleLabel) then FShapeLineStyleLabel.Visible := IsLineStyleTool;
+    if Assigned(FShapeLineStyleCombo) then FShapeLineStyleCombo.Visible := IsLineStyleTool;
+    if Assigned(FShapeLineStyleCombo) then FShapeLineStyleCombo.ItemIndex := FShapeLineStyle;
     if Assigned(FLineBezierCheck) then
     begin
       FLineBezierCheck.Visible := FCurrentTool = tkLine;
@@ -2079,6 +2192,10 @@ begin
   { Shape Style }
   PlaceLabel(FShapeStyleLabel);
   PlaceControl(FShapeStyleCombo);
+
+  { Shape / Line outline style }
+  PlaceLabel(FShapeLineStyleLabel);
+  PlaceControl(FShapeLineStyleCombo);
 
   { Line Bezier }
   PlaceControl(FLineBezierCheck);
@@ -2881,8 +2998,11 @@ begin
   FToolIconImage := TImage.Create(FOptionsBarPanel);
   FToolIconImage.Parent := FOptionsBarPanel;
   FToolIconImage.SetBounds(OptionsBarIconLeft, OptionsBarIconTop, OptionsBarIconSize, OptionsBarIconSize);
-  FToolIconImage.Stretch := False;
+  { Keep a stable logical (point) icon box and let @2x assets render into it. }
+  FToolIconImage.Stretch := True;
+  FToolIconImage.Proportional := True;
   FToolIconImage.Center := True;
+  FToolIconImage.Transparent := True;
 
   { Current tool name label }
   FToolNameLabel := TLabel.Create(FOptionsBarPanel);
@@ -3085,9 +3205,36 @@ begin
   FShapeStyleCombo.Hint := 'Shape draw style';
   FShapeStyleCombo.ShowHint := True;
 
+  FShapeLineStyleLabel := TLabel.Create(FOptionsBarPanel);
+  FShapeLineStyleLabel.Parent := FOptionsBarPanel;
+  FShapeLineStyleLabel.Caption := 'Line:';
+  FShapeLineStyleLabel.Font.Size := OptionsBarFontSize;
+  FShapeLineStyleLabel.Font.Color := ChromeTextColor;
+  FShapeLineStyleLabel.Left := 516;
+  FShapeLineStyleLabel.Top := OptionsBarLabelTop;
+  FShapeLineStyleLabel.Visible := False;
+
+  FShapeLineStyleCombo := TComboBox.Create(FOptionsBarPanel);
+  FShapeLineStyleCombo.Parent := FOptionsBarPanel;
+  FShapeLineStyleCombo.Left := 554;
+  FShapeLineStyleCombo.Top := OptionsBarControlTop;
+  FShapeLineStyleCombo.Height := OptionsBarControlHeight;
+  FShapeLineStyleCombo.Width := 104;
+  FShapeLineStyleCombo.Style := csDropDownList;
+  FShapeLineStyleCombo.Items.Add('Solid');
+  FShapeLineStyleCombo.Items.Add('Dashed');
+  FShapeLineStyleCombo.ItemIndex := FShapeLineStyle;
+  FShapeLineStyleCombo.Visible := False;
+  FShapeLineStyleCombo.OnChange := @ShapeLineStyleComboChanged;
+  FShapeLineStyleCombo.Color := clWhite;
+  FShapeLineStyleCombo.Font.Size := OptionsBarFontSize;
+  FShapeLineStyleCombo.Font.Color := ChromeTextColor;
+  FShapeLineStyleCombo.Hint := 'Outline line style for line/shape tools';
+  FShapeLineStyleCombo.ShowHint := True;
+
   FLineBezierCheck := TCheckBox.Create(FOptionsBarPanel);
   FLineBezierCheck.Parent := FOptionsBarPanel;
-  FLineBezierCheck.Left := 348;
+  FLineBezierCheck.Left := 664;
   FLineBezierCheck.Top := OptionsBarCheckTop;
   FLineBezierCheck.Width := 100;
   FLineBezierCheck.Font.Size := OptionsBarFontSize;
@@ -3832,19 +3979,15 @@ var
   procedure ApplyTargetSize(ASize: Integer);
   begin
     ASize := Max(8, ASize);
+    { Keep scaling enabled even after relayout retries: @2x sources may stay
+      larger than the logical icon box, and disabling Stretch causes clipping. }
+    AIconImage.Stretch := True;
+    AIconImage.Proportional := True;
+    AIconImage.Center := True;
     if (AIconImage.Width <> ASize) or (AIconImage.Height <> ASize) then
     begin
-      AIconImage.Stretch := True;
-      AIconImage.Proportional := True;
-      AIconImage.Center := True;
       AIconImage.Width := ASize;
       AIconImage.Height := ASize;
-    end
-    else
-    begin
-      AIconImage.Stretch := False;
-      AIconImage.Proportional := False;
-      AIconImage.Center := False;
     end;
   end;
 begin
@@ -3951,8 +4094,11 @@ begin
   try
     IconImage.Parent := AButton.Parent;
     IconImage.AutoSize := False;
-    IconImage.Stretch := False;
-    IconImage.Center := False;
+    { Keep scaling/centering enabled from creation time so the first paint
+      cannot show cropped @2x quadrants before relayout settles. }
+    IconImage.Stretch := True;
+    IconImage.Proportional := True;
+    IconImage.Center := True;
     IconImage.Transparent := True;
     if TryLoadButtonIconPicture(ACaption, AContext, IconImage.Picture) then
     begin
@@ -4609,6 +4755,10 @@ begin
         begin
           PreviewStrokeWidth := Min(24, Max(1, Round(Max(1, FBrushSize div 2) * FZoomScale)));
           ACanvas.Pen.Width := PreviewStrokeWidth;
+          if FShapeLineStyle = 1 then
+            ACanvas.Pen.Style := psDash
+          else
+            ACanvas.Pen.Style := psSolid;
           ACanvas.MoveTo(
             Round((FDragStart.X + 0.5) * FZoomScale),
             Round((FDragStart.Y + 0.5) * FZoomScale)
@@ -4648,7 +4798,10 @@ begin
             PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
             if ShapePreviewOutline then
             begin
-              ACanvas.Pen.Style := psSolid;
+              if FShapeLineStyle = 1 then
+                ACanvas.Pen.Style := psDash
+              else
+                ACanvas.Pen.Style := psSolid;
               ACanvas.Pen.Width := PreviewStrokeWidth;
             end
             else
@@ -4710,7 +4863,10 @@ begin
           PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
           if ShapePreviewOutline then
           begin
-            ACanvas.Pen.Style := psSolid;
+            if FShapeLineStyle = 1 then
+              ACanvas.Pen.Style := psDash
+            else
+              ACanvas.Pen.Style := psSolid;
             ACanvas.Pen.Width := PreviewStrokeWidth;
           end
           else
@@ -4739,7 +4895,10 @@ begin
             PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
             if ShapePreviewOutline then
             begin
-              ACanvas.Pen.Style := psSolid;
+              if FShapeLineStyle = 1 then
+                ACanvas.Pen.Style := psDash
+              else
+                ACanvas.Pen.Style := psSolid;
               ACanvas.Pen.Width := PreviewStrokeWidth;
             end
             else
@@ -4763,7 +4922,9 @@ begin
           ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           if FCurrentTool = tkSelectEllipse then
           begin
-            ACanvas.Pen.Style := psDash;
+            { Dotted white pass reads cleaner on curved marquee outlines than the
+              default long dash pattern used for straight rectangle edges. }
+            ACanvas.Pen.Style := psDot;
             ACanvas.Pen.Color := clWhite;
             ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           end;
@@ -4776,7 +4937,10 @@ begin
             PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
             if ShapePreviewOutline then
             begin
-              ACanvas.Pen.Style := psSolid;
+              if FShapeLineStyle = 1 then
+                ACanvas.Pen.Style := psDash
+              else
+                ACanvas.Pen.Style := psSolid;
               ACanvas.Pen.Width := PreviewStrokeWidth;
             end
             else
@@ -4953,6 +5117,8 @@ procedure TMainForm.UpdateCanvasSize;
 var
   LeftOffset: Integer;
   TopOffset: Integer;
+  ClampedHorizontal: Integer;
+  ClampedVertical: Integer;
 begin
   if not Assigned(FPaintBox) then
   begin
@@ -4968,10 +5134,22 @@ begin
     TopOffset := CenteredContentOffset(FCanvasHost.ClientHeight, FPaintBox.Height);
     FPaintBox.Left := LeftOffset;
     FPaintBox.Top := TopOffset;
-    if LeftOffset > 0 then
-      FCanvasHost.HorzScrollBar.Position := 0;
-    if TopOffset > 0 then
-      FCanvasHost.VertScrollBar.Position := 0;
+    ClampedHorizontal := ClampViewportScrollPosition(
+      FCanvasHost.HorzScrollBar.Position,
+      FPaintBox.Left,
+      FPaintBox.Width,
+      FCanvasHost.ClientWidth
+    );
+    ClampedVertical := ClampViewportScrollPosition(
+      FCanvasHost.VertScrollBar.Position,
+      FPaintBox.Top,
+      FPaintBox.Height,
+      FCanvasHost.ClientHeight
+    );
+    if ClampedHorizontal <> FCanvasHost.HorzScrollBar.Position then
+      FCanvasHost.HorzScrollBar.Position := ClampedHorizontal;
+    if ClampedVertical <> FCanvasHost.VertScrollBar.Position then
+      FCanvasHost.VertScrollBar.Position := ClampedVertical;
   end;
   UpdateInlineTextEditBounds;
 end;
@@ -7167,6 +7345,9 @@ end;
 
 procedure TMainForm.ApplyZoomScale(ANewScale: Double);
 begin
+  ANewScale := ClampZoomScale(ANewScale);
+  if ZoomScaleEffectivelyEqual(ANewScale, FZoomScale) then
+    Exit;
   if Assigned(FCanvasHost) then
     ApplyZoomScaleAtViewportPoint(
       ANewScale,
@@ -7174,7 +7355,7 @@ begin
     )
   else
   begin
-    FZoomScale := Max(0.1, Min(16.0, ANewScale));
+    FZoomScale := ANewScale;
     RefreshCanvas;
   end;
 end;
@@ -7183,7 +7364,13 @@ procedure TMainForm.ApplyZoomScaleAtViewportPoint(ANewScale: Double; const AView
 var
   AnchorImagePoint: TPoint;
   AnchorViewportPoint: TPoint;
+  TargetHorizontal: Integer;
+  TargetVertical: Integer;
 begin
+  ANewScale := ClampZoomScale(ANewScale);
+  if ZoomScaleEffectivelyEqual(ANewScale, FZoomScale) then
+    Exit;
+
   AnchorViewportPoint := AViewportPoint;
   if Assigned(FCanvasHost) then
   begin
@@ -7211,28 +7398,46 @@ begin
   else
     AnchorImagePoint := Point(Max(0, FDocument.Width div 2), Max(0, FDocument.Height div 2));
 
-  FZoomScale := Max(0.1, Min(16.0, ANewScale));
+  FZoomScale := ANewScale;
   UpdateCanvasSize;
   if Assigned(FCanvasHost) then
   begin
     if FPaintBox.Width <= FCanvasHost.ClientWidth then
-      FCanvasHost.HorzScrollBar.Position := 0
+      TargetHorizontal := 0
     else
-      FCanvasHost.HorzScrollBar.Position := ScrollPositionForAnchor(
+      TargetHorizontal := ScrollPositionForAnchor(
         AnchorImagePoint.X,
         FZoomScale,
         FPaintBox.Left,
         AnchorViewportPoint.X
       );
+    TargetHorizontal := ClampViewportScrollPosition(
+      TargetHorizontal,
+      FPaintBox.Left,
+      FPaintBox.Width,
+      FCanvasHost.ClientWidth
+    );
+    if TargetHorizontal <> FCanvasHost.HorzScrollBar.Position then
+      FCanvasHost.HorzScrollBar.Position := TargetHorizontal;
+
     if FPaintBox.Height <= FCanvasHost.ClientHeight then
-      FCanvasHost.VertScrollBar.Position := 0
+      TargetVertical := 0
     else
-      FCanvasHost.VertScrollBar.Position := ScrollPositionForAnchor(
+      TargetVertical := ScrollPositionForAnchor(
         AnchorImagePoint.Y,
         FZoomScale,
         FPaintBox.Top,
         AnchorViewportPoint.Y
       );
+    TargetVertical := ClampViewportScrollPosition(
+      TargetVertical,
+      FPaintBox.Top,
+      FPaintBox.Height,
+      FCanvasHost.ClientHeight
+    );
+    if TargetVertical <> FCanvasHost.VertScrollBar.Position then
+      FCanvasHost.VertScrollBar.Position := TargetVertical;
+
     FLastScrollPosition := Point(
       FCanvasHost.HorzScrollBar.Position,
       FCanvasHost.VertScrollBar.Position
@@ -7681,6 +7886,7 @@ procedure TMainForm.CommitShapeTool(const AStartPoint, AEndPoint: TPoint);
 var
   DoFill: Boolean;
   DoOutline: Boolean;
+  UseDashedOutline: Boolean;
   FillColor: TRGBA32;
   PaintSelection: TSelectionMask;
   OwnedPaintSelection: TSelectionMask;
@@ -7691,12 +7897,178 @@ var
   LocalCurveControlPoint: TPoint;
   LocalCurveControlPoint2: TPoint;
   LocalLassoPoints: array of TPoint;
+  CurvePoints: array of TPoint;
+  SegmentCount: Integer;
+  Step: Integer;
+  TValue: Double;
+  InverseT: Double;
+  LeftX: Integer;
+  RightX: Integer;
+  TopY: Integer;
+  BottomY: Integer;
+  CenterX: Double;
+  CenterY: Double;
+  RadiusX: Double;
+  RadiusY: Double;
+  CornerRadius: Integer;
+  StrokeWidth: Integer;
+  DashLength: Integer;
+  GapLength: Integer;
+  LineRadius: Integer;
   LassoIndex: Integer;
+  procedure DrawDashedRectangleOutline(
+    const AFromPoint, AToPoint: TPoint;
+    AStrokeWidth: Integer
+  );
+  var
+    RectPoints: array[0..3] of TPoint;
+  begin
+    LeftX := Min(AFromPoint.X, AToPoint.X);
+    RightX := Max(AFromPoint.X, AToPoint.X);
+    TopY := Min(AFromPoint.Y, AToPoint.Y);
+    BottomY := Max(AFromPoint.Y, AToPoint.Y);
+    RectPoints[0] := Point(LeftX, TopY);
+    RectPoints[1] := Point(RightX, TopY);
+    RectPoints[2] := Point(RightX, BottomY);
+    RectPoints[3] := Point(LeftX, BottomY);
+    MutableSurface.DrawDashedPolyline(
+      RectPoints,
+      AStrokeWidth,
+      ActivePaintColor,
+      True,
+      DashLength,
+      GapLength,
+      255,
+      255,
+      PaintSelection
+    );
+  end;
+  procedure DrawDashedEllipseOutline(
+    const AFromPoint, AToPoint: TPoint;
+    AStrokeWidth: Integer
+  );
+  var
+    EllipseStep: Integer;
+  begin
+    LeftX := Min(AFromPoint.X, AToPoint.X);
+    RightX := Max(AFromPoint.X, AToPoint.X);
+    TopY := Min(AFromPoint.Y, AToPoint.Y);
+    BottomY := Max(AFromPoint.Y, AToPoint.Y);
+    CenterX := (LeftX + RightX) / 2.0;
+    CenterY := (TopY + BottomY) / 2.0;
+    RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
+    RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
+    SegmentCount := Max(24, Round(2.0 * Pi * Max(RadiusX, RadiusY)));
+    SetLength(CurvePoints, SegmentCount);
+    for EllipseStep := 0 to SegmentCount - 1 do
+    begin
+      TValue := (2.0 * Pi * EllipseStep) / SegmentCount;
+      CurvePoints[EllipseStep] := Point(
+        Round(CenterX + (Cos(TValue) * RadiusX)),
+        Round(CenterY + (Sin(TValue) * RadiusY))
+      );
+    end;
+    MutableSurface.DrawDashedPolyline(
+      CurvePoints,
+      AStrokeWidth,
+      ActivePaintColor,
+      True,
+      DashLength,
+      GapLength,
+      255,
+      255,
+      PaintSelection
+    );
+  end;
+  procedure DrawDashedRoundedRectangleOutline(
+    const AFromPoint, AToPoint: TPoint;
+    AStrokeWidth: Integer
+  );
+  var
+    ArcSteps: Integer;
+    ArcStep: Integer;
+    Theta: Double;
+    PointCount: Integer;
+    procedure AppendPoint(AX, AY: Integer);
+    begin
+      Inc(PointCount);
+      SetLength(CurvePoints, PointCount);
+      CurvePoints[PointCount - 1] := Point(AX, AY);
+    end;
+  begin
+    LeftX := Min(AFromPoint.X, AToPoint.X);
+    RightX := Max(AFromPoint.X, AToPoint.X);
+    TopY := Min(AFromPoint.Y, AToPoint.Y);
+    BottomY := Max(AFromPoint.Y, AToPoint.Y);
+    CornerRadius := Max(2, Min((RightX - LeftX + 1) div 4, (BottomY - TopY + 1) div 4));
+    CornerRadius := Max(CornerRadius, AStrokeWidth);
+    ArcSteps := Max(4, Round(CornerRadius * Pi / 4.0));
+    PointCount := 0;
+    SetLength(CurvePoints, 0);
+
+    AppendPoint(LeftX + CornerRadius, TopY);
+    AppendPoint(RightX - CornerRadius, TopY);
+    for ArcStep := 1 to ArcSteps do
+    begin
+      Theta := (-Pi / 2.0) + ((Pi / 2.0) * ArcStep / ArcSteps);
+      AppendPoint(
+        Round((RightX - CornerRadius) + (Cos(Theta) * CornerRadius)),
+        Round((TopY + CornerRadius) + (Sin(Theta) * CornerRadius))
+      );
+    end;
+
+    AppendPoint(RightX, BottomY - CornerRadius);
+    for ArcStep := 1 to ArcSteps do
+    begin
+      Theta := (Pi / 2.0) * ArcStep / ArcSteps;
+      AppendPoint(
+        Round((RightX - CornerRadius) + (Cos(Theta) * CornerRadius)),
+        Round((BottomY - CornerRadius) + (Sin(Theta) * CornerRadius))
+      );
+    end;
+
+    AppendPoint(LeftX + CornerRadius, BottomY);
+    for ArcStep := 1 to ArcSteps do
+    begin
+      Theta := (Pi / 2.0) + ((Pi / 2.0) * ArcStep / ArcSteps);
+      AppendPoint(
+        Round((LeftX + CornerRadius) + (Cos(Theta) * CornerRadius)),
+        Round((BottomY - CornerRadius) + (Sin(Theta) * CornerRadius))
+      );
+    end;
+
+    AppendPoint(LeftX, TopY + CornerRadius);
+    for ArcStep := 1 to ArcSteps do
+    begin
+      Theta := Pi + ((Pi / 2.0) * ArcStep / ArcSteps);
+      AppendPoint(
+        Round((LeftX + CornerRadius) + (Cos(Theta) * CornerRadius)),
+        Round((TopY + CornerRadius) + (Sin(Theta) * CornerRadius))
+      );
+    end;
+
+    if Length(CurvePoints) > 1 then
+      MutableSurface.DrawDashedPolyline(
+        CurvePoints,
+        AStrokeWidth,
+        ActivePaintColor,
+        True,
+        DashLength,
+        GapLength,
+        255,
+        255,
+        PaintSelection
+      );
+  end;
 begin
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
   DoFill := FShapeStyle in [1, 2];
+  UseDashedOutline := DoOutline and (FShapeLineStyle = 1);
   FillColor := RGBA(ActivePaintColor.R, ActivePaintColor.G, ActivePaintColor.B, ActivePaintColor.A);
+  StrokeWidth := Max(1, FBrushSize div 3);
+  DashLength := Max(6, FBrushSize * 2);
+  GapLength := Max(6, FBrushSize * 2);
   MutableSurface := FDocument.MutableActiveLayerSurface;
   if MutableSurface = nil then
     Exit;
@@ -7712,49 +8084,137 @@ begin
   try
     case FCurrentTool of
       tkLine:
-        if FLineCurvePending then
-          if FLineCurveSecondStage then
-            MutableSurface.DrawCubicBezier(
+        begin
+          LineRadius := Max(1, FBrushSize div 2);
+          if FLineCurvePending then
+          begin
+            if UseDashedOutline then
+            begin
+              if FLineCurveSecondStage then
+                SegmentCount := Max(
+                  8,
+                  Max(
+                    Abs(LocalCurveControlPoint.X - LocalStartPoint.X) + Abs(LocalCurveControlPoint.Y - LocalStartPoint.Y),
+                    Max(
+                      Abs(LocalCurveControlPoint2.X - LocalCurveControlPoint.X) + Abs(LocalCurveControlPoint2.Y - LocalCurveControlPoint.Y),
+                      Abs(LocalCurveEndPoint.X - LocalCurveControlPoint2.X) + Abs(LocalCurveEndPoint.Y - LocalCurveControlPoint2.Y)
+                    )
+                  ) * 2
+                )
+              else
+                SegmentCount := Max(
+                  8,
+                  Max(
+                    Abs(LocalCurveControlPoint.X - LocalStartPoint.X) + Abs(LocalCurveControlPoint.Y - LocalStartPoint.Y),
+                    Abs(LocalCurveEndPoint.X - LocalCurveControlPoint.X) + Abs(LocalCurveEndPoint.Y - LocalCurveControlPoint.Y)
+                  ) * 2
+                );
+
+              SetLength(CurvePoints, SegmentCount + 1);
+              CurvePoints[0] := LocalStartPoint;
+              for Step := 1 to SegmentCount do
+              begin
+                TValue := Step / SegmentCount;
+                InverseT := 1.0 - TValue;
+                if FLineCurveSecondStage then
+                  CurvePoints[Step] := Point(
+                    Round(
+                      (InverseT * InverseT * InverseT * LocalStartPoint.X) +
+                      (3.0 * InverseT * InverseT * TValue * LocalCurveControlPoint.X) +
+                      (3.0 * InverseT * TValue * TValue * LocalCurveControlPoint2.X) +
+                      (TValue * TValue * TValue * LocalCurveEndPoint.X)
+                    ),
+                    Round(
+                      (InverseT * InverseT * InverseT * LocalStartPoint.Y) +
+                      (3.0 * InverseT * InverseT * TValue * LocalCurveControlPoint.Y) +
+                      (3.0 * InverseT * TValue * TValue * LocalCurveControlPoint2.Y) +
+                      (TValue * TValue * TValue * LocalCurveEndPoint.Y)
+                    )
+                  )
+                else
+                  CurvePoints[Step] := Point(
+                    Round(
+                      (InverseT * InverseT * LocalStartPoint.X) +
+                      (2.0 * InverseT * TValue * LocalCurveControlPoint.X) +
+                      (TValue * TValue * LocalCurveEndPoint.X)
+                    ),
+                    Round(
+                      (InverseT * InverseT * LocalStartPoint.Y) +
+                      (2.0 * InverseT * TValue * LocalCurveControlPoint.Y) +
+                      (TValue * TValue * LocalCurveEndPoint.Y)
+                    )
+                  );
+              end;
+              MutableSurface.DrawDashedPolyline(
+                CurvePoints,
+                Max(1, FBrushSize),
+                ActivePaintColor,
+                False,
+                DashLength,
+                GapLength,
+                255,
+                255,
+                PaintSelection
+              );
+            end
+            else if FLineCurveSecondStage then
+              MutableSurface.DrawCubicBezier(
+                LocalStartPoint.X,
+                LocalStartPoint.Y,
+                LocalCurveControlPoint.X,
+                LocalCurveControlPoint.Y,
+                LocalCurveControlPoint2.X,
+                LocalCurveControlPoint2.Y,
+                LocalCurveEndPoint.X,
+                LocalCurveEndPoint.Y,
+                LineRadius,
+                ActivePaintColor,
+                255,
+                255,
+                PaintSelection
+              )
+            else
+              MutableSurface.DrawQuadraticBezier(
+                LocalStartPoint.X,
+                LocalStartPoint.Y,
+                LocalCurveControlPoint.X,
+                LocalCurveControlPoint.Y,
+                LocalCurveEndPoint.X,
+                LocalCurveEndPoint.Y,
+                LineRadius,
+                ActivePaintColor,
+                255,
+                255,
+                PaintSelection
+              );
+          end
+          else if UseDashedOutline then
+            MutableSurface.DrawDashedLine(
               LocalStartPoint.X,
               LocalStartPoint.Y,
-              LocalCurveControlPoint.X,
-              LocalCurveControlPoint.Y,
-              LocalCurveControlPoint2.X,
-              LocalCurveControlPoint2.Y,
-              LocalCurveEndPoint.X,
-              LocalCurveEndPoint.Y,
-              Max(1, FBrushSize div 2),
+              LocalEndPoint.X,
+              LocalEndPoint.Y,
+              LineRadius,
               ActivePaintColor,
+              DashLength,
+              GapLength,
               255,
               255,
               PaintSelection
             )
           else
-            MutableSurface.DrawQuadraticBezier(
+            MutableSurface.DrawLine(
               LocalStartPoint.X,
               LocalStartPoint.Y,
-              LocalCurveControlPoint.X,
-              LocalCurveControlPoint.Y,
-              LocalCurveEndPoint.X,
-              LocalCurveEndPoint.Y,
-              Max(1, FBrushSize div 2),
+              LocalEndPoint.X,
+              LocalEndPoint.Y,
+              LineRadius,
               ActivePaintColor,
               255,
               255,
               PaintSelection
-            )
-        else
-          MutableSurface.DrawLine(
-            LocalStartPoint.X,
-            LocalStartPoint.Y,
-            LocalEndPoint.X,
-            LocalEndPoint.Y,
-            Max(1, FBrushSize div 2),
-            ActivePaintColor,
-            255,
-            255,
-            PaintSelection
-          );
+            );
+        end;
       tkGradient:
         begin
           if FGradientReverse then
@@ -7817,33 +8277,45 @@ begin
           if DoFill then
             MutableSurface.DrawRectangle(
               LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
+              StrokeWidth, FillColor, True, 255, PaintSelection);
           if DoOutline then
-            MutableSurface.DrawRectangle(
-              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
+            if UseDashedOutline then
+              DrawDashedRectangleOutline(LocalStartPoint, LocalEndPoint, StrokeWidth)
+            else
+              MutableSurface.DrawRectangle(
+                LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+                StrokeWidth, ActivePaintColor, False, 255, PaintSelection
+              );
         end;
       tkRoundedRectangle:
         begin
           if DoFill then
             MutableSurface.DrawRoundedRectangle(
               LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
+              StrokeWidth, FillColor, True, 255, PaintSelection);
           if DoOutline then
-            MutableSurface.DrawRoundedRectangle(
-              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
+            if UseDashedOutline then
+              DrawDashedRoundedRectangleOutline(LocalStartPoint, LocalEndPoint, StrokeWidth)
+            else
+              MutableSurface.DrawRoundedRectangle(
+                LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+                StrokeWidth, ActivePaintColor, False, 255, PaintSelection
+              );
         end;
       tkEllipseShape:
         begin
           if DoFill then
             MutableSurface.DrawEllipse(
               LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              Max(1, FBrushSize div 3), FillColor, True, 255, PaintSelection);
+              StrokeWidth, FillColor, True, 255, PaintSelection);
           if DoOutline then
-            MutableSurface.DrawEllipse(
-              LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              Max(1, FBrushSize div 3), ActivePaintColor, False, 255, PaintSelection);
+            if UseDashedOutline then
+              DrawDashedEllipseOutline(LocalStartPoint, LocalEndPoint, StrokeWidth)
+            else
+              MutableSurface.DrawEllipse(
+                LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
+                StrokeWidth, ActivePaintColor, False, 255, PaintSelection
+              );
         end;
       tkFreeformShape:
         begin
@@ -7853,14 +8325,27 @@ begin
           if DoFill then
             MutableSurface.FillPolygon(LocalLassoPoints, FillColor, 255, PaintSelection);
           if DoOutline then
-            MutableSurface.DrawPolygon(
-              LocalLassoPoints,
-              Max(1, FBrushSize div 3),
-              ActivePaintColor,
-              True,
-              255,
-              PaintSelection
-            );
+            if UseDashedOutline and (Length(LocalLassoPoints) > 1) then
+              MutableSurface.DrawDashedPolyline(
+                LocalLassoPoints,
+                StrokeWidth,
+                ActivePaintColor,
+                True,
+                DashLength,
+                GapLength,
+                255,
+                255,
+                PaintSelection
+              )
+            else
+              MutableSurface.DrawPolygon(
+                LocalLassoPoints,
+                StrokeWidth,
+                ActivePaintColor,
+                True,
+                255,
+                PaintSelection
+              );
         end;
     end;
   finally
@@ -8925,6 +9410,8 @@ var
   TargetScale: Double;
   SelectionCenterX: Double;
   SelectionCenterY: Double;
+  TargetHorizontal: Integer;
+  TargetVertical: Integer;
 begin
   if not FDocument.HasSelection then
     Exit;
@@ -8939,14 +9426,22 @@ begin
   UpdateCanvasSize;
   SelectionCenterX := Bounds.Left + (SelectionWidth / 2.0);
   SelectionCenterY := Bounds.Top + (SelectionHeight / 2.0);
-  FCanvasHost.HorzScrollBar.Position := Max(
-    0,
-    FPaintBox.Left + Round(SelectionCenterX * FZoomScale) - (FCanvasHost.ClientWidth div 2)
+  TargetHorizontal := ClampViewportScrollPosition(
+    FPaintBox.Left + Round(SelectionCenterX * FZoomScale) - (FCanvasHost.ClientWidth div 2),
+    FPaintBox.Left,
+    FPaintBox.Width,
+    FCanvasHost.ClientWidth
   );
-  FCanvasHost.VertScrollBar.Position := Max(
-    0,
-    FPaintBox.Top + Round(SelectionCenterY * FZoomScale) - (FCanvasHost.ClientHeight div 2)
+  TargetVertical := ClampViewportScrollPosition(
+    FPaintBox.Top + Round(SelectionCenterY * FZoomScale) - (FCanvasHost.ClientHeight div 2),
+    FPaintBox.Top,
+    FPaintBox.Height,
+    FCanvasHost.ClientHeight
   );
+  if TargetHorizontal <> FCanvasHost.HorzScrollBar.Position then
+    FCanvasHost.HorzScrollBar.Position := TargetHorizontal;
+  if TargetVertical <> FCanvasHost.VertScrollBar.Position then
+    FCanvasHost.VertScrollBar.Position := TargetVertical;
   FLastScrollPosition := Point(
     FCanvasHost.HorzScrollBar.Position,
     FCanvasHost.VertScrollBar.Position
@@ -9120,7 +9615,7 @@ end;
 
 procedure TMainForm.StatusZoomToggleClick(Sender: TObject);
 begin
-  if Abs(FZoomScale - 1.0) <= 0.01 then
+  if QuickSizeToggleTargetsFit(FZoomScale) then
     FitToWindowClick(Sender)
   else
     ActualSizeClick(Sender);
@@ -9142,6 +9637,14 @@ begin
     RelayoutTopChrome;
     Dec(FDeferredLayoutPassesRemaining);
     FDeferredLayoutPass := FDeferredLayoutPassesRemaining > 0;
+  end;
+
+  { Disable Cocoa rubber-band bounce for the canvas scroll view so viewport
+    edges stay static under repeated boundary-direction wheel input. }
+  if (not FScrollElasticityDisabled) and FCanvasHost.HandleAllocated then
+  begin
+    FPDisableScrollElasticity(Pointer(FCanvasHost.Handle));
+    FScrollElasticityDisabled := True;
   end;
 
   { Install native pinch-to-zoom handler once handles are ready }
@@ -9175,17 +9678,62 @@ end;
 procedure TMainForm.ViewportMouseWheel(Sender: TObject; Shift: TShiftState; WheelDelta: Integer; MousePos: TPoint; var Handled: Boolean);
 var
   ViewportPoint: TPoint;
+  ScrollDelta: Integer;
+  ClampedDelta: Integer;
 begin
   if not Assigned(FCanvasHost) then
     Exit;
-  if not ZoomWheelUsesViewportZoom(Shift) then
+  if ZoomWheelUsesViewportZoom(Shift) then
+  begin
+    ViewportPoint := FCanvasHost.ScreenToClient(MousePos);
+    if WheelDelta < 0 then
+      ApplyZoomScaleAtViewportPoint(NextZoomOutScale(FZoomScale), ViewportPoint)
+    else if WheelDelta > 0 then
+      ApplyZoomScaleAtViewportPoint(NextZoomInScale(FZoomScale), ViewportPoint);
+    Handled := WheelDelta <> 0;
+    Exit;
+  end;
+
+  if not Assigned(FPaintBox) then
     Exit;
 
-  ViewportPoint := FCanvasHost.ScreenToClient(MousePos);
-  if WheelDelta < 0 then
-    ApplyZoomScaleAtViewportPoint(NextZoomOutScale(FZoomScale), ViewportPoint)
-  else if WheelDelta > 0 then
-    ApplyZoomScaleAtViewportPoint(NextZoomInScale(FZoomScale), ViewportPoint);
+  ScrollDelta := WheelScrollPixels(WheelDelta);
+  if ScrollDelta = 0 then
+  begin
+    Handled := False;
+    Exit;
+  end;
+
+  if ssShift in Shift then
+  begin
+    ClampedDelta := ClampViewportScrollDelta(
+      FCanvasHost.HorzScrollBar.Position,
+      ScrollDelta,
+      FPaintBox.Left,
+      FPaintBox.Width,
+      FCanvasHost.ClientWidth
+    );
+    if ClampedDelta <> 0 then
+      FCanvasHost.HorzScrollBar.Position := FCanvasHost.HorzScrollBar.Position + ClampedDelta;
+  end
+  else
+  begin
+    ClampedDelta := ClampViewportScrollDelta(
+      FCanvasHost.VertScrollBar.Position,
+      ScrollDelta,
+      FPaintBox.Top,
+      FPaintBox.Height,
+      FCanvasHost.ClientHeight
+    );
+    if ClampedDelta <> 0 then
+      FCanvasHost.VertScrollBar.Position := FCanvasHost.VertScrollBar.Position + ClampedDelta;
+  end;
+
+  FLastScrollPosition := Point(
+    FCanvasHost.HorzScrollBar.Position,
+    FCanvasHost.VertScrollBar.Position
+  );
+  RefreshRulers;
   Handled := WheelDelta <> 0;
 end;
 
@@ -9286,6 +9834,7 @@ begin
   ResetLineCurveState;
   FTempToolActive := False;
   NewTool := TToolKind(TControl(Sender).Tag);
+  MaybeAutoDeselectOnToolSwitch(FCurrentTool, NewTool);
   { Save current tool's options before switching }
   FToolSize[FCurrentTool] := FBrushSize;
   FToolOpacity[FCurrentTool] := FBrushOpacity;
@@ -9313,6 +9862,7 @@ begin
   if FToolCombo.ItemIndex >= 0 then
   begin
     NewTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
+    MaybeAutoDeselectOnToolSwitch(FCurrentTool, NewTool);
     FCurrentTool := NewTool;
     { Restore new tool's remembered options }
     FBrushSize := FToolSize[FCurrentTool];
@@ -9347,15 +9897,40 @@ begin
   RefreshCanvas;
 end;
 
+procedure TMainForm.EnsureLayerRowIcons;
+  procedure EnsureIcon(const ACaption: string; var APicture: TPicture);
+  begin
+    if Assigned(APicture) and Assigned(APicture.Graphic) and (not APicture.Graphic.Empty) then
+      Exit;
+    if not Assigned(APicture) then
+      APicture := TPicture.Create;
+    APicture.Clear;
+    if not TryLoadButtonIconPicture(ACaption, bicCommand, APicture) then
+      APicture.Clear;
+  end;
+begin
+  EnsureIcon('Lock', FLayerLockClosedIcon);
+  EnsureIcon('Unlock', FLayerLockOpenIcon);
+  EnsureIcon('Vis', FLayerEyeOnIcon);
+  EnsureIcon('VisOff', FLayerEyeOffIcon);
+end;
+
+procedure TMainForm.DrawLayerRowIcon(
+  ACanvas: TCanvas;
+  const ARect: TRect;
+  AIcon: TPicture
+);
+begin
+  if (AIcon = nil) or (AIcon.Graphic = nil) or AIcon.Graphic.Empty then
+    Exit;
+  ACanvas.StretchDraw(ARect, AIcon.Graphic);
+end;
+
 procedure TMainForm.LayerListDrawItem(Control: TWinControl; Index: Integer;
   ARect: TRect; State: TOwnerDrawState);
 { Renders one layer row: lock | eye | thumbnail | name }
 const
-  IconSize  = 14;
-  IconMargin = 3;
-  LockLeft  = 4;
-  EyeLeft   = LockLeft + IconSize + IconMargin;
-  ThumbLeft = EyeLeft + IconSize + IconMargin + 2;
+  ThumbLeft = LayerRowEyeLeft + LayerRowIconSize + LayerRowIconMargin + 2;
   ThumbW    = 36;
   ThumbH    = 28;
   ThumbMarginY = 4;
@@ -9372,7 +9947,8 @@ var
   SW, SH, TX, TY: Integer;
   ThumbR: TRect;
   OldFont: TFont;
-  ICX, ICY, IR: Integer;
+  LockRect: TRect;
+  EyeRect: TRect;
 begin
   LB := TListBox(Control);
   if not Assigned(FDocument) then Exit;
@@ -9399,66 +9975,27 @@ begin
   LB.Canvas.Brush.Color := BgCol;
   LB.Canvas.FillRect(ARect);
 
-  ICY := ARect.Top + (ARect.Bottom - ARect.Top) div 2;
-  IR := IconSize div 2;
+  EnsureLayerRowIcons;
+  LayerRowIconRects(ARect, LockRect, EyeRect);
 
   { 1. Lock icon }
+  if Layer.Locked then
+    DrawLayerRowIcon(LB.Canvas, LockRect, FLayerLockClosedIcon)
+  else
   begin
-    ICX := ARect.Left + LockLeft + IR;
+    DrawLayerRowIcon(LB.Canvas, LockRect, FLayerLockOpenIcon);
+    { Add a small open-state accent so unlock remains distinguishable at 14px. }
+    LB.Canvas.Pen.Color := ChromeTextColor;
     LB.Canvas.Pen.Width := 1;
-    LB.Canvas.Pen.Style := psSolid;
-    if Layer.Locked then
-    begin
-      { Filled padlock shape }
-      LB.Canvas.Pen.Color := TextCol;
-      LB.Canvas.Brush.Style := bsSolid;
-      LB.Canvas.Brush.Color := TextCol;
-      { Lock body }
-      LB.Canvas.Rectangle(ICX - 4, ICY - 1, ICX + 5, ICY + 5);
-      { Shackle arc }
-      LB.Canvas.Brush.Style := bsClear;
-      LB.Canvas.Arc(ICX - 3, ICY - 6, ICX + 4, ICY, 0, 360 * 16);
-    end
-    else
-    begin
-      { Dim open padlock }
-      LB.Canvas.Pen.Color := ChromeMutedTextColor;
-      LB.Canvas.Brush.Style := bsClear;
-      { Lock body outline }
-      LB.Canvas.Rectangle(ICX - 4, ICY - 1, ICX + 5, ICY + 5);
-      { Open shackle }
-      LB.Canvas.Arc(ICX - 3, ICY - 7, ICX + 4, ICY - 1, 0, 360 * 16);
-    end;
-    LB.Canvas.Brush.Style := bsSolid;
+    LB.Canvas.MoveTo(LockRect.Right - 5, LockRect.Top + 2);
+    LB.Canvas.LineTo(LockRect.Right - 1, LockRect.Top + 6);
   end;
 
   { 2. Eye icon }
-  begin
-    ICX := ARect.Left + EyeLeft + IR;
-    LB.Canvas.Brush.Style := bsClear;
-    if Layer.Visible then
-    begin
-      LB.Canvas.Pen.Color := TextCol;
-      LB.Canvas.Pen.Width := 1;
-      LB.Canvas.Pen.Style := psSolid;
-      LB.Canvas.Ellipse(ICX - IR, ICY - IR div 2,
-                         ICX + IR, ICY + IR div 2);
-      LB.Canvas.Brush.Style := bsSolid;
-      LB.Canvas.Brush.Color := TextCol;
-      LB.Canvas.Ellipse(ICX - 2, ICY - 2, ICX + 3, ICY + 3);
-    end
-    else
-    begin
-      LB.Canvas.Pen.Color := ChromeMutedTextColor;
-      LB.Canvas.Pen.Width := 1;
-      LB.Canvas.Pen.Style := psSolid;
-      LB.Canvas.Ellipse(ICX - IR, ICY - IR div 2,
-                         ICX + IR, ICY + IR div 2);
-      LB.Canvas.MoveTo(ICX - IR + 1, ICY + IR div 2);
-      LB.Canvas.LineTo(ICX + IR - 1, ICY - IR div 2);
-    end;
-    LB.Canvas.Brush.Style := bsSolid;
-  end;
+  if Layer.Visible then
+    DrawLayerRowIcon(LB.Canvas, EyeRect, FLayerEyeOnIcon)
+  else
+    DrawLayerRowIcon(LB.Canvas, EyeRect, FLayerEyeOffIcon);
 
   { 3. Thumbnail }
   TX := ARect.Left + ThumbLeft;
@@ -9551,33 +10088,39 @@ end;
 
 procedure TMainForm.LayerListDblClick(Sender: TObject);
 begin
-  ToggleLayerVisibilityClick(Sender);
+  { Keep layer-row double-click side-effect free.
+    Visibility must be controlled only by the eye icon to avoid
+    lock/visibility gesture coupling under rapid clicks. }
 end;
 
 procedure TMainForm.LayerListMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
-const
-  LockRight = 4 + 14 + 3;   { LockLeft + IconSize + IconMargin }
-  EyeRight  = LockRight + 14 + 3 + 2; { EyeLeft + IconSize + extra margin }
 var
   HitIndex: Integer;
+  ItemRect: TRect;
+  LockRect: TRect;
+  EyeRect: TRect;
+  HitPoint: TPoint;
 begin
   if (Button <> mbLeft) or not Assigned(FLayerList) then
     Exit;
-  HitIndex := FLayerList.ItemAtPos(Point(4, Y), True);
+  HitIndex := FLayerList.ItemAtPos(Point(X, Y), True);
   if (HitIndex < 0) or (HitIndex >= FDocument.LayerCount) then
     Exit;
+  ItemRect := FLayerList.ItemRect(HitIndex);
+  LayerRowIconRects(ItemRect, LockRect, EyeRect);
+  HitPoint := Point(X, Y);
 
-  { Click in lock-icon area → toggle lock }
-  if X < LockRight then
+  { Click lock icon -> toggle lock only (no visibility side-effects). }
+  if PtInRect(LockRect, HitPoint) then
   begin
     FDocument.Layers[HitIndex].Locked := not FDocument.Layers[HitIndex].Locked;
     FLayerList.Invalidate;
     Exit;
   end;
 
-  { Click in eye-icon area → toggle visibility }
-  if X < EyeRight then
+  { Click eye icon -> toggle visibility only (no lock side-effects). }
+  if PtInRect(EyeRect, HitPoint) then
   begin
     FDocument.SetLayerVisibility(HitIndex, not FDocument.Layers[HitIndex].Visible);
     InvalidatePreparedBitmap;
@@ -9797,6 +10340,7 @@ begin
       CommitInlineTextEdit(True);
       ResetLineCurveState;
       FTempToolActive := False;
+      MaybeAutoDeselectOnToolSwitch(FCurrentTool, NewTool);
       { Save current tool's options before switching }
       FToolSize[FCurrentTool] := FBrushSize;
       FToolOpacity[FCurrentTool] := FBrushOpacity;
@@ -9863,6 +10407,19 @@ begin
   PaintBoxMouseUp(nil, Button, Shift, X, Y);
 end;
 
+procedure TMainForm.SimulateToolButtonSwitch(ATool: TToolKind);
+var
+  SenderComponent: TComponent;
+begin
+  SenderComponent := TComponent.Create(nil);
+  try
+    SenderComponent.Tag := Ord(ATool);
+    ToolButtonClick(SenderComponent);
+  finally
+    SenderComponent.Free;
+  end;
+end;
+
 procedure TMainForm.SetPrimaryColorForTest(const AColor: TRGBA32);
 begin
   FPrimaryColor := AColor;
@@ -9886,6 +10443,16 @@ begin
   FRecolorTolerance := EnsureRange(ATolerance, 0, 255);
   FRecolorPreserveValue := APreserveValue;
   FRecolorStrokeSourceValid := False;
+end;
+
+procedure TMainForm.SetBrushSizeForTest(ASize: Integer);
+begin
+  FBrushSize := Max(1, ASize);
+end;
+
+procedure TMainForm.SetShapeLineStyleForTest(AStyleIndex: Integer);
+begin
+  FShapeLineStyle := EnsureRange(AStyleIndex, 0, 1);
 end;
 
 function TMainForm.StrokeRectIsEmpty(const ARect: TRect): Boolean;
@@ -10048,6 +10615,15 @@ begin
     Exit;
   end;
   FDragStart := ImagePoint;
+  if ShouldAutoDeselectFromBlankClick(ImagePoint, Button, Shift) then
+  begin
+    AutoDeselectSelection('Deselect');
+    FPointerDown := False;
+    if Assigned(FPaintBox) then
+      FPaintBox.MouseCapture := False;
+    RefreshStatus(ImagePoint);
+    Exit;
+  end;
   { Only override combo-selected mode when modifier keys are held }
   if (ssShift in Shift) or (ssAlt in Shift) then
     FPendingSelectionMode := TSelectionToolController.ModeFromModifiers(
@@ -10266,6 +10842,8 @@ var
   DeltaX: Integer;
   DeltaY: Integer;
   ButtonStillDown: Boolean;
+  PannedHorizontal: Integer;
+  PannedVertical: Integer;
 begin
   ImagePoint := CanvasToImage(X, Y);
   DeltaX := ImagePoint.X - FLastImagePoint.X;
@@ -10292,16 +10870,32 @@ begin
           begin
             FIsPanning := True;
             try
-              FCanvasHost.HorzScrollBar.Position := PannedScrollPosition(
+              PannedHorizontal := PannedScrollPosition(
                 FCanvasHost.HorzScrollBar.Position,
                 X,
                 FLastPointerPoint.X
               );
-              FCanvasHost.VertScrollBar.Position := PannedScrollPosition(
+              PannedVertical := PannedScrollPosition(
                 FCanvasHost.VertScrollBar.Position,
                 Y,
                 FLastPointerPoint.Y
               );
+              PannedHorizontal := ClampViewportScrollPosition(
+                PannedHorizontal,
+                FPaintBox.Left,
+                FPaintBox.Width,
+                FCanvasHost.ClientWidth
+              );
+              PannedVertical := ClampViewportScrollPosition(
+                PannedVertical,
+                FPaintBox.Top,
+                FPaintBox.Height,
+                FCanvasHost.ClientHeight
+              );
+              if PannedHorizontal <> FCanvasHost.HorzScrollBar.Position then
+                FCanvasHost.HorzScrollBar.Position := PannedHorizontal;
+              if PannedVertical <> FCanvasHost.VertScrollBar.Position then
+                FCanvasHost.VertScrollBar.Position := PannedVertical;
             finally
               FIsPanning := False;
             end;
@@ -12371,6 +12965,14 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FShapeStyleCombo) then Exit;
   FShapeStyle := FShapeStyleCombo.ItemIndex;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.ShapeLineStyleComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FShapeLineStyleCombo) then Exit;
+  FShapeLineStyle := EnsureRange(FShapeLineStyleCombo.ItemIndex, 0, 1);
   RefreshCanvas;
 end;
 

@@ -29,6 +29,7 @@ type
     procedure SelectionOverlayUsesDashedBoundaryPattern;
     procedure DrawingWithMoveChangesPixels;
     procedure LineDragCommitsPixels;
+    procedure LineDashedStyleCommitsVisibleGapPattern;
     procedure LineDragIgnoresExistingSelectionMask;
     procedure RectangleDragCommitsPixels;
     procedure EllipseDragCommitsPixels;
@@ -41,8 +42,12 @@ type
     procedure MouseUpAfterPencilStrokePushesHistory;
     procedure MouseUpAfterBrushStrokePushesHistory;
     procedure FillToolPushesHistoryOnMouseDown;
-    procedure SwitchingFromSelectionToFillKeepsSelectionAndConstrainsScope;
-    procedure SwitchingFromSelectionToGradientKeepsSelectionAndConstrainsScope;
+    procedure ClickingOutsideSelectionAutoDeselects;
+    procedure SwitchingFromSelectionToFillKeepsSelection;
+    procedure SwitchingFromSelectionToGradientKeepsSelection;
+    procedure ToolbarSwitchFromSelectionToFillKeepsSelection;
+    procedure SwitchingFromSelectionToBrushAutoDeselectsSelection;
+    procedure SwitchingWithinSelectionFamilyKeepsSelection;
     procedure AddLayerPushesHistory;
     procedure MultipleStrokesIncrementHistory;
     procedure UndoRedoAfterLongPencilStrokeRestoresPixels;
@@ -200,6 +205,41 @@ begin
     AfterMid := F.TestDocument.ActiveLayer.Surface[25, 20];
     AssertFalse('line drag should commit visible pixels on mouse-up',
       RGBAEqual(BeforeMid, AfterMid));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.LineDashedStyleCommitsVisibleGapPattern;
+var
+  F: TMainForm;
+  SampleX: Integer;
+  FoundPainted: Boolean;
+  FoundGap: Boolean;
+  BaselinePixel: TRGBA32;
+begin
+  F := CreateTestForm(tkLine);
+  try
+    F.SetBrushSizeForTest(1);
+    F.SetShapeLineStyleForTest(1); { dashed }
+    BaselinePixel := F.TestDocument.ActiveLayer.Surface[12, 20];
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 20);
+    F.SimulateMouseMove([ssLeft], 60, 20);
+    F.SimulateMouseUp(mbLeft, [], 60, 20);
+
+    FoundPainted := False;
+    FoundGap := False;
+    for SampleX := 12 to 58 do
+    begin
+      if not RGBAEqual(F.TestDocument.ActiveLayer.Surface[SampleX, 20], BaselinePixel) then
+        FoundPainted := True
+      else
+        FoundGap := True;
+    end;
+
+    AssertTrue('dashed line should paint dash-on pixels', FoundPainted);
+    AssertTrue('dashed line should also leave at least one visible gap pixel', FoundGap);
   finally
     F.Destroy;
   end;
@@ -473,78 +513,131 @@ begin
   end;
 end;
 
-procedure TPipelineIntegrationTests.SwitchingFromSelectionToFillKeepsSelectionAndConstrainsScope;
+procedure TPipelineIntegrationTests.ClickingOutsideSelectionAutoDeselects;
 var
   F: TMainForm;
-  Key: Word;
-  InsideBefore: TRGBA32;
   OutsideBefore: TRGBA32;
-  InsideAfter: TRGBA32;
   OutsideAfter: TRGBA32;
+  DepthBefore: Integer;
 begin
   F := CreateTestForm(tkSelectRect);
   try
     F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
-    AssertTrue('selection should exist before tool switch', F.TestDocument.HasSelection);
-
-    InsideBefore := F.TestDocument.ActiveLayer.Surface[15, 15];
+    AssertTrue('selection should exist before blank click', F.TestDocument.HasSelection);
+    DepthBefore := F.TestDocument.UndoDepth;
     OutsideBefore := F.TestDocument.ActiveLayer.Surface[40, 40];
 
-    Key := Ord('G'); { tkSelectRect -> tkFill }
-    F.SimulateKeyDown(Key, []);
-    AssertTrue('G should switch to fill tool', F.CurrentToolForTest = tkFill);
-    AssertTrue('selection should persist after switching to fill', F.TestDocument.HasSelection);
+    F.SimulateMouseDown(mbLeft, [ssLeft], 40, 40);
+    F.SimulateMouseUp(mbLeft, [], 40, 40);
 
-    F.SimulateMouseDown(mbLeft, [ssLeft], 15, 15);
-    F.SimulateMouseUp(mbLeft, [], 15, 15);
-
-    InsideAfter := F.TestDocument.ActiveLayer.Surface[15, 15];
     OutsideAfter := F.TestDocument.ActiveLayer.Surface[40, 40];
 
-    AssertFalse('fill should change pixels inside selection',
-      RGBAEqual(InsideBefore, InsideAfter));
-    AssertTrue('fill should not affect pixels outside selection',
+    AssertFalse('blank click outside selection should deselect',
+      F.TestDocument.HasSelection);
+    AssertEquals('auto-deselect should push one history entry',
+      DepthBefore + 1, F.TestDocument.UndoDepth);
+    AssertTrue('blank click should not also paint',
       RGBAEqual(OutsideBefore, OutsideAfter));
   finally
     F.Destroy;
   end;
 end;
 
-procedure TPipelineIntegrationTests.SwitchingFromSelectionToGradientKeepsSelectionAndConstrainsScope;
+procedure TPipelineIntegrationTests.SwitchingFromSelectionToFillKeepsSelection;
 var
   F: TMainForm;
   Key: Word;
-  InsideBefore: TRGBA32;
-  OutsideBefore: TRGBA32;
-  InsideAfter: TRGBA32;
-  OutsideAfter: TRGBA32;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before fill switch', F.TestDocument.HasSelection);
+
+    Key := Ord('G'); { tkSelectRect -> tkFill }
+    F.SimulateKeyDown(Key, []);
+    AssertTrue('G should switch to fill tool', F.CurrentToolForTest = tkFill);
+    AssertTrue('selection should stay active when switching to fill',
+      F.TestDocument.HasSelection);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.SwitchingFromSelectionToGradientKeepsSelection;
+var
+  F: TMainForm;
+  Key: Word;
 begin
   F := CreateTestForm(tkSelectRect);
   try
     F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
     AssertTrue('selection should exist before gradient switch', F.TestDocument.HasSelection);
 
-    InsideBefore := F.TestDocument.ActiveLayer.Surface[15, 15];
-    OutsideBefore := F.TestDocument.ActiveLayer.Surface[30, 15];
-
     Key := Ord('G'); { tkSelectRect -> tkFill }
     F.SimulateKeyDown(Key, []);
+    AssertTrue('first G should switch to fill tool', F.CurrentToolForTest = tkFill);
+    AssertTrue('selection should stay active when first switching to fill',
+      F.TestDocument.HasSelection);
+
     Key := Ord('G'); { tkFill -> tkGradient }
     F.SimulateKeyDown(Key, []);
     AssertTrue('second G should switch to gradient tool', F.CurrentToolForTest = tkGradient);
-    AssertTrue('selection should persist after switching to gradient', F.TestDocument.HasSelection);
+    AssertTrue('selection should stay active when switching to gradient',
+      F.TestDocument.HasSelection);
+  finally
+    F.Destroy;
+  end;
+end;
 
-    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 10);
-    F.SimulateMouseMove([ssLeft], 50, 10);
-    F.SimulateMouseUp(mbLeft, [], 50, 10);
+procedure TPipelineIntegrationTests.ToolbarSwitchFromSelectionToFillKeepsSelection;
+var
+  F: TMainForm;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before toolbar switch', F.TestDocument.HasSelection);
 
-    InsideAfter := F.TestDocument.ActiveLayer.Surface[15, 15];
-    OutsideAfter := F.TestDocument.ActiveLayer.Surface[30, 15];
+    F.SimulateToolButtonSwitch(tkFill);
+    AssertTrue('toolbar switch should select fill tool', F.CurrentToolForTest = tkFill);
+    AssertTrue('toolbar switch to fill should preserve selection',
+      F.TestDocument.HasSelection);
+  finally
+    F.Destroy;
+  end;
+end;
 
-    AssertFalse('gradient should change pixels inside selection',
-      RGBAEqual(InsideBefore, InsideAfter));
-    AssertTrue('gradient should not affect pixels outside selection',
-      RGBAEqual(OutsideBefore, OutsideAfter));
+procedure TPipelineIntegrationTests.SwitchingFromSelectionToBrushAutoDeselectsSelection;
+var
+  F: TMainForm;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before brush switch', F.TestDocument.HasSelection);
+
+    F.SimulateToolButtonSwitch(tkBrush);
+    AssertTrue('toolbar switch should select brush tool', F.CurrentToolForTest = tkBrush);
+    AssertFalse('switching to free-draw tools should auto-clear selection',
+      F.TestDocument.HasSelection);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.SwitchingWithinSelectionFamilyKeepsSelection;
+var
+  F: TMainForm;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before switching selection tools', F.TestDocument.HasSelection);
+
+    F.SimulateToolButtonSwitch(tkSelectEllipse);
+    AssertTrue('toolbar switch should select ellipse select tool', F.CurrentToolForTest = tkSelectEllipse);
+    AssertTrue('selection should remain when switching within selection tool family',
+      F.TestDocument.HasSelection);
   finally
     F.Destroy;
   end;

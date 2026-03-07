@@ -18,6 +18,12 @@ type
 
 function ButtonIconSupported(const ACaption: string; AContext: TButtonIconContext): Boolean;
 function ButtonIconCanLoadRenderedAsset(const ACaption: string; AContext: TButtonIconContext): Boolean;
+function ButtonIconRenderedAssetPixelSize(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  out AWidth: Integer;
+  out AHeight: Integer
+): Boolean;
 function TryLoadButtonIconPicture(
   const ACaption: string;
   AContext: TButtonIconContext;
@@ -59,6 +65,7 @@ type
     bikDelete,
     bikMerge,
     bikVisibility,
+    bikVisibilityOff,
     bikArrowUp,
     bikArrowDown,
     bikFade,
@@ -67,6 +74,8 @@ type
     bikProperties,
     bikSwap,
     bikMono,
+    bikLock,
+    bikUnlock,
     bikTools,
     bikHistory,
     bikLayers,
@@ -146,6 +155,8 @@ begin
       Result := 'combine.svg.png';
     bikVisibility:
       Result := 'eye.svg.png';
+    bikVisibilityOff:
+      Result := 'eye-off.svg.png';
     bikArrowUp:
       Result := 'arrow-up.svg.png';
     bikArrowDown:
@@ -162,6 +173,10 @@ begin
       Result := 'arrow-left-right.svg.png';
     bikMono:
       Result := 'contrast.svg.png';
+    bikLock:
+      Result := 'lock.svg.png';
+    bikUnlock:
+      Result := 'lock-open.svg.png';
     bikTools:
       Result := 'wrench.svg.png';
     bikHistory:
@@ -290,13 +305,52 @@ begin
     Result := HiDpiPath;
 end;
 
-procedure PrepareGlyphBitmap(AGlyph: TBitmap; ABackgroundColor: TColor);
+function TryLoadRenderedAsset(
+  const ABaseAssetPath: string;
+  APng: TPortableNetworkGraphic
+): Boolean;
+var
+  PreferredPath: string;
+begin
+  Result := False;
+  if (ABaseAssetPath = '') or (APng = nil) then
+    Exit;
+
+  PreferredPath := PreferHiDpiAssetPath(ABaseAssetPath);
+  if FileExists(PreferredPath) then
+  begin
+    try
+      APng.LoadFromFile(PreferredPath);
+      Exit((APng.Width > 0) and (APng.Height > 0));
+    except
+      { fall through to 1x fallback when @2x is unreadable }
+    end;
+  end;
+
+  if (PreferredPath = ABaseAssetPath) or not FileExists(ABaseAssetPath) then
+    Exit(False);
+  try
+    APng.LoadFromFile(ABaseAssetPath);
+    Result := (APng.Width > 0) and (APng.Height > 0);
+  except
+    Result := False;
+  end;
+end;
+
+procedure PrepareGlyphBitmap(
+  AGlyph: TBitmap;
+  ABackgroundColor: TColor;
+  AWidth: Integer = IconBitmapSize;
+  AHeight: Integer = IconBitmapSize
+);
 const
   TransparentGlyphColor = TColor($00FF00FF);
 begin
-  AGlyph.SetSize(IconBitmapSize, IconBitmapSize);
+  AWidth := Max(1, AWidth);
+  AHeight := Max(1, AHeight);
+  AGlyph.SetSize(AWidth, AHeight);
   AGlyph.Canvas.Brush.Color := TransparentGlyphColor;
-  AGlyph.Canvas.FillRect(0, 0, IconBitmapSize, IconBitmapSize);
+  AGlyph.Canvas.FillRect(0, 0, AWidth, AHeight);
   AGlyph.TransparentColor := TransparentGlyphColor;
   AGlyph.Transparent := True;
   AGlyph.Canvas.Pen.Color := IconForegroundColor;
@@ -314,6 +368,8 @@ var
   AssetName: string;
   AssetPath: string;
   RenderedIcon: TPortableNetworkGraphic;
+  TargetWidth: Integer;
+  TargetHeight: Integer;
 begin
   Result := False;
   if AGlyph = nil then
@@ -328,23 +384,20 @@ begin
     Exit;
 
   AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
-  AssetPath := PreferHiDpiAssetPath(AssetPath);
-  if not FileExists(AssetPath) then
-    Exit;
 
   RenderedIcon := TPortableNetworkGraphic.Create;
   try
-    try
-      RenderedIcon.LoadFromFile(AssetPath);
-      PrepareGlyphBitmap(AGlyph, clNone);
-      if (RenderedIcon.Width = IconBitmapSize) and (RenderedIcon.Height = IconBitmapSize) then
-        AGlyph.Canvas.Draw(0, 0, RenderedIcon)
-      else
-        AGlyph.Canvas.StretchDraw(Rect(0, 0, IconBitmapSize, IconBitmapSize), RenderedIcon);
-      Result := True;
-    except
-      Result := False;
-    end;
+    if not TryLoadRenderedAsset(AssetPath, RenderedIcon) then
+      Exit(False);
+
+    TargetWidth := Max(IconBitmapSize, RenderedIcon.Width);
+    TargetHeight := Max(IconBitmapSize, RenderedIcon.Height);
+    PrepareGlyphBitmap(AGlyph, clNone, TargetWidth, TargetHeight);
+    if (RenderedIcon.Width = TargetWidth) and (RenderedIcon.Height = TargetHeight) then
+      AGlyph.Canvas.Draw(0, 0, RenderedIcon)
+    else
+      AGlyph.Canvas.StretchDraw(Rect(0, 0, TargetWidth, TargetHeight), RenderedIcon);
+    Result := True;
   finally
     RenderedIcon.Free;
   end;
@@ -391,6 +444,7 @@ begin
   if Key = 'DEL' then Exit(bikDelete);
   if Key = 'MRG' then Exit(bikMerge);
   if Key = 'VIS' then Exit(bikVisibility);
+  if (Key = 'VISOFF') or (Key = 'VIS-OFF') or (Key = 'HIDE') then Exit(bikVisibilityOff);
   if Key = 'UP' then Exit(bikArrowUp);
   if Key = 'DN' then Exit(bikArrowDown);
   if Key = 'FADE' then Exit(bikFade);
@@ -399,6 +453,8 @@ begin
   if Key = 'PROPS' then Exit(bikProperties);
   if Key = 'SWAP' then Exit(bikSwap);
   if Key = 'MONO' then Exit(bikMono);
+  if (Key = 'LOCK') or (Key = 'LOCKED') then Exit(bikLock);
+  if (Key = 'UNLOCK') or (Key = 'UNLOCKED') or (Key = 'LOCK-OPEN') then Exit(bikUnlock);
   if Key = 'X' then Exit(bikDelete);
   Result := bikNone;
 end;
@@ -570,6 +626,12 @@ begin
         C.Ellipse(2, 4, 14, 12);
         C.Ellipse(6, 6, 10, 10);
       end;
+    bikVisibilityOff:
+      begin
+        C.Ellipse(2, 4, 14, 12);
+        C.Ellipse(6, 6, 10, 10);
+        C.Line(3, 11, 13, 5);
+      end;
     bikArrowUp:
       begin
         DrawArrow(C, [Point(8, 3), Point(4, 7), Point(6, 7)]);
@@ -631,6 +693,19 @@ begin
         C.Brush.Color := IconForegroundColor;
         C.Pie(3, 3, 13, 13, 8, 3, 8, 13);
         C.Brush.Style := bsClear;
+      end;
+    bikLock:
+      begin
+        C.Pen.Width := 2;
+        C.RoundRect(4, 8, 12, 14, 2, 2);
+        C.Arc(5, 3, 11, 10, 5, 6, 11, 6);
+      end;
+    bikUnlock:
+      begin
+        C.Pen.Width := 2;
+        C.RoundRect(4, 8, 12, 14, 2, 2);
+        C.Arc(4, 3, 10, 10, 4, 6, 10, 6);
+        C.Line(10, 6, 12, 5);
       end;
     bikTools:
       begin
@@ -851,11 +926,26 @@ end;
 
 function ButtonIconCanLoadRenderedAsset(const ACaption: string; AContext: TButtonIconContext): Boolean;
 var
+  Width: Integer;
+  Height: Integer;
+begin
+  Result := ButtonIconRenderedAssetPixelSize(ACaption, AContext, Width, Height);
+end;
+
+function ButtonIconRenderedAssetPixelSize(
+  const ACaption: string;
+  AContext: TButtonIconContext;
+  out AWidth: Integer;
+  out AHeight: Integer
+): Boolean;
+var
   IconKind: TButtonIconKind;
   AssetName: string;
   AssetPath: string;
   RenderedIcon: TPortableNetworkGraphic;
 begin
+  AWidth := 0;
+  AHeight := 0;
   Result := False;
   IconKind := ResolveButtonIconKind(ACaption, AContext);
   if IconKind = bikNone then
@@ -870,18 +960,14 @@ begin
     Exit;
 
   AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
-  AssetPath := PreferHiDpiAssetPath(AssetPath);
-  if not FileExists(AssetPath) then
-    Exit;
 
   RenderedIcon := TPortableNetworkGraphic.Create;
   try
-    try
-      RenderedIcon.LoadFromFile(AssetPath);
-      Result := (RenderedIcon.Width > 0) and (RenderedIcon.Height > 0);
-    except
-      Result := False;
-    end;
+    if not TryLoadRenderedAsset(AssetPath, RenderedIcon) then
+      Exit(False);
+    AWidth := RenderedIcon.Width;
+    AHeight := RenderedIcon.Height;
+    Result := (AWidth > 0) and (AHeight > 0);
   finally
     RenderedIcon.Free;
   end;
@@ -915,18 +1001,13 @@ begin
     Exit;
 
   AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
-  if not FileExists(AssetPath) then
-    Exit;
 
   RenderedIcon := TPortableNetworkGraphic.Create;
   try
-    try
-      RenderedIcon.LoadFromFile(AssetPath);
-      APicture.Assign(RenderedIcon);
-      Result := True;
-    except
-      Result := False;
-    end;
+    if not TryLoadRenderedAsset(AssetPath, RenderedIcon) then
+      Exit(False);
+    APicture.Assign(RenderedIcon);
+    Result := True;
   finally
     RenderedIcon.Free;
   end;

@@ -13,6 +13,7 @@ type
     procedure ZoomPresetsStayOrdered;
     procedure ZoomStepFunctionsUsePresetLadder;
     procedure ZoomCaptionsStayHumanReadable;
+    procedure QuickSizeToggleUsesDeterministicThreshold;
   end;
 
 implementation
@@ -41,6 +42,14 @@ begin
   AssertEquals('100% caption', '100%', ZoomCaptionForScale(1.0));
   AssertEquals('66.7% preset caption', '66.7%', ZoomPresetCaption(3));
   AssertEquals('1600% caption', '1600%', ZoomCaptionForScale(16.0));
+end;
+
+procedure TFPZoomHelpersTests.QuickSizeToggleUsesDeterministicThreshold;
+begin
+  AssertTrue('exact actual size should toggle to fit', QuickSizeToggleTargetsFit(1.0));
+  AssertTrue('near-actual value inside epsilon should toggle to fit', QuickSizeToggleTargetsFit(1.009));
+  AssertFalse('zoomed-in state should toggle to actual size', QuickSizeToggleTargetsFit(1.05));
+  AssertFalse('zoomed-out state should toggle to actual size', QuickSizeToggleTargetsFit(0.9));
 end;
 
 initialization

@@ -1,8 +1,8 @@
 # Recolor Design Spec (FlatPaint)
 
 ## Status
-- Drafted after cross-reference against Photoshop docs + GIMP/Pinta architecture.
-- This document is implementation-oriented and code-first aligned.
+- Implemented through Phase R2 on 2026-03-07.
+- This document is code-first aligned; sections below distinguish landed behavior vs deferred R3 depth.
 
 ## Product objective
 - Make `Recolor` predictable, selection-safe, and close to Photoshop mental model while keeping FlatPaint lightweight.
@@ -15,7 +15,7 @@
 ## Current implementation baseline
 - Entry route: `tkRecolor` in `TMainForm.ApplyImmediateTool`.
 - Core primitive: `TRasterSurface.RecolorBrush(...)`.
-- Current options: brush size/opacity, tolerance, preserve value.
+- Current options: brush size/opacity, tolerance, preserve value, sampling mode (`Once`/`Continuous`/`SwatchCompat`), and recolor mode (`Color`/`Hue`/`Saturation`/`Luminosity`/`ReplaceCompat`).
 
 ## Architecture constraints
 1. Keep core mutation through `MutableActiveLayerSurface` guard-coupled routes.
@@ -42,26 +42,26 @@
 
 ## Phase plan
 ### Phase R1 (safe baseline)
-1. Fix tool visibility regression (`Text` button clipping).
-2. Add recolor route-level pipeline tests:
+1. Completed: tool visibility regression fixed (`Text` no longer clipped by default tools-panel height).
+2. Completed: route-level recolor pipeline tests added:
 - selection-scoped recolor modifies inside but not outside
 - recolor undo/redo symmetry
 - source sampling contract test (once-mode)
-3. Align UI hints to real semantics.
+3. Completed: UI options and runtime semantics aligned.
 
 ### Phase R2 (Photoshop-aligned options)
-1. Add recolor sampling mode state and UI control.
-2. Add recolor mode enum and core mapping path (`Color` first).
-3. Keep existing preserve-value as backward-compatible mode bridge until full mode matrix lands.
+1. Completed: recolor sampling mode state + UI control.
+2. Completed: recolor mode enum and core mapping path (`Color/Hue/Saturation/Luminosity/ReplaceCompat`).
+3. Completed: preserve-value bridge retained for compatibility behavior.
 
 ### Phase R3 (parity depth and performance)
 1. Add limits mode behavior.
 2. Optional cached/stencil-assisted per-stroke traversal for large documents.
 3. Optional replace-color dialog route for targeted/global recolor.
 
-## Data model additions (planned)
+## Data model additions (implemented)
 - `TRecolorSamplingMode = (rsmOnce, rsmContinuous, rsmSwatchCompat)`
-- `TRecolorBlendMode = (rbmColor, rbmHue, rbmSaturation, rbmLuminosity)`
+- `TRecolorBlendMode = (rbmReplaceRGBCompat, rbmColor, rbmHue, rbmSaturation, rbmLuminosity)`
 - Runtime stroke state:
   - `FRecolorStrokeSourceColor`
   - `FRecolorStrokeSourceValid`
@@ -91,7 +91,7 @@
 - Mitigation: add explicit pipeline tests and run full CI + build in same window.
 
 ## Documentation sync requirements
-- `docs/FEATURE_MATRIX.md`: update `Paint tools` notes when R2 lands.
+- `docs/FEATURE_MATRIX.md`: `Paint tools` row updated for R2 behavior.
 - `docs/PROGRESS_LOG.md`: add route/test evidence for each phase.
 - `docs/TEST_LOG.md`: record suite command and pass/fail counts.
 - `docs/EXPERIENCES.md`: record root cause for each recolor regression found.

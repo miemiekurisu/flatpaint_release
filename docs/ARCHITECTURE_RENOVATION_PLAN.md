@@ -69,10 +69,10 @@ Highest priority defects:
 - Move tool state machines out of `TMainForm`.
 - Keep `TMainForm` as shell, event dispatch, and view synchronization.
 
-6. `LayerGeometry` model extension (started: metadata path)
+6. `LayerGeometry` model extension (metadata + semantic activation landed)
 - Add per-layer offset metadata in core model.
 - Keep compatibility import path able to preserve offsets structurally.
-- Keep rendering/edit semantics in compatibility mode until local-surface migration is explicitly planned.
+- Keep rendering/edit semantics offset-aware as a runtime invariant once semantic activation is landed.
 
 ### 4.2 Architecture shape
 - UI Shell (`TMainForm`) -> ToolController -> Guarded Document API -> Core services (`EditSession`, `SelectionEngine`, `HistoryTransaction`) -> Surface/Compositor.
@@ -126,12 +126,22 @@ Exit criteria:
 ### Phase 4.5: Layer geometry metadata foundation (A4)
 - Introduce per-layer offset metadata into the core layer model.
 - Persist offset metadata in native project format and preserve XCF-imported offsets structurally.
-- Keep compatibility rendering path unchanged (canvas-stamped payload) to avoid broad tool-regression risk in this phase.
+- Keep metadata/persistence landing isolated first to reduce migration blast radius before semantic activation.
 
 Exit criteria:
 - Layer offsets survive clone/history/full snapshot routes.
 - Native save/load roundtrip preserves layer offset metadata.
 - XCF import records source offsets in layer metadata without breaking current render behavior.
+
+### Phase 4.6: Layer geometry semantic activation (A4)
+- Activate offset-aware compositor math at runtime.
+- Map interactive tool coordinates and selection masks between canvas space and active-layer local space.
+- Ensure offset-aware merge/crop/transform and copy/cut/paste routes remain undo-safe and selection-safe.
+
+Exit criteria:
+- Offset metadata is a live runtime invariant for compositing and edit tools (not metadata-only).
+- Focused regression tests cover offset-aware compositing + tool application routes.
+- No regression to existing selection-scoped draw/fill/recolor contracts.
 
 ### Phase 5: History optimization (A5)
 - Reduce full-layer clone usage at stroke start where safe.
@@ -156,7 +166,8 @@ Exit criteria:
 - Phase 2: complete (transactional move-pixels flow + `tool_transaction_tests` passing).
 - Phase 3: complete for current routes (core mutation routes expanded with guarded active-layer paste/pixelate-rect/rotate wrappers; no-op-history cleanup landed for lock-sensitive menu/effect routes via `BeginActiveLayerMutation` / `BeginDocumentMutation`; move-pixels controller commit and begin-session paths are guard-coupled; interactive fill/shape/crop/pending-line-segment commits and high-frequency brush/recolor/clone/eraser loops now route through core guarded writable-surface acquisition; current `mainform` runtime paths no longer perform direct pixel mutation writes).
 - Phase 4: complete (selection byte-coverage semantics propagated through transform/apply/persistence paths with regression coverage).
-- Phase 4.5: complete (layer offset metadata model + native persistence + XCF metadata preservation landed in compatibility mode, and exit criteria are now covered by clone/full-snapshot/native-roundtrip/XCF regression tests).
+- Phase 4.5: complete (layer offset metadata model + native persistence + XCF metadata preservation, with clone/full-snapshot/native-roundtrip/XCF regression coverage).
+- Phase 4.6: complete (offset-aware compositor/tool semantic activation landed, including local-space selection mapping in mutation routes and dedicated offset regression coverage in document/pipeline tests).
 - Phase 5: complete (stroke-start full-layer clone path replaced by incremental region capture, move-pixels history switched to dirty-rect + selection-aware snapshots, and both stroke/move-pixels routes now converge on the core `TRegionHistoryTransaction` service with regression coverage).
 - Phase 6: complete (top-risk tool flows split into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with independent controller-suite coverage).
 - A7 follow-up: complete (stored-selection lifecycle moved into core selection-copy routes with regression coverage, removing app-route underwiring).

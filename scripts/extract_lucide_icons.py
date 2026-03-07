@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 SOURCE_ICON_DIR = ROOT_DIR / "icons"
 LUCIDE_DIR = ROOT_DIR / "assets" / "icons" / "lucide"
+EXTRACTED_DIR = ROOT_DIR / "assets" / "icons" / "extracted"
 RENDERED_DIR = ROOT_DIR / "assets" / "icons" / "rendered"
 
 TARGET_ICON_SIZE = 20
@@ -33,6 +34,9 @@ ICON_NAMES = (
     "trash-2",
     "combine",
     "eye",
+    "eye-off",
+    "lock",
+    "lock-open",
     "arrow-up",
     "arrow-down",
     "blend",
@@ -52,6 +56,7 @@ ICON_NAMES = (
     "lasso",
     "wand",
     "move",
+    "pointer",
     "hand",
     "search",
     "paint-bucket",
@@ -61,6 +66,7 @@ ICON_NAMES = (
     "pipette",
     "stamp",
     "droplets",
+    "grid-2x2",
     "slash",
     "square",
     "square-round-corner",
@@ -96,13 +102,17 @@ def resolve_source_svg(name: str) -> Path:
 
 def sync_source_svgs() -> None:
     LUCIDE_DIR.mkdir(parents=True, exist_ok=True)
+    EXTRACTED_DIR.mkdir(parents=True, exist_ok=True)
     for path in LUCIDE_DIR.glob("*.svg"):
         path.unlink()
 
     for name in ICON_NAMES:
         source_path = resolve_source_svg(name)
         dest_path = LUCIDE_DIR / f"{name}.svg"
+        extracted_path = EXTRACTED_DIR / f"{name}.svg"
         shutil.copyfile(source_path, dest_path)
+        if not extracted_path.exists():
+            shutil.copyfile(source_path, extracted_path)
 
 
 def normalize_png(raw_png: Path, dest_png: Path, target_size: int = TARGET_ICON_SIZE) -> None:

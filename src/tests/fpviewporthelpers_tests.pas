@@ -13,10 +13,16 @@ type
     procedure CenteredContentOffsetCentersSmallerCanvas;
     procedure CenteredContentOffsetClampsLargeCanvasToOrigin;
     procedure ZoomSliderMappingUsesZoomPresets;
+    procedure ClampZoomScaleAppliesSupportedBounds;
+    procedure ZoomScaleEffectivelyEqualUsesClampAndEpsilon;
     procedure ViewportImageCoordinateRespectsCanvasOffset;
     procedure ScrollPositionForAnchorKeepsAnchorStable;
+    procedure MaxViewportScrollPositionUsesCanvasGeometry;
+    procedure ClampViewportScrollPositionRespectsComputedRange;
+    procedure ClampViewportScrollDeltaBlocksOverscrollDirections;
     procedure PannedScrollPositionMovesOppositeToDrag;
     procedure ZoomWheelUsesCrossEditorModifierRule;
+    procedure WheelScrollPixelsMapsDeltaToStableStep;
   end;
 
 implementation
@@ -39,6 +45,23 @@ begin
   AssertTrue('slider max positive', ZoomSliderMax > ZoomSliderMin);
   AssertEquals('100% maps to slider position', 4, ZoomSliderPositionForScale(1.0));
   AssertEquals('slider roundtrip', 1.0, ZoomScaleForSliderPosition(ZoomSliderPositionForScale(1.0)));
+end;
+
+procedure TFPViewportHelpersTests.ClampZoomScaleAppliesSupportedBounds;
+begin
+  AssertEquals('lower bound clamp', 0.1, ClampZoomScale(0.01));
+  AssertEquals('in-range scale unchanged', 1.5, ClampZoomScale(1.5));
+  AssertEquals('upper bound clamp', 16.0, ClampZoomScale(32.0));
+end;
+
+procedure TFPViewportHelpersTests.ZoomScaleEffectivelyEqualUsesClampAndEpsilon;
+begin
+  AssertTrue('tiny delta should be treated as equal',
+    ZoomScaleEffectivelyEqual(1.0, 1.0000005));
+  AssertTrue('clamped lower-bound values should be equal',
+    ZoomScaleEffectivelyEqual(0.02, 0.1));
+  AssertFalse('materially different zoom values should not match',
+    ZoomScaleEffectivelyEqual(1.0, 1.01));
 end;
 
 procedure TFPViewportHelpersTests.ViewportImageCoordinateRespectsCanvasOffset;
@@ -74,6 +97,73 @@ begin
   );
 end;
 
+procedure TFPViewportHelpersTests.MaxViewportScrollPositionUsesCanvasGeometry;
+begin
+  AssertEquals(
+    'larger content computes positive range',
+    300,
+    MaxViewportScrollPosition(0, 800, 500)
+  );
+  AssertEquals(
+    'centered smaller content has no scroll range',
+    0,
+    MaxViewportScrollPosition(100, 200, 400)
+  );
+  AssertEquals(
+    'content offset contributes to computed max',
+    220,
+    MaxViewportScrollPosition(20, 500, 300)
+  );
+end;
+
+procedure TFPViewportHelpersTests.ClampViewportScrollPositionRespectsComputedRange;
+begin
+  AssertEquals(
+    'target below origin clamps at zero',
+    0,
+    ClampViewportScrollPosition(-10, 0, 800, 500)
+  );
+  AssertEquals(
+    'in-range value stays unchanged',
+    120,
+    ClampViewportScrollPosition(120, 0, 800, 500)
+  );
+  AssertEquals(
+    'value past max clamps to max',
+    300,
+    ClampViewportScrollPosition(500, 0, 800, 500)
+  );
+  AssertEquals(
+    'small content always clamps to zero',
+    0,
+    ClampViewportScrollPosition(12, 120, 200, 500)
+  );
+end;
+
+procedure TFPViewportHelpersTests.ClampViewportScrollDeltaBlocksOverscrollDirections;
+begin
+  AssertEquals(
+    'negative scroll at origin is blocked',
+    0,
+    ClampViewportScrollDelta(0, -48, 0, 800, 500)
+  );
+  AssertEquals(
+    'positive delta near max clamps to remaining room',
+    40,
+    ClampViewportScrollDelta(260, 60, 0, 800, 500)
+  );
+  AssertEquals(
+    'positive scroll at max is blocked',
+    0,
+    ClampViewportScrollDelta(300, 48, 0, 800, 500)
+  );
+  AssertEquals(
+    'in-range negative delta stays unchanged',
+    -48,
+    ClampViewportScrollDelta(120, -48, 0, 800, 500)
+  );
+end;
+
 procedure TFPViewportHelpersTests.PannedScrollPositionMovesOppositeToDrag;
 begin
   AssertEquals(
@@ -99,6 +189,14 @@ begin
   AssertTrue('meta key zooms viewport', ZoomWheelUsesViewportZoom([ssMeta]));
   AssertFalse('plain wheel keeps scrolling', ZoomWheelUsesViewportZoom([]));
   AssertFalse('shift alone does not become zoom', ZoomWheelUsesViewportZoom([ssShift]));
+end;
+
+procedure TFPViewportHelpersTests.WheelScrollPixelsMapsDeltaToStableStep;
+begin
+  AssertEquals('zero delta stays idle', 0, WheelScrollPixels(0, 48));
+  AssertEquals('wheel up maps to negative scroll delta', -48, WheelScrollPixels(120, 48));
+  AssertEquals('wheel down maps to positive scroll delta', 48, WheelScrollPixels(-120, 48));
+  AssertEquals('larger wheel deltas scale by notches', 96, WheelScrollPixels(-240, 48));
 end;
 
 initialization

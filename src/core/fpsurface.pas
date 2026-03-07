@@ -43,6 +43,26 @@ type
     procedure EraseBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure EraseSquareBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawDashedLine(
+      X1, Y1, X2, Y2, Radius: Integer;
+      const AColor: TRGBA32;
+      DashLength: Integer = 8;
+      GapLength: Integer = 6;
+      Opacity: Byte = 255;
+      Hardness: Byte = 255;
+      ASelection: TSelectionMask = nil
+    );
+    procedure DrawDashedPolyline(
+      const APoints: array of TPoint;
+      StrokeWidth: Integer;
+      const AColor: TRGBA32;
+      Closed: Boolean = True;
+      DashLength: Integer = 8;
+      GapLength: Integer = 6;
+      Opacity: Byte = 255;
+      Hardness: Byte = 255;
+      ASelection: TSelectionMask = nil
+    );
     procedure DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure EraseLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure EraseSquareLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
@@ -666,6 +686,117 @@ begin
       Y1 := Y1 + StepY;
     end;
   end;
+end;
+
+procedure TRasterSurface.DrawDashedLine(
+  X1, Y1, X2, Y2, Radius: Integer;
+  const AColor: TRGBA32;
+  DashLength: Integer;
+  GapLength: Integer;
+  Opacity: Byte;
+  Hardness: Byte;
+  ASelection: TSelectionMask
+);
+var
+  DX: Double;
+  DY: Double;
+  SegmentLength: Double;
+  UnitX: Double;
+  UnitY: Double;
+  CursorPos: Double;
+  DashEndPos: Double;
+  StartPoint: TPoint;
+  EndPoint: TPoint;
+begin
+  DashLength := Max(1, DashLength);
+  GapLength := Max(1, GapLength);
+
+  DX := X2 - X1;
+  DY := Y2 - Y1;
+  SegmentLength := Sqrt((DX * DX) + (DY * DY));
+  if SegmentLength < 0.5 then
+  begin
+    DrawLine(X1, Y1, X2, Y2, Radius, AColor, Opacity, Hardness, ASelection);
+    Exit;
+  end;
+
+  UnitX := DX / SegmentLength;
+  UnitY := DY / SegmentLength;
+  CursorPos := 0.0;
+  while CursorPos < SegmentLength do
+  begin
+    DashEndPos := Min(SegmentLength, CursorPos + DashLength);
+    StartPoint := Point(
+      Round(X1 + (UnitX * CursorPos)),
+      Round(Y1 + (UnitY * CursorPos))
+    );
+    EndPoint := Point(
+      Round(X1 + (UnitX * DashEndPos)),
+      Round(Y1 + (UnitY * DashEndPos))
+    );
+    DrawLine(
+      StartPoint.X,
+      StartPoint.Y,
+      EndPoint.X,
+      EndPoint.Y,
+      Radius,
+      AColor,
+      Opacity,
+      Hardness,
+      ASelection
+    );
+    CursorPos := CursorPos + DashLength + GapLength;
+  end;
+end;
+
+procedure TRasterSurface.DrawDashedPolyline(
+  const APoints: array of TPoint;
+  StrokeWidth: Integer;
+  const AColor: TRGBA32;
+  Closed: Boolean;
+  DashLength: Integer;
+  GapLength: Integer;
+  Opacity: Byte;
+  Hardness: Byte;
+  ASelection: TSelectionMask
+);
+var
+  PointIndex: Integer;
+  Radius: Integer;
+begin
+  if High(APoints) < 1 then
+    Exit;
+
+  Radius := Max(1, (Max(1, StrokeWidth) + 1) div 2);
+  for PointIndex := 0 to High(APoints) - 1 do
+    DrawDashedLine(
+      APoints[PointIndex].X,
+      APoints[PointIndex].Y,
+      APoints[PointIndex + 1].X,
+      APoints[PointIndex + 1].Y,
+      Radius,
+      AColor,
+      DashLength,
+      GapLength,
+      Opacity,
+      Hardness,
+      ASelection
+    );
+
+  if Closed and (High(APoints) >= 2) then
+    DrawDashedLine(
+      APoints[High(APoints)].X,
+      APoints[High(APoints)].Y,
+      APoints[0].X,
+      APoints[0].Y,
+      Radius,
+      AColor,
+      DashLength,
+      GapLength,
+      Opacity,
+      Hardness,
+      ASelection
+    );
 end;
 
 procedure TRasterSurface.DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);

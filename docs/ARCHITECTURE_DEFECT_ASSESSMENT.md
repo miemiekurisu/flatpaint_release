@@ -16,18 +16,18 @@
   - **A1 (move-pixels transaction model):** materially mitigated by the transactional move-pixels session now covered by `tool_transaction_tests`.
   - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths, and native byte-mask persistence (`FPDOC04` legacy-compatible load path) plus regression tests.
   - **A3 (lock/editability invariants):** materially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive shape/fill/crop commit routes to prevent no-op undo noise, guard-coupled move-pixels controller commit/begin-session flow, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
-  - **A4 (layer geometry metadata):** partially mitigated; Phase-4.5 metadata foundation is now complete (per-layer offsets in model, clone/history/native/XCF metadata preservation), while runtime render/tool semantics remain compatibility-mode and not yet offset-driven.
+  - **A4 (layer geometry semantics):** materially mitigated; metadata foundation plus runtime semantic activation are complete (offset-aware compositor + tool/local-selection mapping + offset-preserving XCF/native routes) with regression coverage.
   - **A5 (history capture cost):** materially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture, switching move-pixels commit to dirty-rect + selection-aware region snapshots, and converging stroke/move transaction routes on core `TRegionHistoryTransaction`.
   - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests.
   - **A7 (stored-selection route closure):** materially mitigated by moving `StoreSelectionForPaste` into core selection-copy routes (`CopySelectionToSurface`/`CopyMergedToSurface`), eliminating app-route dependency.
-- Defects still treated as open architecture work in the active plan: **A4 (render/tool semantics not yet offset-aware)**.
+- Defects still treated as open architecture work in the active plan: **A6 (mainform orchestration coupling)**.
 
 ## Executive summary
-FlatPaint is functionally broad, and most previously critical selection/edit-transaction architecture defects are now materially mitigated.
-The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior; current highest-risk open gaps are layer-geometry semantic activation (A4) and residual high-coupling UI orchestration risk (A6).
+FlatPaint is functionally broad, and previously critical selection/edit-transaction architecture defects are materially mitigated.
+The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior; current highest-risk open architecture gap is residual high-coupling UI orchestration risk (A6), not unresolved P0 semantic correctness.
 
-Current architecture has reusable strengths (separate core units, region-history transaction service, mutation-guarded routes).
-The remaining release-grade architecture priority is completing offset-aware layer semantics on top of already-landed layer geometry metadata.
+Current architecture has reusable strengths (separate core units, region-history transaction service, mutation-guarded routes, active offset-aware layer semantics).
+The remaining release-grade architecture priority is maintainability decomposition and long-tail route hardening.
 
 ## Critical defect list
 The sections below preserve the originally validated defect evidence snapshot for traceability.
@@ -76,7 +76,7 @@ Current status for each item is defined by the **Implementation delta** section 
 - User-visible risk:
   - Reduced versus baseline; current residual risk is mostly future-regression risk if new mutation routes bypass established guard-coupled core entry points.
 
-### A4. Layer geometry semantics are still compatibility-only (metadata landed, render/tool paths not fully offset-aware) (P1)
+### A4. Layer geometry semantics were compatibility-only at baseline (historical snapshot; now mitigated) (P1)
 - Evidence:
   - `TRasterLayer` now carries `OffsetX/OffsetY` metadata in core model.
   - XCF parser reads layer offsets and importer now stores them in layer metadata.

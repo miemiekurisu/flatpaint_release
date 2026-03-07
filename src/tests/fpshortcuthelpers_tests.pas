@@ -7,6 +7,10 @@ interface
 uses
   fpcunit, testregistry, Menus, LCLType, FPShortcutHelpers;
 
+const
+  ShortcutShiftFlag = $2000;
+  ShortcutAltFlag = $8000;
+
 type
   TFPShortcutHelpersTests = class(TTestCase)
   published
@@ -19,27 +23,27 @@ procedure TFPShortcutHelpersTests.CoreEditShortcutsFollowPolicy;
 begin
   AssertEquals(
     'copy selection shortcut',
-    ShortCut(VK_C, [ssMeta, ssAlt]),
+    VK_C or scMeta or ShortcutAltFlag,
     CoreShortcut(cscCopySelection)
   );
   AssertEquals(
     'paste into new layer shortcut',
-    ShortCut(VK_V, [ssMeta, ssShift]),
+    VK_V or scMeta or ShortcutShiftFlag,
     CoreShortcut(cscPasteIntoNewLayer)
   );
   AssertEquals(
     'paste into new image shortcut',
-    ShortCut(VK_V, [ssMeta, ssAlt]),
+    VK_V or scMeta or ShortcutAltFlag,
     CoreShortcut(cscPasteIntoNewImage)
   );
   AssertEquals(
     'fill selection shortcut',
-    ShortCut(VK_DELETE, [ssShift]),
+    VK_DELETE or ShortcutShiftFlag,
     CoreShortcut(cscFillSelection)
   );
   AssertEquals(
     'crop to selection shortcut',
-    ShortCut(VK_X, [ssMeta, ssAlt]),
+    VK_X or scMeta or ShortcutAltFlag,
     CoreShortcut(cscCropToSelection)
   );
 
@@ -52,4 +56,3 @@ initialization
   RegisterTest(TFPShortcutHelpersTests);
 
 end.
-

@@ -4,6 +4,91 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-07 (Retina icon rendering compliance pass: keep point-size, raise pixel density)
+
+### Changes
+
+1. **Aligned options-bar tool icon rendering to high-DPI point semantics**:
+   - Kept options-bar icon box at the same logical size (`20x20` point contract).
+   - Switched `FToolIconImage` to scaled rendering (`Stretch=True`, `Proportional=True`) so `@2x` assets render into the fixed logical box instead of being clipped.
+
+2. **Resolved first-order `@2x` clipping route without touching tool logic**:
+   - This pass is UI-only and affects icon presentation behavior in the options bar.
+   - No drawing/tool state machine or document mutation routes were changed.
+
+3. **Reference baseline used for this adjustment**:
+   - Apple High Resolution guidance (point-size stable, backing pixel density increases):
+     - `High Resolution Guidelines for OS X` (archived): `https://developer.apple.com/library/archive/documentation/GraphicsAnimation/Conceptual/HighResolutionOSX/`
+     - `High Resolution Explained`: `https://developer.apple.com/library/archive/documentation/GraphicsAnimation/Conceptual/HighResolutionOSX/Explained/Explained.html`
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `311` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
+## 2026-03-07 (Icon/Retina asset-chain closure pass: multi-scale package completeness + mapped-tool gap closure)
+
+### Changes
+
+1. **Closed the runtime `@2x` loading gap for picture-based icon paths**:
+   - `FPIconHelpers` now uses one shared rendered-asset loader for both glyph and picture routes.
+   - Loader behavior is explicit: prefer `@2x` when present, and fall back to `1x` if the preferred asset is missing or unreadable.
+
+2. **Removed a hidden low-resolution fallback route for mapped tools**:
+   - Added `pointer` and `grid-2x2` to the icon extraction/render pipeline (`extract_lucide_icons.py` + refreshed assets).
+   - This closes the prior mismatch where `Move Pixels` / `Mosaic` icon mappings existed in code but corresponding rendered assets were absent.
+
+3. **Completed bundle-side multi-scale asset packaging with real assets present**:
+   - Regenerated `assets/icons/rendered` to include both `*.svg.png` and `*.svg@2x.png`.
+   - Rebuilt app bundle now includes those multi-scale assets under `dist/FlatPaint.app/Contents/Resources/icons/rendered`.
+
+4. **Expanded icon regression checks to enforce asset-chain completeness**:
+   - Added `RepresentativeRetinaAssetsExist` and strengthened representative checks to include `pointer` / `grid-2x2`.
+   - Added explicit icon-load assertions for `Move Pixels` and `Mosaic`.
+   - Added `ButtonIconRenderedAssetPixelSize(...)` test hook to verify selected asset scale without widgetset-bound drawing calls.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `311` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed with `@2x` icon assets.
+
+## 2026-03-07 (P0 closure pass: shortcut parity + recolor R2 + A4 runtime semantics)
+
+### Changes
+
+1. **Closed P0 shortcut parity high-use audit with executable coverage**:
+   - Added `src/app/fpshortcuthelpers.pas` as a single source for high-use edit shortcuts:
+     - `Copy Selection` (`Cmd+Opt+C`)
+     - `Paste into New Layer` (`Cmd+Shift+V`)
+     - `Paste into New Image` (`Cmd+Opt+V`)
+     - `Fill Selection` (`Shift+Delete`)
+     - `Crop To Selection` (`Cmd+Opt+X`)
+   - Wired those bindings in `mainform` menu construction.
+   - Added `src/tests/fpshortcuthelpers_tests.pas` and registered it in `src/tests/flatpaint_tests.lpr`.
+
+2. **Completed recolor R2 behavior rollout in code-first surface**:
+   - Recolor sampling modes (`Once` / `Continuous` / `SwatchCompat`) and blend modes (`Color/Hue/Saturation/Luminosity/ReplaceCompat`) are now active in core/UI routes.
+   - Selection-scoped recolor + undo/redo + sampling contracts are covered in surface/pipeline tests.
+
+3. **Completed A4 runtime semantic activation**:
+   - Layer offsets are no longer metadata-only; compositor and tool coordinate/mask mapping now consume offsets as runtime invariants.
+   - Offset-aware routes are covered in document + pipeline + IO tests.
+
+4. **Synchronized architecture/product docs to code reality**:
+   - Updated PRD, feature matrix, shortcut policy, feature priority order, recolor design spec, and architecture assessment/evaluation/renovation docs from “P0 open” to “P0 closed”.
+   - Updated evidence counts and post-P0 remaining priorities.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `295` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-07 (docs alignment refresh + functional priority ordering pass)
 
 ### Changes
@@ -1273,3 +1358,14 @@ Six bugs were identified through systematic trace of the three reported failure 
 - **2026-03-07 — Selection-scope regression fix (Fill/Gradient).** Fixed a tool-switch regression where switching from any selection tool to non-selection tools (`ToolButtonClick`, `ToolComboChange`, keyboard shortcut path in `FormKeyDown`) auto-cleared the active selection, causing bucket/gradient operations to run globally. Selection is now preserved across tool switches so fill-family tools honor selection scope consistently.
 - **2026-03-07 — Selection masking policy split (drawing vs fill-family).** Adjusted paint routing so active selection masking now applies only to area-fill tools (`Fill`, `Gradient`) while drawing/shape tools no longer clip to selection presence. This restores the expected behavior where line/shape/brush-style drawing is not constrained by an existing selection, without regressing fill-family selection scope.
 - **2026-03-07 — Selection overlay visual differentiation (dashed committed outline).** Updated the committed selection boundary raster overlay from a fully continuous 1px ant-line to a dashed ant-line pattern with explicit gap segments, so completed selection regions are visually distinct from shape/square drawing outlines.
+- **2026-03-07 — Selection lifecycle update (blank-click + tool-switch auto-deselect).** Reintroduced auto-deselect behavior for the current UX target: with a committed selection active, blank left-click in selection tools now clears the selection, and leaving the selection-tool family now auto-clears selection. Switching within the selection-tool family keeps selection.
+- **2026-03-07 — P1 draw parity depth closure.** Added line-style (`Solid` / `Dashed`) option routing for line and shape outlines across both preview rendering and committed pixel output, backed by new dashed raster-core tests and pipeline-level commit verification.
+- **2026-03-07 — P1 command-surface long-tail coverage reduction.** Added additional non-keyboard route-level regression coverage for selection auto-deselect behavior through toolbar switching paths to reduce remaining long-tail route debt.
+- **2026-03-07 — P1 status closure sync.** Updated `FEATURE_PRIORITY_ORDER`, `FEATURE_MATRIX`, `PRD`, and `TOOL_OPTIONS_BASELINE` to reflect code-first reality: P1 functional targets are closed at current scope, with remaining work explicitly tracked as parity polish rather than missing baseline behavior.
+- **2026-03-07 — Selection lifecycle reclassification (tool-family matrix).** Refined tool-switch selection behavior from a blanket rule to a classified rule aligned with selection-aware operation families: `Fill` / `Gradient` / `Recolor` now preserve selection when switching away from selection tools, while free-draw/shape/text families clear selection; switching within selection tools still preserves selection.
+- **2026-03-07 — Regression coverage update for classified selection behavior.** Replaced old switch tests with matrix-style routes in `pipeline_integration_tests` (`SwitchingFromSelectionToFillKeepsSelection`, `SwitchingFromSelectionToGradientKeepsSelection`, `ToolbarSwitchFromSelectionToFillKeepsSelection`, `SwitchingFromSelectionToBrushAutoDeselectsSelection`, `SwitchingWithinSelectionFamilyKeepsSelection`) and kept CI green.
+- **2026-03-07 — Viewport edge jitter stabilization (zoom/pan boundary clamp unification).** Investigated GIMP display-shell offset handling (`app/display/gimpdisplayshell-scroll.c`, `app/display/gimpdisplayshell-scale.c`) and aligned FlatPaint to the same architecture intent: compute target offset once, clamp into a valid range, then update state. Added shared viewport scroll-range helpers and applied them to `UpdateCanvasSize`, anchor zoom, zoom-to-selection, and pan drag routes; removed unconditional re-center-to-zero writes in resize refresh paths to eliminate repeated edge correction oscillation.
+- **2026-03-07 — Post-fix verification + docs sync.** Re-ran full CI and build (`N:305 E:0 F:0`), refreshed `dist/FlatPaint.app`, and updated PRD/feature-matrix test snapshots to match the new regression count.
+- **2026-03-07 — Viewport edge jitter phase-2 hardening (GIMP-style unoverscroll gate + zoom-limit no-op).** Added pre-clamp delta gating modeled after GIMP's unoverscroll pattern (`scroll_unoverscrollify` intent): wheel deltas that push further past a reached bound are now collapsed to `0` before any scroll write. Also added zoom-limit no-op guards so repeated zoom input at min/max scale no longer triggers anchor/scroll recomputation. This removes remaining multi-step rebound behavior when users keep pushing toward an already reached edge/zoom bound.
+- **2026-03-07 — Phase-2 verification.** Re-ran full CI and build (`N:309 E:0 F:0`), refreshed `dist/FlatPaint.app`, and kept docs synced to the new test count.
+- **2026-03-07 — Viewport edge jitter phase-3 hardening (disable Cocoa elastic bounce).** Added a dedicated native bridge (`fp_scrollview.m`) and runtime hookup in `AppIdle` to disable `NSScrollView` horizontal/vertical elasticity for the canvas host once the handle is ready, preventing macOS rubber-band rebound from reintroducing edge wobble.

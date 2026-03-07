@@ -16,6 +16,51 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-07 (layer lock/visibility controls can appear coupled when icon hit-testing is coarse and double-click side effects are not isolated)
+- Problem: user reported lock and eye buttons in the layer row behaved as if linked; toggling one could trigger unintended behavior from the other interaction surface.
+- Core error: row interaction used coarse X-threshold hit logic and did not isolate icon-click flows from layer-row double-click behavior.
+- Investigation: traced row rendering geometry (`lock/eye` rects) against `LayerListMouseDown` hit path and `LayerListDblClick` flow; compared draw constants with click constants and event ordering.
+- Root cause: click handling used `X < constant` buckets instead of exact icon-rect hit tests, and icon clicks could leak into row-level double-click semantics.
+- Fix: introduced shared layer-row icon geometry constants + `LayerRowIconRects(...)`, switched to exact `PtInRect` hit testing for lock/eye, and then removed `LayerListDblClick` visibility mutation entirely so eye toggling exists only on explicit eye-icon clicks; also enlarged icon geometry separation (`16px` icon with wider inter-icon margin) plus a stronger unlocked-state visual accent to reduce both visual ambiguity and accidental adjacent hits.
+- Reuse note: for owner-drawn list controls, never duplicate draw geometry in ad hoc click thresholds; reuse one rect source of truth, and do not bind critical state toggles to row-level double-click gestures when icon-level explicit controls already exist.
+- Repeat count: `This issue has occurred 3 time(s)`
+
+## 2026-03-07 (`@2x` icon source can be clipped if fixed-size TImage keeps non-scaling draw mode)
+- Problem: after introducing `@2x` icon assets, some tool icons appeared incomplete/cropped in fixed-size UI slots.
+- Core error: icon control kept a fixed `20x20` box while image source loaded as larger `@2x` bitmap and draw mode remained non-scaling.
+- Investigation: traced icon load path in `UpdateToolOptionControl` and options-bar icon-control initialization (`FToolIconImage`), then compared control size and picture pixel size behavior.
+- Root cause: fixed-size `TImage` with `Stretch=False` does not enforce logical-size fit for higher-resolution source assets.
+- Fix: keep point-size box unchanged, but enable scaled rendering (`Stretch=True`, `Proportional=True`) on that fixed-size icon control so `@2x` maps into the same logical bounds.
+- Reuse note: for Retina/HiDPI UI, do not equate source pixel dimensions with display box dimensions; keep logical size stable and let backing density vary.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (icon mapping coverage can silently degrade to low-fidelity fallbacks when extraction list and runtime map drift)
+- Problem: even after enabling `@2x` icon loading, some tools still looked inconsistent because they were not actually using rendered assets.
+- Core error: runtime icon mapping included `pointer`/`grid-2x2`, but extraction/render input list did not, so those tools fell back to hand-drawn glyphs.
+- Investigation: compared `RenderedIconAssetName` mappings with generated files under `assets/icons/lucide` and `assets/icons/rendered`.
+- Root cause: icon pipeline source list drifted from runtime mapping table; mapped icon names were missing from generation scope.
+- Fix: added `pointer` and `grid-2x2` to extraction list, regenerated rendered `1x/@2x` assets, and expanded icon tests to assert those mapped assets exist and load.
+- Reuse note: treat icon-map keys in code as the authoritative completeness list for asset generation; every mapped key needs a test-backed generated artifact.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (new test unit is not coverage unless it is explicitly registered in the suite runner)
+- Problem: shortcut parity helper tests were authored, but CI still reported the previous test count and did not execute the new assertions.
+- Core error: `fpshortcuthelpers_tests.pas` existed but was not in `src/tests/flatpaint_tests.lpr`.
+- Investigation: compared source tree against test-runner `uses` list after seeing unchanged suite size.
+- Root cause: adding a Pascal test unit file does not auto-register it into the executable test runner.
+- Fix: added `fpshortcuthelpers_tests` to `flatpaint_tests.lpr` and re-ran full CI.
+- Reuse note: in this codebase, treat `flatpaint_tests.lpr` registration as part of test completion criteria; no unit is “landed” until runner inclusion is verified.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (`ssMeta` visibility can differ across compile contexts; prefer stable shortcut bitmask encoding in shared helper units)
+- Problem: shortcut helper compilation failed (`Identifier not found "ssMeta"`), while `mainform` used the same shortcut semantics successfully.
+- Core error: a shared helper unit depended on `ssMeta` enum availability that is not guaranteed in every compilation context.
+- Investigation: replayed CI compile logs, isolated failure to `FPShortcutHelpers`, and compared with successful `mainform` compile path.
+- Root cause: `ssMeta` symbol exposure depends on LCL compile context; standalone/shared units can see a narrower symbol set than form-heavy units.
+- Fix: encoded shortcut values in helper/tests using stable bitmask representation (`scMeta` + explicit shift/alt flags) instead of direct `ssMeta` set expressions.
+- Reuse note: for reusable shortcut helpers, avoid compile-context-sensitive enum symbols; prefer the canonical `TShortCut` bitmask contract so helper units stay context-agnostic.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-07 (tool palette row growth can silently hide the final tools when panel height is fixed)
 - Problem: user reported that `Text` tool could not be found in the tools panel even though the tool is implemented.
 - Core error: tool metadata/display order included `tkText`, but default tools palette height was too short for the current two-column row count, so the final row was clipped.
@@ -2321,3 +2366,50 @@ Based on all findings, the strategy is revised from the previous entry's generic
 5. **BGRABitmap remains a fallback option** — If a future cross-platform target arises (Linux/Windows), BGRABitmap with its adapter-bridge pattern becomes relevant. The high-level Canvas2D API is excellent. On Windows, TBGRAPixel would be BGRA — compatible with TRGBA32. Store this as a contingency plan.
 
 6. **FlatPaint's existing ObjC bridge pattern is the universal escape hatch** — For any Apple framework not in FPC's headers (Metal, vImage, Core ML, etc.), writing a `.m` or `.c` bridge file + Pascal `external` declarations takes minimal effort. The `compile_native_modules()` build system function already handles this. No architectural changes needed.
+
+## 2026-03-07 (selection lifecycle behavior alignment + P1 closure hardening)
+
+- Investigation: reviewed Photoshop and GIMP selection behavior references before finalizing the change. Photoshop explicitly documents deselect via click-outside path in selection workflows, while GIMP documentation keeps selection as an explicit mask state until replaced/cleared. References used: `https://helpx.adobe.com/photoshop/using/selecting-deselecting-areas.html`, `https://docs.gimp.org/2.10/en/gimp-tools-selection.html`, and `https://docs.gimp.org/2.10/en/gimp-tool-rect-select.html`.
+- Fix: refined the earlier blanket switch rule to a tool-family matrix: keep auto-deselect on blank click (selection tools), preserve selection when switching to selection-aware tools (`Fill`/`Gradient`/`Recolor`), auto-clear when switching to free-draw/shape/text tools, and preserve when switching within selection tools.
+- Fix: updated route-level regression coverage to match the matrix (`SwitchingFromSelectionToFillKeepsSelection`, `SwitchingFromSelectionToGradientKeepsSelection`, `ToolbarSwitchFromSelectionToFillKeepsSelection`, `SwitchingFromSelectionToBrushAutoDeselectsSelection`, `SwitchingWithinSelectionFamilyKeepsSelection`).
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:303 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Lesson: headless tests must not instantiate real LCL widget controls just to trigger event handlers; use lightweight sender objects and test helpers that avoid widgetset-bound control creation.
+
+## 2026-03-07 (viewport edge jitter near bounds)
+
+- Investigation: reproduced and traced edge jitter to competing scroll corrections across multiple routes. `UpdateCanvasSize` could force scrollbar positions while zoom/pan handlers were also setting target offsets, creating repeated corrective writes near bounds.
+- Architecture reference (GPL-safe): reviewed GIMP display-shell handling in `reference/gimp-src/app/display/gimpdisplayshell-scroll.c` and `reference/gimp-src/app/display/gimpdisplayshell-scale.c`; adopted only the design pattern (single offset authority + clamp/update), with original FlatPaint code and identifiers.
+- Fix: introduced shared viewport range helpers (`MaxViewportScrollPosition`, `ClampViewportScrollPosition`) and routed all canvas-scroll writes (`UpdateCanvasSize`, `ApplyZoomScaleAtViewportPoint`, `ZoomToSelectionClick`, pan drag path) through clamp-first + write-on-change semantics.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:305 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Lesson: never rely on widgetset-internal scrollbar clamping as the primary bound controller. Compute legal ranges in app logic and only write when state actually changes to avoid visual oscillation.
+
+## 2026-03-07 (viewport edge jitter phase-2 hardening)
+
+- Follow-up trigger: user still observed 3-5 rebound steps after the first clamp pass, especially when continuing to push wheel/zoom toward an already reached edge.
+- Root cause refinement: even with absolute-position clamping, repeated boundary-direction input still entered recomputation paths; this is different from GIMP's delta-first unoverscroll gate.
+- GIMP architecture reference (design only): adopted the `scroll_unoverscrollify` intent from display-shell scroll handling, i.e., clip attempted delta against remaining legal room before applying offset.
+- Fix details:
+  1. Added `ClampViewportScrollDelta(...)` and routed wheel scrolling through it.
+  2. Added `WheelScrollPixels(...)` mapping for stable per-notch deltas.
+  3. Added `ClampZoomScale(...)` + `ZoomScaleEffectivelyEqual(...)` so zoom input at min/max exits early with no anchor/scroll recompute.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:309 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Lesson: boundary stability needs both position-clamp and delta-gate. Position clamp alone can still jitter under repeated saturated input.
+
+## 2026-03-07 (viewport edge jitter phase-3 hardening: Cocoa elasticity)
+
+- Follow-up risk: even with app-side clamp and delta gating, Cocoa `NSScrollView` rubber-band behavior can still produce visible rebound when momentum input continues at bounds.
+- Fix: added a native bridge (`src/native/fp_scrollview.m`, `src/app/fpscrollviewbridge.pas`) and applied it once after handle allocation in `AppIdle` to force `NSScrollElasticityNone` on both axes for the canvas host.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:309 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Lesson: on macOS/LCL, edge-stability issues can have two layers (app math + widgetset behavior). For viewport boundaries, both must be controlled.
+
+## 2026-03-07 (regression repeated: layer icons reintroduced transparent-key magenta)
+
+- Problem: layer-row lock/eye icon refresh regressed into the old magenta-transparent-key issue; `eye` showed magenta artifacts and `lock` did not render correctly in the list row.
+- Core error (repeat): reused masked `TBitmap` glyphs as generic overlay/list icons instead of loading rendered PNG assets as alpha graphics.
+- Additional error: treated raw `qlmanage` output as ready runtime assets again; raw thumbnails are not directly usable without normalization.
+- Fix:
+  1. Switched layer-row icon cache from `TBitmap` to `TPicture` and load path to `TryLoadButtonIconPicture(...)`, then draw `APicture.Graphic` with `StretchDraw`.
+  2. Added `lock / lock-open / eye-off` icon mappings in `fpiconhelpers` and command aliases (`Lock`, `Unlock`, `VisOff`).
+  3. Added `@2x` asset support for these layer-state icons and regenerated them with the existing normalize pipeline (`scripts/extract_lucide_icons.py --normalize`) instead of raw thumbnail usage.
+- Verification: `bash ./scripts/build.sh` passed; runtime screenshot confirmed lock/eye row icons render without magenta bleed.
+- Lesson (must remember): for UI icon surfaces, never route through transparent-key bitmap caches unless the target control path is explicitly mask-compatible. Default to PNG/alpha (`TPicture`) loading first.

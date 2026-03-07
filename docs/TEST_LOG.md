@@ -4,6 +4,24 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-07 (Retina point-size compliance fix for options-bar icon path)
+- Full CI verification after changing options-bar tool-icon `TImage` to fixed logical size with scaled rendering (`Stretch=True`, `Proportional=True`) so `@2x` icon assets are not clipped inside a 20pt box: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `311` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-07 (Icon/Retina multi-scale asset-chain closure verification)
+- Full CI verification after unifying rendered-icon `@2x` fallback-safe loading, adding mapped-tool assets (`pointer`/`grid-2x2`) to the extraction/render pipeline, and expanding icon regression checks: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `311` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed and bundle now contains `1x` + `@2x` rendered icon assets.
+
+## 2026-03-07 (P0 closure verification pass)
+- Full CI verification after completing the three P0 tracks (shortcut parity high-use audit closure, recolor R2 rollout, A4 offset runtime semantic activation), adding `fpshortcuthelpers_tests`, and wiring the new test unit into `flatpaint_tests.lpr`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `295` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-07 (doc-alignment and prioritization verification pass)
 - Full CI verification during doc-sync updates (`PRD`, `FEATURE_MATRIX`, `IMPLEMENTATION_PLAN`) and new `FEATURE_PRIORITY_ORDER` baseline creation: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `284` tests, `0` errors, `0` failures.
@@ -866,3 +884,13 @@
 - Build verification (2026-03-07, post-policy split): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
 - Selection-overlay dashed-border rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:283 E:0 F:0` after adding `SelectionOverlayUsesDashedBoundaryPattern`.
 - Build verification (2026-03-07, dashed-border pass): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Selection lifecycle + P1-closure rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:302 E:0 F:0` after adding toolbar-route selection auto-deselect regressions and selection-family retention coverage.
+- Build verification (2026-03-07, post-P1 closure sync): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Selection lifecycle classification rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:303 E:0 F:0` after switching to tool-family keep/clear behavior tests (`Fill/Gradient keep`, `Brush clears`, selection-family switch keeps).
+- Build verification (2026-03-07, classified-selection pass): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Viewport edge-jitter clamp rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:305 E:0 F:0` after adding viewport scroll-range clamp helpers and routing them through zoom/pan/zoom-to-selection/update-canvas paths.
+- Build verification (2026-03-07, edge-jitter fix): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Viewport edge-jitter phase-2 rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:309 E:0 F:0` after adding GIMP-style overscroll-delta gating (`ClampViewportScrollDelta` route) and zoom-limit no-op guards.
+- Build verification (2026-03-07, edge-jitter phase-2): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+- Viewport edge-jitter phase-3 rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:309 E:0 F:0` after adding native `NSScrollView` elasticity-disable bridge wiring for the canvas host.
+- Build verification (2026-03-07, edge-jitter phase-3): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.

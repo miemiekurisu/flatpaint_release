@@ -8,7 +8,10 @@
 
 ## Fallback references used for this pass
 - Adobe Photoshop quick-selection baseline: `https://helpx.adobe.com/photoshop/using/making-quick-selections.html`
+- Adobe Photoshop selecting/deselecting baseline: `https://helpx.adobe.com/photoshop/using/selecting-deselecting-areas.html`
 - GIMP Fuzzy Select: `https://docs.gimp.org/2.10/en/gimp-tool-fuzzy-select.html`
+- GIMP selection tool baseline: `https://docs.gimp.org/2.10/en/gimp-tools-selection.html`
+- GIMP rectangle selection interaction baseline: `https://docs.gimp.org/2.10/en/gimp-tool-rect-select.html`
 - GIMP Bucket Fill: `https://docs.gimp.org/2.10/en/gimp-tool-bucket-fill.html`
 - GIMP Paintbrush: `https://docs.gimp.org/2.10/en/gimp-tool-paintbrush.html`
 - GIMP Pencil: `https://docs.gimp.org/2.10/en/gimp-tool-pencil.html`
@@ -62,7 +65,7 @@
 | Brush | Size, opacity (**live**), hardness (**live**) | Size, opacity, shape, hardness | All three primary options now visible |
 | Eraser | Size, opacity (**live**), hardness (**live**), **Shape ComboBox live** | Size, shape (`Round` / `Square`), hardness | Opacity, hardness, and round/square tip shape are now visible and routed; square mode uses a real square raster path plus matching hover preview |
 | Color Picker | Primary/secondary via mouse button + **Sample Source TComboBox (Current Layer / All Layers) live** | Target (`Primary` / `Secondary`), sample source (`Layer` / `Image`) | Sample source now wired; left=primary/right=secondary remains |
-| Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style combo live; the `Line` tool now does a staged endpoint-first interaction, then locks a first handle on the next click, then previews and commits a second handle on the following click, and keeps the last endpoint open so more Bézier segments can be chained on the canvas until `Enter` or right-click finishes the path; dash styles and deeper post-commit node editing still remain deferred |
+| Line / Shapes | Width + **Shape style TComboBox (Outline / Fill / Outline+Fill) live** + **Line style TComboBox (Solid / Dashed) live** | Width, line style, fill (`Outline` / `Fill` / `Fill+Outline`), shape-kind chooser | Shape style and line-style controls are both live; the `Line` tool supports staged endpoint/Bezier interaction and dashed commit rendering, and shape outlines share the same dashed route. Deeper post-commit node editing remains deferred parity polish. |
 | Clone Stamp | Brush size + opacity + right-click / Option-click sample + **Aligned TCheckBox live** | Aligned toggle, sample-on-Option-click | Core sampling now respects brush radius and opacity; aligned sampling stays locked across strokes, and Option-click sampling now mirrors common editor behavior |
 | Recolor | Brush size + opacity + **dedicated tolerance (separate from wand)** live + **Preserve Value TCheckBox live** | Tolerance, source hue preservation toggle | Visible tolerance is routed through the shared tolerance spin while `Recolor` is active, backed by a dedicated `FRecolorTolerance` field that does not share state with Magic Wand; `Preserve Value` now keeps original brightness while shifting hue/saturation |
 | Text | Inline canvas text entry on left-click + font family/size/bold/italic style dialog on right-click / `Option`-click | Full inline text entry with alignment | Text now starts with a real inline editor anchored to the clicked canvas position; `Return` commits, `Escape` cancels, and the existing dialog remains as the style editor rather than the only entry path |

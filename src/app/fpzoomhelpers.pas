@@ -11,6 +11,7 @@ function ZoomCaptionForScale(AScale: Double): string;
 function NearestZoomPresetIndex(AScale: Double): Integer;
 function NextZoomInScale(ACurrentScale: Double): Double;
 function NextZoomOutScale(ACurrentScale: Double): Double;
+function QuickSizeToggleTargetsFit(ACurrentScale: Double): Boolean;
 
 implementation
 
@@ -86,6 +87,11 @@ begin
     if ZoomPresetValues[PresetIndex] < (ACurrentScale - ZoomMatchEpsilon) then
       Exit(ZoomPresetValues[PresetIndex]);
   Result := ZoomPresetValues[Low(ZoomPresetValues)];
+end;
+
+function QuickSizeToggleTargetsFit(ACurrentScale: Double): Boolean;
+begin
+  Result := Abs(ACurrentScale - 1.0) <= 0.01;
 end;
 
 end.

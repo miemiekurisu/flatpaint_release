@@ -359,16 +359,18 @@ begin
   if AMode = scReplace then
     Clear;
 
-  CenterX := (LeftX + RightX) / 2.0;
-  CenterY := (TopY + BottomY) / 2.0;
+  { Sample against pixel centers so ellipse edges are symmetric and less jagged,
+    especially on small radii compared with rectangle selection outlines. }
+  CenterX := (LeftX + RightX + 1) / 2.0;
+  CenterY := (TopY + BottomY + 1) / 2.0;
   RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
   RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
 
   for Y := TopY to BottomY do
     for X := LeftX to RightX do
     begin
-      NX := (X - CenterX) / RadiusX;
-      NY := (Y - CenterY) / RadiusY;
+      NX := ((X + 0.5) - CenterX) / RadiusX;
+      NY := ((Y + 0.5) - CenterY) / RadiusY;
       if (NX * NX) + (NY * NY) <= 1.0 then
         case AMode of
           scReplace, scAdd: Selected[X, Y] := True;

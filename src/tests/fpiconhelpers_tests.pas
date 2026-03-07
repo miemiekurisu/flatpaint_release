@@ -17,7 +17,9 @@ type
     procedure TopToolbarCaptionAliasesStayMapped;
     procedure RepresentativeLucideSourceAssetsExist;
     procedure RepresentativeRenderedAssetsExist;
+    procedure RepresentativeRetinaAssetsExist;
     procedure ToolIconsCanLoadRenderedAssets;
+    procedure ToolIconsPreferRetinaRenderedAssets;
   end;
 
 implementation
@@ -124,7 +126,7 @@ end;
 
 procedure TFPIconHelpersTests.RepresentativeLucideSourceAssetsExist;
 const
-  RepresentativeAssets: array[0..7] of string = (
+  RepresentativeAssets: array[0..9] of string = (
     'file-plus-2',
     'circle-help',
     'pencil',
@@ -132,7 +134,9 @@ const
     'wrench',
     'wand',
     'paint-bucket',
-    'type'
+    'type',
+    'pointer',
+    'grid-2x2'
   );
 var
   ProjectDir: string;
@@ -153,7 +157,7 @@ end;
 
 procedure TFPIconHelpersTests.RepresentativeRenderedAssetsExist;
 const
-  RepresentativeAssets: array[0..7] of string = (
+  RepresentativeAssets: array[0..9] of string = (
     'file-plus-2',
     'copy',
     'undo',
@@ -161,7 +165,9 @@ const
     'wrench',
     'pencil',
     'paintbrush',
-    'wand'
+    'wand',
+    'pointer',
+    'grid-2x2'
   );
 var
   ProjectDir: string;
@@ -189,6 +195,37 @@ begin
   end;
 end;
 
+procedure TFPIconHelpersTests.RepresentativeRetinaAssetsExist;
+const
+  RepresentativeAssets: array[0..9] of string = (
+    'file-plus-2',
+    'copy',
+    'undo',
+    'circle-help',
+    'wrench',
+    'pencil',
+    'paintbrush',
+    'wand',
+    'pointer',
+    'grid-2x2'
+  );
+var
+  ProjectDir: string;
+  Index: Integer;
+begin
+  ProjectDir := FindProjectDir;
+  AssertTrue('project dir with assets/icons should be discoverable', ProjectDir <> '');
+
+  for Index := Low(RepresentativeAssets) to High(RepresentativeAssets) do
+    AssertTrue(
+      'retina rendered PNG asset should exist for ' + RepresentativeAssets[Index],
+      FileExists(
+        IncludeTrailingPathDelimiter(ProjectDir) + 'assets' + PathDelim + 'icons' +
+        PathDelim + 'rendered' + PathDelim + RepresentativeAssets[Index] + '.svg@2x.png'
+      )
+    );
+end;
+
 procedure TFPIconHelpersTests.ToolIconsCanLoadRenderedAssets;
 begin
   AssertTrue(
@@ -202,6 +239,35 @@ begin
   AssertTrue(
     'tools utility icon should load its rendered asset successfully',
     ButtonIconCanLoadRenderedAsset('Tools', bicUtility)
+  );
+  AssertTrue(
+    'move pixels tool icon should load its rendered asset successfully',
+    ButtonIconCanLoadRenderedAsset(PaintToolGlyph(tkMovePixels), bicTool)
+  );
+  AssertTrue(
+    'mosaic tool icon should load its rendered asset successfully',
+    ButtonIconCanLoadRenderedAsset(PaintToolGlyph(tkMosaic), bicTool)
+  );
+end;
+
+procedure TFPIconHelpersTests.ToolIconsPreferRetinaRenderedAssets;
+var
+  Width: Integer;
+  Height: Integer;
+begin
+  AssertTrue(
+    'pencil tool icon should resolve to a rendered raster asset',
+    ButtonIconRenderedAssetPixelSize(PaintToolGlyph(tkPencil), bicTool, Width, Height)
+  );
+  AssertEquals(
+    'retina rendered icon width should be preferred when @2x is available',
+    40,
+    Width
+  );
+  AssertEquals(
+    'retina rendered icon height should be preferred when @2x is available',
+    40,
+    Height
   );
 end;
 

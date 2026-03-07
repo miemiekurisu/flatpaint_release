@@ -55,14 +55,19 @@ These map the Windows/Photoshop `Shift/Alt` model into the macOS modifier set (O
 | Exit | `Command+Q` | Quit application |
 | Cut | `Command+X` | Selection-aware when a selection exists |
 | Copy | `Command+C` | Selection-aware when a selection exists |
+| Copy Selection | `Command+Option+C` | Explicit selected-area copy route |
 | Copy Merged | `Command+Shift+C` | Explicit composite copy |
 | Paste | `Command+V` | Pastes as a new layer |
+| Paste into New Layer | `Command+Shift+V` | Dedicated paste route with explicit target semantics |
+| Paste into New Image | `Command+Option+V` | Dedicated new-image paste route |
 | Undo | `Command+Z` | Standard macOS |
 | Redo | `Command+Shift+Z` | Standard macOS |
 | Select All | `Command+A` | Selects entire canvas |
 | Deselect | `Command+D` | Replaces earlier incorrect delete-key mapping |
 | Invert Selection | `Command+Option+I` | Inverts the current selection mask |
+| Fill Selection | `Shift+Delete` | Selection-fill route |
 | Erase Selection Pixels | `Delete` | Destructive pixel clear, not deselect |
+| Crop To Selection | `Command+Option+X` | Selection-driven crop route |
 | Swap Colors | `X` | Bare key swap of primary/secondary colors |
 | Reset Colors | `D` | Bare key reset to black/white defaults |
 | Zoom In | `Command+=` | Standard macOS zoom-in key path (`+` on shifted `=`) |
@@ -85,11 +90,12 @@ These map the Windows/Photoshop `Shift/Alt` model into the macOS modifier set (O
 | Previous Tab | `Ctrl+Shift+Tab` | Cycle to previous open document tab (wraps) |
 
 ## Known deviations still open
-- Shortcut coverage is not yet exhaustive relative to paint.net.
+- High-use shortcut parity audit is complete and test-backed; long-tail parity is still not exhaustive relative to paint.net.
 - Exact parity for some layer, image, and effect commands still needs a dedicated audit against the paint.net command surface.
 - Native document save state is only tracked for current `.fpd` document workflows; richer document-state management can expand later.
 - View coverage is still partial beyond zoom/actual-size; richer view and tool-toggle shortcuts still need expansion.
-- Palette visibility shortcuts now exist for the four core utility windows, but broader parity still needs a fuller command-surface audit.
+- Palette visibility shortcuts exist for the four core utility windows; broader parity remains an explicit follow-up item.
+- Selection lifecycle delta for current UX: tool-switch behavior is classified by tool family. `Fill` / `Gradient` / `Recolor` preserve active selection after leaving selection tools, free-draw/shape/text families auto-clear selection, and switching within selection tools keeps selection.
 
 ## Pre-integration checklist for shortcuts
 1. Compare every visible menu shortcut in code against this document.

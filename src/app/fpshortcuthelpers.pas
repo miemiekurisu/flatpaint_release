@@ -5,7 +5,7 @@ unit FPShortcutHelpers;
 interface
 
 uses
-  Menus, Controls, LCLType;
+  Menus, LCLType;
 
 type
   TCoreShortcutCommand = (
@@ -21,19 +21,23 @@ function CoreShortcutLabel(ACommand: TCoreShortcutCommand): string;
 
 implementation
 
+const
+  ShortcutShiftFlag = $2000;
+  ShortcutAltFlag = $8000;
+
 function CoreShortcut(ACommand: TCoreShortcutCommand): Word;
 begin
   case ACommand of
     cscCopySelection:
-      Result := ShortCut(VK_C, [ssMeta, ssAlt]);
+      Result := VK_C or scMeta or ShortcutAltFlag;
     cscPasteIntoNewLayer:
-      Result := ShortCut(VK_V, [ssMeta, ssShift]);
+      Result := VK_V or scMeta or ShortcutShiftFlag;
     cscPasteIntoNewImage:
-      Result := ShortCut(VK_V, [ssMeta, ssAlt]);
+      Result := VK_V or scMeta or ShortcutAltFlag;
     cscFillSelection:
-      Result := ShortCut(VK_DELETE, [ssShift]);
+      Result := VK_DELETE or ShortcutShiftFlag;
     cscCropToSelection:
-      Result := ShortCut(VK_X, [ssMeta, ssAlt]);
+      Result := VK_X or scMeta or ShortcutAltFlag;
   else
     Result := 0;
   end;
