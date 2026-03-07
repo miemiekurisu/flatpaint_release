@@ -14,7 +14,13 @@ type
     procedure WriteBE32(AStream: TStream; AValue: Cardinal);
     procedure PatchBE32(AStream: TStream; APosition: Int64; AValue: Cardinal);
     procedure WriteXCFString(AStream: TStream; const AValue: string);
-    procedure CreateMinimalXCFFIle(const AFileName: string);
+    procedure CreateMinimalXCFFIle(
+      const AFileName: string;
+      AImageWidth: Cardinal = 2;
+      AImageHeight: Cardinal = 1;
+      ALayerOffsetX: Integer = 0;
+      ALayerOffsetY: Integer = 0
+    );
   published
     procedure DefaultSaveOptionsExposeRealFormatControls;
     procedure LoaderCanSniffPngWithUnknownExtension;
@@ -22,6 +28,7 @@ type
     procedure TargaRoundTripPreservesPixels;
     procedure LoaderCanReadMinimalXCFProject;
     procedure XcfCanLoadLayeredDocument;
+    procedure XcfImportPreservesLayerOffsetMetadata;
     procedure UnifiedOpenFilterIncludesProjectsAndPSD;
     procedure KraLoadRaisesDescriptiveError;
     procedure KraZipLoadExtractsMergedImage;
@@ -82,7 +89,13 @@ begin
   AStream.WriteBuffer(Terminator, SizeOf(Terminator));
 end;
 
-procedure TFPIOTests.CreateMinimalXCFFIle(const AFileName: string);
+procedure TFPIOTests.CreateMinimalXCFFIle(
+  const AFileName: string;
+  AImageWidth: Cardinal;
+  AImageHeight: Cardinal;
+  ALayerOffsetX: Integer;
+  ALayerOffsetY: Integer
+);
 var
   Stream: TFileStream;
   LayerOffsetPos: Int64;
@@ -106,8 +119,8 @@ begin
     Stream.WriteBuffer(MagicText[1], Length(MagicText));
     Stream.WriteBuffer(VersionText[1], Length(VersionText));
     Stream.WriteBuffer(ZeroByte, SizeOf(ZeroByte));
-    WriteBE32(Stream, 2);
-    WriteBE32(Stream, 1);
+    WriteBE32(Stream, AImageWidth);
+    WriteBE32(Stream, AImageHeight);
     WriteBE32(Stream, 0);
 
     WriteBE32(Stream, 17);
@@ -127,8 +140,8 @@ begin
     WriteXCFString(Stream, 'Layer 1');
     WriteBE32(Stream, 15);
     WriteBE32(Stream, 8);
-    WriteBE32(Stream, 0);
-    WriteBE32(Stream, 0);
+    WriteBE32(Stream, Cardinal(ALayerOffsetX));
+    WriteBE32(Stream, Cardinal(ALayerOffsetY));
     WriteBE32(Stream, 6);
     WriteBE32(Stream, 4);
     WriteBE32(Stream, 255);
@@ -299,6 +312,32 @@ begin
     AssertTrue(
       'xcf second pixel alpha should survive',
       RGBAEqual(LoadedDocument.Layers[0].Surface[1, 0], RGBA(0, 255, 0, 128))
+    );
+  finally
+    LoadedDocument.Free;
+    DeleteFile(XCFPath);
+  end;
+end;
+
+procedure TFPIOTests.XcfImportPreservesLayerOffsetMetadata;
+var
+  XCFPath: string;
+  LoadedDocument: TImageDocument;
+begin
+  XCFPath := UniqueTempFile('.xcf');
+  CreateMinimalXCFFIle(XCFPath, 2, 1, -1, 0);
+  LoadedDocument := nil;
+  try
+    AssertTrue(
+      'xcf should load as a layered document',
+      TryLoadDocumentFromFile(XCFPath, LoadedDocument)
+    );
+    AssertNotNull('document should not be nil', LoadedDocument);
+    AssertEquals('imported layer offset x is preserved', -1, LoadedDocument.Layers[0].OffsetX);
+    AssertEquals('imported layer offset y is preserved', 0, LoadedDocument.Layers[0].OffsetY);
+    AssertTrue(
+      'stamped payload reflects negative x offset clipping behavior',
+      RGBAEqual(LoadedDocument.Layers[0].Surface[0, 0], RGBA(0, 255, 0, 128))
     );
   finally
     LoadedDocument.Free;

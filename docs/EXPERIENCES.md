@@ -16,6 +16,33 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-07 (deferred startup UI pass should favor layout-only updates over full option-state refresh)
+- Problem: user reported shape tools (`Line`/`Rectangle`/`Ellipse`) could not commit pixels after a UI polish pass.
+- Core error: no failing unit/integration baseline existed for shape-tool mouse-up commit routes, and startup deferred pass performed a full options-state refresh.
+- Investigation: audited shape commit path (`PaintBoxMouseUp` → `BeginActiveLayerMutation` → `CommitShapeTool`) and added direct pipeline tests for shape tool drag/commit behavior.
+- Root cause: regression signal was under-observed (no dedicated shape commit integration tests); deferred startup pass was also doing broader control-state writes than needed for first-frame alignment.
+- Fix: added `LineDragCommitsPixels` / `RectangleDragCommitsPixels` / `EllipseDragCommitsPixels` tests and switched startup deferred pass to `LayoutOptionRow` (layout-only) instead of `UpdateToolOptionControl`.
+- Reuse note: for startup stabilization, prefer idempotent geometry/layout calls; avoid full control-state sync unless a specific state contract requires it. Add route-level tests before trusting visual-only changes around tool systems.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (toolbar icon blur and first-open overlap can share one root class: pre-final-size layout assumptions)
+- Problem: top toolbar icons looked soft/uneven and the options row could overlap text/controls on first app launch until switching tools.
+- Core error: UI layout used pre-final sizing assumptions in two places (forced icon downscale for large command buttons and early options-row layout before stable control metrics).
+- Investigation: traced `PositionButtonIconOverlay` and `UpdateToolOptionControl/LayoutOptionRow` call timing in `BuildToolbar` vs deferred `AppIdle` pass.
+- Root cause: large command overlays were explicitly resized to `14x14` from `20x20` assets, and first options-row placement happened before initial handle/layout stabilization.
+- Fix: removed forced `14x14` downscale for large command overlays (bounded at 20px), centralized large-command caption prefix spacing, and added a deferred `UpdateToolOptionControl` call in `AppIdle` layout pass.
+- Reuse note: for LCL/Cocoa startup layout, avoid shrinking already-canonical icon assets in code paths that aim for sharpness, and always schedule one post-handle relayout for metric-dependent rows.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (minimal XCF fixtures can look valid at zero offset while encoding malformed property structure)
+- Problem: the new XCF offset-import regression failed even though the importer and existing zero-offset XCF tests were green.
+- Core error: `TryLoadDocumentFromFile` returned false only for non-zero offset fixtures.
+- Investigation: reproduced with a standalone loader call and compared passing (offset=0) versus failing (offset<>0) fixture bytes around image/layer property segments.
+- Root cause: test fixture generator accidentally wrote `ALayerOffsetX/Y` into the image-property terminator slot; offset `0,0` masked the bug by coincidentally encoding a valid `PROP_END`.
+- Fix: restored fixed image-property terminator (`0,0`) and moved offset bytes to layer `PROP_OFFSETS` payload, then kept the non-zero offset regression test as a guard.
+- Reuse note: for binary-fixture tests, always validate section boundaries/terminators independently before varying payload fields; zero-value payloads can hide structural corruption.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-07 (A5 completion requires shared transaction service, not parallel route-specific history logic)
 - Problem: even after move-pixels switched to region+selection snapshots, A5 remained incomplete because move-pixels and stroke history still used different transaction orchestration patterns.
 - Core error: history transaction behavior was duplicated between controller-local logic and core transaction service.
@@ -2004,3 +2031,266 @@ Risk: FPC's NEON support is less mature than Clang/GCC. Recommend vImage over ha
 4. **FPC NEON support**: FPC 3.2+ supports aarch64 inline assembly (`asm ... end`). The `neon` unit provides some intrinsics but documentation is sparse. Prefer vImage (C ABI calls) over hand-written NEON for maintainability.
 
 5. **Metal entry point**: the lowest-risk Metal integration is replacing the viewport display layer (`StretchDraw` → `MTKView` texture blit). This doesn't touch any pixel processing logic but gives immediate scaling quality and FPS improvements. The Lazarus Cocoa widgetset's `TCocoaCustomControl` can host an `MTKView` as a subview.
+
+## 2026-03-07 (FPC/Lazarus native AA solutions and Apple Silicon graphics integration — deep-dive research)
+
+This entry continues the anti-aliasing research above, focusing specifically on: (1) FPC/Lazarus ecosystem libraries that provide anti-aliased rendering, (2) FPC's existing bindings to Apple graphics frameworks, and (3) practical integration paths for FlatPaint. **No code was changed.**
+
+### Current FlatPaint rendering architecture summary
+
+FlatPaint uses a **completely hand-rolled, pure-Pascal software rasterizer** (`TRasterSurface` in `fpsurface.pas`) with a flat `array of TRGBA32` (BGRA byte order). All drawing primitives — Bresenham lines, circular brush stamps, parametric ellipses, scanline polygon fill, flood fill, gradients, blur, effects — are per-pixel Pascal loops. The only external dependency is the LCL package for UI controls. Display pipeline: `TRasterSurface` → `CopySurfaceToBitmap` (via `TRawImage` BGRA32) → `TCanvas.StretchDraw`. Cocoa integration is limited to 4 small ObjC bridge files (pinch-zoom, appearance, alpha, list background) compiled by clang and linked via `{$LINK}`.
+
+---
+
+### Part A: FPC/Lazarus native AA libraries evaluated
+
+#### 1. BGRABitmap
+
+The most widely-used FPC/Lazarus 2D graphics library. Pure Pascal software rasterizer, powers **LazPaint** (a Paint.NET-like editor). Actively maintained by Johann "circular" Elsass.
+
+| Primitive | AA Method | API |
+|---|---|---|
+| Lines | Wu-style AA | `DrawLineAntialias` |
+| Ellipses | Sub-pixel coverage sampling | `EllipseAntialias`, `FillEllipseAntialias` |
+| Rectangles | Sub-pixel edge AA | `RectangleAntialias`, `FillRectAntialias` |
+| Rounded Rects | Full AA | `RoundRectAntialias` |
+| Polygons | Scanline coverage AA | `DrawPolygonAntialias`, `FillPolyAntialias` |
+| Bezier curves | AA polyline approximation | `DrawPolyLineAntialias` with spline conversion |
+| Text | FreeType (optional) or LCL | `TextOut` + `TBGRATextEffect` |
+| Arbitrary paths | SVG-compatible 2D path | `FillPath`, `DrawPath` via `TBGRAPath` |
+| Canvas2D API | Full HTML Canvas 2D equivalent | `TBGRACanvas2D` with `antialiasing: boolean` |
+
+**Pixel format compatibility — CRITICAL FINDING:**
+
+On macOS/Cocoa (`BGRABITMAP_RGBAPIXEL` is defined when `DARWIN` and not `LCLQt`):
+| | FlatPaint `TRGBA32` | BGRABitmap `TBGRAPixel` (macOS) |
+|---|---|---|
+| Byte 0 | **B** | **R** |
+| Byte 1 | G | G |
+| Byte 2 | **R** | **B** |
+| Byte 3 | A | A |
+
+**Red and blue channels are swapped on macOS.** Zero-cost pointer casting between the two formats is NOT possible. Every pixel transfer requires an R↔B swap.
+
+On Windows/Qt, TBGRAPixel is BGRA — byte-identical to TRGBA32. But this is irrelevant since FlatPaint targets macOS Cocoa.
+
+**Zero-copy integration — NOT POSSIBLE:** BGRABitmap manages its own internal pixel buffer. No constructor accepts an external data pointer. Combined with the format mismatch, sharing FlatPaint's `FPixels` array with BGRABitmap is doubly impossible.
+
+**Conversion cost:** For a 1920×1080 image (~2M pixels, 8MB), a full-frame R↔B swap copy takes ~2-6ms round-trip. Acceptable for one-shot shape tool operations; prohibitive for real-time per-stroke brush rendering at 60fps.
+
+**Integration assessment:**
+- Full migration (replace TRasterSurface → TBGRABitmap): impractical — TRGBA32 is used across 90+ source files, 274 tests would need re-validation, massive scope
+- Adapter bridge (convert on-demand for AA operations only): viable for shape/text tools, but adds conversion overhead and a heavy dependency (~150+ units, LGPL-3.0-with-linking-exception)
+- **Verdict: NOT recommended as primary path** due to pixel format incompatibility on macOS and the heavy dependency footprint
+
+#### 2. AggPas (Anti-Grain Geometry for Pascal)
+
+Pascal translation of the C++ AGG library. Bundled with FPC in `packages/aggpas/`. Provides excellent 256-level scanline AA.
+
+| Factor | AggPas | BGRABitmap |
+|---|---|---|
+| AA quality | Excellent (256-level coverage) | Excellent (comparable) |
+| API level | Very low-level, pipeline-based | High-level, ready-to-use |
+| Code per shape | 30-50 lines per primitive | 1 line per primitive |
+| Maintenance | Minimal / stale (original author deceased 2013) | Active |
+| Documentation | Sparse Pascal docs | Extensive wiki |
+
+**Verdict: NOT recommended.** High integration effort, low API level, no advantage over simpler approaches.
+
+#### 3. FPC built-in graphics (TFPCustomCanvas, TLazCanvas, FPImage)
+
+`TFPCustomCanvas` and `TLazCanvas` use integer-grid Bresenham/midpoint algorithms. **Zero anti-aliasing capability.** Same quality level as FlatPaint's current `TRasterSurface`.
+
+**Verdict: NOT useful for AA.**
+
+#### 4. Cairo bindings for FPC
+
+FPC provides `cairo` unit (header translation of libcairo C API). Offers excellent AA for all primitives.
+
+**Critical drawback:** Cairo is **NOT included with macOS**. Must bundle `libcairo.2.dylib` plus dependencies (`libpixman`, `libpng`, `libfreetype`, `libfontconfig`) — adds 5-10MB and distribution complexity. FlatPaint currently ships as a self-contained `.app` bundle with zero external dependencies.
+
+**Verdict: NOT recommended** due to external library deployment burden.
+
+---
+
+### Part B: FPC bindings to Apple graphics frameworks (verified on this machine)
+
+All verifications performed against FPC 3.2.2 installed at `/usr/local/lib/fpc/3.2.2/units/aarch64-darwin/`.
+
+#### 1. Core Graphics / Quartz 2D — FULLY AVAILABLE ✓
+
+**All CG units are present and contain complete API declarations** (verified via ppudump):
+
+| Unit | Functions | Key APIs |
+|---|---|---|
+| `CGBitmapContext` | 12 | `CGBitmapContextCreate`, `CGBitmapContextGetData`, `CGBitmapContextCreateImage` |
+| `CGContext` | 115 | `CGContextSetShouldAntialias`, `CGContextStrokePath`, `CGContextFillPath`, `CGContextAddEllipseInRect`, `CGContextAddArc`, `CGContextSetBlendMode`, `CGContextDrawImage` |
+| `CGColorSpace` | 22 | `CGColorSpaceCreateDeviceRGB` |
+| `CGPath` | 35 | `CGPathCreateMutable`, `CGPathAddEllipseInRect`, `CGPathAddLineToPoint`, `CGPathAddCurveToPoint` |
+| `CGGeometry` | types | `CGPoint`, `CGSize`, `CGRect`, `CGRectMake()` |
+| `CGImage` | constants | `kCGImageAlphaPremultipliedFirst`, `kCGBitmapByteOrder32Little` |
+| `MacOSAll` | umbrella | Re-exports ALL CG units in a single 9.2MB mega-unit |
+
+**Core Graphics is the most promising AA path because:**
+1. **No external dependencies** — built into macOS; no dylibs to bundle
+2. **Hardware-accelerated on Apple Silicon** — Core Graphics uses NEON/AMX internally
+3. **Complete FPC headers already exist** — no bridge files needed for basic usage
+4. **Native AA for all vector primitives** — lines, ellipses, rectangles, paths, curves, text
+5. **Can operate directly on pixel buffers** via `CGBitmapContextCreate`
+
+**Key integration pattern — offscreen CGBitmapContext over TRasterSurface pixel data:**
+```pascal
+uses MacOSAll;  // or: CGBitmapContext, CGContext, CGColorSpace, CGGeometry, CGImage
+var
+  CG: CGContextRef;
+  ColorSpace: CGColorSpaceRef;
+begin
+  ColorSpace := CGColorSpaceCreateDeviceRGB;
+  CG := CGBitmapContextCreate(
+    @Surface.Pixels[0],              // point directly at TRasterSurface data
+    Surface.Width, Surface.Height,
+    8,                                // bits per component
+    Surface.Width * 4,                // bytes per row
+    ColorSpace,
+    kCGImageAlphaPremultipliedFirst or kCGBitmapByteOrder32Little  // BGRA premultiplied
+  );
+  CGContextSetShouldAntialias(CG, True);
+  // Draw anti-aliased shapes directly into the pixel buffer...
+  CGContextRelease(CG);
+  CGColorSpaceRelease(ColorSpace);
+end;
+```
+
+**Pixel format consideration:** `kCGImageAlphaPremultipliedFirst or kCGBitmapByteOrder32Little` maps to BGRA byte order with premultiplied alpha. FlatPaint's `TRGBA32` is BGRA **straight alpha**. At the boundary:
+- Before CG draw: premultiply alpha in the affected region
+- After CG draw: un-premultiply alpha in the affected region
+- OR: evaluate switching FlatPaint internally to premultiplied alpha (better for compositing performance anyway — both GIMP and Krita use premultiplied internally)
+
+**Lazarus Cocoa widgetset already uses Core Graphics internally.** The `TCocoaContext` class (in `cocoagdiobjects.pas`) wraps a `CGContextRef` and exposes it via the public `CGContext` function. During a `Paint` event, you can access the underlying CGContext for direct drawing:
+```pascal
+uses CocoaGDIObjects;
+var CocoaCtx: TCocoaContext;
+begin
+  CocoaCtx := TCocoaContext(Canvas.Handle);
+  cg := CocoaCtx.CGContext;
+  // Use CG calls for overlay rendering with native AA
+end;
+```
+
+#### 2. Accelerate / vDSP — PARTIALLY AVAILABLE
+
+| Unit | Status | Content |
+|---|---|---|
+| `vDSP` | ✓ Available | ~300+ functions: FFT, convolution, vector math, matrix ops |
+| `vBLAS` | ✓ Available | BLAS linear algebra ops |
+| `vImage` | ✗ **NOT available** | No FPC headers exist — must create custom declarations |
+
+**vDSP useful functions for image processing:**
+- `vDSP_f3x3`, `vDSP_f5x5` — 3×3 and 5×5 convolution on float arrays (sharpen, emboss, edge detect)
+- `vDSP_imgfir` — arbitrary kernel image convolution
+- `vDSP_vadd`, `vDSP_vmul`, `vDSP_vsmul` — vector arithmetic (brightness/contrast adjustments)
+- `vDSP_vfix8`, `vDSP_vflt8` — byte↔float conversion for pipeline float promotion
+
+**vImage integration requires custom Pascal headers.** The API is plain C (no ObjC), so a simple external declaration is sufficient:
+```pascal
+{$linkframework Accelerate}
+type
+  vImage_Buffer = record
+    data: Pointer;
+    height: PtrUInt;
+    width: PtrUInt;
+    rowBytes: PtrUInt;
+  end;
+  vImage_Error = PtrInt;
+const
+  kvImageNoFlags = 0;
+function vImageBoxConvolve_ARGB8888(
+  const src: vImage_Buffer; const dest: vImage_Buffer;
+  tempBuffer: Pointer; srcOffsetToROI_X, srcOffsetToROI_Y: PtrUInt;
+  kernel_height, kernel_width: UInt32;
+  backgroundColor: Pointer; flags: UInt32
+): vImage_Error; cdecl; external;
+```
+
+Alternative: write a thin C bridge file (`fp_accelerate.c`) and link it the same way as the existing ObjC bridges — avoids any header translation effort.
+
+#### 3. Metal — NO FPC BINDINGS EXIST
+
+FPC 3.2.2's `cocoaint` package contains ~100 framework bindings but **Metal and MetalKit are completely absent**. No `MTLDevice`, `MTLCommandQueue`, `MTLTexture` or any other Metal type.
+
+**The only viable path is the Objective-C bridge file approach** (same pattern as FlatPaint's existing 4 bridge modules):
+```
+src/native/fp_metal_compute.m   — Metal device/queue/pipeline setup + compute dispatch
+src/native/fp_metal_compute.metal — Metal compute shaders (compiled to .metallib)
+src/app/fpmetalbridge.pas       — Pascal bridge unit with cdecl external declarations
+```
+
+Build system extension (already proven in `scripts/common.sh` `compile_native_modules()`):
+```bash
+clang -c -O2 -arch arm64 -mmacosx-version-min=11.0 -fobjc-arc \
+  -framework Metal -framework MetalKit \
+  -o "$output_dir/fp_metal_compute.o" "$src_dir/fp_metal_compute.m"
+xcrun -sdk macosx metal -O2 -o "$output_dir/shaders.metallib" "$src_dir/fp_metal_compute.metal"
+```
+
+**Verdict:** Feasible using the proven ObjC bridge pattern, but high complexity. Reserve for Phase 3+ (viewport display or bulk pixel operations).
+
+#### 4. OpenGL — AVAILABLE but deprecated
+
+FPC 3.2.2 ships complete OpenGL units (`gl`, `glext`, `glu`, `macgl`, `CGGLContext`, `GLKit`). However:
+- OpenGL deprecated on macOS since 10.14 (2018), runs through Metal translation layer internally
+- No compute shaders (macOS supports only OpenGL 4.1, compute requires 4.3)
+- Core Graphics or Metal are strictly better options for every use case
+
+**Verdict: NOT recommended.**
+
+#### 5. FPC Objective-C bridge capabilities — MATURE and PROVEN
+
+FPC provides multiple ObjC integration mechanisms:
+- `{$modeswitch objectivec1/objectivec2}` — declare ObjC classes, protocols, categories directly in Pascal
+- `CocoaAll` unit — full AppKit + Foundation bindings (used by Lazarus Cocoa widgetset)
+- `MacOSAll` unit — all C-level framework bindings (Core Graphics, Core Foundation, Core Text)
+- External `.m` file compilation and linking — FlatPaint already uses this for 4 bridge modules
+
+For any Apple framework not covered by existing FPC headers (Metal, vImage), the ObjC bridge (.m files) or C bridge (.c files) pattern is proven and requires no new tooling.
+
+---
+
+### Part C: Revised recommended integration strategy
+
+Based on all findings, the strategy is revised from the previous entry's generic roadmap to a concrete, FPC-specific plan:
+
+| Priority | Approach | What | Why | FPC Integration |
+|---|---|---|---|---|
+| **P0** | **Core Graphics offscreen** | AA for shape/line/selection tools | FPC `MacOSAll` headers already have complete CG API; no deps needed; hardware-accelerated on Apple Silicon | `uses MacOSAll` + `CGBitmapContextCreate` over `TRasterSurface.Pixels` |
+| **P0** | **SDF edge AA (pure Pascal)** | AA for filled shapes and brush-drawn selections | No dependency, works in core layer, cross-platform | Pure math in `fpsurface.pas` |
+| **P1** | **vImage via C bridge** | Box blur, Gaussian blur, image resize | 10-30× speedup on Apple Silicon; plain C API | `fp_accelerate.c` bridge or manual Pascal `external` declarations |
+| **P1** | **Core Graphics display overlay** | Selection marching ants, tool preview outlines with AA | Access `TCocoaContext.CGContext` during `Paint` | `uses CocoaGDIObjects, MacOSAll` in mainform |
+| **P2** | **vDSP convolution** | Sharpen, emboss, custom kernel effects | FPC `vDSP` unit already available; hardware-optimized | `uses vDSP` directly |
+| **P2** | **Premultiplied alpha refactor** | Better compositing precision; eliminates CG boundary conversion | Both GIMP and Krita use premultiplied internally; aligns with CG, vImage, Metal formats | Modify `fpcolor.pas` BlendNormal + `fpdocument.pas` Composite |
+| **P3** | **Metal viewport display** | Replace StretchDraw with MTKView texture blit | Instant viewport quality/FPS improvement | ObjC bridge file (`fp_metal_display.m`) |
+| **P4** | **Metal compute shaders** | Layer compositing, large-image filters | Highest performance ceiling for full-image ops | ObjC bridge + .metallib |
+
+**Key strategic decisions:**
+
+1. **Core Graphics over BGRABitmap** — CG is already available in FPC headers, hardware-accelerated on Apple Silicon, BGRA-compatible (with premultiplied conversion), and adds zero external dependencies. BGRABitmap's pixel format is incompatible on macOS (RGBA vs BGRA R↔B swap), cannot share pixel buffers, and adds ~150 units of dependency.
+
+2. **SDF AA (pure Pascal) for core primitives** — For filled shapes (ellipse fill, rectangle fill, polygon fill), the SDF approach from the previous research entry (GIMP's `clamp(0.5 + d, 0, 1)` formula) remains the best path. It runs in the core layer with no platform dependency and no pixel format conversion. Use Core Graphics only for stroked outlines and complex paths where the Path API adds significant value.
+
+3. **vImage via C bridge over vDSP for image filtering** — vDSP functions operate on float arrays requiring format conversion; vImage functions operate directly on 8-bit ARGB/BGRA buffers. Priority: write minimal `fp_accelerate.c` with `vImageBoxConvolve_ARGB8888` first.
+
+4. **Premultiplied alpha migration as enabling work** — Both Core Graphics and vImage expect premultiplied alpha. Rather than converting at every boundary, migrating `TRasterSurface` to premultiplied storage simplifies all subsequent integrations. This is a medium-effort refactor but enables P0 and P1 without boundary conversion overhead.
+
+### Key technical notes for implementation
+
+1. **CGBitmapContext pixel format for BGRA straight alpha does NOT exist.** Core Graphics requires either premultiplied alpha or "skip alpha" (opaque). The supported BGRA-compatible format is `kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little`. This means either (a) premultiply/unpremultiply at the boundary per operation, or (b) migrate to premultiplied alpha globally. Option (b) is strongly recommended.
+
+2. **`uses MacOSAll` in FPC/Lazarus projects** — The `MacOSAll` unit is a 9.2MB umbrella that re-exports all Apple framework headers. It adds compile-time overhead but zero runtime cost. Individual units (`CGContext`, `CGBitmapContext` etc.) can be imported separately to reduce compile-time impact.
+
+3. **Display-layer CG access** — During `TCanvasView.Paint`, the Canvas.Handle is a `TCocoaContext` (from `CocoaGDIObjects` unit). Its `CGContext` method returns the active `CGContextRef`. This can be used immediately for AA overlay rendering (selection outlines, shape previews, grid lines) without touching the document pixel data.
+
+4. **vImage pixel layout** — Check availability of `_BGRA8888` variants vs `_ARGB8888` in the macOS SDK. If only ARGB variants are available, a channel permute (`vImagePermuteChannels_ARGB8888`) may be needed, or the premultiplied alpha refactor (P2) should also change byte order from BGRA to ARGB.
+
+5. **BGRABitmap remains a fallback option** — If a future cross-platform target arises (Linux/Windows), BGRABitmap with its adapter-bridge pattern becomes relevant. The high-level Canvas2D API is excellent. On Windows, TBGRAPixel would be BGRA — compatible with TRGBA32. Store this as a contingency plan.
+
+6. **FlatPaint's existing ObjC bridge pattern is the universal escape hatch** — For any Apple framework not in FPC's headers (Metal, vImage, Core ML, etc.), writing a `.m` or `.c` bridge file + Pascal `external` declarations takes minimal effort. The `compile_native_modules()` build system function already handles this. No architectural changes needed.

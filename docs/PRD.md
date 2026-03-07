@@ -104,8 +104,8 @@ These are explicit product decisions and not treated as parity regressions.
 
 ## Current implementation snapshot (as of 2026-03-07)
 - App build: passes via `bash ./scripts/build.sh`.
-- Regression run: `274` tests executed, `0` failures (regression-clean).
-- Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, layer-offset metadata persistence, and completed Phase-5 history optimization with unified core region-transaction routing (stroke + move-pixels, including selection-aware undo/redo snapshots), plus guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths. Remaining UAT risk is concentrated in parity/polish depth and A4 offset-semantics migration.
+- Regression run: `279` tests executed, `0` failures (regression-clean).
+- Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, completed Phase-4.5 layer-offset metadata foundation (clone/history/native/XCF metadata routes), and completed Phase-5 history optimization with unified core region-transaction routing (stroke + move-pixels, including selection-aware undo/redo snapshots), plus guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths. Remaining UAT risk is concentrated in parity/polish depth and A4 offset-semantics migration.
 
 ## UAT gate
 FlatPaint is UAT-ready only when all are true:

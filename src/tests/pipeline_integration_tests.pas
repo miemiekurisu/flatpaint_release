@@ -27,6 +27,9 @@ type
     procedure BrushStrokeModifiesSurfacePixels;
     procedure EraserStrokeModifiesSurfacePixels;
     procedure DrawingWithMoveChangesPixels;
+    procedure LineDragCommitsPixels;
+    procedure RectangleDragCommitsPixels;
+    procedure EllipseDragCommitsPixels;
 
     { History pipeline }
     procedure MouseUpAfterPencilStrokePushesHistory;
@@ -148,6 +151,66 @@ begin
     After := F.TestDocument.ActiveLayer.Surface[50, 50];
     AssertFalse('drawing a short stroke should change origin pixel',
       RGBAEqual(Before, After));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.LineDragCommitsPixels;
+var
+  F: TMainForm;
+  BeforeMid: TRGBA32;
+  AfterMid: TRGBA32;
+begin
+  F := CreateTestForm(tkLine);
+  try
+    BeforeMid := F.TestDocument.ActiveLayer.Surface[25, 20];
+    F.SimulateMouseDown(mbLeft, [ssLeft], 20, 20);
+    F.SimulateMouseMove([ssLeft], 30, 20);
+    F.SimulateMouseUp(mbLeft, [], 30, 20);
+    AfterMid := F.TestDocument.ActiveLayer.Surface[25, 20];
+    AssertFalse('line drag should commit visible pixels on mouse-up',
+      RGBAEqual(BeforeMid, AfterMid));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.RectangleDragCommitsPixels;
+var
+  F: TMainForm;
+  BeforeEdge: TRGBA32;
+  AfterEdge: TRGBA32;
+begin
+  F := CreateTestForm(tkRectangle);
+  try
+    BeforeEdge := F.TestDocument.ActiveLayer.Surface[25, 20];
+    F.SimulateMouseDown(mbLeft, [ssLeft], 20, 20);
+    F.SimulateMouseMove([ssLeft], 30, 30);
+    F.SimulateMouseUp(mbLeft, [], 30, 30);
+    AfterEdge := F.TestDocument.ActiveLayer.Surface[25, 20];
+    AssertFalse('rectangle drag should commit outline pixels on mouse-up',
+      RGBAEqual(BeforeEdge, AfterEdge));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.EllipseDragCommitsPixels;
+var
+  F: TMainForm;
+  BeforeTop: TRGBA32;
+  AfterTop: TRGBA32;
+begin
+  F := CreateTestForm(tkEllipseShape);
+  try
+    BeforeTop := F.TestDocument.ActiveLayer.Surface[25, 20];
+    F.SimulateMouseDown(mbLeft, [ssLeft], 20, 20);
+    F.SimulateMouseMove([ssLeft], 30, 30);
+    F.SimulateMouseUp(mbLeft, [], 30, 30);
+    AfterTop := F.TestDocument.ActiveLayer.Surface[25, 20];
+    AssertFalse('ellipse drag should commit outline pixels on mouse-up',
+      RGBAEqual(BeforeTop, AfterTop));
   finally
     F.Destroy;
   end;

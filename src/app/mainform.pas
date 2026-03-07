@@ -685,6 +685,9 @@ uses
 
 const
   DisplayDPI = 96.0;
+  ToolbarLargeCommandCaptionPrefix = '         '; { reserve icon lane for 20px overlay }
+  ToolbarLargeCommandIconLeft = 6;
+  ToolbarLargeCommandMaxIconSize = 20;
 
 var
   GMainForm: TMainForm = nil;
@@ -2573,19 +2576,22 @@ begin
   ZoomGroupPanel.Anchors := [akTop, akRight];
 
   Btn := CreateButton('New',   4, 2, 72, @NewDocumentClick,   FileGroupPanel, 0, bicCommand);
-  if Pos('      ', Btn.Caption) = 1 then Btn.Caption := '      ' + TR('New', #$E6#$96#$B0#$E5#$BB#$BA)
+  if Pos(ToolbarLargeCommandCaptionPrefix, Btn.Caption) = 1 then
+    Btn.Caption := ToolbarLargeCommandCaptionPrefix + TR('New', #$E6#$96#$B0#$E5#$BB#$BA)
   else Btn.Caption := TR('New', #$E6#$96#$B0#$E5#$BB#$BA);
   Btn.Hint := TR('New document (Cmd+N)', #$E6#$96#$B0#$E5#$BB#$BA#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+N)');
   Btn.Height := ToolbarButtonHeight;
 
   Btn := CreateButton('Open',  80, 2, 78, @OpenDocumentClick, FileGroupPanel, 0, bicCommand);
-  if Pos('      ', Btn.Caption) = 1 then Btn.Caption := '      ' + TR('Open', #$E6#$89#$93#$E5#$BC#$80)
+  if Pos(ToolbarLargeCommandCaptionPrefix, Btn.Caption) = 1 then
+    Btn.Caption := ToolbarLargeCommandCaptionPrefix + TR('Open', #$E6#$89#$93#$E5#$BC#$80)
   else Btn.Caption := TR('Open', #$E6#$89#$93#$E5#$BC#$80);
   Btn.Hint := TR('Open document (Cmd+O)', #$E6#$89#$93#$E5#$BC#$80#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+O)');
   Btn.Height := ToolbarButtonHeight;
 
   Btn := CreateButton('Save', 162, 2, 72, @SaveDocumentClick, FileGroupPanel, 0, bicCommand);
-  if Pos('      ', Btn.Caption) = 1 then Btn.Caption := '      ' + TR('Save', #$E4#$BF#$9D#$E5#$AD#$98)
+  if Pos(ToolbarLargeCommandCaptionPrefix, Btn.Caption) = 1 then
+    Btn.Caption := ToolbarLargeCommandCaptionPrefix + TR('Save', #$E4#$BF#$9D#$E5#$AD#$98)
   else Btn.Caption := TR('Save', #$E4#$BF#$9D#$E5#$AD#$98);
   Btn.Hint := TR('Save document (Cmd+S)', #$E4#$BF#$9D#$E5#$AD#$98#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+S)');
   Btn.Height := ToolbarButtonHeight;
@@ -3644,12 +3650,19 @@ begin
     Exit;
   if (AContext = bicCommand) and (AButton.Width >= 54) then
   begin
-    AIconImage.Stretch := True;
-    AIconImage.Proportional := True;
-    AIconImage.Center := True;
-    AIconImage.Width := 14;
-    AIconImage.Height := 14;
-    IconLeft := AButton.Left + 8;
+    AIconImage.Stretch := False;
+    AIconImage.Proportional := False;
+    AIconImage.Center := False;
+    if (AIconImage.Width > ToolbarLargeCommandMaxIconSize) or
+       (AIconImage.Height > ToolbarLargeCommandMaxIconSize) then
+    begin
+      AIconImage.Stretch := True;
+      AIconImage.Proportional := True;
+      AIconImage.Center := True;
+      AIconImage.Width := ToolbarLargeCommandMaxIconSize;
+      AIconImage.Height := ToolbarLargeCommandMaxIconSize;
+    end;
+    IconLeft := AButton.Left + ToolbarLargeCommandIconLeft;
   end
   else
   begin
@@ -3763,7 +3776,7 @@ begin
   begin
     if (AIconContext = bicCommand) and (AWidth >= 54) then
     begin
-      Result.Caption := '      ' + ACaption;
+      Result.Caption := ToolbarLargeCommandCaptionPrefix + ACaption;
       Result.Font.Size := 9;
       Result.Font.Style := [fsBold];
       Result.Margin := 0;
@@ -8791,6 +8804,7 @@ begin
   begin
     RestorePaletteLayout;
     LayoutStatusBarControls(nil);
+    LayoutOptionRow;
     FDeferredLayoutPass := False;
   end;
 

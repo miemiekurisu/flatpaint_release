@@ -4,6 +4,64 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-07 (shape-tool commit regression hardening after UI-side report)
+
+### Changes
+
+1. **Added explicit end-to-end shape commit regressions in pipeline tests** — new integration cases now assert that `Line`, `Rectangle`, and `Ellipse` drags commit pixels on mouse-up:
+   - `LineDragCommitsPixels`
+   - `RectangleDragCommitsPixels`
+   - `EllipseDragCommitsPixels`
+
+2. **Reduced deferred startup pass from state-refresh to layout-only for options row** — startup `AppIdle` deferred pass now runs `LayoutOptionRow` instead of `UpdateToolOptionControl`, avoiding unnecessary runtime control-state writes while still keeping first-frame option-row alignment behavior.
+
+3. **Tool commit path confidence increased for user-reported regression class** — shape tools now have direct pipeline-level regression coverage rather than relying on indirect/semantic checks.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `279` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-07 (toolbar icon clarity + first-launch options-row overlap stabilization)
+
+### Changes
+
+1. **Top quick-action large command icons no longer downsample to a 14px overlay path** — `mainform` now keeps large command overlays at full asset size (bounded by 20px), avoiding extra runtime shrink blur and bringing visual weight closer to adjacent compact command/utility icons.
+
+2. **Large-command caption padding is now centralized as one constant prefix contract** — replaced scattered hard-coded six-space prefixes with `ToolbarLargeCommandCaptionPrefix`, applied both at button construction and `TR(...)` caption rewrite sites (`New/Open/Save`), reducing icon/text collision drift risk.
+
+3. **First-launch options-row overlap route now gets a deferred post-handle relayout** — `AppIdle` deferred-layout pass now triggers `UpdateToolOptionControl`, so option label/control positions are recomputed after initial widget metrics settle instead of waiting for the first manual tool switch.
+
+4. **Code/doc alignment updated for this UI pass** — `FEATURE_MATRIX` `Iconography` notes now reflect this pass (large-command icon clarity + startup relayout stabilization) while keeping remaining retina/multi-scale icon debt explicit.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `276` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
+## 2026-03-07 (Phase 4.5 exit-criteria closure + XCF offset fixture correction)
+
+### Changes
+
+1. **Layer-offset metadata coverage now closes the remaining Phase-4.5 exit checks** — added `LayerOffsetMetadataPreservedAcrossFullSnapshotUndoRedo` in `fpdocument_tests` to assert full-snapshot undo/redo preserves per-layer offset metadata.
+
+2. **XCF offset import regression fixture was corrected to use a valid property layout** — the minimal XCF generator now keeps image-property terminator fixed (`PROP_END`) and writes offset values only in layer `PROP_OFFSETS`, avoiding malformed files that only appeared when offsets were non-zero.
+
+3. **Compatibility import offset preservation is now explicitly regression-covered** — added `XcfImportPreservesLayerOffsetMetadata` in `fpio_tests` to assert imported layer offset metadata is preserved and compatibility stamped payload matches clipped offset behavior.
+
+4. **Architecture docs synchronized to code/test truth** — Phase 4.5 status is now marked complete in renovation planning docs; PRD/feature-matrix evidence snapshot updated to current regression count.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `276` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed in the same change window.
+
 ## 2026-03-07 (Phase 5 completion: move-pixels/stroke history now unified under core region transaction service)
 
 ### Changes

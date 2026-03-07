@@ -21,6 +21,7 @@ type
     procedure LayerBlendModeDefaultsToNormal;
     procedure LayerBlendModePreservedInClone;
     procedure LayerOffsetMetadataPreservedInClone;
+    procedure LayerOffsetMetadataPreservedAcrossFullSnapshotUndoRedo;
     procedure MoveLayerReordersAndTracksActiveLayer;
     procedure BackgroundLayerStaysLockedAtBottom;
     procedure BackgroundLayerEraseAndMovePreserveOpacity;
@@ -317,6 +318,31 @@ begin
     finally
       Layer2.Free;
     end;
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.LayerOffsetMetadataPreservedAcrossFullSnapshotUndoRedo;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(8, 8);
+  try
+    Document.ActiveLayer.OffsetX := 3;
+    Document.ActiveLayer.OffsetY := -2;
+
+    Document.PushHistory('Layer Offset');
+    Document.ActiveLayer.OffsetX := 11;
+    Document.ActiveLayer.OffsetY := 5;
+
+    Document.Undo;
+    AssertEquals('undo restores layer offset x', 3, Document.ActiveLayer.OffsetX);
+    AssertEquals('undo restores layer offset y', -2, Document.ActiveLayer.OffsetY);
+
+    Document.Redo;
+    AssertEquals('redo restores changed layer offset x', 11, Document.ActiveLayer.OffsetX);
+    AssertEquals('redo restores changed layer offset y', 5, Document.ActiveLayer.OffsetY);
   finally
     Document.Free;
   end;

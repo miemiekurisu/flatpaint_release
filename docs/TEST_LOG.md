@@ -4,6 +4,31 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-07 (shape commit regression suite expansion + deferred-layout safety adjustment)
+- Full CI verification after adding shape commit pipeline regressions (`LineDragCommitsPixels`, `RectangleDragCommitsPixels`, `EllipseDragCommitsPixels`) and switching deferred startup options-row pass to layout-only (`LayoutOptionRow`): `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `279` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-07 (toolbar icon overlay sizing + startup options-row relayout pass)
+- Full CI verification after `mainform` toolbar icon overlay sizing/padding adjustments and deferred options-row relayout hook: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `276` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+- Execution note:
+  - a parallel test/build attempt was discarded because both scripts run clean/compile steps and can race on `lib/aarch64-darwin`; final evidence above is from serial re-run.
+
+## 2026-03-07 (Phase 4.5 closure verification + XCF offset fixture correction)
+- Full CI verification after adding full-snapshot layer-offset regression, correcting minimal-XCF offset fixture layout, and adding XCF offset-import metadata coverage: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `276` tests, `0` errors, `0` failures.
+- New/expanded suite highlights:
+  - `TFPDocumentTests`:
+    - `LayerOffsetMetadataPreservedAcrossFullSnapshotUndoRedo`
+  - `TFPIOTests`:
+    - `XcfImportPreservesLayerOffsetMetadata`
+- GUI build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-07 (Phase 5 completion: region transaction service now covers stroke + move-pixels history paths)
 - Full CI verification after extending `TRegionHistoryTransaction` with optional selection-state snapshots, routing `TMovePixelsController` history through the core transaction service, and expanding controller/core transaction regressions: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `274` tests, `0` errors, `0` failures.
