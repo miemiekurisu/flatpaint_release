@@ -33,7 +33,7 @@
 | Export/options | Format-specific export controls | Partial | Medium | Practical controls exist; deeper parity for all format-specific workflows remains open. |
 | Compatibility IO | PSD/PDN/XCF/KRA fallback-oriented support | Partial | Medium | Usable baseline with explicit fallbacks; full layered fidelity intentionally out of scope. |
 | Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | Shortcut mapping/hint/cycle regressions in `TFPUIHelpersTests` are closed; suite is green. |
-| Iconography | Cohesive icon surface across command/tool/utility controls | Partial | Medium | Runtime icon pipeline exists; large command buttons now keep full-size asset overlays and startup options-row relayout is stabilized, but Retina-grade multi-scale icon packaging and final polish remain open. |
+| Iconography | Cohesive icon surface across command/tool/utility controls | Partial | Medium | Runtime icon pipeline exists; overlay re-alignment now runs on deferred startup + resize and loader supports optional `@2x` assets, but full multi-scale packaged asset set and final Retina polish are still incomplete. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
 | Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 279 tests, 0 failures. |
 

@@ -105,7 +105,7 @@ def sync_source_svgs() -> None:
         shutil.copyfile(source_path, dest_path)
 
 
-def normalize_png(raw_png: Path, dest_png: Path) -> None:
+def normalize_png(raw_png: Path, dest_png: Path, target_size: int = TARGET_ICON_SIZE) -> None:
     Image = require_pillow()
 
     source = Image.open(raw_png).convert("RGBA")
@@ -117,7 +117,10 @@ def normalize_png(raw_png: Path, dest_png: Path) -> None:
         raise RuntimeError(f"rendered icon contains no visible pixels: {raw_png}")
 
     cropped_alpha = alpha.crop(bbox)
-    inner_size = TARGET_ICON_SIZE - (TARGET_INSET * 2)
+    if target_size <= 0:
+        raise RuntimeError(f"target size must be positive: {target_size}")
+    target_inset = max(1, round(TARGET_INSET * (target_size / TARGET_ICON_SIZE)))
+    inner_size = max(1, target_size - (target_inset * 2))
     width, height = cropped_alpha.size
     scale = min(inner_size / width, inner_size / height)
     scaled_width = max(1, round(width * scale))
@@ -125,10 +128,10 @@ def normalize_png(raw_png: Path, dest_png: Path) -> None:
     resampling = getattr(Image, "Resampling", Image).LANCZOS
     scaled_alpha = cropped_alpha.resize((scaled_width, scaled_height), resampling)
 
-    glyph = Image.new("RGBA", (TARGET_ICON_SIZE, TARGET_ICON_SIZE), (0, 0, 0, 0))
+    glyph = Image.new("RGBA", (target_size, target_size), (0, 0, 0, 0))
     ink = Image.new("RGBA", (scaled_width, scaled_height), ICON_COLOR)
-    offset_x = (TARGET_ICON_SIZE - scaled_width) // 2
-    offset_y = (TARGET_ICON_SIZE - scaled_height) // 2
+    offset_x = (target_size - scaled_width) // 2
+    offset_y = (target_size - scaled_height) // 2
     glyph.paste(ink, (offset_x, offset_y), scaled_alpha)
     glyph.save(dest_png)
 
@@ -149,15 +152,22 @@ def main() -> int:
         return sync_only()
     if len(sys.argv) == 2 and sys.argv[1] == "--sync-only":
         return sync_only()
-    if len(sys.argv) == 4 and sys.argv[1] == "--normalize":
+    if len(sys.argv) in (4, 5) and sys.argv[1] == "--normalize":
+        target_size = TARGET_ICON_SIZE
+        if len(sys.argv) == 5:
+            try:
+                target_size = int(sys.argv[4])
+            except ValueError:
+                print(f"invalid normalize target size: {sys.argv[4]}", file=sys.stderr)
+                return 1
         try:
-            normalize_png(Path(sys.argv[2]), Path(sys.argv[3]))
+            normalize_png(Path(sys.argv[2]), Path(sys.argv[3]), target_size)
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             return 1
         return 0
     print(
-        "usage: extract_lucide_icons.py [--sync-only | --normalize SOURCE_PNG DEST_PNG]",
+        "usage: extract_lucide_icons.py [--sync-only | --normalize SOURCE_PNG DEST_PNG [TARGET_SIZE]]",
         file=sys.stderr,
     )
     return 1

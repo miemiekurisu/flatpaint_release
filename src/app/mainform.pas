@@ -150,6 +150,7 @@ type
     FShowPixelGrid: Boolean;
     FShowRulers: Boolean;
     FDeferredLayoutPass: Boolean;
+    FDeferredLayoutPassesRemaining: Integer;
     FLastScrollPosition: TPoint;
     FUpdatingZoomControl: Boolean;
     { Temporary-pan support }
@@ -348,6 +349,8 @@ type
       AButton: TSpeedButton;
       AContext: TButtonIconContext
     );
+    procedure RelayoutButtonIconOverlays;
+    procedure RelayoutTopChrome;
     function AttachButtonIconOverlay(
       AButton: TSpeedButton;
       const ACaption: string;
@@ -780,6 +783,7 @@ begin
   FShowPixelGrid := False;
   FShowRulers := True;
   FDeferredLayoutPass := True;
+  FDeferredLayoutPassesRemaining := 3;
   FLastScrollPosition := Point(0, 0);
   FActiveColorSlider := -1;
   FTabPressedIndex := -1;
@@ -911,6 +915,7 @@ begin
   FShowPixelGrid := False;
   FShowRulers := True;
   FDeferredLayoutPass := True;
+  FDeferredLayoutPassesRemaining := 3;
   FLastScrollPosition := Point(0, 0);
   FActiveColorSlider := -1;
   FTabPressedIndex := -1;
@@ -3645,32 +3650,50 @@ procedure TMainForm.PositionButtonIconOverlay(
 var
   IconLeft: Integer;
   IconTop: Integer;
-begin
-  if (AButton = nil) or (AIconImage = nil) then
-    Exit;
-  if (AContext = bicCommand) and (AButton.Width >= 54) then
+  TargetIconSize: Integer;
+  ScaledIconSize: Integer;
+  FitLimit: Integer;
+  IsLargeCommand: Boolean;
+  procedure ApplyTargetSize(ASize: Integer);
   begin
-    AIconImage.Stretch := False;
-    AIconImage.Proportional := False;
-    AIconImage.Center := False;
-    if (AIconImage.Width > ToolbarLargeCommandMaxIconSize) or
-       (AIconImage.Height > ToolbarLargeCommandMaxIconSize) then
+    ASize := Max(8, ASize);
+    if (AIconImage.Width <> ASize) or (AIconImage.Height <> ASize) then
     begin
       AIconImage.Stretch := True;
       AIconImage.Proportional := True;
       AIconImage.Center := True;
-      AIconImage.Width := ToolbarLargeCommandMaxIconSize;
-      AIconImage.Height := ToolbarLargeCommandMaxIconSize;
+      AIconImage.Width := ASize;
+      AIconImage.Height := ASize;
+    end
+    else
+    begin
+      AIconImage.Stretch := False;
+      AIconImage.Proportional := False;
+      AIconImage.Center := False;
     end;
+  end;
+begin
+  if (AButton = nil) or (AIconImage = nil) then
+    Exit;
+
+  FitLimit := Max(8, Min(AButton.Width, AButton.Height) - 8);
+  ScaledIconSize := Max(
+    ToolbarLargeCommandMaxIconSize,
+    AButton.Scale96ToScreen(ToolbarLargeCommandMaxIconSize)
+  );
+  IsLargeCommand := (AContext = bicCommand) and (AButton.Width >= 54);
+  if IsLargeCommand then
+    TargetIconSize := Min(ToolbarLargeCommandMaxIconSize, FitLimit)
+  else
+    TargetIconSize := Min(ScaledIconSize, FitLimit);
+  ApplyTargetSize(TargetIconSize);
+
+  if IsLargeCommand then
+  begin
     IconLeft := AButton.Left + ToolbarLargeCommandIconLeft;
   end
   else
-  begin
-    AIconImage.Stretch := False;
-    AIconImage.Proportional := False;
-    AIconImage.Center := False;
     IconLeft := AButton.Left + Max(0, (AButton.Width - AIconImage.Width) div 2);
-  end;
   IconTop := AButton.Top + Max(0, (AButton.Height - AIconImage.Height) div 2);
   AIconImage.SetBounds(IconLeft, IconTop, AIconImage.Width, AIconImage.Height);
 end;
@@ -3686,6 +3709,53 @@ begin
   if not Assigned(IconImage) then
     Exit;
   PositionButtonIconOverlay(AButton, IconImage, AContext);
+end;
+
+procedure TMainForm.RelayoutButtonIconOverlays;
+  function ContextForButton(AButton: TSpeedButton): TButtonIconContext;
+  var
+    ToolKind: TToolKind;
+    UtilityCommand: TUtilityCommandKind;
+  begin
+    for ToolKind := Low(TToolKind) to High(TToolKind) do
+      if FToolButtons[ToolKind] = AButton then
+        Exit(bicTool);
+    for UtilityCommand := Low(TUtilityCommandKind) to High(TUtilityCommandKind) do
+      if FUtilityButtons[UtilityCommand] = AButton then
+        Exit(bicUtility);
+    Result := bicCommand;
+  end;
+
+  procedure RelayoutInControl(AControl: TControl);
+  var
+    ChildIndex: Integer;
+    WinControl: TWinControl;
+  begin
+    if not Assigned(AControl) then
+      Exit;
+    if AControl is TSpeedButton then
+      RealignButtonIconOverlay(TSpeedButton(AControl), ContextForButton(TSpeedButton(AControl)));
+    if AControl is TWinControl then
+    begin
+      WinControl := TWinControl(AControl);
+      for ChildIndex := 0 to WinControl.ControlCount - 1 do
+        RelayoutInControl(WinControl.Controls[ChildIndex]);
+    end;
+  end;
+begin
+  RelayoutInControl(FTopPanel);
+  RelayoutInControl(FToolsPanel);
+  RelayoutInControl(FColorsPanel);
+  RelayoutInControl(FHistoryPanel);
+  RelayoutInControl(FRightPanel);
+end;
+
+procedure TMainForm.RelayoutTopChrome;
+begin
+  if not Assigned(FTopPanel) then
+    Exit;
+  LayoutOptionRow;
+  RelayoutButtonIconOverlays;
 end;
 
 function TMainForm.AttachButtonIconOverlay(
@@ -8804,8 +8874,9 @@ begin
   begin
     RestorePaletteLayout;
     LayoutStatusBarControls(nil);
-    LayoutOptionRow;
-    FDeferredLayoutPass := False;
+    RelayoutTopChrome;
+    Dec(FDeferredLayoutPassesRemaining);
+    FDeferredLayoutPass := FDeferredLayoutPassesRemaining > 0;
   end;
 
   { Install native pinch-to-zoom handler once handles are ready }
@@ -8950,11 +9021,6 @@ begin
   ResetLineCurveState;
   FTempToolActive := False;
   NewTool := TToolKind(TControl(Sender).Tag);
-  if (not IsSelectionTool(NewTool)) and FDocument.HasSelection then
-  begin
-    FDocument.PushHistory('Deselect');
-    FDocument.Deselect;
-  end;
   { Save current tool's options before switching }
   FToolSize[FCurrentTool] := FBrushSize;
   FToolOpacity[FCurrentTool] := FBrushOpacity;
@@ -8982,11 +9048,6 @@ begin
   if FToolCombo.ItemIndex >= 0 then
   begin
     NewTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
-    if (not IsSelectionTool(NewTool)) and FDocument.HasSelection then
-    begin
-      FDocument.PushHistory('Deselect');
-      FDocument.Deselect;
-    end;
     FCurrentTool := NewTool;
     { Restore new tool's remembered options }
     FBrushSize := FToolSize[FCurrentTool];
@@ -9471,11 +9532,6 @@ begin
       CommitInlineTextEdit(True);
       ResetLineCurveState;
       FTempToolActive := False;
-      if (not IsSelectionTool(NewTool)) and FDocument.HasSelection then
-      begin
-        FDocument.PushHistory('Deselect');
-        FDocument.Deselect;
-      end;
       { Save current tool's options before switching }
       FToolSize[FCurrentTool] := FBrushSize;
       FToolOpacity[FCurrentTool] := FBrushOpacity;
@@ -10253,6 +10309,8 @@ procedure TMainForm.FormResize(Sender: TObject);
   end;
 
 begin
+  RelayoutTopChrome;
+  LayoutStatusBarControls(nil);
   ClampPanel(FToolsPanel);
   ClampPanel(FColorsPanel);
   ClampPanel(FHistoryPanel);

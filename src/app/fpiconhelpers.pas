@@ -274,6 +274,22 @@ begin
   Result := GCachedRenderedIconDir;
 end;
 
+function PreferHiDpiAssetPath(const AAssetPath: string): string;
+var
+  Extension: string;
+  BasePath: string;
+  HiDpiPath: string;
+begin
+  Result := AAssetPath;
+  Extension := ExtractFileExt(AAssetPath);
+  if Extension = '' then
+    Exit;
+  BasePath := Copy(AAssetPath, 1, Length(AAssetPath) - Length(Extension));
+  HiDpiPath := BasePath + '@2x' + Extension;
+  if FileExists(HiDpiPath) then
+    Result := HiDpiPath;
+end;
+
 procedure PrepareGlyphBitmap(AGlyph: TBitmap; ABackgroundColor: TColor);
 const
   TransparentGlyphColor = TColor($00FF00FF);
@@ -312,6 +328,7 @@ begin
     Exit;
 
   AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
+  AssetPath := PreferHiDpiAssetPath(AssetPath);
   if not FileExists(AssetPath) then
     Exit;
 
@@ -853,6 +870,7 @@ begin
     Exit;
 
   AssetPath := IncludeTrailingPathDelimiter(AssetPath) + AssetName;
+  AssetPath := PreferHiDpiAssetPath(AssetPath);
   if not FileExists(AssetPath) then
     Exit;
 

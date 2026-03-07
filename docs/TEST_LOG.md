@@ -4,6 +4,12 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-07 (UI-only retina/readability stabilization pass)
+- Full CI verification after startup multi-pass relayout (`FDeferredLayoutPassesRemaining`), resize-time top/status relayout hookup, global overlay realignment helper, DPI-aware overlay sizing, and optional `@2x` icon lookup support: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `279` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-07 (shape commit regression suite expansion + deferred-layout safety adjustment)
 - Full CI verification after adding shape commit pipeline regressions (`LineDragCommitsPixels`, `RectangleDragCommitsPixels`, `EllipseDragCommitsPixels`) and switching deferred startup options-row pass to layout-only (`LayoutOptionRow`): `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `279` tests, `0` errors, `0` failures.
@@ -842,3 +848,5 @@
 - Bundle smoke rerun: `open dist/FlatPaint.app` launched the packaged app after the latest shell pass; a delayed `ps` check confirmed the process was live, and it was then terminated cleanly.
 - Geometry-and-units rerun: `swift test` passed again with 101 tests after adding command-level coverage for image resampling and unit conversion behavior.
 - Current breakdown: 92 unit tests in `FlatPaintCoreTests` and 9 integration tests in `FlatPaintIntegrationTests`.
+- Selection-scope regression rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:281 E:0 F:0`, including new pipeline regressions `SwitchingFromSelectionToFillKeepsSelectionAndConstrainsScope` and `SwitchingFromSelectionToGradientKeepsSelectionAndConstrainsScope`.
+- Build verification (2026-03-07): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.

@@ -16,6 +16,10 @@ for svg in assets/icons/lucide/*.svg; do
   python3 scripts/extract_lucide_icons.py --normalize \
     "$TMP_DIR/$base.png" \
     "$TMP_RENDERED/$base.png"
+  python3 scripts/extract_lucide_icons.py --normalize \
+    "$TMP_DIR/$base.png" \
+    "$TMP_RENDERED/$base@2x.png" \
+    40
 done
 
 mkdir -p assets/icons/rendered

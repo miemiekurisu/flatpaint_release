@@ -16,6 +16,24 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-07 (first-open toolbar/options overlap and icon vertical drift are relayout-contract problems, not tool-logic problems)
+- Problem: on first app launch the options row could overlap text/controls, and icon overlays across toolbars/palettes could appear vertically uneven until later interactions.
+- Core error: UI geometry depended on one-shot startup layout and creation-time control metrics, while Cocoa/LCL final control bounds can settle after initial handle/layout passes.
+- Investigation: traced startup path (`BuildToolbar` -> early `LayoutOptionRow`) and deferred path (`AppIdle`), then audited overlay placement call graph (`AttachButtonIconOverlay`/`PositionButtonIconOverlay`) and resize handling.
+- Root cause: startup relayout budget was single-pass and overlay alignment had no global post-resize replay path, so first-frame and later-resize metric changes could leave stale icon/control positions.
+- Fix: added bounded deferred relayout retries (`FDeferredLayoutPassesRemaining`), wired `FormResize` to replay top/status layout, added recursive `RelayoutButtonIconOverlays`, and constrained overlay sizing to control-fit + DPI-aware targets while preserving large-command caption-lane stability.
+- Reuse note: for Lazarus/Cocoa UI rows that mix labels, native controls, and image overlays, treat startup and resize relayout as explicit contracts; never rely solely on construction-time geometry for overlay placement.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-07 (retina icon pipeline upgrades should be fail-safe when local rasterizer deps are missing)
+- Problem: adding `@2x` icon generation to the refresh pipeline can look complete in code while local asset regeneration still fails.
+- Core error: `refresh_lucide_rendered.sh` depends on `extract_lucide_icons.py` normalization, which requires Python `Pillow`; missing dependency aborts batch generation.
+- Investigation: executed icon refresh after adding `@2x` output path and observed immediate script failure (`Pillow is required for icon rasterization`).
+- Root cause: asset generation dependency is external to FPC/Lazarus toolchain and not guaranteed in every dev environment.
+- Fix: kept runtime loader fallback-safe (prefers `@2x` when present, falls back to 1x), added size-parameterized normalize path in tooling, and documented that current workspace remains 1x until `Pillow` is installed.
+- Reuse note: for UI asset pipeline upgrades, always keep runtime fallback deterministic and record dependency gates explicitly in progress/docs; do not tie app correctness to optional asset-generation tools.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-07 (deferred startup UI pass should favor layout-only updates over full option-state refresh)
 - Problem: user reported shape tools (`Line`/`Rectangle`/`Ellipse`) could not commit pixels after a UI polish pass.
 - Core error: no failing unit/integration baseline existed for shape-tool mouse-up commit routes, and startup deferred pass performed a full options-state refresh.

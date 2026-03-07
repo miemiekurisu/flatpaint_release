@@ -17,7 +17,7 @@ unit pipeline_integration_tests;
 interface
 
 uses
-  Classes, Controls, Types, fpcunit, testregistry, FPColor, FPDocument, MainForm;
+  Classes, Controls, Types, fpcunit, testregistry, FPColor, FPDocument, FPSelection, MainForm;
 
 type
   TPipelineIntegrationTests = class(TTestCase)
@@ -35,6 +35,8 @@ type
     procedure MouseUpAfterPencilStrokePushesHistory;
     procedure MouseUpAfterBrushStrokePushesHistory;
     procedure FillToolPushesHistoryOnMouseDown;
+    procedure SwitchingFromSelectionToFillKeepsSelectionAndConstrainsScope;
+    procedure SwitchingFromSelectionToGradientKeepsSelectionAndConstrainsScope;
     procedure AddLayerPushesHistory;
     procedure MultipleStrokesIncrementHistory;
     procedure UndoRedoAfterLongPencilStrokeRestoresPixels;
@@ -266,6 +268,83 @@ begin
     AssertEquals('UndoDepth should increase by 1 after fill',
       DepthBefore + 1, F.TestDocument.UndoDepth);
     F.SimulateMouseUp(mbLeft, [], 20, 20);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.SwitchingFromSelectionToFillKeepsSelectionAndConstrainsScope;
+var
+  F: TMainForm;
+  Key: Word;
+  InsideBefore: TRGBA32;
+  OutsideBefore: TRGBA32;
+  InsideAfter: TRGBA32;
+  OutsideAfter: TRGBA32;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before tool switch', F.TestDocument.HasSelection);
+
+    InsideBefore := F.TestDocument.ActiveLayer.Surface[15, 15];
+    OutsideBefore := F.TestDocument.ActiveLayer.Surface[40, 40];
+
+    Key := Ord('G'); { tkSelectRect -> tkFill }
+    F.SimulateKeyDown(Key, []);
+    AssertTrue('G should switch to fill tool', F.CurrentToolForTest = tkFill);
+    AssertTrue('selection should persist after switching to fill', F.TestDocument.HasSelection);
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 15, 15);
+    F.SimulateMouseUp(mbLeft, [], 15, 15);
+
+    InsideAfter := F.TestDocument.ActiveLayer.Surface[15, 15];
+    OutsideAfter := F.TestDocument.ActiveLayer.Surface[40, 40];
+
+    AssertFalse('fill should change pixels inside selection',
+      RGBAEqual(InsideBefore, InsideAfter));
+    AssertTrue('fill should not affect pixels outside selection',
+      RGBAEqual(OutsideBefore, OutsideAfter));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.SwitchingFromSelectionToGradientKeepsSelectionAndConstrainsScope;
+var
+  F: TMainForm;
+  Key: Word;
+  InsideBefore: TRGBA32;
+  OutsideBefore: TRGBA32;
+  InsideAfter: TRGBA32;
+  OutsideAfter: TRGBA32;
+begin
+  F := CreateTestForm(tkSelectRect);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before gradient switch', F.TestDocument.HasSelection);
+
+    InsideBefore := F.TestDocument.ActiveLayer.Surface[15, 15];
+    OutsideBefore := F.TestDocument.ActiveLayer.Surface[30, 15];
+
+    Key := Ord('G'); { tkSelectRect -> tkFill }
+    F.SimulateKeyDown(Key, []);
+    Key := Ord('G'); { tkFill -> tkGradient }
+    F.SimulateKeyDown(Key, []);
+    AssertTrue('second G should switch to gradient tool', F.CurrentToolForTest = tkGradient);
+    AssertTrue('selection should persist after switching to gradient', F.TestDocument.HasSelection);
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 10);
+    F.SimulateMouseMove([ssLeft], 50, 10);
+    F.SimulateMouseUp(mbLeft, [], 50, 10);
+
+    InsideAfter := F.TestDocument.ActiveLayer.Surface[15, 15];
+    OutsideAfter := F.TestDocument.ActiveLayer.Surface[30, 15];
+
+    AssertFalse('gradient should change pixels inside selection',
+      RGBAEqual(InsideBefore, InsideAfter));
+    AssertTrue('gradient should not affect pixels outside selection',
+      RGBAEqual(OutsideBefore, OutsideAfter));
   finally
     F.Destroy;
   end;
