@@ -7,7 +7,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
-  Buttons,
+  Buttons, Grids,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
   FPToolControllers,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
@@ -133,7 +133,7 @@ type
     FStatusProgressActive: Boolean;
     FStatusZoomTrack: TTrackBar;
     FStatusZoomLabel: TLabel;
-    FLayerList: TListBox;
+    FLayerList: TDrawGrid;
     FHistoryList: TListBox;
     FColorPickButton: TColorButton;
     FActiveColorHexLabel: TLabel;
@@ -652,8 +652,8 @@ type
     procedure LayerListMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure LayerListMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure LayerListMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    procedure LayerListDrawItem(Control: TWinControl; Index: Integer;
-      ARect: TRect; State: TOwnerDrawState);
+    procedure LayerListDrawCell(Sender: TObject; ACol, ARow: Integer;
+      ARect: TRect; AState: TGridDrawState);
     procedure PaletteMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaletteMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaletteMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -747,39 +747,55 @@ const
   ToolbarLargeCommandIconLeft = 6;
   ToolbarLargeCommandMaxIconSize = 20;
   LayerRowIconSize = 16;
-  LayerRowIconMargin = 6;
-  LayerRowLockLeft = 4;
-  LayerRowEyeLeft = LayerRowLockLeft + LayerRowIconSize + LayerRowIconMargin;
+  LayerRowHeight = 36;
+  LayerColLockWidth = 28;
+  LayerColEyeWidth = 28;
+  LayerColThumbWidth = 52;
+  LayerColNameMinWidth = 80;
+  LayerCellPadX = 4;
 
-procedure LayerRowIconRects(const AItemRect: TRect; out ALockRect, AEyeRect: TRect);
+procedure LayerGridApplyColumnWidths(AGrid: TDrawGrid);
 var
-  IconTop: Integer;
+  Remaining: Integer;
 begin
-  IconTop := AItemRect.Top + ((AItemRect.Bottom - AItemRect.Top - LayerRowIconSize) div 2);
-  ALockRect := Rect(
-    AItemRect.Left + LayerRowLockLeft,
-    IconTop,
-    AItemRect.Left + LayerRowLockLeft + LayerRowIconSize,
-    IconTop + LayerRowIconSize
-  );
-  AEyeRect := Rect(
-    AItemRect.Left + LayerRowEyeLeft,
-    IconTop,
-    AItemRect.Left + LayerRowEyeLeft + LayerRowIconSize,
-    IconTop + LayerRowIconSize
-  );
+  if not Assigned(AGrid) or (AGrid.ColCount < 4) then
+    Exit;
+  AGrid.ColWidths[0] := LayerColLockWidth;
+  AGrid.ColWidths[1] := LayerColEyeWidth;
+  AGrid.ColWidths[2] := LayerColThumbWidth;
+  Remaining := AGrid.ClientWidth - (LayerColLockWidth + LayerColEyeWidth + LayerColThumbWidth);
+  AGrid.ColWidths[3] := Max(LayerColNameMinWidth, Remaining);
 end;
 
-function LayerListRowRect(AListBox: TListBox; AIndex: Integer): TRect;
+function LayerGridRowAtY(AGrid: TDrawGrid; AY: Integer): Integer;
 var
-  VisibleRow: Integer;
-  TopY: Integer;
+  RowOffset: Integer;
 begin
-  if not Assigned(AListBox) then
-    Exit(Rect(0, 0, 0, 0));
-  VisibleRow := AIndex - AListBox.TopIndex;
-  TopY := VisibleRow * AListBox.ItemHeight;
-  Result := Rect(0, TopY, AListBox.ClientWidth, TopY + AListBox.ItemHeight);
+  if not Assigned(AGrid) then
+    Exit(-1);
+  if AY < 0 then
+    Exit(-1);
+  if AY >= AGrid.ClientHeight then
+    Exit(-1);
+  RowOffset := AY div Max(1, AGrid.DefaultRowHeight);
+  Result := AGrid.TopRow + RowOffset;
+  if (Result < 0) or (Result >= AGrid.RowCount) then
+    Result := -1;
+end;
+
+function LayerGridCenteredIconRect(const ACellRect: TRect): TRect;
+var
+  IconLeft: Integer;
+  IconTop: Integer;
+begin
+  IconLeft := ACellRect.Left + ((ACellRect.Right - ACellRect.Left - LayerRowIconSize) div 2);
+  IconTop := ACellRect.Top + ((ACellRect.Bottom - ACellRect.Top - LayerRowIconSize) div 2);
+  Result := Rect(
+    IconLeft,
+    IconTop,
+    IconLeft + LayerRowIconSize,
+    IconTop + LayerRowIconSize
+  );
 end;
 
 var
@@ -4065,7 +4081,7 @@ begin
   FLayerOpacitySpin.OnChange := @LayerOpacitySpinChanged;
   FLayerOpacitySpin.Font.Color := ChromeTextColor;
 
-  FLayerList := TListBox.Create(FRightPanel);
+  FLayerList := TDrawGrid.Create(FRightPanel);
   FLayerList.Parent := FRightPanel;
   FLayerList.BorderStyle := bsNone;
   FLayerList.Left := 12;
@@ -4076,9 +4092,15 @@ begin
   FLayerList.Color := PaletteListBackgroundColor;
   FLayerList.Font.Color := ChromeTextColor;
   FLayerList.Font.Size := 9;
-  FLayerList.Style := lbOwnerDrawFixed;
-  FLayerList.ItemHeight := 36;
-  FLayerList.OnDrawItem := @LayerListDrawItem;
+  FLayerList.FixedCols := 0;
+  FLayerList.FixedRows := 0;
+  FLayerList.ColCount := 4;
+  FLayerList.RowCount := 1;
+  FLayerList.DefaultRowHeight := LayerRowHeight;
+  FLayerList.ScrollBars := ssVertical;
+  FLayerList.Options := [goRowSelect, goThumbTracking];
+  LayerGridApplyColumnWidths(FLayerList);
+  FLayerList.OnDrawCell := @LayerListDrawCell;
   FLayerList.OnClick := @LayerListClick;
   FLayerList.OnDblClick := @LayerListDblClick;
   FLayerList.OnMouseDown := @LayerListMouseDown;
@@ -4610,7 +4632,7 @@ begin
   ACanvas.Brush.Style := bsClear;
   ACanvas.Pen.Width := 1;
   ACanvas.Pen.Style := psSolid;
-  ACanvas.Pen.Color := clWhite;
+  ACanvas.Pen.Color := clBlack;
   if ASquareShape then
     ACanvas.Rectangle(LeftX, TopY, RightX, BottomY)
   else
@@ -5452,39 +5474,28 @@ end;
 
 procedure TMainForm.RefreshLayers;
 var
-  Index: Integer;
-  CaptionText: string;
-  Layer: TRasterLayer;
+  TargetRow: Integer;
 begin
   if not Assigned(FDocument) then Exit;
   if not Assigned(FLayerList) then Exit;
   FLayerDragIndex := -1;
   FLayerDragTargetIndex := -1;
-  FLayerList.Items.BeginUpdate;
+  FLayerList.BeginUpdate;
   try
-    FLayerList.Items.Clear;
+    FLayerList.ColCount := 4;
+    LayerGridApplyColumnWidths(FLayerList);
+    FLayerList.RowCount := Max(1, FDocument.LayerCount);
     SetLength(FLayerRowLockHitRects, FDocument.LayerCount);
     SetLength(FLayerRowEyeHitRects, FDocument.LayerCount);
-    for Index := 0 to FDocument.LayerCount - 1 do
-    begin
-      FLayerRowLockHitRects[Index] := Rect(0, 0, 0, 0);
-      FLayerRowEyeHitRects[Index] := Rect(0, 0, 0, 0);
-      Layer := FDocument.Layers[Index];
-      if Layer.Visible then
-        CaptionText := 'On  '
-      else
-        CaptionText := 'Off ';
-      CaptionText := CaptionText + Layer.Name;
-      if Layer.IsBackground then
-        CaptionText := CaptionText + ' [Background]';
-      if Layer.Opacity < 255 then
-        CaptionText := CaptionText + Format(' (%d%%)', [LayerOpacityPercentFromByte(Layer.Opacity)]);
-      FLayerList.Items.Add(CaptionText);
-    end;
-    FLayerList.ItemIndex := FDocument.ActiveLayerIndex;
+    if FDocument.LayerCount > 0 then
+      TargetRow := EnsureRange(FDocument.ActiveLayerIndex, 0, FDocument.LayerCount - 1)
+    else
+      TargetRow := 0;
+    FLayerList.Row := TargetRow;
   finally
-    FLayerList.Items.EndUpdate;
+    FLayerList.EndUpdate(False);
   end;
+  FLayerList.Invalidate;
   { Sync inline layer controls to the active layer }
   if FDocument.LayerCount > 0 then
   begin
@@ -7367,6 +7378,7 @@ begin
   FLayerList.Top := ListTop;
   FLayerList.Width := FRightPanel.Width - Margin * 2;
   FLayerList.Height := Max(80, FRightPanel.Height - ListTop - BottomMargin);
+  LayerGridApplyColumnWidths(FLayerList);
 end;
 
 procedure TMainForm.ColorsPanelResize(Sender: TObject);
@@ -10172,17 +10184,13 @@ begin
   ACanvas.StretchDraw(ARect, AIcon.Graphic);
 end;
 
-procedure TMainForm.LayerListDrawItem(Control: TWinControl; Index: Integer;
-  ARect: TRect; State: TOwnerDrawState);
-{ Renders one layer row: lock | eye | thumbnail | name }
+procedure TMainForm.LayerListDrawCell(Sender: TObject; ACol, ARow: Integer;
+  ARect: TRect; AState: TGridDrawState);
 const
-  ThumbLeft = LayerRowEyeLeft + LayerRowIconSize + LayerRowIconMargin + 2;
-  ThumbW    = 36;
-  ThumbH    = 28;
   ThumbMarginY = 4;
-  NameLeft  = ThumbLeft + ThumbW + 6;
+  NameLeftPad = 6;
 var
-  LB: TListBox;
+  Grid: TDrawGrid;
   Layer: TRasterLayer;
   NameText: string;
   BgCol: TColor;
@@ -10190,138 +10198,159 @@ var
   ThumbSurf: TRasterSurface;
   ThumbBmp: TBitmap;
   Src: TRasterSurface;
-  SW, SH, TX, TY: Integer;
-  ThumbR: TRect;
+  SW: Integer;
+  SH: Integer;
+  ThumbRect: TRect;
+  IconRect: TRect;
   OldFont: TFont;
-  LockRect: TRect;
-  EyeRect: TRect;
 begin
-  LB := TListBox(Control);
-  if not Assigned(FDocument) then Exit;
-  if (Index < 0) or (Index >= FDocument.LayerCount) then Exit;
+  Grid := TDrawGrid(Sender);
+  if not Assigned(FDocument) then
+    Exit;
 
-  Layer := FDocument.Layers[Index];
-
-  { Background }
-  if odSelected in State then
+  if (ARow < 0) or (ARow >= FDocument.LayerCount) then
   begin
-    BgCol  := PaletteSelectionColor;
+    Grid.Canvas.Brush.Color := Grid.Color;
+    Grid.Canvas.FillRect(ARect);
+    Exit;
+  end;
+
+  Layer := FDocument.Layers[ARow];
+
+  if (ARow = Grid.Row) or (gdSelected in AState) then
+  begin
+    BgCol := PaletteSelectionColor;
     TextCol := PaletteSelectionTextColor;
   end
-  else if (FLayerDragIndex >= 0) and (FLayerDragTargetIndex = Index) then
+  else if (FLayerDragIndex >= 0) and (FLayerDragTargetIndex = ARow) then
   begin
     BgCol := PaletteActiveRowColor;
     TextCol := ChromeTextColor;
   end
   else
   begin
-    BgCol  := LB.Color;
+    BgCol := Grid.Color;
     TextCol := ChromeTextColor;
   end;
-  LB.Canvas.Brush.Color := BgCol;
-  LB.Canvas.FillRect(ARect);
+
+  Grid.Canvas.Brush.Color := BgCol;
+  Grid.Canvas.FillRect(ARect);
 
   EnsureLayerRowIcons;
-  LayerRowIconRects(ARect, LockRect, EyeRect);
-  if (Index >= 0) and (Index < Length(FLayerRowLockHitRects)) then
-  begin
-    FLayerRowLockHitRects[Index] := LockRect;
-    FLayerRowEyeHitRects[Index] := EyeRect;
-  end;
-
-  { 1. Lock icon }
-  if Layer.Locked then
-    DrawLayerRowIcon(LB.Canvas, LockRect, FLayerLockClosedIcon)
-  else
-  begin
-    DrawLayerRowIcon(LB.Canvas, LockRect, FLayerLockOpenIcon);
-    { Add a small open-state accent so unlock remains distinguishable at 14px. }
-    LB.Canvas.Pen.Color := ChromeTextColor;
-    LB.Canvas.Pen.Width := 1;
-    LB.Canvas.MoveTo(LockRect.Right - 5, LockRect.Top + 2);
-    LB.Canvas.LineTo(LockRect.Right - 1, LockRect.Top + 6);
-  end;
-
-  { 2. Eye icon }
-  if Layer.Visible then
-    DrawLayerRowIcon(LB.Canvas, EyeRect, FLayerEyeOnIcon)
-  else
-    DrawLayerRowIcon(LB.Canvas, EyeRect, FLayerEyeOffIcon);
-
-  { 3. Thumbnail }
-  TX := ARect.Left + ThumbLeft;
-  TY := ARect.Top  + ThumbMarginY;
-  ThumbR := Rect(TX, TY, TX + ThumbW, TY + ThumbH);
-  LB.Canvas.Brush.Color := ChromeDividerColor;
-  LB.Canvas.FillRect(ThumbR);
-
-  Src := Layer.Surface;
-  if Assigned(Src) and (Src.Width > 0) and (Src.Height > 0) then
-  begin
-    if Src.Width * ThumbH > Src.Height * ThumbW then
-    begin
-      SW := ThumbW;
-      SH := Max(1, Src.Height * ThumbW div Src.Width);
-    end
-    else
-    begin
-      SH := ThumbH;
-      SW := Max(1, Src.Width * ThumbH div Src.Height);
-    end;
-    ThumbSurf := Src.ResizeBilinear(SW, SH);
-    try
-      ThumbBmp := SurfaceToBitmap(ThumbSurf);
-      try
-        LB.Canvas.Draw(
-          TX + (ThumbW - SW) div 2,
-          TY + (ThumbH - SH) div 2,
-          ThumbBmp);
-      finally
-        ThumbBmp.Free;
+  case ACol of
+    0:
+      begin
+        IconRect := LayerGridCenteredIconRect(ARect);
+        if (ARow >= 0) and (ARow < Length(FLayerRowLockHitRects)) then
+          FLayerRowLockHitRects[ARow] := IconRect;
+        if Layer.Locked then
+          DrawLayerRowIcon(Grid.Canvas, IconRect, FLayerLockClosedIcon)
+        else
+        begin
+          DrawLayerRowIcon(Grid.Canvas, IconRect, FLayerLockOpenIcon);
+          Grid.Canvas.Pen.Color := ChromeTextColor;
+          Grid.Canvas.Pen.Width := 1;
+          Grid.Canvas.MoveTo(IconRect.Right - 5, IconRect.Top + 2);
+          Grid.Canvas.LineTo(IconRect.Right - 1, IconRect.Top + 6);
+        end;
       end;
-    finally
-      ThumbSurf.Free;
-    end;
-  end;
-  LB.Canvas.Brush.Style := bsClear;
-  LB.Canvas.Pen.Color := ChromeDividerColor;
-  LB.Canvas.Rectangle(ThumbR.Left, ThumbR.Top, ThumbR.Right, ThumbR.Bottom);
-  LB.Canvas.Brush.Style := bsSolid;
+    1:
+      begin
+        IconRect := LayerGridCenteredIconRect(ARect);
+        if (ARow >= 0) and (ARow < Length(FLayerRowEyeHitRects)) then
+          FLayerRowEyeHitRects[ARow] := IconRect;
+        if Layer.Visible then
+          DrawLayerRowIcon(Grid.Canvas, IconRect, FLayerEyeOnIcon)
+        else
+          DrawLayerRowIcon(Grid.Canvas, IconRect, FLayerEyeOffIcon);
+      end;
+    2:
+      begin
+        ThumbRect := Rect(
+          ARect.Left + LayerCellPadX,
+          ARect.Top + ThumbMarginY,
+          ARect.Right - LayerCellPadX,
+          ARect.Bottom - ThumbMarginY
+        );
+        Grid.Canvas.Brush.Color := ChromeDividerColor;
+        Grid.Canvas.FillRect(ThumbRect);
 
-  { 4. Layer name }
-  NameText := Layer.Name;
-  if Layer.IsBackground then
-    NameText := NameText + ' [Background]';
-  if Layer.Opacity < 255 then
-    NameText := NameText + Format(' %d%%', [LayerOpacityPercentFromByte(Layer.Opacity)]);
-  if Layer.Locked then
-    NameText := NameText + ' [Locked]';
+        Src := Layer.Surface;
+        if Assigned(Src) and (Src.Width > 0) and (Src.Height > 0) then
+        begin
+          if Src.Width * (ThumbRect.Bottom - ThumbRect.Top) >
+             Src.Height * (ThumbRect.Right - ThumbRect.Left) then
+          begin
+            SW := Max(1, ThumbRect.Right - ThumbRect.Left);
+            SH := Max(1, Src.Height * SW div Src.Width);
+          end
+          else
+          begin
+            SH := Max(1, ThumbRect.Bottom - ThumbRect.Top);
+            SW := Max(1, Src.Width * SH div Src.Height);
+          end;
+          ThumbSurf := Src.ResizeBilinear(SW, SH);
+          try
+            ThumbBmp := SurfaceToBitmap(ThumbSurf);
+            try
+              Grid.Canvas.Draw(
+                ThumbRect.Left + ((ThumbRect.Right - ThumbRect.Left - SW) div 2),
+                ThumbRect.Top + ((ThumbRect.Bottom - ThumbRect.Top - SH) div 2),
+                ThumbBmp
+              );
+            finally
+              ThumbBmp.Free;
+            end;
+          finally
+            ThumbSurf.Free;
+          end;
+        end;
 
-  OldFont := TFont.Create;
-  try
-    OldFont.Assign(LB.Canvas.Font);
-    LB.Canvas.Font.Color := TextCol;
-    if odSelected in State then
-      LB.Canvas.Font.Style := [fsBold]
-    else
-      LB.Canvas.Font.Style := [];
-    LB.Canvas.Brush.Style := bsClear;
-    LB.Canvas.TextOut(
-      ARect.Left + NameLeft,
-      ARect.Top + (ARect.Bottom - ARect.Top - LB.Canvas.TextHeight('Ag')) div 2,
-      NameText);
-    LB.Canvas.Brush.Style := bsSolid;
-  finally
-    LB.Canvas.Font.Assign(OldFont);
-    OldFont.Free;
+        Grid.Canvas.Brush.Style := bsClear;
+        Grid.Canvas.Pen.Color := ChromeDividerColor;
+        Grid.Canvas.Rectangle(ThumbRect.Left, ThumbRect.Top, ThumbRect.Right, ThumbRect.Bottom);
+        Grid.Canvas.Brush.Style := bsSolid;
+      end;
+    3:
+      begin
+        NameText := Layer.Name;
+        if Layer.IsBackground then
+          NameText := NameText + ' [Background]';
+        if Layer.Opacity < 255 then
+          NameText := NameText + Format(' %d%%', [LayerOpacityPercentFromByte(Layer.Opacity)]);
+        if Layer.Locked then
+          NameText := NameText + ' [Locked]';
+
+        OldFont := TFont.Create;
+        try
+          OldFont.Assign(Grid.Canvas.Font);
+          Grid.Canvas.Font.Color := TextCol;
+          if (ARow = Grid.Row) or (gdSelected in AState) then
+            Grid.Canvas.Font.Style := [fsBold]
+          else
+            Grid.Canvas.Font.Style := [];
+          Grid.Canvas.Brush.Style := bsClear;
+          Grid.Canvas.TextOut(
+            ARect.Left + NameLeftPad,
+            ARect.Top + ((ARect.Bottom - ARect.Top - Grid.Canvas.TextHeight('Ag')) div 2),
+            NameText
+          );
+          Grid.Canvas.Brush.Style := bsSolid;
+        finally
+          Grid.Canvas.Font.Assign(OldFont);
+          OldFont.Free;
+        end;
+      end;
   end;
 end;
 
 procedure TMainForm.LayerListClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  if FLayerList.ItemIndex >= 0 then
-    FDocument.ActiveLayerIndex := FLayerList.ItemIndex;
+  if (FDocument.LayerCount > 0) and
+     (FLayerList.Row >= 0) and
+     (FLayerList.Row < FDocument.LayerCount) then
+    FDocument.ActiveLayerIndex := FLayerList.Row;
   if FDocument.LayerCount > 0 then
   begin
     FUpdatingLayerControls := True;
@@ -10349,8 +10378,8 @@ procedure TMainForm.LayerListMouseDown(Sender: TObject; Button: TMouseButton;
 type
   TLayerHitTarget = (lhtNone, lhtLock, lhtEye);
 var
+  HitCol: Integer;
   HitIndex: Integer;
-  ItemRect: TRect;
   LockRect: TRect;
   EyeRect: TRect;
   HitPoint: TPoint;
@@ -10367,11 +10396,19 @@ var
 begin
   if (Button <> mbLeft) or not Assigned(FLayerList) then
     Exit;
-  HitIndex := FLayerList.GetIndexAtY(Y);
+  if FDocument.LayerCount <= 0 then
+    Exit;
+  FLayerList.MouseToCell(X, Y, HitCol, HitIndex);
   if (HitIndex < 0) or (HitIndex >= FDocument.LayerCount) then
     Exit;
-  ItemRect := LayerListRowRect(FLayerList, HitIndex);
-  LayerRowIconRects(ItemRect, LockRect, EyeRect);
+  if HitCol = 0 then
+    LockRect := LayerGridCenteredIconRect(FLayerList.CellRect(0, HitIndex))
+  else
+    LockRect := Rect(0, 0, 0, 0);
+  if HitCol = 1 then
+    EyeRect := LayerGridCenteredIconRect(FLayerList.CellRect(1, HitIndex))
+  else
+    EyeRect := Rect(0, 0, 0, 0);
   HitPoint := Point(X, Y);
   HitTarget := HitAtPoint(HitPoint);
 
@@ -10395,7 +10432,7 @@ begin
 
   FLayerDragIndex := HitIndex;
   FLayerDragTargetIndex := HitIndex;
-  FLayerList.ItemIndex := HitIndex;
+  FLayerList.Row := HitIndex;
   LayerListClick(Sender);
   FLayerList.Invalidate;
 end;
@@ -10415,7 +10452,7 @@ begin
   end;
   if (FLayerDragIndex < 0) or not (ssLeft in Shift) then
     Exit;
-  HoverIndex := FLayerList.GetIndexAtY(Y);
+  HoverIndex := LayerGridRowAtY(FLayerList, Y);
   if HoverIndex < 0 then
   begin
     if Y < 0 then
@@ -10444,7 +10481,7 @@ begin
     Exit;
   if FLayerDragIndex < 0 then
     Exit;
-  DropIndex := FLayerList.GetIndexAtY(Y);
+  DropIndex := LayerGridRowAtY(FLayerList, Y);
   if DropIndex < 0 then
     DropIndex := FLayerDragTargetIndex;
   DropIndex := EnsureRange(DropIndex, 0, FDocument.LayerCount - 1);

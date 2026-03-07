@@ -2449,3 +2449,17 @@ Based on all findings, the strategy is revised from the previous entry's generic
   3. unified drag row hit lookups to `GetIndexAtY(Y)` for consistency.
 - Verification: `bash ./scripts/build.sh` passed; `bash ./scripts/run_tests_ci.sh` passed (`N:311 E:0 F:0`).
 - Lesson: for owner-draw list controls, use one canonical geometry function from event coordinates (row -> sub-rects) and avoid persisting draw-time hit rectangles across frames/scale contexts.
+
+## 2026-03-07 (layer list migrated to 4-column hit model without fragmented row visuals)
+
+- Trigger: user requested explicit four-segment interaction (`lock | eye | thumbnail | name`) while preserving the visual continuity of a single row.
+- Approach:
+  1. migrated layer list control from owner-draw `TListBox` to `TDrawGrid` with `4` columns;
+  2. disabled grid line options and kept uniform per-row background painting so each row still reads as one continuous strip;
+  3. switched interaction from icon-rect cache strategy to column-first hit mapping (`MouseToCell`) plus centered icon rect checks in lock/eye columns only.
+- Key implementation notes:
+  1. use `RowCount/Row` instead of `Items/ItemIndex` for selection state;
+  2. keep reorder drag logic row-based via viewport Y mapping (`TopRow + Y div DefaultRowHeight`);
+  3. recompute column widths on panel resize to preserve proportions and avoid visual clipping.
+- Verification: `bash ./scripts/build.sh` passed; `bash ./scripts/run_tests_ci.sh` passed (`N:311 E:0 F:0`).
+- Lesson: if a list row contains multiple independent click targets, grid column semantics are safer than owner-draw list emulation, but visual consistency requires explicitly suppressing grid chrome (lines/focus seams).
