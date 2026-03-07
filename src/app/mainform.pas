@@ -294,6 +294,8 @@ type
     FLayerLockOpenIcon: TPicture;
     FLayerEyeOnIcon: TPicture;
     FLayerEyeOffIcon: TPicture;
+    FLayerRowLockHitRects: array of TRect;
+    FLayerRowEyeHitRects: array of TRect;
     FMagnifyInstalled: Boolean;
     FAquaAppearanceApplied: Boolean;
     FScrollElasticityDisabled: Boolean;
@@ -399,6 +401,12 @@ type
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
     procedure DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawSquareHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
+    procedure DrawEraserHoverOverlay(
+      ACanvas: TCanvas;
+      const APoint: TPoint;
+      ARadius: Integer;
+      ASquareShape: Boolean
+    );
     procedure DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
     procedure DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
     procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
@@ -762,6 +770,18 @@ begin
   );
 end;
 
+function LayerListRowRect(AListBox: TListBox; AIndex: Integer): TRect;
+var
+  VisibleRow: Integer;
+  TopY: Integer;
+begin
+  if not Assigned(AListBox) then
+    Exit(Rect(0, 0, 0, 0));
+  VisibleRow := AIndex - AListBox.TopIndex;
+  TopY := VisibleRow * AListBox.ItemHeight;
+  Result := Rect(0, TopY, AListBox.ClientWidth, TopY + AListBox.ItemHeight);
+end;
+
 var
   GMainForm: TMainForm = nil;
 procedure FPMagnifyCallbackProc(AMagnification: Double;
@@ -841,6 +861,13 @@ begin
     FToolOpacity[LoopTool] := FBrushOpacity;
     FToolHardness[LoopTool] := FBrushHardness;
   end;
+  { Pen-like pencil default: thinnest + fully hard-edged. }
+  FToolSize[tkPencil] := 1;
+  { Keep brush/eraser clearly distinct out of box. }
+  FToolHardness[tkPencil] := 100;
+  FToolHardness[tkBrush] := 72;
+  FToolHardness[tkEraser] := 88;
+  FBrushHardness := FToolHardness[FCurrentTool];
   FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
   FShapeLineStyle := 0;
@@ -927,6 +954,13 @@ begin
     FToolOpacity[LoopTool] := FBrushOpacity;
     FToolHardness[LoopTool] := FBrushHardness;
   end;
+  { Pen-like pencil default: thinnest + fully hard-edged. }
+  FToolSize[tkPencil] := 1;
+  { Keep brush/eraser clearly distinct out of box. }
+  FToolHardness[tkPencil] := 100;
+  FToolHardness[tkBrush] := 72;
+  FToolHardness[tkEraser] := 88;
+  FBrushHardness := FToolHardness[FCurrentTool];
   FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
   FShapeStyle := 0;
@@ -1364,13 +1398,152 @@ var
   Y: Integer;
   TileColor: TRGBA32;
   PixelColor: TRGBA32;
-  EdgeHorizontal: Boolean;
-  EdgeVertical: Boolean;
+  PixelIndex: Integer;
+  BacktrackIndex: Integer;
+  NeighborIndex: Integer;
+  ContourCount: Integer;
+  ContourCapacity: Integer;
+  TraceGuard: Integer;
+  StartPoint: TPoint;
+  CurrentPoint: TPoint;
+  NextPoint: TPoint;
+  BacktrackPoint: TPoint;
+  StartBacktrackPoint: TPoint;
+  NeighborFound: Boolean;
   DashIndex: Integer;
+  SelectionMask: array of Byte;
+  BoundaryMask: array of Byte;
+  BoundaryVisited: array of Byte;
+  BoundaryContour: array of TPoint;
 const
   SelectionDashLength = 3;
   SelectionDashGap = 2;
   SelectionDashPeriod = SelectionDashLength + SelectionDashGap;
+  NeighborDX: array[0..7] of Integer = (-1, 0, 1, 1, 1, 0, -1, -1);
+  NeighborDY: array[0..7] of Integer = (-1, -1, -1, 0, 1, 1, 1, 0);
+
+  function SelectionIndex(AX, AY: Integer): Integer; inline;
+  begin
+    Result := AY * FDisplaySurface.Width + AX;
+  end;
+
+  function SelectionInside(AX, AY: Integer): Boolean; inline;
+  begin
+    if (AX < 0) or (AX >= FDisplaySurface.Width) or
+       (AY < 0) or (AY >= FDisplaySurface.Height) then
+      Exit(False);
+    Result := SelectionMask[SelectionIndex(AX, AY)] <> 0;
+  end;
+
+  function BoundaryAt(AX, AY: Integer): Boolean; inline;
+  begin
+    if (AX < 0) or (AX >= FDisplaySurface.Width) or
+       (AY < 0) or (AY >= FDisplaySurface.Height) then
+      Exit(False);
+    Result := BoundaryMask[SelectionIndex(AX, AY)] <> 0;
+  end;
+
+  function NeighborDeltaIndex(ADX, ADY: Integer): Integer;
+  var
+    Index: Integer;
+  begin
+    for Index := 0 to 7 do
+      if (NeighborDX[Index] = ADX) and (NeighborDY[Index] = ADY) then
+        Exit(Index);
+    Result := -1;
+  end;
+
+  procedure MarkBoundaryPixel(const APoint: TPoint; ADashStep: Integer);
+  begin
+    if (APoint.X < 0) or (APoint.X >= FDisplaySurface.Width) or
+       (APoint.Y < 0) or (APoint.Y >= FDisplaySurface.Height) then
+      Exit;
+    if (ADashStep mod SelectionDashPeriod) >= SelectionDashLength then
+      Exit;
+    if (ADashStep and 1) = 0 then
+      FDisplaySurface[APoint.X, APoint.Y] := RGBA(0, 0, 0, 255)
+    else
+      FDisplaySurface[APoint.X, APoint.Y] := RGBA(255, 255, 255, 255);
+  end;
+
+  procedure ResetContour;
+  begin
+    ContourCount := 0;
+    ContourCapacity := 0;
+    SetLength(BoundaryContour, 0);
+  end;
+
+  procedure AppendContourPoint(const APoint: TPoint);
+  begin
+    if (ContourCount > 0) and
+       (BoundaryContour[ContourCount - 1].X = APoint.X) and
+       (BoundaryContour[ContourCount - 1].Y = APoint.Y) then
+      Exit;
+    if ContourCount >= ContourCapacity then
+    begin
+      if ContourCapacity = 0 then
+        ContourCapacity := 64
+      else
+        ContourCapacity := ContourCapacity * 2;
+      SetLength(BoundaryContour, ContourCapacity);
+    end;
+    BoundaryContour[ContourCount] := APoint;
+    Inc(ContourCount);
+  end;
+
+  procedure TraceBoundaryContour(const AStartPoint: TPoint);
+  var
+    LocalSearchIndex: Integer;
+    LocalStepIndex: Integer;
+  begin
+    ResetContour;
+    CurrentPoint := AStartPoint;
+    BacktrackPoint := Point(CurrentPoint.X - 1, CurrentPoint.Y);
+    StartBacktrackPoint := BacktrackPoint;
+    TraceGuard := 0;
+    repeat
+      PixelIndex := SelectionIndex(CurrentPoint.X, CurrentPoint.Y);
+      BoundaryVisited[PixelIndex] := 1;
+      AppendContourPoint(CurrentPoint);
+
+      BacktrackIndex := NeighborDeltaIndex(
+        BacktrackPoint.X - CurrentPoint.X,
+        BacktrackPoint.Y - CurrentPoint.Y
+      );
+      if BacktrackIndex < 0 then
+        BacktrackIndex := 7;
+
+      NeighborFound := False;
+      for LocalSearchIndex := 1 to 8 do
+      begin
+        NeighborIndex := (BacktrackIndex + LocalSearchIndex) mod 8;
+        NextPoint := Point(
+          CurrentPoint.X + NeighborDX[NeighborIndex],
+          CurrentPoint.Y + NeighborDY[NeighborIndex]
+        );
+        if not BoundaryAt(NextPoint.X, NextPoint.Y) then
+          Continue;
+        BacktrackPoint := Point(
+          CurrentPoint.X + NeighborDX[(NeighborIndex + 7) mod 8],
+          CurrentPoint.Y + NeighborDY[(NeighborIndex + 7) mod 8]
+        );
+        CurrentPoint := NextPoint;
+        NeighborFound := True;
+        Break;
+      end;
+      if not NeighborFound then
+        Break;
+      Inc(TraceGuard);
+      if TraceGuard > (FDisplaySurface.Width * FDisplaySurface.Height * 4) then
+        Break;
+    until (CurrentPoint.X = AStartPoint.X) and
+          (CurrentPoint.Y = AStartPoint.Y) and
+          (BacktrackPoint.X = StartBacktrackPoint.X) and
+          (BacktrackPoint.Y = StartBacktrackPoint.Y);
+
+    for LocalStepIndex := 0 to ContourCount - 1 do
+      MarkBoundaryPixel(BoundaryContour[LocalStepIndex], LocalStepIndex);
+  end;
 begin
   if Assigned(FMovePixelsController) and
      FMovePixelsController.Active and
@@ -1426,34 +1599,58 @@ begin
 
   RenderMovePixelsTransactionPreview(FDisplaySurface);
 
-  { Selection outline pass }
+  { Selection outline pass:
+    trace boundary contours and apply dash by contour step, avoiding
+    coordinate-mod artifacts where diagonal edges collapse into long lines. }
   if FDocument.HasSelection then
+  begin
+    SetLength(SelectionMask, FDisplaySurface.Width * FDisplaySurface.Height);
+    SetLength(BoundaryMask, Length(SelectionMask));
+    SetLength(BoundaryVisited, Length(SelectionMask));
+
     for Y := 0 to FDisplaySurface.Height - 1 do
       for X := 0 to FDisplaySurface.Width - 1 do
-        if FDocument.Selection[X, Y] then
-        begin
-          EdgeHorizontal :=
-            (not FDocument.Selection[X, Y - 1]) or
-            (not FDocument.Selection[X, Y + 1]);
-          EdgeVertical :=
-            (not FDocument.Selection[X - 1, Y]) or
-            (not FDocument.Selection[X + 1, Y]);
-          if not (EdgeHorizontal or EdgeVertical) then
-            Continue;
+      begin
+        PixelIndex := SelectionIndex(X, Y);
+        if FDocument.Selection.Coverage(X, Y) >= 128 then
+          SelectionMask[PixelIndex] := 1
+        else
+          SelectionMask[PixelIndex] := 0;
+      end;
 
-          if EdgeHorizontal and not EdgeVertical then
-            DashIndex := X + (Y * 2)
-          else if EdgeVertical and not EdgeHorizontal then
-            DashIndex := Y + (X * 2)
-          else
-            DashIndex := X + Y;
+    for Y := 0 to FDisplaySurface.Height - 1 do
+      for X := 0 to FDisplaySurface.Width - 1 do
+      begin
+        PixelIndex := SelectionIndex(X, Y);
+        if SelectionMask[PixelIndex] = 0 then
+          Continue;
+        if SelectionInside(X - 1, Y) and SelectionInside(X + 1, Y) and
+           SelectionInside(X, Y - 1) and SelectionInside(X, Y + 1) then
+          Continue;
+        BoundaryMask[PixelIndex] := 1;
+      end;
 
-          if (DashIndex mod SelectionDashPeriod) < SelectionDashLength then
-            if ((X + Y) and 1) = 0 then
-              FDisplaySurface[X, Y] := RGBA(0, 0, 0, 255)
-            else
-              FDisplaySurface[X, Y] := RGBA(255, 255, 255, 255);
-        end;
+    for Y := 0 to FDisplaySurface.Height - 1 do
+      for X := 0 to FDisplaySurface.Width - 1 do
+      begin
+        PixelIndex := SelectionIndex(X, Y);
+        if (BoundaryMask[PixelIndex] = 0) or (BoundaryVisited[PixelIndex] <> 0) then
+          Continue;
+        StartPoint := Point(X, Y);
+        TraceBoundaryContour(StartPoint);
+      end;
+
+    DashIndex := 0;
+    for Y := 0 to FDisplaySurface.Height - 1 do
+      for X := 0 to FDisplaySurface.Width - 1 do
+      begin
+        PixelIndex := SelectionIndex(X, Y);
+        if (BoundaryMask[PixelIndex] = 0) or (BoundaryVisited[PixelIndex] <> 0) then
+          Continue;
+        MarkBoundaryPixel(Point(X, Y), DashIndex);
+        Inc(DashIndex);
+      end;
+  end;
 
   { Return the cached surface — caller must NOT free it }
   Result := FDisplaySurface;
@@ -4383,6 +4580,43 @@ begin
   ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
 end;
 
+procedure TMainForm.DrawEraserHoverOverlay(
+  ACanvas: TCanvas;
+  const APoint: TPoint;
+  ARadius: Integer;
+  ASquareShape: Boolean
+);
+var
+  LeftX: Integer;
+  TopY: Integer;
+  RightX: Integer;
+  BottomY: Integer;
+begin
+  if ARadius <= 0 then
+  begin
+    DrawPointHoverOverlay(ACanvas, APoint);
+    Exit;
+  end;
+
+  LeftX := Round((APoint.X - ARadius) * FZoomScale);
+  TopY := Round((APoint.Y - ARadius) * FZoomScale);
+  RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
+  if RightX <= LeftX then
+    RightX := LeftX + 1;
+  if BottomY <= TopY then
+    BottomY := TopY + 1;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Width := 1;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Color := clWhite;
+  if ASquareShape then
+    ACanvas.Rectangle(LeftX, TopY, RightX, BottomY)
+  else
+    ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+end;
+
 procedure TMainForm.DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
 var
   SourceX: Integer;
@@ -4618,8 +4852,13 @@ begin
 
   if PaintToolUsesBrushOverlay(FCurrentTool) then
   begin
-    if (FCurrentTool = tkEraser) and FEraserSquareShape then
-      DrawSquareHoverOverlay(ACanvas, FLastImagePoint, ActiveToolOverlayRadius)
+    if FCurrentTool = tkEraser then
+      DrawEraserHoverOverlay(
+        ACanvas,
+        FLastImagePoint,
+        ActiveToolOverlayRadius,
+        FEraserSquareShape
+      )
     else
       DrawBrushHoverOverlay(ACanvas, FLastImagePoint, ActiveToolOverlayRadius);
   end
@@ -4922,9 +5161,8 @@ begin
           ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           if FCurrentTool = tkSelectEllipse then
           begin
-            { Dotted white pass reads cleaner on curved marquee outlines than the
-              default long dash pattern used for straight rectangle edges. }
-            ACanvas.Pen.Style := psDot;
+            { Keep marquee preview style consistent across rectangle/ellipse/lasso. }
+            ACanvas.Pen.Style := psDash;
             ACanvas.Pen.Color := clWhite;
             ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           end;
@@ -5225,8 +5463,12 @@ begin
   FLayerList.Items.BeginUpdate;
   try
     FLayerList.Items.Clear;
+    SetLength(FLayerRowLockHitRects, FDocument.LayerCount);
+    SetLength(FLayerRowEyeHitRects, FDocument.LayerCount);
     for Index := 0 to FDocument.LayerCount - 1 do
     begin
+      FLayerRowLockHitRects[Index] := Rect(0, 0, 0, 0);
+      FLayerRowEyeHitRects[Index] := Rect(0, 0, 0, 0);
       Layer := FDocument.Layers[Index];
       if Layer.Visible then
         CaptionText := 'On  '
@@ -7482,6 +7724,7 @@ var
   StrokeRadius: Integer;
   MutableSurface: TRasterSurface;
   RecolorSourceColor: TRGBA32;
+  BrushHardnessByte: Byte;
 begin
   OwnedPaintSelection := nil;
   FillMask := nil;
@@ -7521,6 +7764,9 @@ begin
           MutableSurface := FDocument.MutableActiveLayerSurface;
           if MutableSurface <> nil then
           begin
+            { Match GIMP-like separation: brush stays slightly soft even at 100%
+              hardness while pencil remains the fully hard-edged tool. }
+            BrushHardnessByte := EnsureRange((FBrushHardness * 240) div 100, 1, 240);
             StrokeRadius := Max(1, FBrushSize div 2);
             CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
             MutableSurface.DrawLine(
@@ -7531,7 +7777,7 @@ begin
               StrokeRadius,
               ActivePaintColor,
               FBrushOpacity * 255 div 100,
-              FBrushHardness * 255 div 100,
+              BrushHardnessByte,
               PaintSelection
             );
           end;
@@ -9977,6 +10223,11 @@ begin
 
   EnsureLayerRowIcons;
   LayerRowIconRects(ARect, LockRect, EyeRect);
+  if (Index >= 0) and (Index < Length(FLayerRowLockHitRects)) then
+  begin
+    FLayerRowLockHitRects[Index] := LockRect;
+    FLayerRowEyeHitRects[Index] := EyeRect;
+  end;
 
   { 1. Lock icon }
   if Layer.Locked then
@@ -10095,24 +10346,37 @@ end;
 
 procedure TMainForm.LayerListMouseDown(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
+type
+  TLayerHitTarget = (lhtNone, lhtLock, lhtEye);
 var
   HitIndex: Integer;
   ItemRect: TRect;
   LockRect: TRect;
   EyeRect: TRect;
   HitPoint: TPoint;
+  HitTarget: TLayerHitTarget;
+
+  function HitAtPoint(const APoint: TPoint): TLayerHitTarget;
+  begin
+    if PtInRect(LockRect, APoint) then
+      Exit(lhtLock);
+    if PtInRect(EyeRect, APoint) then
+      Exit(lhtEye);
+    Result := lhtNone;
+  end;
 begin
   if (Button <> mbLeft) or not Assigned(FLayerList) then
     Exit;
-  HitIndex := FLayerList.ItemAtPos(Point(X, Y), True);
+  HitIndex := FLayerList.GetIndexAtY(Y);
   if (HitIndex < 0) or (HitIndex >= FDocument.LayerCount) then
     Exit;
-  ItemRect := FLayerList.ItemRect(HitIndex);
+  ItemRect := LayerListRowRect(FLayerList, HitIndex);
   LayerRowIconRects(ItemRect, LockRect, EyeRect);
   HitPoint := Point(X, Y);
+  HitTarget := HitAtPoint(HitPoint);
 
   { Click lock icon -> toggle lock only (no visibility side-effects). }
-  if PtInRect(LockRect, HitPoint) then
+  if HitTarget = lhtLock then
   begin
     FDocument.Layers[HitIndex].Locked := not FDocument.Layers[HitIndex].Locked;
     FLayerList.Invalidate;
@@ -10120,7 +10384,7 @@ begin
   end;
 
   { Click eye icon -> toggle visibility only (no lock side-effects). }
-  if PtInRect(EyeRect, HitPoint) then
+  if HitTarget = lhtEye then
   begin
     FDocument.SetLayerVisibility(HitIndex, not FDocument.Layers[HitIndex].Visible);
     InvalidatePreparedBitmap;
@@ -10151,7 +10415,7 @@ begin
   end;
   if (FLayerDragIndex < 0) or not (ssLeft in Shift) then
     Exit;
-  HoverIndex := FLayerList.ItemAtPos(Point(4, Y), True);
+  HoverIndex := FLayerList.GetIndexAtY(Y);
   if HoverIndex < 0 then
   begin
     if Y < 0 then
@@ -10180,7 +10444,7 @@ begin
     Exit;
   if FLayerDragIndex < 0 then
     Exit;
-  DropIndex := FLayerList.ItemAtPos(Point(4, Y), True);
+  DropIndex := FLayerList.GetIndexAtY(Y);
   if DropIndex < 0 then
     DropIndex := FLayerDragTargetIndex;
   DropIndex := EnsureRange(DropIndex, 0, FDocument.LayerCount - 1);

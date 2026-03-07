@@ -54,8 +54,8 @@ const
   ColorsPaletteHeight = 320;
   HistoryPaletteWidth = 236;
   HistoryPaletteHeight = 220;
-  LayersPaletteWidth = 236;
-  LayersPaletteHeight = 320;
+  LayersPaletteWidth = 260;
+  LayersPaletteHeight = 352;
 
 function RgbColor(ARed, AGreen, ABlue: Byte): LongInt; inline;
 begin

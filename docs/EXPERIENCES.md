@@ -19,9 +19,9 @@ Use the same compact structure every time.
 ## 2026-03-07 (layer lock/visibility controls can appear coupled when icon hit-testing is coarse and double-click side effects are not isolated)
 - Problem: user reported lock and eye buttons in the layer row behaved as if linked; toggling one could trigger unintended behavior from the other interaction surface.
 - Core error: row interaction used coarse X-threshold hit logic and did not isolate icon-click flows from layer-row double-click behavior.
-- Investigation: traced row rendering geometry (`lock/eye` rects) against `LayerListMouseDown` hit path and `LayerListDblClick` flow; compared draw constants with click constants and event ordering.
+- Investigation: traced row rendering geometry (`lock/eye` rects) against `LayerListMouseDown` hit path and `LayerListDblClick` flow; compared draw constants with click constants and event ordering; re-checked Lazarus `TCustomListBox` behavior (`GetIndexAtY`/`ItemRect` in `customlistbox.inc`) plus Cocoa widgetset mapping (`cocoatables.pas` `LCLCoordToRow` / `LCLGetItemRect`) for coordinate consistency.
 - Root cause: click handling used `X < constant` buckets instead of exact icon-rect hit tests, and icon clicks could leak into row-level double-click semantics.
-- Fix: introduced shared layer-row icon geometry constants + `LayerRowIconRects(...)`, switched to exact `PtInRect` hit testing for lock/eye, and then removed `LayerListDblClick` visibility mutation entirely so eye toggling exists only on explicit eye-icon clicks; also enlarged icon geometry separation (`16px` icon with wider inter-icon margin) plus a stronger unlocked-state visual accent to reduce both visual ambiguity and accidental adjacent hits.
+- Fix: introduced shared layer-row icon geometry constants + `LayerRowIconRects(...)`, switched to exact `PtInRect` hit testing for lock/eye, removed `LayerListDblClick` visibility mutation entirely so eye toggling exists only on explicit eye-icon clicks, moved row resolve to `GetIndexAtY` (X-independent), cached draw-time icon rects per row and prioritized those for hit-test parity, and added HiDPI fallback hit candidates via `GetCanvasScaleFactor`; also enlarged icon geometry separation (`16px` icon with wider inter-icon margin) plus a stronger unlocked-state visual accent to reduce both visual ambiguity and accidental adjacent hits.
 - Reuse note: for owner-drawn list controls, never duplicate draw geometry in ad hoc click thresholds; reuse one rect source of truth, and do not bind critical state toggles to row-level double-click gestures when icon-level explicit controls already exist.
 - Repeat count: `This issue has occurred 3 time(s)`
 
@@ -2413,3 +2413,39 @@ Based on all findings, the strategy is revised from the previous entry's generic
   3. Added `@2x` asset support for these layer-state icons and regenerated them with the existing normalize pipeline (`scripts/extract_lucide_icons.py --normalize`) instead of raw thumbnail usage.
 - Verification: `bash ./scripts/build.sh` passed; runtime screenshot confirmed lock/eye row icons render without magenta bleed.
 - Lesson (must remember): for UI icon surfaces, never route through transparent-key bitmap caches unless the target control path is explicitly mask-compatible. Default to PNG/alpha (`TPicture`) loading first.
+
+## 2026-03-07 (eraser hover clarity + brush/pencil separation + marquee consistency)
+
+- Trigger: user feedback reported three UX regressions:
+  1. eraser lacked a clear size boundary cue;
+  2. pencil and brush strokes looked too similar;
+  3. ellipse/lasso marquee looked less tidy than rectangle marquee after commit.
+- Fixes:
+  1. Added a dedicated eraser hover overlay (`DrawEraserHoverOverlay`) with solid black + dashed white ring/box for high-contrast eraser radius feedback.
+  2. Separated brush behavior from pencil:
+     - kept pencil hard-edged baseline;
+     - set tool defaults to make brush/eraser visibly distinct (`Brush=72`, `Eraser=88`, `Pencil=100`);
+     - capped brush hardness transfer to render path (`<= 240`) so brush remains slightly soft even at UI 100%.
+  3. Unified marquee styling:
+     - selection preview for ellipse now uses the same dashed white pass style as rectangle/lasso;
+     - committed-selection ants switched to a single dash phase (`X + Y`) with 8-neighbor boundary detection and coverage-threshold edge test (`Coverage >= 128`) to reduce curved-outline jitter.
+- Verification:
+  - `bash ./scripts/build.sh` passed.
+  - `bash ./scripts/run_tests_ci.sh` passed (`N:311 E:0 F:0`).
+- Lesson: do not mix orientation-specific dash phase rules on curved boundaries; a single consistent phase model prevents visual discontinuities between rectangle and non-rectangle selections.
+
+## 2026-03-07 (layer-row icon hit testing drift + eraser hover ring style)
+
+- Trigger: user reported two regressions:
+  1. eraser range marker should be a non-dashed solid ring;
+  2. layer list lock/eye hit regions were still offset and sometimes coupled.
+- Root cause:
+  1. eraser hover used a two-pass black + dashed white outline, which did not match requested behavior;
+  2. layer-row hit testing relied on draw-time cached icon rects plus ad-hoc scale probing. Under Cocoa/Retina this is fragile because draw/event coordinate spaces can drift.
+- Lazarus mechanism check (local source): Cocoa listbox index/rect paths exist and are coordinate-based (`TCocoaWSCustomListBox.GetIndexAtXY/GetItemRect` -> `LCLCoordToRow/LCLGetItemRect` in `lcl/interfaces/cocoa/cocoawsstdctrls.pas` and `cocoatables.pas`). So there is no framework limitation for per-icon hotspots; the issue is our mapping strategy.
+- Fix:
+  1. changed eraser hover to solid, non-dashed outline;
+  2. replaced cached-rect + scale-fallback hit detection with event-time row-rect computation (`TopIndex + ItemHeight` model), then recomputed lock/eye rects from that row rect for deterministic hit testing;
+  3. unified drag row hit lookups to `GetIndexAtY(Y)` for consistency.
+- Verification: `bash ./scripts/build.sh` passed; `bash ./scripts/run_tests_ci.sh` passed (`N:311 E:0 F:0`).
+- Lesson: for owner-draw list controls, use one canonical geometry function from event coordinates (row -> sub-rects) and avoid persisting draw-time hit rectangles across frames/scale contexts.
