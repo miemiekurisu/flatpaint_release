@@ -23,6 +23,8 @@ type
     procedure LayerBlendModePreservedInClone;
     procedure LayerOffsetMetadataPreservedInClone;
     procedure LayerOffsetMetadataPreservedAcrossFullSnapshotUndoRedo;
+    procedure Rotate90ClockwiseRemapsOffsetUsingCanvasAndLayerSize;
+    procedure Rotate90CounterClockwiseRemapsOffsetUsingCanvasAndLayerSize;
     procedure MoveLayerReordersAndTracksActiveLayer;
     procedure BackgroundLayerStaysLockedAtBottom;
     procedure BackgroundLayerEraseAndMovePreserveOpacity;
@@ -377,6 +379,74 @@ begin
     AssertEquals('redo restores changed layer offset x', 11, Document.ActiveLayer.OffsetX);
     AssertEquals('redo restores changed layer offset y', 5, Document.ActiveLayer.OffsetY);
   finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.Rotate90ClockwiseRemapsOffsetUsingCanvasAndLayerSize;
+var
+  Document: TImageDocument;
+  CompositeSurface: TRasterSurface;
+  PixelColor: TRGBA32;
+begin
+  Document := TImageDocument.Create(10, 6);
+  CompositeSurface := nil;
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayerIndex := 1;
+    Document.ActiveLayer.Surface.SetSize(4, 2);
+    Document.ActiveLayer.Surface.Clear(TransparentColor);
+    PixelColor := RGBA(200, 40, 10, 255);
+    Document.ActiveLayer.Surface[0, 0] := PixelColor;
+    Document.ActiveLayer.OffsetX := 3;
+    Document.ActiveLayer.OffsetY := 1;
+
+    Document.Rotate90Clockwise;
+
+    AssertEquals('canvas width swaps on clockwise rotate', 6, Document.Width);
+    AssertEquals('canvas height swaps on clockwise rotate', 10, Document.Height);
+    AssertEquals('clockwise rotate remaps offset x with canvas height and layer height', 3, Document.ActiveLayer.OffsetX);
+    AssertEquals('clockwise rotate remaps offset y from previous offset x', 3, Document.ActiveLayer.OffsetY);
+
+    CompositeSurface := Document.Composite;
+    AssertTrue('clockwise rotate keeps pixel at expected canvas coordinate',
+      RGBAEqual(CompositeSurface[4, 3], PixelColor));
+  finally
+    CompositeSurface.Free;
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.Rotate90CounterClockwiseRemapsOffsetUsingCanvasAndLayerSize;
+var
+  Document: TImageDocument;
+  CompositeSurface: TRasterSurface;
+  PixelColor: TRGBA32;
+begin
+  Document := TImageDocument.Create(10, 6);
+  CompositeSurface := nil;
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayerIndex := 1;
+    Document.ActiveLayer.Surface.SetSize(4, 2);
+    Document.ActiveLayer.Surface.Clear(TransparentColor);
+    PixelColor := RGBA(30, 160, 220, 255);
+    Document.ActiveLayer.Surface[0, 0] := PixelColor;
+    Document.ActiveLayer.OffsetX := 3;
+    Document.ActiveLayer.OffsetY := 1;
+
+    Document.Rotate90CounterClockwise;
+
+    AssertEquals('canvas width swaps on counter-clockwise rotate', 6, Document.Width);
+    AssertEquals('canvas height swaps on counter-clockwise rotate', 10, Document.Height);
+    AssertEquals('counter-clockwise rotate remaps offset x from previous offset y', 1, Document.ActiveLayer.OffsetX);
+    AssertEquals('counter-clockwise rotate remaps offset y with canvas width and layer width', 3, Document.ActiveLayer.OffsetY);
+
+    CompositeSurface := Document.Composite;
+    AssertTrue('counter-clockwise rotate keeps pixel at expected canvas coordinate',
+      RGBAEqual(CompositeSurface[1, 6], PixelColor));
+  finally
+    CompositeSurface.Free;
     Document.Free;
   end;
 end;

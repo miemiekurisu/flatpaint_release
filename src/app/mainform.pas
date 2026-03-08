@@ -10733,6 +10733,8 @@ end;
 procedure TMainForm.DeselectClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
+  if not FDocument.HasSelection then
+    Exit;
   FDocument.PushHistory(LocalizedAction('Deselect'));
   FDocument.Deselect;
   SyncSelectionOverlayUI(True);
@@ -12503,7 +12505,7 @@ begin
   if Assigned(FDocument) and (FDocument.LayerCount > 0) and
      FDocument.ActiveLayer.Locked and
      not (FCurrentTool in [tkZoom, tkPan, tkColorPicker, tkSelectRect,
-       tkSelectEllipse, tkSelectLasso, tkMagicWand]) then
+       tkSelectEllipse, tkSelectLasso, tkMagicWand, tkMoveSelection]) then
     Exit;
   if ShouldCommitPendingStrokeOnMouseDown(HasPendingStrokeHistory) then
     SealPendingStrokeHistory;

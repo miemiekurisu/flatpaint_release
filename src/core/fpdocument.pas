@@ -707,28 +707,29 @@ end;
 procedure TImageDocument.Undo;
 var
   Snapshot: TDocumentSnapshot;
+  RedoSnapshot: TDocumentSnapshot;
   ActionLabel: string;
 begin
   if not CanUndo then
     Exit;
   ActionLabel := UndoActionLabel;
-  { Pop first so we can inspect the kind before allocating the redo entry }
+  { Allocate redo snapshot before mutating stacks to avoid losing undo entry on OOM. }
+  Snapshot := TDocumentSnapshot(FHistory[FHistory.Count - 1]);
+  if Snapshot.Kind = skLayerRegion then
+    RedoSnapshot := TDocumentSnapshot.CreateFromRegion(
+      Self,
+      Snapshot.RegionLayerIndex,
+      Snapshot.DirtyRect,
+      Snapshot.RestoreSelectionState
+    )
+  else
+    RedoSnapshot := TDocumentSnapshot.CreateFromDocument(Self);
+
+  FRedo.Add(RedoSnapshot);
+  FRedoLabels.Add(ActionLabel);
   Snapshot := PopSnapshot(FHistory);
   FHistoryLabels.Delete(FHistoryLabels.Count - 1);
   try
-    { Save current state for redo: region snapshot if undo is region-based }
-    if Snapshot.Kind = skLayerRegion then
-      FRedo.Add(
-        TDocumentSnapshot.CreateFromRegion(
-          Self,
-          Snapshot.RegionLayerIndex,
-          Snapshot.DirtyRect,
-          Snapshot.RestoreSelectionState
-        )
-      )
-    else
-      FRedo.Add(TDocumentSnapshot.CreateFromDocument(Self));
-    FRedoLabels.Add(ActionLabel);
     ApplySnapshot(Snapshot);
   finally
     Snapshot.Free;
@@ -738,27 +739,29 @@ end;
 procedure TImageDocument.Redo;
 var
   Snapshot: TDocumentSnapshot;
+  UndoSnapshot: TDocumentSnapshot;
   ActionLabel: string;
 begin
   if not CanRedo then
     Exit;
   ActionLabel := RedoActionLabel;
+  { Allocate undo snapshot before mutating stacks to avoid losing redo entry on OOM. }
+  Snapshot := TDocumentSnapshot(FRedo[FRedo.Count - 1]);
+  if Snapshot.Kind = skLayerRegion then
+    UndoSnapshot := TDocumentSnapshot.CreateFromRegion(
+      Self,
+      Snapshot.RegionLayerIndex,
+      Snapshot.DirtyRect,
+      Snapshot.RestoreSelectionState
+    )
+  else
+    UndoSnapshot := TDocumentSnapshot.CreateFromDocument(Self);
+
+  FHistory.Add(UndoSnapshot);
+  FHistoryLabels.Add(ActionLabel);
   Snapshot := PopSnapshot(FRedo);
   FRedoLabels.Delete(FRedoLabels.Count - 1);
   try
-    { Save current state for undo: region snapshot if redo is region-based }
-    if Snapshot.Kind = skLayerRegion then
-      FHistory.Add(
-        TDocumentSnapshot.CreateFromRegion(
-          Self,
-          Snapshot.RegionLayerIndex,
-          Snapshot.DirtyRect,
-          Snapshot.RestoreSelectionState
-        )
-      )
-    else
-      FHistory.Add(TDocumentSnapshot.CreateFromDocument(Self));
-    FHistoryLabels.Add(ActionLabel);
     ApplySnapshot(Snapshot);
   finally
     Snapshot.Free;
@@ -1064,22 +1067,26 @@ var
   Layer: TRasterLayer;
   PreviousOffsetX: Integer;
   PreviousOffsetY: Integer;
+  PreviousCanvasWidth: Integer;
+  PreviousCanvasHeight: Integer;
   TempSize: Integer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
+  PreviousCanvasWidth := FWidth;
+  PreviousCanvasHeight := FHeight;
   for LayerIndex := 0 to FLayers.Count - 1 do
   begin
     Layer := Layers[LayerIndex];
     PreviousOffsetX := Layer.OffsetX;
     PreviousOffsetY := Layer.OffsetY;
     Layer.Surface.Rotate90Clockwise;
-    Layer.OffsetX := -PreviousOffsetY;
+    Layer.OffsetX := PreviousCanvasHeight - PreviousOffsetY - Layer.Surface.Width;
     Layer.OffsetY := PreviousOffsetX;
   end;
   FSelection.Rotate90Clockwise;
-  TempSize := FWidth;
-  FWidth := FHeight;
+  TempSize := PreviousCanvasWidth;
+  FWidth := PreviousCanvasHeight;
   FHeight := TempSize;
 end;
 
@@ -1089,10 +1096,14 @@ var
   Layer: TRasterLayer;
   PreviousOffsetX: Integer;
   PreviousOffsetY: Integer;
+  PreviousCanvasWidth: Integer;
+  PreviousCanvasHeight: Integer;
   TempSize: Integer;
 begin
   if not CanMutateDocumentPixels then
     Exit;
+  PreviousCanvasWidth := FWidth;
+  PreviousCanvasHeight := FHeight;
   for LayerIndex := 0 to FLayers.Count - 1 do
   begin
     Layer := Layers[LayerIndex];
@@ -1100,11 +1111,11 @@ begin
     PreviousOffsetY := Layer.OffsetY;
     Layer.Surface.Rotate90CounterClockwise;
     Layer.OffsetX := PreviousOffsetY;
-    Layer.OffsetY := -PreviousOffsetX;
+    Layer.OffsetY := PreviousCanvasWidth - PreviousOffsetX - Layer.Surface.Height;
   end;
   FSelection.Rotate90CounterClockwise;
-  TempSize := FWidth;
-  FWidth := FHeight;
+  TempSize := PreviousCanvasWidth;
+  FWidth := PreviousCanvasHeight;
   FHeight := TempSize;
 end;
 

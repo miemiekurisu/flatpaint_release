@@ -1773,16 +1773,38 @@ procedure TRasterSurface.CopyRegionTo(ADest: TRasterSurface; SrcX, SrcY: Integer
 var
   Row: Integer;
   W: Integer;
+  CopyWidth: Integer;
+  SourceRow: Integer;
+  SourceStartX: Integer;
+  DestStartX: Integer;
 begin
   if ADest = nil then Exit;
   W := ADest.FWidth;
   for Row := 0 to ADest.FHeight - 1 do
   begin
-    if (SrcY + Row < 0) or (SrcY + Row >= FHeight) then Continue;
-    if (SrcX < 0) or (SrcX + W > FWidth) then Continue;
-    Move(FPixels[IndexOf(SrcX, SrcY + Row)],
-         ADest.FPixels[Row * W],
-         W * SizeOf(TRGBA32));
+    SourceRow := SrcY + Row;
+    if (SourceRow < 0) or (SourceRow >= FHeight) then
+      Continue;
+
+    SourceStartX := SrcX;
+    DestStartX := 0;
+    CopyWidth := W;
+    if SourceStartX < 0 then
+    begin
+      DestStartX := -SourceStartX;
+      Dec(CopyWidth, DestStartX);
+      SourceStartX := 0;
+    end;
+    if SourceStartX + CopyWidth > FWidth then
+      CopyWidth := FWidth - SourceStartX;
+    if CopyWidth <= 0 then
+      Continue;
+
+    Move(
+      FPixels[IndexOf(SourceStartX, SourceRow)],
+      ADest.FPixels[Row * W + DestStartX],
+      CopyWidth * SizeOf(TRGBA32)
+    );
   end;
 end;
 
@@ -1792,16 +1814,38 @@ procedure TRasterSurface.OverwriteRegion(ASource: TRasterSurface; DstX, DstY: In
 var
   Row: Integer;
   W: Integer;
+  CopyWidth: Integer;
+  DestRow: Integer;
+  SourceStartX: Integer;
+  DestStartX: Integer;
 begin
   if ASource = nil then Exit;
   W := ASource.FWidth;
   for Row := 0 to ASource.FHeight - 1 do
   begin
-    if (DstY + Row < 0) or (DstY + Row >= FHeight) then Continue;
-    if (DstX < 0) or (DstX + W > FWidth) then Continue;
-    Move(ASource.FPixels[Row * W],
-         FPixels[IndexOf(DstX, DstY + Row)],
-         W * SizeOf(TRGBA32));
+    DestRow := DstY + Row;
+    if (DestRow < 0) or (DestRow >= FHeight) then
+      Continue;
+
+    SourceStartX := 0;
+    DestStartX := DstX;
+    CopyWidth := W;
+    if DestStartX < 0 then
+    begin
+      SourceStartX := -DestStartX;
+      Dec(CopyWidth, SourceStartX);
+      DestStartX := 0;
+    end;
+    if DestStartX + CopyWidth > FWidth then
+      CopyWidth := FWidth - DestStartX;
+    if CopyWidth <= 0 then
+      Continue;
+
+    Move(
+      ASource.FPixels[Row * W + SourceStartX],
+      FPixels[IndexOf(DestStartX, DestRow)],
+      CopyWidth * SizeOf(TRGBA32)
+    );
   end;
 end;
 
@@ -2587,8 +2631,9 @@ var
   BX, BY: Integer;
   BlockStartX, BlockStartY: Integer;
   BlockEndX, BlockEndY: Integer;
-  Count: Integer;
-  SumR, SumG, SumB, SumA: Integer;
+  SumR, SumG, SumB, SumA: Int64;
+  WeightSum: Int64;
+  SampleWeight: Integer;
   AvgColor: TRGBA32;
   ClipLeft, ClipTop, ClipRight, ClipBottom: Integer;
   Cov: Byte;
@@ -2614,22 +2659,31 @@ begin
       BlockStartX := Max(ClipLeft, X);
       BlockEndX := Min(ClipRight, X + BlockSize - 1);
       SumR := 0; SumG := 0; SumB := 0; SumA := 0;
-      Count := 0;
+      WeightSum := 0;
       for BY := BlockStartY to BlockEndY do
         for BX := BlockStartX to BlockEndX do
         begin
-          Inc(SumR, FPixels[IndexOf(BX, BY)].R);
-          Inc(SumG, FPixels[IndexOf(BX, BY)].G);
-          Inc(SumB, FPixels[IndexOf(BX, BY)].B);
-          Inc(SumA, FPixels[IndexOf(BX, BY)].A);
-          Inc(Count);
+          if Assigned(ASelection) then
+          begin
+            SampleWeight := ASelection.Coverage(BX, BY);
+            if SampleWeight = 0 then
+              Continue;
+          end
+          else
+            SampleWeight := 255;
+          Idx := IndexOf(BX, BY);
+          Inc(SumR, FPixels[Idx].R * SampleWeight);
+          Inc(SumG, FPixels[Idx].G * SampleWeight);
+          Inc(SumB, FPixels[Idx].B * SampleWeight);
+          Inc(SumA, FPixels[Idx].A * SampleWeight);
+          Inc(WeightSum, SampleWeight);
         end;
-      if Count > 0 then
+      if WeightSum > 0 then
       begin
-        AvgColor.R := SumR div Count;
-        AvgColor.G := SumG div Count;
-        AvgColor.B := SumB div Count;
-        AvgColor.A := SumA div Count;
+        AvgColor.R := SumR div WeightSum;
+        AvgColor.G := SumG div WeightSum;
+        AvgColor.B := SumB div WeightSum;
+        AvgColor.A := SumA div WeightSum;
         for BY := BlockStartY to BlockEndY do
           for BX := BlockStartX to BlockEndX do
           begin
@@ -2734,10 +2788,11 @@ procedure TRasterSurface.MedianFilter(Radius: Integer);
 var
   Src: array of TRGBA32;
   X, Y, KX, KY: Integer;
-  RVals, GVals, BVals: array[0..24] of Byte;
+  RVals, GVals, BVals, AVals: array[0..24] of Byte;
   Count, Mid: Integer;
   Tmp: Byte;
   I, J: Integer;
+  AlphaVal: Byte;
 begin
   if Radius <= 0 then Exit;
   Radius := Min(Radius, 2); { cap at 2 (5x5 kernel) }
@@ -2755,6 +2810,7 @@ begin
             RVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].R;
             GVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].G;
             BVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].B;
+            AVals[Count] := Src[(Y + KY) * FWidth + (X + KX)].A;
             Inc(Count);
           end;
         end;
@@ -2771,11 +2827,16 @@ begin
         Tmp := BVals[I]; J := I - 1;
         while (J >= 0) and (BVals[J] > Tmp) do begin BVals[J + 1] := BVals[J]; Dec(J); end;
         BVals[J + 1] := Tmp;
+        Tmp := AVals[I]; J := I - 1;
+        while (J >= 0) and (AVals[J] > Tmp) do begin AVals[J + 1] := AVals[J]; Dec(J); end;
+        AVals[J + 1] := Tmp;
       end;
       Mid := Count div 2;
-      FPixels[Y * FWidth + X].R := RVals[Mid];
-      FPixels[Y * FWidth + X].G := GVals[Mid];
-      FPixels[Y * FWidth + X].B := BVals[Mid];
+      AlphaVal := AVals[Mid];
+      FPixels[Y * FWidth + X].A := AlphaVal;
+      FPixels[Y * FWidth + X].R := Min(RVals[Mid], AlphaVal);
+      FPixels[Y * FWidth + X].G := Min(GVals[Mid], AlphaVal);
+      FPixels[Y * FWidth + X].B := Min(BVals[Mid], AlphaVal);
     end;
 end;
 

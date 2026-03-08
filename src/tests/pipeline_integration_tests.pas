@@ -33,7 +33,7 @@ type
     procedure DrawingWithMoveChangesPixels;
     procedure LineDragCommitsPixels;
     procedure LineDashedStyleCommitsVisibleGapPattern;
-    procedure LineDragIgnoresExistingSelectionMask;
+    procedure LineDragClipsToSelectionMask;
     procedure RectangleDragCommitsPixels;
     procedure EllipseDragCommitsPixels;
     procedure OffsetLayerLineDragCommitsPixelsAtLayerLocalPosition;
@@ -49,9 +49,10 @@ type
     procedure FillToolPushesHistoryOnMouseDown;
     procedure LockedLayerBlocksPencilStrokeAtMainFormEdge;
     procedure LockedLayerBlocksFillToolAtMainFormEdge;
+    procedure LockedLayerAllowsMoveSelectionAtMainFormEdge;
     procedure ClickingOutsideSelectionAutoDeselects;
     procedure ToolbarSwitchFromSelectionToFillKeepsSelection;
-    procedure SwitchingFromSelectionToBrushAutoDeselectsSelection;
+    procedure SwitchingFromSelectionToBrushPreservesSelection;
     procedure SwitchingWithinSelectionFamilyKeepsSelection;
     procedure AddLayerPushesHistory;
     procedure MultipleStrokesIncrementHistory;
@@ -334,7 +335,7 @@ begin
   end;
 end;
 
-procedure TPipelineIntegrationTests.LineDragIgnoresExistingSelectionMask;
+procedure TPipelineIntegrationTests.LineDragClipsToSelectionMask;
 var
   F: TMainForm;
   BeforeMid: TRGBA32;
@@ -727,6 +728,28 @@ begin
   end;
 end;
 
+procedure TPipelineIntegrationTests.LockedLayerAllowsMoveSelectionAtMainFormEdge;
+var
+  F: TMainForm;
+begin
+  F := CreateTestForm(tkMoveSelection);
+  try
+    F.TestDocument.SelectRectangle(10, 10, 20, 20, scReplace);
+    AssertTrue('selection should exist before move', F.TestDocument.HasSelection);
+    AssertEquals('old center coverage should start selected', 255, F.TestDocument.Selection.Coverage(12, 12));
+
+    F.TestDocument.ActiveLayer.Locked := True;
+    F.SimulateMouseDown(mbLeft, [ssLeft], 15, 15);
+    F.SimulateMouseMove([ssLeft], 18, 17); { +3, +2 }
+    F.SimulateMouseUp(mbLeft, [], 18, 17);
+
+    AssertEquals('old center should be cleared after move', 0, F.TestDocument.Selection.Coverage(12, 12));
+    AssertEquals('new translated center should be selected', 255, F.TestDocument.Selection.Coverage(15, 14));
+  finally
+    F.Destroy;
+  end;
+end;
+
 procedure TPipelineIntegrationTests.ClickingOutsideSelectionAutoDeselects;
 { Clicking outside an existing selection should deselect the old selection
   and immediately begin a new selection drag — the user should not need
@@ -777,7 +800,7 @@ begin
   end;
 end;
 
-procedure TPipelineIntegrationTests.SwitchingFromSelectionToBrushAutoDeselectsSelection;
+procedure TPipelineIntegrationTests.SwitchingFromSelectionToBrushPreservesSelection;
 var
   F: TMainForm;
 begin

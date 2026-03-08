@@ -52,9 +52,13 @@ type
     procedure CubicBezierUsesBothControlHandles;
     procedure MotionBlurChangesPixels;
     procedure MedianFilterReducesNoise;
+    procedure MedianFilterUpdatesAlphaAndKeepsPremulInvariant;
     procedure OilPaintChangesPixels;
     procedure FrostedGlassDisplacesPixels;
     procedure ZoomBlurSmearsCentreBrightness;
+    procedure CopyRegionToClipsPartiallyOutOfBoundsSource;
+    procedure OverwriteRegionClipsPartiallyOutOfBoundsDestination;
+    procedure PixelateRectSelectionAveragesOnlySelectedPixels;
     procedure RadialGradientFadesFromCenter;
     procedure UnfocusSoftensSingleBrightPixel;
     procedure SurfaceBlurKeepsHardEdgeFromBleeding;
@@ -1015,27 +1019,54 @@ begin
   end;
 end;
 
-procedure TFPSurfaceTests.OilPaintChangesPixels;
-{ OilPaint samples neighbours to produce a mode-based smoothing; the output
-  should differ from the input on a non-uniform surface. }
+procedure TFPSurfaceTests.MedianFilterUpdatesAlphaAndKeepsPremulInvariant;
 var
   Surface: TRasterSurface;
+begin
+  Surface := TRasterSurface.Create(3, 3);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 0));
+    Surface[1, 1] := RGBA(255, 255, 255, 255);
+
+    Surface.MedianFilter(1);
+
+    AssertEquals('median alpha should follow neighborhood median', 0, Surface[1, 1].A);
+    AssertTrue('premultiplied invariant requires red <= alpha', Surface[1, 1].R <= Surface[1, 1].A);
+    AssertTrue('premultiplied invariant requires green <= alpha', Surface[1, 1].G <= Surface[1, 1].A);
+    AssertTrue('premultiplied invariant requires blue <= alpha', Surface[1, 1].B <= Surface[1, 1].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.OilPaintChangesPixels;
+var
+  Surface: TRasterSurface;
+  Before: TRasterSurface;
   X: Integer;
-  BeforeR: Byte;
+  Y: Integer;
+  Changed: Boolean;
 begin
   Surface := TRasterSurface.Create(20, 20);
+  Before := nil;
   try
-    { Fill with alternating stripes so neighbourhoods are non-uniform }
-    for X := 0 to 19 do
-      Surface[X, 10] := RGBA(Byte(X * 12), Byte(255 - X * 12), 0, 255);
-    BeforeR := Surface[10, 10].R;
+    for Y := 0 to 19 do
+      for X := 0 to 19 do
+        Surface[X, Y] := RGBA(Byte((X * 13 + Y * 7) and $FF), Byte((X * 3 + Y * 11) and $FF), Byte((X * 17 + Y * 5) and $FF), 255);
+    Before := Surface.Clone;
     Surface.OilPaint(2);
-    { The result may or may not change the centre stripe, but should preserve
-      a valid opaque pixel and not crash. }
+    Changed := False;
+    for Y := 0 to 19 do
+      for X := 0 to 19 do
+        if not RGBAEqual(Surface[X, Y], Before[X, Y]) then
+        begin
+          Changed := True;
+          Break;
+        end;
+    AssertTrue('oil paint should change at least one pixel on textured input', Changed);
     AssertEquals('OilPaint keeps the centre pixel opaque', 255, Surface[10, 10].A);
-    { suppress unused-warning hint }
-    if BeforeR = 0 then ;
   finally
+    Before.Free;
     Surface.Free;
   end;
 end;
@@ -1072,22 +1103,105 @@ begin
 end;
 
 procedure TFPSurfaceTests.ZoomBlurSmearsCentreBrightness;
-{ ZoomBlur averages samples at increasing scale; a bright centre on a dark
-  background should propagate outward – pixel near edge should brighten. }
 var
   Surface: TRasterSurface;
-  BeforeEdge, AfterEdge: Byte;
+  X, Y: Integer;
+  BeforeSample, AfterSample: TRGBA32;
 begin
   Surface := TRasterSurface.Create(30, 30);
   try
-    Surface.Clear(RGBA(0, 0, 0, 255));
-    { Bright centre }
-    Surface[15, 15] := RGBA(255, 255, 255, 255);
-    BeforeEdge := Surface[20, 15].R;
+    for Y := 0 to 29 do
+      for X := 0 to 29 do
+        Surface[X, Y] := RGBA(Byte((X * 8) and $FF), 120, 0, 255);
+    BeforeSample := Surface[20, 15];
     Surface.ZoomBlur(15, 15, 6);
-    AfterEdge := Surface[20, 15].R;
-    AssertTrue('zoom blur should spread brightness outward', AfterEdge >= BeforeEdge);
+    AfterSample := Surface[20, 15];
+    AssertFalse('zoom blur should alter off-center gradient sample',
+      RGBAEqual(AfterSample, BeforeSample));
   finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.CopyRegionToClipsPartiallyOutOfBoundsSource;
+var
+  Source: TRasterSurface;
+  Dest: TRasterSurface;
+begin
+  Source := TRasterSurface.Create(4, 2);
+  Dest := TRasterSurface.Create(3, 2);
+  try
+    Source.Clear(TransparentColor);
+    Dest.Clear(TransparentColor);
+    Source[0, 0] := RGBA(10, 0, 0, 255);
+    Source[1, 0] := RGBA(20, 0, 0, 255);
+
+    Source.CopyRegionTo(Dest, -1, 0);
+
+    AssertEquals('out-of-bounds sample keeps destination transparent', 0, Dest[0, 0].A);
+    AssertTrue('dest x=1 should copy source x=0',
+      RGBAEqual(Dest[1, 0], Source[0, 0]));
+    AssertTrue('dest x=2 should copy source x=1',
+      RGBAEqual(Dest[2, 0], Source[1, 0]));
+  finally
+    Dest.Free;
+    Source.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.OverwriteRegionClipsPartiallyOutOfBoundsDestination;
+var
+  Source: TRasterSurface;
+  Dest: TRasterSurface;
+begin
+  Source := TRasterSurface.Create(3, 1);
+  Dest := TRasterSurface.Create(4, 1);
+  try
+    Source[0, 0] := RGBA(11, 0, 0, 255);
+    Source[1, 0] := RGBA(22, 0, 0, 255);
+    Source[2, 0] := RGBA(33, 0, 0, 255);
+    Dest.Clear(TransparentColor);
+
+    Dest.OverwriteRegion(Source, -1, 0);
+
+    AssertTrue('dest x=0 should receive source x=1',
+      RGBAEqual(Dest[0, 0], Source[1, 0]));
+    AssertTrue('dest x=1 should receive source x=2',
+      RGBAEqual(Dest[1, 0], Source[2, 0]));
+    AssertEquals('dest x=2 should remain unchanged', 0, Dest[2, 0].A);
+  finally
+    Dest.Free;
+    Source.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.PixelateRectSelectionAveragesOnlySelectedPixels;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+  SelectedColor: TRGBA32;
+  UnselectedColor: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(2, 2);
+  Selection := TSelectionMask.Create(2, 2);
+  try
+    SelectedColor := RGBA(255, 0, 0, 255);
+    UnselectedColor := RGBA(0, 0, 255, 255);
+    Surface[0, 0] := SelectedColor;
+    Surface[1, 0] := UnselectedColor;
+    Surface[0, 1] := UnselectedColor;
+    Surface[1, 1] := UnselectedColor;
+
+    Selection.Clear;
+    Selection.SetCoverage(0, 0, 255);
+    Surface.PixelateRect(0, 0, 1, 1, 2, Selection);
+
+    AssertTrue('selected pixel should average from selected samples only',
+      RGBAEqual(Surface[0, 0], SelectedColor));
+    AssertTrue('unselected pixel should remain unchanged',
+      RGBAEqual(Surface[1, 0], UnselectedColor));
+  finally
+    Selection.Free;
     Surface.Free;
   end;
 end;
