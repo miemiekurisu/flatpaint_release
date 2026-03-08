@@ -1,0 +1,8 @@
+This library is licensed under:
+
+- GNU Lesser General Public License (LGPL), version 2.1 or later
+- with the Lazarus modified linking exception
+
+See bundled license texts in this folder:
+- `COPYING.LGPL.txt`
+- `COPYING.modifiedLGPL.txt`
