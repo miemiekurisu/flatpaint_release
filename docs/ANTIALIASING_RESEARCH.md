@@ -4,7 +4,22 @@
 
 This document consolidates all anti-aliasing and graphics acceleration research for FlatPaint on macOS / Apple Silicon. It is the single source of truth for AA implementation strategy decisions.
 
-Last updated: 2026-03-07
+Last updated: 2026-03-08
+
+---
+
+## 0. Implementation Status
+
+**All P0 items are now implemented and test-passing (327 tests, 0 failures).**
+
+| P0 Item | Status | Delivered In |
+|---|---|---|
+| Premultiplied alpha migration | **Done** | `fpcolor.pas`, `fpsurface.pas`, `fpdocument.pas`, `fpio.pas`, `fpnativeio.pas`, `fplclbridge.pas` |
+| SDF edge AA (pure Pascal) | **Done** | `fpsurface.pas` (DrawEllipse, DrawRoundedRectangle, FillPolygon), `fpselection.pas` (SelectEllipse, SelectPolygon) |
+| Core Graphics offscreen bridge | **Done** | `src/native/fp_cgrender.m`, `src/app/fpcgrenderbridge.pas`, `scripts/common.sh` |
+| Retina display DPI matching | **Done** | `fp_appearance.m` (FPGetScreenBackingScale, FPSetInterpolationQuality), `mainform.pas` |
+
+See §7 for implementation details.
 
 ---
 
@@ -15,15 +30,16 @@ FlatPaint uses a completely hand-rolled, pure-Pascal software rasterizer (`TRast
 | Dimension | Current State | Gap |
 |---|---|---|
 | Line drawing | Bresenham integer stepping (`fpsurface.pas`) | No sub-pixel precision, hard staircase edges |
-| Shape edges | Binary inside/outside test | Ellipse/rect edges are aliased |
-| Selection AA | `FSelAntiAlias` UI toggle exists but not wired to core | Selection masks write only 0 or 255 |
-| Pixel format | TRGBA32 = BGRA 8-bit/channel, straight alpha | No higher-precision intermediate; CG/vImage require premultiplied |
-| Compositing | 8-bit integer `div 255` | Cumulative rounding errors on many layers |
+| Shape edges | **SDF AA** — `SDFCoverage(d)` 1px smooth transition | ~~Aliased~~ **Resolved** for ellipse, rounded rect, polygon |
+| Selection AA | **SDF fractional coverage** in SelectEllipse/SelectPolygon | ~~Binary 0/255~~ **Resolved** — edge pixels get 0-255 coverage |
+| Pixel format | TRGBA32 = BGRA 8-bit/channel, **premultiplied alpha** | ~~Straight alpha~~ **Migrated** — CG/vImage compatible |
+| Compositing | 8-bit integer `div 255`, premultiplied source-over | Cumulative rounding errors on many layers |
 | Brush positioning | Integer coordinates throughout | No sub-pixel brush offset |
-| Hardware accel | None — pure CPU scalar Pascal | NEON/Metal/Accelerate all unused |
-| Canvas scaling | LCL `StretchDraw` | OS-dependent interpolation quality |
-| Display pipeline | `TRasterSurface` → `CopySurfaceToBitmap` (TRawImage BGRA32) → `TCanvas.StretchDraw` | Single StretchDraw, no GPU compositing |
-| Cocoa bridge | 4 small ObjC files (pinch-zoom, appearance, alpha, list background) via `{$LINK}` | Proven pattern for Apple framework integration |
+| Hardware accel | CG bridge available for AA shapes/paths | NEON/Metal/Accelerate unused for pixel ops |
+| Canvas scaling | LCL `StretchDraw` with **CG high-quality interpolation** | ~~OS-dependent~~ **Resolved** — explicit quality control |
+| Display pipeline | `TRasterSurface` → `CopySurfaceToBitmap` → `StretchDraw` | Single StretchDraw, no GPU compositing |
+| Display DPI | **Retina-aware**: default doc size × backingScale, `FPSetInterpolationQuality(3)` | ~~No DPI awareness~~ **Resolved** |
+| Cocoa bridge | **6** ObjC files (pinch-zoom, appearance, alpha, list bg, scroll, **CG render**) | Proven pattern for Apple framework integration |
 
 ---
 
@@ -230,16 +246,17 @@ Multiple mechanisms available:
 
 ### 5.1 Recommended approach hierarchy
 
-| Priority | Approach | What | Why | FPC Integration |
-|---|---|---|---|---|
-| **P0** | **Core Graphics offscreen** | AA for shape/line/selection stroke rendering | Complete FPC CG headers; zero deps; Apple Silicon HW-accelerated | `uses MacOSAll` + `CGBitmapContextCreate` over `TRasterSurface.Pixels` |
-| **P0** | **SDF edge AA (pure Pascal)** | AA for filled shapes and selection masks | No dependency; works in core layer; cross-platform | Pure math in `fpsurface.pas` |
-| **P1** | **vImage via C bridge** | Box blur, Gaussian blur, image resize | 10-30× speedup on Apple Silicon; plain C API | `fp_accelerate.c` bridge or manual Pascal `external` declarations |
-| **P1** | **CG display overlay** | Selection marching ants, tool preview outlines with AA | Access `TCocoaContext.CGContext` during `Paint` | `uses CocoaGDIObjects, MacOSAll` in mainform |
-| **P2** | **vDSP convolution** | Sharpen, emboss, custom kernel effects | FPC `vDSP` unit already available; HW-optimized | `uses vDSP` directly |
-| **P2** | **Premultiplied alpha refactor** | Better compositing precision; removes CG boundary conversion | GIMP/Krita use premultiplied; aligns with CG, vImage, Metal | Modify `fpcolor.pas` + `fpdocument.pas` |
-| **P3** | **Metal viewport display** | Replace StretchDraw with MTKView texture blit | Instant viewport quality/FPS improvement | ObjC bridge (`fp_metal_display.m`) |
-| **P4** | **Metal compute shaders** | Layer compositing, large-image filters | Highest performance ceiling | ObjC bridge + .metallib |
+| Priority | Approach | What | Why | FPC Integration | Status |
+|---|---|---|---|---|---|
+| **P0** | **Core Graphics offscreen** | AA for shape/line/selection stroke rendering | Complete FPC CG headers; zero deps; Apple Silicon HW-accelerated | `fp_cgrender.m` bridge + `fpcgrenderbridge.pas` | **Done** |
+| **P0** | **SDF edge AA (pure Pascal)** | AA for filled shapes and selection masks | No dependency; works in core layer; cross-platform | `SDFCoverage`, `EllipseSDF`, `RoundedRectSDF` in `fpsurface.pas` + `fpselection.pas` | **Done** |
+| **P0** | **Premultiplied alpha migration** | Better compositing precision; removes CG boundary conversion | GIMP/Krita use premultiplied; aligns with CG, vImage, Metal | `fpcolor.pas` + all I/O boundaries + 26 filters + compositor | **Done** |
+| **P0** | **Retina DPI matching** | Default doc size × backingScale + high-quality StretchDraw | Crisp rendering on HiDPI displays | `FPGetScreenBackingScale` + `FPSetInterpolationQuality` | **Done** |
+| **P1** | **vImage via C bridge** | Box blur, Gaussian blur, image resize | 10-30× speedup on Apple Silicon; plain C API | `fp_accelerate.c` bridge or manual Pascal `external` declarations | Open |
+| **P1** | **CG display overlay** | Selection marching ants, tool preview outlines with AA | Access `TCocoaContext.CGContext` during `Paint` | `uses CocoaGDIObjects, MacOSAll` in mainform | Open |
+| **P2** | **vDSP convolution** | Sharpen, emboss, custom kernel effects | FPC `vDSP` unit already available; HW-optimized | `uses vDSP` directly | Open |
+| **P3** | **Metal viewport display** | Replace StretchDraw with MTKView texture blit | Instant viewport quality/FPS improvement | ObjC bridge (`fp_metal_display.m`) | Open |
+| **P4** | **Metal compute shaders** | Layer compositing, large-image filters | Highest performance ceiling | ObjC bridge + .metallib | Open |
 
 ### 5.2 Key strategic decisions
 
@@ -306,3 +323,125 @@ xcrun -sdk macosx metal -O2 \
 ### 6.8 Testing strategy
 
 The `{$IFDEF TESTING}` pattern in existing bridge units provides no-op stubs for headless test builds. New bridges follow the same pattern. Core model tests remain unaffected; only performance and visual quality change.
+
+### 6.9 8-bit premultiplied alpha precision limits
+
+Premultiply/unpremultiply round-trip on 8-bit channels has inherent quantization error. At `A >= 128`, error stays within ±1 per channel. At low alpha (`A < 128`), error grows because the premultiplied value loses significant bits (e.g., `A=1`: `(51*1+127)/255 = 0`, unpremultiply cannot recover 51). GIMP and Krita have the same limit — they mitigate it by using 32-bit float internally. FlatPaint accepts ±1 tolerance at `A >= 128` and documents the low-alpha precision loss as a known limitation of 8-bit premultiplied storage.
+
+### 6.10 Retina display pipeline interaction
+
+The SDF AA operates at document-pixel resolution. On Retina displays (2× backingScale), the display pipeline (`StretchDraw`) upscales the document bitmap. Without high-quality interpolation, this upscale uses nearest-neighbor, which visually amplifies aliasing even when document-level AA is correct. The fix is two-fold:
+1. Scale default document dimensions by `FPGetScreenBackingScale` so that more physical pixels are available for AA fringe.
+2. Set `FPSetInterpolationQuality(3)` (CG high) before `StretchDraw` when zoom ≤ 1.0, so the OS uses high-quality bicubic interpolation for the upscale. At zoom > 1.0, nearest-neighbor (`quality=0`) preserves pixel crispness for editing.
+
+---
+
+## 7. Implementation Details
+
+### 7.1 Premultiplied alpha migration
+
+**Core helpers** (`fpcolor.pas`):
+- `Premultiply(C)`: `Channel_out = (Channel * A + 127) div 255`. The `+127` provides proper rounding. `A=0` → all zeros. `A=255` → identity.
+- `Unpremultiply(C)`: `Channel_out = (Channel * 255 + A div 2) div A`. The `+A/2` provides proper rounding. `A=0` → all zeros.
+- `RGBA_Premul(R, G, B, A)`: Convenience constructor returning premultiplied pixel directly.
+- `BlendNormal(Src, Dst)`: Rewritten for premultiplied source-over Porter-Duff: `Out.R = Src.R + Dst.R * (255 - Src.A) div 255`.
+
+**Surface layer** (`fpsurface.pas`):
+- `BlendPixel(X, Y, Color, Opacity)`: Gateway that premultiplies the incoming straight-alpha color, then calls `BlendNormal`. Tool code continues passing familiar `RGBA(R,G,B,A)` paint colors.
+- `BlendPixelPremul(X, Y, PremulColor, Opacity)`: Skips premultiply step. Used by `Composite` and `PasteSurface` where source pixels are already premultiplied.
+- `PremultiplyAlpha` / `UnpremultiplyAlpha`: Bulk in-place conversion methods for entire surface.
+- `RawPixels: Pointer`: Exposes `@FPixels[0]` for CG buffer sharing.
+
+**I/O boundaries**:
+- `fpio.pas`: Premultiply on load (after `RGBA(R shr 8, ...)`), unpremultiply on save (before `WriteToFPImage`).
+- `fpnativeio.pas`: Premultiply after `ReadBuffer(Pixel)`, unpremultiply before `WriteBuffer`. `.fpd` format stays straight alpha for backward compat.
+- `fplclbridge.pas`: `CopySurfaceToBitmap` unpremultiplies for LCL display. `BitmapToSurface` premultiplies on import. `TransparentizeSurface` zeros all channels (not just alpha).
+
+**Erase operations**: Scale all RGBA channels uniformly by `(255 - Opacity) / 255` instead of modifying only `.A`. Applies to `EraseBrush`, `EraseSquareBrush`, `EraseSelection`, `CopySelection`.
+
+**Compositor** (`fpdocument.pas`): Normal path uses `BlendPixelPremul`. Non-normal blend modes (Multiply, Screen, Overlay, etc.) unpremultiply Src/Dst before formula, re-premultiply result.
+
+**Filters**: Spatial averaging filters (blur, pixelate, resize) work correctly on premultiplied data as-is (no dark halo fringing). Color-space filters (levels, curves, HSV, sepia, etc.) unpremultiply before formula, re-premultiply after. `InvertColors` uses `A - Channel` instead of `255 - Channel`.
+
+### 7.2 SDF edge anti-aliasing
+
+**Helper functions** (in `fpsurface.pas` and `fpselection.pas` implementation sections):
+
+```pascal
+function SDFCoverage(DistPixels: Double): Byte; inline;
+// clamp(d + 0.5, 0, 1) * 255 — 1px-wide linear ramp
+// Positive distance = inside shape, negative = outside
+
+function EllipseSDF(PX, PY, CX, CY, RX, RY: Double): Double; inline;
+// Approximate signed distance to ellipse boundary
+// Uses gradient-corrected normalized distance: (1 - NLen) * MinR * correction
+
+function RoundedRectSDF(PX, PY, Left, Top, Right, Bottom, Radius: Double): Double;
+// SDF for rounded rectangle using half-extents and corner radius
+
+function DistToSegment(PX, PY, AX, AY, BX, BY: Double): Double;
+// Unsigned distance from point to line segment (for polygon edge AA)
+
+function PointInsidePolygon(Points, X, Y): Boolean;
+// Ray-casting even-odd rule (duplicated in fpsurface.pas for dependency isolation)
+```
+
+**DrawEllipse**: Replaced binary `NX²+NY²≤1` test with `EllipseSDF` → `SDFCoverage`. Iteration bounds expanded by ±1 pixel for AA fringe. Both filled and stroked paths use SDF coverage.
+
+**DrawRoundedRectangle**: Replaced binary `InsideRoundedRect` with `RoundedRectSDF` → `SDFCoverage`. Stroke uses outer-inner SDF coverage difference.
+
+**FillPolygon**: Keeps scanline intersection fill for interior efficiency. Edge pixels (first/last in each span ±1) compute `DistToSegment` to nearest polygon edge and apply `SDFCoverage`.
+
+**SelectEllipse**: Produces fractional 0-255 coverage instead of binary 0/255. `scAdd` mode takes max of existing and new coverage. `scSubtract` mode subtracts coverage.
+
+**SelectPolygon**: Replaced Bresenham `RasterizeEdge` with SDF approach: for each pixel in expanded bounds, runs `PointInsidePolygon` + `DistToSegment` to all edges → signed distance → `SDFCoverage`.
+
+Note: SDF helpers are duplicated between `fpsurface.pas` and `fpselection.pas` for dependency isolation — `fpselection.pas` does not use `fpsurface`.
+
+### 7.3 Core Graphics offscreen bridge
+
+**Native module** (`src/native/fp_cgrender.m`):
+Five C-linkage entry points that create `CGBitmapContext` over a raw pixel buffer and render AA shapes:
+- `FPCGRenderFilledEllipse` — filled ellipse
+- `FPCGRenderStrokedEllipse` — stroked ellipse with configurable line width
+- `FPCGRenderFilledPath` — filled polygon (interleaved `double` point array)
+- `FPCGRenderStrokedBezier` — cubic Bezier curve with stroke width
+- `FPCGRenderStrokedPath` — stroked polyline (open or closed)
+
+Pixel format: `kCGImageAlphaPremultipliedFirst | kCGBitmapByteOrder32Little` = BGRA premultiplied, matching `TRGBA32` layout exactly after premul migration. CG y-axis flipped with `CGContextTranslateCTM / CGContextScaleCTM`.
+
+**Pascal bridge** (`src/app/fpcgrenderbridge.pas`):
+Follows established pattern: `{$LINKLIB objc}`, `{$IFDEF TESTING}` no-op stubs, `{$ELSE}` external cdecl + `{$LINK fp_cgrender.o}`.
+
+**Build integration** (`scripts/common.sh`):
+Added `fp_cgrender.m` compilation to `compile_native_modules()` with `-framework CoreGraphics`.
+
+**Usage strategy**: SDF AA is the default for filled shapes (pure, testable, fast). CG bridge is available for stroked Bezier curves and complex multi-vertex paths where hardware AA is advantageous.
+
+### 7.4 Retina display DPI matching
+
+**Native functions** (added to `fp_appearance.m` / `fpappearancebridge.pas`):
+- `FPGetScreenBackingScale`: Returns `NSScreen.mainScreen.backingScaleFactor` (2.0 on Retina, 1.0 on non-Retina).
+- `FPSetInterpolationQuality(quality)`: Sets `CGContextSetInterpolationQuality` on the current `NSGraphicsContext`. 0=none, 1=low, 2=medium, 3=high.
+
+**Application integration** (`mainform.pas`):
+- `FScreenBackingScale := Max(1, Round(FPGetScreenBackingScale))` at startup.
+- Default document size: `1024 × FScreenBackingScale` by `768 × FScreenBackingScale` (2048×1536 on Retina).
+- `PaintCanvasTo`: Calls `FPSetInterpolationQuality(3)` for zoom ≤ 1.0 (high-quality downscale/upscale), `FPSetInterpolationQuality(0)` for zoom > 1.0 (nearest-neighbor for pixel crispness).
+
+### 7.5 First-launch canvas centering fix
+
+**Problem**: `FCenterOnNextCanvasUpdate` was consumed during `UpdateCanvasSize` before LCL deferred layout passes completed, so the canvas centered on pre-layout viewport dimensions.
+
+**Fix** (`mainform.pas`): In `AppIdle`, after all deferred layout passes complete (`FDeferredLayoutPass = False`), re-trigger `FitDocumentToViewport(True)` + `FCenterOnNextCanvasUpdate := True` + `UpdateCanvasSize`. This ensures centering uses final post-layout viewport dimensions.
+
+### 7.6 Test coverage
+
+16 new tests in `src/tests/fpcolor_premul_tests.pas`:
+- Premultiply/Unpremultiply correctness (opaque, transparent, half-alpha, round-trip)
+- BlendNormal premultiplied source-over (opaque, transparent, partial alpha)
+- SDF AA shape rendering (ellipse interior/exterior/edge, rounded rect edge, polygon edge)
+- Selection SDF coverage (ellipse, polygon)
+- ResizeBilinear no-dark-halo on transparent border (premultiplied fringing regression)
+
+Total test count: 327 tests, 0 failures.

@@ -4,6 +4,55 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (Anti-aliasing module: premultiplied alpha migration + SDF edge AA + CG bridge + Retina DPI)
+
+### Changes
+
+1. **Migrated entire pixel pipeline to premultiplied alpha** (`fpcolor.pas`, `fpsurface.pas`, `fpdocument.pas`, `fpio.pas`, `fpnativeio.pas`, `fplclbridge.pas`):
+   - Added `Premultiply`, `Unpremultiply`, `RGBA_Premul` helpers with correct rounding.
+   - Rewrote `BlendNormal` for premultiplied Porter-Duff source-over.
+   - Added `BlendPixel` (auto-premultiplies) and `BlendPixelPremul` (skips premultiply) gateways.
+   - Added bulk `PremultiplyAlpha` / `UnpremultiplyAlpha` and `RawPixels` property for CG buffer sharing.
+   - Updated all I/O boundaries: premultiply on load, unpremultiply on save. `.fpd` format stays straight alpha for backward compat.
+   - Updated all erase operations to scale all RGBA channels uniformly.
+   - Updated compositor to use `BlendPixelPremul` for normal mode, unpremultiply-before-formula for non-normal blend modes.
+   - Updated 26+ filters with appropriate premul handling (spatial filters unchanged, color-space filters unpremultiply-before/re-premultiply-after).
+
+2. **Implemented SDF edge anti-aliasing for filled shapes and selections** (`fpsurface.pas`, `fpselection.pas`):
+   - Added `SDFCoverage`, `EllipseSDF`, `RoundedRectSDF`, `DistToSegment`, `PointInsidePolygon` helper functions.
+   - Rewrote `DrawEllipse` (filled + stroked), `DrawRoundedRectangle`, `FillPolygon` with 1px smooth SDF coverage transitions.
+   - Rewrote `SelectEllipse` and `SelectPolygon` to produce fractional 0-255 coverage instead of binary 0/255.
+   - Algorithm reference: GIMP `gimp-gegl-mask-combine.cc` SDF approach (architecture reference only, original implementation).
+
+3. **Created Core Graphics offscreen rendering bridge** (`src/native/fp_cgrender.m`, `src/app/fpcgrenderbridge.pas`, `scripts/common.sh`):
+   - 5 CG rendering entry points: filled/stroked ellipse, filled path, stroked Bezier, stroked polyline.
+   - `CGBitmapContext` directly over `TRasterSurface` pixel buffer (zero-copy, enabled by premul migration).
+   - Build system integration in `compile_native_modules()`.
+   - `{$IFDEF TESTING}` no-op stubs for headless test builds.
+
+4. **Added Retina display DPI matching** (`fp_appearance.m`, `fpappearancebridge.pas`, `mainform.pas`):
+   - `FPGetScreenBackingScale`: returns `NSScreen.mainScreen.backingScaleFactor`.
+   - `FPSetInterpolationQuality`: sets `CGContextSetInterpolationQuality` on current graphics context.
+   - Default document size scaled by backing factor (2048×1536 on Retina).
+   - `PaintCanvasTo` sets CG high-quality interpolation for zoom ≤ 1.0, nearest-neighbor for zoom > 1.0.
+
+5. **Fixed first-launch canvas centering race condition** (`mainform.pas`):
+   - Root cause: `FCenterOnNextCanvasUpdate` consumed before LCL deferred layout passes completed.
+   - Fix: re-trigger `FitDocumentToViewport(True)` + centering after deferred layout completes in `AppIdle`.
+
+6. **Added 16 new tests** (`src/tests/fpcolor_premul_tests.pas`):
+   - Premultiplied alpha round-trip, BlendNormal correctness, SDF shape AA verification, selection coverage, resize no-halo regression.
+
+7. **Updated architecture documentation** (`docs/ANTIALIASING_RESEARCH.md`):
+   - Added §0 Implementation Status, updated §1/§5.1 with resolved status, added §6.9-6.10 + §7 implementation details.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `327` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-07 (Retina icon rendering compliance pass: keep point-size, raise pixel density)
 
 ### Changes

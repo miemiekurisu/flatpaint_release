@@ -43,7 +43,7 @@ begin
   for Y := 0 to ASurface.Height - 1 do
     for X := 0 to ASurface.Width - 1 do
     begin
-      PixelPtr^ := ASurface[X, Y];
+      PixelPtr^ := Unpremultiply(ASurface[X, Y]);
       Inc(PixelPtr);
     end;
   RawImage.Data := Buffer;
@@ -68,7 +68,7 @@ begin
   Result := TRasterSurface.Create(Max(1, ABitmap.Width), Max(1, ABitmap.Height));
   for Y := 0 to ABitmap.Height - 1 do
     for X := 0 to ABitmap.Width - 1 do
-      Result[X, Y] := IntColorToRGBA(ColorToRGB(ABitmap.Canvas.Pixels[X, Y]), 255);
+      Result[X, Y] := Premultiply(IntColorToRGBA(ColorToRGB(ABitmap.Canvas.Pixels[X, Y]), 255));
 end;
 
 procedure TransparentizeSurface(ASurface: TRasterSurface; ABackgroundColor: TRGBA32; Tolerance: Byte);
@@ -87,10 +87,7 @@ begin
       DB := Abs(Pix.B - ABackgroundColor.B);
       Dist := (DR + DG + DB) div 3;
       if Dist <= Tolerance then
-      begin
-        Pix.A := 0;
-        ASurface[X, Y] := Pix;
-      end;
+        ASurface[X, Y] := TransparentColor;
     end;
 end;
 

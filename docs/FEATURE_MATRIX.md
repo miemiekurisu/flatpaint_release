@@ -5,10 +5,10 @@
 - UI baseline follows `flatpaint_design` + `docs/UI_PARITY_AUDIT.md`.
 - paint.net remains a functional intent reference, not the active visual authority.
 
-## Evidence snapshot (2026-03-07)
+## Evidence snapshot (2026-03-08)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `bash ./scripts/run_tests_ci.sh` => 311 tests, 0 failures.
-- Consequence: regression gate is clean; P0 closure work (shortcut parity high-use audit, recolor R2, A4 offset runtime activation) is now test-backed and landed.
+- Test status: `bash ./scripts/run_tests_ci.sh` => 327 tests, 0 failures.
+- Consequence: P0 anti-aliasing module is complete — premultiplied alpha migration, SDF edge AA, CG bridge, and Retina DPI matching are all landed and test-backed.
 
 ## Status legend
 - `Implemented`: code path exists and is used by visible UI route(s).
@@ -24,9 +24,9 @@
 | View surface | Zoom/grid/rulers/units + tab navigation + pan behavior | Partial | High | Major routes are live and quick-size/status toggle semantics are now deterministic + test-backed; remaining gaps are parity polish depth, not baseline behavior absence. |
 | Image geometry | Crop/resize/canvas size/rotate/flip/flatten | Implemented | High | Core operations are wired and broadly covered by tests. |
 | Layers | Add/delete/duplicate/reorder/properties/merge/flatten/lock | Implemented | High | Blend modes, locking, drag reorder, thumbnail-backed list are present; layer offset metadata + runtime offset semantics are active across compositor and editing routes, with clone/history/native roundtrip/XCF coverage. |
-| Selection tools | Rect/ellipse/lasso/wand/move-selection/move-pixels + combine modes | Implemented | High | Selection family is implemented in core + UI routes; `Move Pixels` uses transactional drag-preview/commit/cancel semantics, and selection coverage is now propagated through transform/apply/native round-trip paths with dedicated regression tests. |
-| Paint tools | Fill/gradient/pencil/brush/eraser/picker/clone/recolor/crop/pan | Implemented | High | Tool family is broad and functionally usable; recolor now includes R2 sampling/mode behavior (`Once`/`Continuous`/`SwatchCompat`, `Color/Hue/Saturation/Luminosity/ReplaceCompat`) with selection-scope + undo/redo regression coverage. |
-| Draw tools | Text/line/rect/rounded rect/ellipse/freeform shape | Implemented | High | Baseline draw workflows are complete for current scope, including dashed line-style support in preview + committed pixels; deeper post-commit node editing is deferred parity polish. |
+| Selection tools | Rect/ellipse/lasso/wand/move-selection/move-pixels + combine modes | Implemented | High | Selection family is implemented in core + UI routes; `Move Pixels` uses transactional drag-preview/commit/cancel semantics, and selection coverage is now propagated through transform/apply/native round-trip paths with dedicated regression tests. SelectEllipse/SelectPolygon produce SDF fractional 0-255 coverage at edges. |
+| Paint tools | Fill/gradient/pencil/brush/eraser/picker/clone/recolor/crop/pan | Implemented | High | Tool family is broad and functionally usable; recolor now includes R2 sampling/mode behavior (`Once`/`Continuous`/`SwatchCompat`, `Color/Hue/Saturation/Luminosity/ReplaceCompat`) with selection-scope + undo/redo regression coverage. Shape drawing uses SDF edge AA for smooth 1px transitions. |
+| Draw tools | Text/line/rect/rounded rect/ellipse/freeform shape | Implemented | High | Baseline draw workflows are complete; SDF AA applied to DrawEllipse, DrawRoundedRectangle, and FillPolygon. CG bridge available for stroked Bezier curves. Dashed line-style support in preview + committed pixels. |
 | Colors panel | Primary/secondary + alpha-aware edits + fast controls | Partial | Medium | Functional and test-clean after compact-layout width realignment; polish depth remains. |
 | Adjustments | Core adjustments set with parameter dialogs | Implemented | High | Adjustment routes are live and integrated with progress/status flow. |
 | Effects | Broad built-in effect families + repeat-last-effect | Implemented | High | Large effect set routed through menu and document operations. |
@@ -34,8 +34,9 @@
 | Compatibility IO | PSD/PDN/XCF/KRA fallback-oriented support | Partial | Medium | Usable baseline with explicit fallbacks; full layered fidelity intentionally out of scope. |
 | Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | High-use shortcut audit is closed and test-backed, and long-tail route coverage was expanded again (including selection lifecycle routing beyond keyboard switching, with tool-classified keep/clear behavior); residual long-tail opportunities remain non-blocking polish. |
 | Iconography | Cohesive icon surface across command/tool/utility controls | Implemented | High | Runtime icon pipeline now ships complete rendered icon assets in bundle (`1x` + `@2x`), loader prefers `@2x` with safe `1x` fallback, and previously fallback-only mapped tools (`Move Pixels`/`Mosaic`) now resolve asset-backed `pointer`/`grid-2x2` icons. Remaining work is visual polish, not missing asset-chain coverage. |
+| Rendering quality | Premultiplied alpha, SDF edge AA, CG bridge, Retina DPI | Implemented | High | Premultiplied alpha pipeline (GIMP/Krita-aligned), SDF 1px smooth edge AA on ellipse/rounded rect/polygon shapes and selections, Core Graphics offscreen AA bridge for stroked curves, Retina-aware document sizing + CG high-quality interpolation. 16 dedicated tests. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
-| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 311 tests, 0 failures. |
+| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 327 tests, 0 failures. |
 
 ## Current insufficient items (post-P0, still important before release)
 1. Residual route-level coverage opportunities:

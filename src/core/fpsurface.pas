@@ -37,7 +37,10 @@ type
     function Clone: TRasterSurface;
     function InBounds(X, Y: Integer): Boolean; inline;
     procedure Clear(const AColor: TRGBA32);
+    { Blend a straight-alpha paint color onto the surface (premultiplies AColor internally). }
     procedure BlendPixel(X, Y: Integer; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    { Blend an already-premultiplied pixel onto the surface (no premultiply conversion). }
+    procedure BlendPixelPremul(X, Y: Integer; const APremulColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawSquareBrush(X, Y, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure EraseBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
@@ -150,6 +153,9 @@ type
     property Width: Integer read FWidth;
     property Height: Integer read FHeight;
     property Pixels[X, Y: Integer]: TRGBA32 read GetPixel write SetPixel; default;
+    function RawPixels: Pointer;
+    procedure PremultiplyAlpha;
+    procedure UnpremultiplyAlpha;
   end;
 
 implementation
@@ -169,6 +175,18 @@ end;
 function ScaleByCoverage(Value: Integer; Coverage: Byte): Integer; inline;
 begin
   Result := (Value * Coverage + 127) div 255;
+end;
+
+function SDFCoverageForBrush(DistPixels: Double): Byte; inline;
+var
+  Cov: Double;
+begin
+  Cov := DistPixels + 0.5;
+  if Cov <= 0.0 then
+    Exit(0);
+  if Cov >= 1.0 then
+    Exit(255);
+  Result := Round(Cov * 255.0);
 end;
 
 function ColorsCloseEnough(const AColor, BColor: TRGBA32; Tolerance: Byte): Boolean; inline;
@@ -419,9 +437,11 @@ end;
 procedure TRasterSurface.Clear(const AColor: TRGBA32);
 var
   Index: Integer;
+  PremulColor: TRGBA32;
 begin
+  PremulColor := Premultiply(AColor);
   for Index := 0 to High(FPixels) do
-    FPixels[Index] := AColor;
+    FPixels[Index] := PremulColor;
 end;
 
 function TRasterSurface.GetPixel(X, Y: Integer): TRGBA32;
@@ -443,6 +463,7 @@ var
   PixelIndex: Integer;
   Coverage: Byte;
   EffectiveOpacity: Integer;
+  PremulColor: TRGBA32;
 begin
   if not InBounds(X, Y) then
     Exit;
@@ -457,44 +478,71 @@ begin
       Exit;
   end;
   PixelIndex := IndexOf(X, Y);
-  FPixels[PixelIndex] := BlendNormal(AColor, FPixels[PixelIndex], ClampChannel(EffectiveOpacity));
+  PremulColor := Premultiply(AColor);
+  FPixels[PixelIndex] := BlendNormal(PremulColor, FPixels[PixelIndex], ClampChannel(EffectiveOpacity));
+end;
+
+procedure TRasterSurface.BlendPixelPremul(X, Y: Integer; const APremulColor: TRGBA32; Opacity: Byte; ASelection: TSelectionMask);
+var
+  PixelIndex: Integer;
+  Coverage: Byte;
+  EffectiveOpacity: Integer;
+begin
+  if not InBounds(X, Y) then
+    Exit;
+  EffectiveOpacity := Opacity;
+  if Assigned(ASelection) then
+  begin
+    Coverage := ASelection.Coverage(X, Y);
+    if Coverage = 0 then
+      Exit;
+    EffectiveOpacity := ScaleByCoverage(EffectiveOpacity, Coverage);
+    if EffectiveOpacity <= 0 then
+      Exit;
+  end;
+  PixelIndex := IndexOf(X, Y);
+  FPixels[PixelIndex] := BlendNormal(APremulColor, FPixels[PixelIndex], ClampChannel(EffectiveOpacity));
 end;
 
 procedure TRasterSurface.EraseBrush(X, Y, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
 var
   DrawX: Integer;
   DrawY: Integer;
-  RadiusSquared: Integer;
   DeltaX: Integer;
   DeltaY: Integer;
-  DistSquared: Integer;
-  EdgeRadius: Integer;
-  EdgeSquared: Integer;
+  Dist: Double;
+  RadiusF: Double;
+  EdgeRadiusF: Double;
   EffectiveOpacity: Integer;
+  BoundaryCov: Byte;
+  FalloffOpacity: Integer;
   PixelIndex: Integer;
   PixelColor: TRGBA32;
   NewAlpha: Integer;
   Coverage: Byte;
 begin
   Radius := Max(0, Radius);
-  RadiusSquared := Radius * Radius;
-  EdgeRadius := Radius * Hardness div 255;
-  EdgeSquared := EdgeRadius * EdgeRadius;
-  for DrawY := Y - Radius to Y + Radius do
+  RadiusF := Radius + 0.5;
+  EdgeRadiusF := RadiusF * Hardness / 255.0;
+  for DrawY := Y - Radius - 1 to Y + Radius + 1 do
   begin
-    for DrawX := X - Radius to X + Radius do
+    for DrawX := X - Radius - 1 to X + Radius + 1 do
     begin
       DeltaX := DrawX - X;
       DeltaY := DrawY - Y;
-      DistSquared := (DeltaX * DeltaX) + (DeltaY * DeltaY);
-      if DistSquared > RadiusSquared then
+      Dist := Sqrt(DeltaX * DeltaX + DeltaY * DeltaY);
+      BoundaryCov := SDFCoverageForBrush(RadiusF - Dist);
+      if BoundaryCov = 0 then
         Continue;
-      if (Hardness >= 255) or (DistSquared <= EdgeSquared) then
-        EffectiveOpacity := Opacity
-      else if RadiusSquared > EdgeSquared then
-        EffectiveOpacity := Opacity * (RadiusSquared - DistSquared) div (RadiusSquared - EdgeSquared)
+      if (Hardness >= 255) or (Dist <= EdgeRadiusF) then
+        FalloffOpacity := Opacity
+      else if RadiusF > EdgeRadiusF then
+        FalloffOpacity := Round(Opacity * (RadiusF - Dist) / (RadiusF - EdgeRadiusF))
       else
-        EffectiveOpacity := 0;
+        FalloffOpacity := 0;
+      if FalloffOpacity <= 0 then
+        Continue;
+      EffectiveOpacity := (FalloffOpacity * BoundaryCov + 127) div 255;
       if EffectiveOpacity <= 0 then
         Continue;
       if not InBounds(DrawX, DrawY) then
@@ -512,11 +560,15 @@ begin
       PixelColor := FPixels[PixelIndex];
       if PixelColor.A = 0 then
         Continue;
-      NewAlpha := PixelColor.A * (255 - Min(255, EffectiveOpacity)) div 255;
+      NewAlpha := 255 - Min(255, EffectiveOpacity);
       if NewAlpha <= 0 then
         FPixels[PixelIndex] := TransparentColor
       else
-        FPixels[PixelIndex] := RGBA(PixelColor.R, PixelColor.G, PixelColor.B, ClampChannel(NewAlpha));
+        FPixels[PixelIndex] := RGBA(
+          (PixelColor.R * NewAlpha + 127) div 255,
+          (PixelColor.G * NewAlpha + 127) div 255,
+          (PixelColor.B * NewAlpha + 127) div 255,
+          (PixelColor.A * NewAlpha + 127) div 255);
     end;
   end;
 end;
@@ -569,11 +621,15 @@ begin
       PixelColor := FPixels[PixelIndex];
       if PixelColor.A = 0 then
         Continue;
-      NewAlpha := PixelColor.A * (255 - Min(255, EffectiveOpacity)) div 255;
+      NewAlpha := 255 - Min(255, EffectiveOpacity);
       if NewAlpha <= 0 then
         FPixels[PixelIndex] := TransparentColor
       else
-        FPixels[PixelIndex] := RGBA(PixelColor.R, PixelColor.G, PixelColor.B, ClampChannel(NewAlpha));
+        FPixels[PixelIndex] := RGBA(
+          (PixelColor.R * NewAlpha + 127) div 255,
+          (PixelColor.G * NewAlpha + 127) div 255,
+          (PixelColor.B * NewAlpha + 127) div 255,
+          (PixelColor.A * NewAlpha + 127) div 255);
     end;
   end;
 end;
@@ -582,33 +638,37 @@ procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32;
 var
   DrawX: Integer;
   DrawY: Integer;
-  RadiusSquared: Integer;
   DeltaX: Integer;
   DeltaY: Integer;
-  DistSquared: Integer;
-  EdgeRadius: Integer;
-  EdgeSquared: Integer;
+  Dist: Double;
+  RadiusF: Double;
+  EdgeRadiusF: Double;
   EffectiveOpacity: Integer;
+  BoundaryCov: Byte;
+  FalloffOpacity: Integer;
 begin
   Radius := Max(0, Radius);
-  RadiusSquared := Radius * Radius;
-  EdgeRadius := Radius * Hardness div 255;
-  EdgeSquared := EdgeRadius * EdgeRadius;
-  for DrawY := Y - Radius to Y + Radius do
+  RadiusF := Radius + 0.5;
+  EdgeRadiusF := RadiusF * Hardness / 255.0;
+  for DrawY := Y - Radius - 1 to Y + Radius + 1 do
   begin
-    for DrawX := X - Radius to X + Radius do
+    for DrawX := X - Radius - 1 to X + Radius + 1 do
     begin
       DeltaX := DrawX - X;
       DeltaY := DrawY - Y;
-      DistSquared := (DeltaX * DeltaX) + (DeltaY * DeltaY);
-      if DistSquared > RadiusSquared then
+      Dist := Sqrt(DeltaX * DeltaX + DeltaY * DeltaY);
+      BoundaryCov := SDFCoverageForBrush(RadiusF - Dist);
+      if BoundaryCov = 0 then
         Continue;
-      if (Hardness >= 255) or (DistSquared <= EdgeSquared) then
-        EffectiveOpacity := Opacity
-      else if RadiusSquared > EdgeSquared then
-        EffectiveOpacity := Opacity * (RadiusSquared - DistSquared) div (RadiusSquared - EdgeSquared)
+      if (Hardness >= 255) or (Dist <= EdgeRadiusF) then
+        FalloffOpacity := Opacity
+      else if RadiusF > EdgeRadiusF then
+        FalloffOpacity := Round(Opacity * (RadiusF - Dist) / (RadiusF - EdgeRadiusF))
       else
-        EffectiveOpacity := 0;
+        FalloffOpacity := 0;
+      if FalloffOpacity <= 0 then
+        Continue;
+      EffectiveOpacity := (FalloffOpacity * BoundaryCov + 127) div 255;
       if EffectiveOpacity > 0 then
         BlendPixel(DrawX, DrawY, AColor, Min(255, EffectiveOpacity), ASelection);
     end;
@@ -1044,6 +1104,100 @@ begin
   end;
 end;
 
+{ --- SDF Anti-Aliasing Helpers --- }
+
+function SDFCoverage(DistPixels: Double): Byte; inline;
+var
+  Coverage: Double;
+begin
+  Coverage := DistPixels + 0.5;
+  if Coverage <= 0.0 then
+    Exit(0);
+  if Coverage >= 1.0 then
+    Exit(255);
+  Result := Round(Coverage * 255.0);
+end;
+
+function EllipseSDF(PX, PY, CX, CY, RX, RY: Double): Double; inline;
+var
+  NX, NY, NLen: Double;
+begin
+  if (RX <= 0.0) or (RY <= 0.0) then
+    Exit(-1.0);
+  NX := (PX - CX) / RX;
+  NY := (PY - CY) / RY;
+  NLen := Sqrt(NX * NX + NY * NY);
+  if NLen < 1.0e-12 then
+    Exit(Min(RX, RY));
+  Result := (1.0 - NLen) * Min(RX, RY) * (NLen / Sqrt((NX * NX) / (RX * RX) + (NY * NY) / (RY * RY)));
+end;
+
+function RoundedRectSDF(PX, PY: Double; ALeft, ATop, ARight, ABottom: Double; ARadius: Double): Double;
+var
+  HalfW, HalfH, CX, CY, DX, DY, CornerDist: Double;
+begin
+  HalfW := (ARight - ALeft) / 2.0;
+  HalfH := (ABottom - ATop) / 2.0;
+  CX := (ALeft + ARight) / 2.0;
+  CY := (ATop + ABottom) / 2.0;
+  ARadius := Min(ARadius, Min(HalfW, HalfH));
+  DX := Abs(PX - CX) - (HalfW - ARadius);
+  DY := Abs(PY - CY) - (HalfH - ARadius);
+  if (DX <= 0.0) and (DY <= 0.0) then
+    CornerDist := Max(DX, DY)
+  else if DX <= 0.0 then
+    CornerDist := DY
+  else if DY <= 0.0 then
+    CornerDist := DX
+  else
+    CornerDist := Sqrt(DX * DX + DY * DY);
+  Result := ARadius - CornerDist;
+end;
+
+function DistToSegment(PX, PY, AX, AY, BX, BY: Double): Double;
+var
+  DX, DY, T, ProjX, ProjY: Double;
+begin
+  DX := BX - AX;
+  DY := BY - AY;
+  if (DX = 0.0) and (DY = 0.0) then
+    Exit(Sqrt(Sqr(PX - AX) + Sqr(PY - AY)));
+  T := ((PX - AX) * DX + (PY - AY) * DY) / (DX * DX + DY * DY);
+  if T < 0.0 then T := 0.0
+  else if T > 1.0 then T := 1.0;
+  ProjX := AX + T * DX;
+  ProjY := AY + T * DY;
+  Result := Sqrt(Sqr(PX - ProjX) + Sqr(PY - ProjY));
+end;
+
+function PointInsidePolygon(const APoints: array of TPoint; AX, AY: Double): Boolean;
+var
+  Index: Integer;
+  PreviousIndex: Integer;
+  CurrentX: Double;
+  CurrentY: Double;
+  PreviousX: Double;
+  PreviousY: Double;
+begin
+  Result := False;
+  if Length(APoints) < 3 then
+    Exit;
+  PreviousIndex := High(APoints);
+  for Index := 0 to High(APoints) do
+  begin
+    CurrentX := APoints[Index].X + 0.5;
+    CurrentY := APoints[Index].Y + 0.5;
+    PreviousX := APoints[PreviousIndex].X + 0.5;
+    PreviousY := APoints[PreviousIndex].Y + 0.5;
+    if ((CurrentY > AY) <> (PreviousY > AY)) and
+       (AX < (((PreviousX - CurrentX) * (AY - CurrentY)) / (PreviousY - CurrentY)) + CurrentX) then
+      Result := not Result;
+    PreviousIndex := Index;
+  end;
+end;
+
+{ --- End SDF Helpers --- }
+
 procedure TRasterSurface.DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte; ASelection: TSelectionMask);
 var
   LeftX: Integer;
@@ -1060,29 +1214,12 @@ var
   InnerRadius: Integer;
   PixelCenterX: Double;
   PixelCenterY: Double;
-  DrawPixel: Boolean;
-  function InsideRoundedRect(AX, AY: Double; ALeft, ATop, ARight, ABottom, ARadius: Integer): Boolean;
-  var
-    CenterX: Double;
-    CenterY: Double;
-  begin
-    if (ALeft > ARight) or (ATop > ABottom) then
-      Exit(False);
-    ARadius := Max(0, Min(ARadius, Min((ARight - ALeft + 1) div 2, (ABottom - ATop + 1) div 2)));
-    if (AX >= ALeft + ARadius) and (AX <= ARight - ARadius) then
-      Exit((AY >= ATop) and (AY <= ABottom));
-    if (AY >= ATop + ARadius) and (AY <= ABottom - ARadius) then
-      Exit((AX >= ALeft) and (AX <= ARight));
-    if AX < ALeft + ARadius then
-      CenterX := ALeft + ARadius
-    else
-      CenterX := ARight - ARadius;
-    if AY < ATop + ARadius then
-      CenterY := ATop + ARadius
-    else
-      CenterY := ABottom - ARadius;
-    Result := Sqr(AX - CenterX) + Sqr(AY - CenterY) <= Sqr(ARadius);
-  end;
+  OuterDist: Double;
+  InnerDist: Double;
+  OuterCov: Byte;
+  InnerCov: Byte;
+  PixelCov: Byte;
+  EffectiveOpacity: Integer;
 begin
   LeftX := Min(X1, X2);
   RightX := Max(X1, X2);
@@ -1098,16 +1235,30 @@ begin
   InnerBottom := BottomY - StrokeWidth;
   InnerRadius := Max(0, CornerRadius - StrokeWidth);
 
-  for Y := TopY to BottomY do
-    for X := LeftX to RightX do
+  for Y := TopY - 1 to BottomY + 1 do
+    for X := LeftX - 1 to RightX + 1 do
     begin
       PixelCenterX := X + 0.5;
       PixelCenterY := Y + 0.5;
-      DrawPixel := InsideRoundedRect(PixelCenterX, PixelCenterY, LeftX, TopY, RightX, BottomY, CornerRadius);
-      if DrawPixel and (not Filled) and (InnerLeft <= InnerRight) and (InnerTop <= InnerBottom) then
-        DrawPixel := not InsideRoundedRect(PixelCenterX, PixelCenterY, InnerLeft, InnerTop, InnerRight, InnerBottom, InnerRadius);
-      if DrawPixel then
-        BlendPixel(X, Y, AColor, Opacity, ASelection);
+      OuterDist := RoundedRectSDF(PixelCenterX, PixelCenterY, LeftX, TopY, RightX + 1, BottomY + 1, CornerRadius);
+      OuterCov := SDFCoverage(OuterDist);
+      if OuterCov = 0 then
+        Continue;
+      if Filled then
+        PixelCov := OuterCov
+      else if (InnerLeft <= InnerRight) and (InnerTop <= InnerBottom) then
+      begin
+        InnerDist := RoundedRectSDF(PixelCenterX, PixelCenterY, InnerLeft, InnerTop, InnerRight + 1, InnerBottom + 1, InnerRadius);
+        InnerCov := SDFCoverage(InnerDist);
+        PixelCov := (OuterCov * (255 - InnerCov) + 127) div 255;
+      end
+      else
+        PixelCov := OuterCov;
+      if PixelCov = 0 then
+        Continue;
+      EffectiveOpacity := (Opacity * PixelCov + 127) div 255;
+      if EffectiveOpacity > 0 then
+        BlendPixel(X, Y, AColor, EffectiveOpacity, ASelection);
     end;
 end;
 
@@ -1123,34 +1274,41 @@ var
   RadiusY: Double;
   InnerRadiusX: Double;
   InnerRadiusY: Double;
-  NX: Double;
-  NY: Double;
-  InnerNX: Double;
-  InnerNY: Double;
-  DistanceValue: Double;
-  InnerDistanceValue: Double;
+  OuterDist: Double;
+  InnerDist: Double;
+  OuterCov: Byte;
+  InnerCov: Byte;
+  PixelCov: Byte;
+  EffectiveOpacity: Integer;
   X: Integer;
   Y: Integer;
+  PX: Double;
+  PY: Double;
 begin
   LeftX := Min(X1, X2);
   RightX := Max(X1, X2);
   TopY := Min(Y1, Y2);
   BottomY := Max(Y1, Y2);
 
-  CenterX := (LeftX + RightX) / 2.0;
-  CenterY := (TopY + BottomY) / 2.0;
+  CenterX := (LeftX + RightX + 1) / 2.0;
+  CenterY := (TopY + BottomY + 1) / 2.0;
   RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
   RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
 
   if Filled then
   begin
-    for Y := TopY to BottomY do
-      for X := LeftX to RightX do
+    for Y := TopY - 1 to BottomY + 1 do
+      for X := LeftX - 1 to RightX + 1 do
       begin
-        NX := (X - CenterX) / RadiusX;
-        NY := (Y - CenterY) / RadiusY;
-        if (NX * NX) + (NY * NY) <= 1.0 then
-          BlendPixel(X, Y, AColor, Opacity, ASelection);
+        PX := X + 0.5;
+        PY := Y + 0.5;
+        OuterDist := EllipseSDF(PX, PY, CenterX, CenterY, RadiusX, RadiusY);
+        OuterCov := SDFCoverage(OuterDist);
+        if OuterCov = 0 then
+          Continue;
+        EffectiveOpacity := (Opacity * OuterCov + 127) div 255;
+        if EffectiveOpacity > 0 then
+          BlendPixel(X, Y, AColor, EffectiveOpacity, ASelection);
       end;
     Exit;
   end;
@@ -1164,20 +1322,23 @@ begin
     Exit;
   end;
 
-  for Y := TopY to BottomY do
-    for X := LeftX to RightX do
+  for Y := TopY - 1 to BottomY + 1 do
+    for X := LeftX - 1 to RightX + 1 do
     begin
-      NX := (X - CenterX) / RadiusX;
-      NY := (Y - CenterY) / RadiusY;
-      DistanceValue := (NX * NX) + (NY * NY);
-      if DistanceValue > 1.0 then
+      PX := X + 0.5;
+      PY := Y + 0.5;
+      OuterDist := EllipseSDF(PX, PY, CenterX, CenterY, RadiusX, RadiusY);
+      OuterCov := SDFCoverage(OuterDist);
+      if OuterCov = 0 then
         Continue;
-
-      InnerNX := (X - CenterX) / InnerRadiusX;
-      InnerNY := (Y - CenterY) / InnerRadiusY;
-      InnerDistanceValue := (InnerNX * InnerNX) + (InnerNY * InnerNY);
-      if InnerDistanceValue >= 1.0 then
-        BlendPixel(X, Y, AColor, Opacity, ASelection);
+      InnerDist := EllipseSDF(PX, PY, CenterX, CenterY, InnerRadiusX, InnerRadiusY);
+      InnerCov := SDFCoverage(InnerDist);
+      PixelCov := (OuterCov * (255 - InnerCov) + 127) div 255;
+      if PixelCov = 0 then
+        Continue;
+      EffectiveOpacity := (Opacity * PixelCov + 127) div 255;
+      if EffectiveOpacity > 0 then
+        BlendPixel(X, Y, AColor, EffectiveOpacity, ASelection);
     end;
 end;
 
@@ -1219,6 +1380,8 @@ end;
 
 procedure TRasterSurface.FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte; ASelection: TSelectionMask);
 var
+  MinX: Integer;
+  MaxX: Integer;
   MinY: Integer;
   MaxY: Integer;
   Y: Integer;
@@ -1232,22 +1395,35 @@ var
   FillX: Integer;
   InsertAt: Integer;
   SwapValue: Integer;
+  SpanLeft: Integer;
+  SpanRight: Integer;
   Intersections: array of Integer;
+  PX, PY: Double;
+  MinDist, EdgeDist: Double;
+  SignedDist: Double;
+  Cov: Byte;
+  EffOpacity: Integer;
 begin
   if High(APoints) < 2 then
     Exit;
 
+  MinX := APoints[0].X;
+  MaxX := APoints[0].X;
   MinY := APoints[0].Y;
   MaxY := APoints[0].Y;
   for PointIndex := 1 to High(APoints) do
   begin
+    if APoints[PointIndex].X < MinX then
+      MinX := APoints[PointIndex].X;
+    if APoints[PointIndex].X > MaxX then
+      MaxX := APoints[PointIndex].X;
     if APoints[PointIndex].Y < MinY then
       MinY := APoints[PointIndex].Y;
     if APoints[PointIndex].Y > MaxY then
       MaxY := APoints[PointIndex].Y;
   end;
 
-  for Y := Max(0, MinY) to Min(FHeight - 1, MaxY) do
+  for Y := Max(0, MinY - 1) to Min(FHeight - 1, MaxY + 1) do
   begin
     SetLength(Intersections, 0);
     for PointIndex := 0 to High(APoints) do
@@ -1278,8 +1454,39 @@ begin
     PointIndex := 0;
     while PointIndex + 1 < Length(Intersections) do
     begin
-      for FillX := Max(0, Intersections[PointIndex]) to Min(FWidth - 1, Intersections[PointIndex + 1]) do
-        BlendPixel(FillX, Y, AColor, Opacity, ASelection);
+      SpanLeft := Intersections[PointIndex];
+      SpanRight := Intersections[PointIndex + 1];
+      for FillX := Max(0, SpanLeft - 1) to Min(FWidth - 1, SpanRight + 1) do
+      begin
+        if (FillX > SpanLeft) and (FillX < SpanRight) then
+          BlendPixel(FillX, Y, AColor, Opacity, ASelection)
+        else
+        begin
+          PX := FillX + 0.5;
+          PY := Y + 0.5;
+          MinDist := 1.0e30;
+          for NextIndex := 0 to High(APoints) do
+          begin
+            EdgeDist := DistToSegment(PX, PY,
+              APoints[NextIndex].X + 0.5, APoints[NextIndex].Y + 0.5,
+              APoints[(NextIndex + 1) mod Length(APoints)].X + 0.5,
+              APoints[(NextIndex + 1) mod Length(APoints)].Y + 0.5);
+            if EdgeDist < MinDist then
+              MinDist := EdgeDist;
+          end;
+          if PointInsidePolygon(APoints, PX, PY) then
+            SignedDist := MinDist
+          else
+            SignedDist := -MinDist;
+          Cov := SDFCoverage(SignedDist);
+          if Cov > 0 then
+          begin
+            EffOpacity := (Opacity * Cov + 127) div 255;
+            if EffOpacity > 0 then
+              BlendPixel(FillX, Y, AColor, EffOpacity, ASelection);
+          end;
+        end;
+      end;
       Inc(PointIndex, 2);
     end;
   end;
@@ -1288,6 +1495,7 @@ end;
 procedure TRasterSurface.FloodFill(X, Y: Integer; const AColor: TRGBA32; Tolerance: Byte);
 var
   TargetColor: TRGBA32;
+  PremulFillColor: TRGBA32;
   Queue: array of Integer;
   Head: Integer;
   Tail: Integer;
@@ -1302,11 +1510,11 @@ var
     if not InBounds(AX, AY) then
       Exit;
     PixelIndex := IndexOf(AX, AY);
-    if not ColorsCloseEnough(FPixels[PixelIndex], TargetColor, Tolerance) then
+    if not ColorsCloseEnough(Unpremultiply(FPixels[PixelIndex]), TargetColor, Tolerance) then
       Exit;
-    if RGBAEqual(FPixels[PixelIndex], AColor) then
+    if RGBAEqual(FPixels[PixelIndex], PremulFillColor) then
       Exit;
-    FPixels[PixelIndex] := AColor;
+    FPixels[PixelIndex] := PremulFillColor;
     Queue[Tail] := PixelIndex;
     Inc(Tail);
   end;
@@ -1315,7 +1523,9 @@ begin
   if not InBounds(X, Y) then
     Exit;
 
-  TargetColor := Pixels[X, Y];
+  { Compare in straight-alpha space; fill with premultiplied color. }
+  TargetColor := Unpremultiply(Pixels[X, Y]);
+  PremulFillColor := Premultiply(AColor);
   if ColorsCloseEnough(TargetColor, AColor, Tolerance) then
     Exit;
 
@@ -1323,7 +1533,7 @@ begin
   SetLength(Queue, FWidth * FHeight);
   Head := 0;
   Tail := 0;
-  FPixels[IndexOf(X, Y)] := AColor;
+  FPixels[IndexOf(X, Y)] := PremulFillColor;
   Queue[Tail] := IndexOf(X, Y);
   Inc(Tail);
 
@@ -1348,7 +1558,12 @@ var
   DY: Double;
   LengthSquared: Double;
   Projection: Double;
+  PremulStart: TRGBA32;
+  PremulEnd: TRGBA32;
 begin
+  { Premultiply the gradient endpoints so LerpColor interpolates in premul space. }
+  PremulStart := Premultiply(StartColor);
+  PremulEnd := Premultiply(EndColor);
   DX := X2 - X1;
   DY := Y2 - Y1;
   LengthSquared := (DX * DX) + (DY * DY);
@@ -1367,7 +1582,7 @@ begin
       if (ASelection = nil) or ASelection[X, Y] then
       begin
         Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
-        Pixels[X, Y] := LerpColor(StartColor, EndColor, Projection);
+        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, Projection);
       end;
 end;
 
@@ -1377,7 +1592,12 @@ var
   Y: Integer;
   Dist: Double;
   T: Double;
+  PremulStart: TRGBA32;
+  PremulEnd: TRGBA32;
 begin
+  { Premultiply the gradient endpoints so LerpColor interpolates in premul space. }
+  PremulStart := Premultiply(StartColor);
+  PremulEnd := Premultiply(EndColor);
   if Radius <= 0 then
   begin
     if ASelection = nil then
@@ -1392,7 +1612,7 @@ begin
       begin
         Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
         T := Dist / Radius;
-        Pixels[X, Y] := LerpColor(StartColor, EndColor, T);
+        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, T);
       end;
 end;
 
@@ -1415,7 +1635,7 @@ begin
       TargetX := SourceX + OffsetX;
       if (TargetX < 0) or (TargetX >= FWidth) then
         Continue;
-      BlendPixel(TargetX, TargetY, ASource[SourceX, SourceY], Opacity, ASelection);
+      BlendPixelPremul(TargetX, TargetY, ASource[SourceX, SourceY], Opacity, ASelection);
     end;
   end;
 end;
@@ -1542,6 +1762,7 @@ var
   MaxR: Integer;
   MaxG: Integer;
   MaxB: Integer;
+  Straight: TRGBA32;
 
   function StretchChannel(ChannelValue, MinValue, MaxValue: Integer): Byte;
   begin
@@ -1561,35 +1782,40 @@ begin
   MaxG := 0;
   MaxB := 0;
 
+  { First pass: find min/max on straight-alpha (unpremultiplied) RGB. }
   for Index := 0 to High(FPixels) do
   begin
     if FPixels[Index].A = 0 then
       Continue;
     HasVisiblePixel := True;
-    if FPixels[Index].R < MinR then
-      MinR := FPixels[Index].R;
-    if FPixels[Index].G < MinG then
-      MinG := FPixels[Index].G;
-    if FPixels[Index].B < MinB then
-      MinB := FPixels[Index].B;
-    if FPixels[Index].R > MaxR then
-      MaxR := FPixels[Index].R;
-    if FPixels[Index].G > MaxG then
-      MaxG := FPixels[Index].G;
-    if FPixels[Index].B > MaxB then
-      MaxB := FPixels[Index].B;
+    Straight := Unpremultiply(FPixels[Index]);
+    if Straight.R < MinR then
+      MinR := Straight.R;
+    if Straight.G < MinG then
+      MinG := Straight.G;
+    if Straight.B < MinB then
+      MinB := Straight.B;
+    if Straight.R > MaxR then
+      MaxR := Straight.R;
+    if Straight.G > MaxG then
+      MaxG := Straight.G;
+    if Straight.B > MaxB then
+      MaxB := Straight.B;
   end;
 
   if not HasVisiblePixel then
     Exit;
 
+  { Second pass: stretch channels in straight space, then re-premultiply. }
   for Index := 0 to High(FPixels) do
   begin
     if FPixels[Index].A = 0 then
       Continue;
-    FPixels[Index].R := StretchChannel(FPixels[Index].R, MinR, MaxR);
-    FPixels[Index].G := StretchChannel(FPixels[Index].G, MinG, MaxG);
-    FPixels[Index].B := StretchChannel(FPixels[Index].B, MinB, MaxB);
+    Straight := Unpremultiply(FPixels[Index]);
+    Straight.R := StretchChannel(Straight.R, MinR, MaxR);
+    Straight.G := StretchChannel(Straight.G, MinG, MaxG);
+    Straight.B := StretchChannel(Straight.B, MinB, MaxB);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1597,11 +1823,12 @@ procedure TRasterSurface.InvertColors;
 var
   Index: Integer;
 begin
+  { Premultiplied: invert within [0..A] range instead of [0..255]. }
   for Index := 0 to High(FPixels) do
   begin
-    FPixels[Index].R := 255 - FPixels[Index].R;
-    FPixels[Index].G := 255 - FPixels[Index].G;
-    FPixels[Index].B := 255 - FPixels[Index].B;
+    FPixels[Index].R := FPixels[Index].A - FPixels[Index].R;
+    FPixels[Index].G := FPixels[Index].A - FPixels[Index].G;
+    FPixels[Index].B := FPixels[Index].A - FPixels[Index].B;
   end;
 end;
 
@@ -1625,19 +1852,22 @@ var
   HueValue: Double;
   SaturationValue: Double;
   ValueLevel: Double;
+  Straight: TRGBA32;
 begin
   for Index := 0 to High(FPixels) do
   begin
     if FPixels[Index].A = 0 then
       Continue;
-    RGBToHSV(FPixels[Index], HueValue, SaturationValue, ValueLevel);
+    Straight := Unpremultiply(FPixels[Index]);
+    RGBToHSV(Straight, HueValue, SaturationValue, ValueLevel);
     HueValue := HueValue + HueDelta;
     SaturationValue := EnsureRange(
       SaturationValue + (SaturationDelta / 100.0),
       0.0,
       1.0
     );
-    FPixels[Index] := HSVToRGBA(HueValue, SaturationValue, ValueLevel, FPixels[Index].A);
+    Straight := HSVToRGBA(HueValue, SaturationValue, ValueLevel, Straight.A);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1645,6 +1875,7 @@ procedure TRasterSurface.AdjustGammaCurve(Gamma: Double);
 var
   Index: Integer;
   EffectiveGamma: Double;
+  Straight: TRGBA32;
   function MapChannel(Channel: Byte): Byte;
   var
     Normalized: Double;
@@ -1658,9 +1889,11 @@ begin
   begin
     if FPixels[Index].A = 0 then
       Continue;
-    FPixels[Index].R := MapChannel(FPixels[Index].R);
-    FPixels[Index].G := MapChannel(FPixels[Index].G);
-    FPixels[Index].B := MapChannel(FPixels[Index].B);
+    Straight := Unpremultiply(FPixels[Index]);
+    Straight.R := MapChannel(Straight.R);
+    Straight.G := MapChannel(Straight.G);
+    Straight.B := MapChannel(Straight.B);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1671,6 +1904,7 @@ var
   ClampedInputHigh: Integer;
   InputRange: Integer;
   OutputRange: Integer;
+  Straight: TRGBA32;
   function MapChannel(Channel: Byte): Byte;
   var
     Normalized: Double;
@@ -1692,21 +1926,28 @@ begin
   begin
     if FPixels[Index].A = 0 then
       Continue;
-    FPixels[Index].R := MapChannel(FPixels[Index].R);
-    FPixels[Index].G := MapChannel(FPixels[Index].G);
-    FPixels[Index].B := MapChannel(FPixels[Index].B);
+    Straight := Unpremultiply(FPixels[Index]);
+    Straight.R := MapChannel(Straight.R);
+    Straight.G := MapChannel(Straight.G);
+    Straight.B := MapChannel(Straight.B);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
 procedure TRasterSurface.AdjustBrightness(Delta: Integer);
 var
   Index: Integer;
+  Straight: TRGBA32;
 begin
   for Index := 0 to High(FPixels) do
   begin
-    FPixels[Index].R := ClampChannel(FPixels[Index].R + Delta);
-    FPixels[Index].G := ClampChannel(FPixels[Index].G + Delta);
-    FPixels[Index].B := ClampChannel(FPixels[Index].B + Delta);
+    if FPixels[Index].A = 0 then
+      Continue;
+    Straight := Unpremultiply(FPixels[Index]);
+    Straight.R := ClampChannel(Straight.R + Delta);
+    Straight.G := ClampChannel(Straight.G + Delta);
+    Straight.B := ClampChannel(Straight.B + Delta);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1715,14 +1956,19 @@ var
   Index: Integer;
   ContrastValue: Integer;
   Factor: Double;
+  Straight: TRGBA32;
 begin
   ContrastValue := EnsureRange(Amount, -255, 254);
   Factor := (259.0 * (ContrastValue + 255.0)) / (255.0 * (259.0 - ContrastValue));
   for Index := 0 to High(FPixels) do
   begin
-    FPixels[Index].R := ClampChannel(Round(Factor * (FPixels[Index].R - 128) + 128));
-    FPixels[Index].G := ClampChannel(Round(Factor * (FPixels[Index].G - 128) + 128));
-    FPixels[Index].B := ClampChannel(Round(Factor * (FPixels[Index].B - 128) + 128));
+    if FPixels[Index].A = 0 then
+      Continue;
+    Straight := Unpremultiply(FPixels[Index]);
+    Straight.R := ClampChannel(Round(Factor * (Straight.R - 128) + 128));
+    Straight.G := ClampChannel(Round(Factor * (Straight.G - 128) + 128));
+    Straight.B := ClampChannel(Round(Factor * (Straight.B - 128) + 128));
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1732,15 +1978,20 @@ var
   OriginalR: Integer;
   OriginalG: Integer;
   OriginalB: Integer;
+  Straight: TRGBA32;
 begin
   for Index := 0 to High(FPixels) do
   begin
-    OriginalR := FPixels[Index].R;
-    OriginalG := FPixels[Index].G;
-    OriginalB := FPixels[Index].B;
-    FPixels[Index].R := ClampChannel(Round(OriginalR * 0.393 + OriginalG * 0.769 + OriginalB * 0.189));
-    FPixels[Index].G := ClampChannel(Round(OriginalR * 0.349 + OriginalG * 0.686 + OriginalB * 0.168));
-    FPixels[Index].B := ClampChannel(Round(OriginalR * 0.272 + OriginalG * 0.534 + OriginalB * 0.131));
+    if FPixels[Index].A = 0 then
+      Continue;
+    Straight := Unpremultiply(FPixels[Index]);
+    OriginalR := Straight.R;
+    OriginalG := Straight.G;
+    OriginalB := Straight.B;
+    Straight.R := ClampChannel(Round(OriginalR * 0.393 + OriginalG * 0.769 + OriginalB * 0.189));
+    Straight.G := ClampChannel(Round(OriginalR * 0.349 + OriginalG * 0.686 + OriginalB * 0.168));
+    Straight.B := ClampChannel(Round(OriginalR * 0.272 + OriginalG * 0.534 + OriginalB * 0.131));
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1749,17 +2000,22 @@ var
   Index: Integer;
   Luma: Integer;
   ChannelValue: Byte;
+  Straight: TRGBA32;
 begin
   for Index := 0 to High(FPixels) do
   begin
-    Luma := (FPixels[Index].R * 77 + FPixels[Index].G * 150 + FPixels[Index].B * 29) div 256;
+    if FPixels[Index].A = 0 then
+      Continue;
+    Straight := Unpremultiply(FPixels[Index]);
+    Luma := (Straight.R * 77 + Straight.G * 150 + Straight.B * 29) div 256;
     if Luma >= Threshold then
       ChannelValue := 255
     else
       ChannelValue := 0;
-    FPixels[Index].R := ChannelValue;
-    FPixels[Index].G := ChannelValue;
-    FPixels[Index].B := ChannelValue;
+    Straight.R := ChannelValue;
+    Straight.G := ChannelValue;
+    Straight.B := ChannelValue;
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1768,6 +2024,7 @@ var
   Index: Integer;
   LevelCount: Integer;
   ScaleValue: Double;
+  Straight: TRGBA32;
 
   function PosterizeChannel(Channel: Byte): Byte;
   var
@@ -1782,9 +2039,13 @@ begin
   ScaleValue := 255.0 / LevelCount;
   for Index := 0 to High(FPixels) do
   begin
-    FPixels[Index].R := PosterizeChannel(FPixels[Index].R);
-    FPixels[Index].G := PosterizeChannel(FPixels[Index].G);
-    FPixels[Index].B := PosterizeChannel(FPixels[Index].B);
+    if FPixels[Index].A = 0 then
+      Continue;
+    Straight := Unpremultiply(FPixels[Index]);
+    Straight.R := PosterizeChannel(Straight.R);
+    Straight.G := PosterizeChannel(Straight.G);
+    Straight.B := PosterizeChannel(Straight.B);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -1928,9 +2189,9 @@ begin
           end;
 
         PixelValue := Source.FPixels[Source.IndexOf(X, Y)];
-        PixelValue.R := ClampChannel(SumR);
-        PixelValue.G := ClampChannel(SumG);
-        PixelValue.B := ClampChannel(SumB);
+        PixelValue.R := Min(ClampChannel(SumR), PixelValue.A);
+        PixelValue.G := Min(ClampChannel(SumG), PixelValue.A);
+        PixelValue.B := Min(ClampChannel(SumB), PixelValue.A);
         FPixels[IndexOf(X, Y)] := PixelValue;
       end;
   finally
@@ -1944,6 +2205,7 @@ var
   State: Cardinal;
   Span: Integer;
   Delta: Integer;
+  Straight: TRGBA32;
 begin
   if Amount = 0 then
     Exit;
@@ -1955,12 +2217,22 @@ begin
 
   for Index := 0 to High(FPixels) do
   begin
+    if FPixels[Index].A = 0 then
+    begin
+      { Consume noise values to keep the PRNG sequence deterministic. }
+      NextNoiseValue(State);
+      NextNoiseValue(State);
+      NextNoiseValue(State);
+      Continue;
+    end;
+    Straight := Unpremultiply(FPixels[Index]);
     Delta := (NextNoiseValue(State) mod Span) - Amount;
-    FPixels[Index].R := ClampChannel(FPixels[Index].R + Delta);
+    Straight.R := ClampChannel(Straight.R + Delta);
     Delta := (NextNoiseValue(State) mod Span) - Amount;
-    FPixels[Index].G := ClampChannel(FPixels[Index].G + Delta);
+    Straight.G := ClampChannel(Straight.G + Delta);
     Delta := (NextNoiseValue(State) mod Span) - Amount;
-    FPixels[Index].B := ClampChannel(FPixels[Index].B + Delta);
+    Straight.B := ClampChannel(Straight.B + Delta);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -2007,6 +2279,7 @@ begin
 
         EdgeStrength := ClampChannel((Abs(GX) + Abs(GY)) div 4);
         PixelValue := Source.FPixels[Source.IndexOf(X, Y)];
+        EdgeStrength := Min(EdgeStrength, PixelValue.A);
         PixelValue.R := EdgeStrength;
         PixelValue.G := EdgeStrength;
         PixelValue.B := EdgeStrength;
@@ -2049,9 +2322,9 @@ begin
             Inc(KernelIndex);
           end;
         Src := Source.FPixels[Source.IndexOf(X, Y)];
-        Src.R := ClampChannel(SumR);
-        Src.G := ClampChannel(SumG);
-        Src.B := ClampChannel(SumB);
+        Src.R := Min(ClampChannel(SumR), Src.A);
+        Src.G := Min(ClampChannel(SumG), Src.A);
+        Src.B := Min(ClampChannel(SumB), Src.A);
         FPixels[IndexOf(X, Y)] := Src;
       end;
   finally
@@ -2126,7 +2399,7 @@ begin
       C.G := ClampChannel(Round(V * 120 + 80));
       C.B := ClampChannel(Round(V * 160 + 40));
       C.A := 255;
-      FPixels[IndexOf(X, Y)] := C;
+      FPixels[IndexOf(X, Y)] := Premultiply(C);
     end;
 end;
 
@@ -2368,7 +2641,9 @@ var
   Neighbor: TRGBA32;
   Center: TRGBA32;
   Diff: Integer;
+  PremulOutline: TRGBA32;
 begin
+  PremulOutline := Premultiply(AOutlineColor);
   SetLength(Src, FWidth * FHeight);
   Move(FPixels[0], Src[0], FWidth * FHeight * SizeOf(TRGBA32));
   Clear(TransparentColor);
@@ -2391,7 +2666,7 @@ begin
           if Diff > MaxDiff then MaxDiff := Diff;
         end;
       if MaxDiff >= Threshold then
-        FPixels[Y * FWidth + X] := AOutlineColor;
+        FPixels[Y * FWidth + X] := PremulOutline;
     end;
 end;
 
@@ -2423,6 +2698,10 @@ begin
         GlowR := EnsureRange(Integer(Orig.R) + Integer(Blur.R) * IntensityFrac div 100, 0, 255);
         GlowG := EnsureRange(Integer(Orig.G) + Integer(Blur.G) * IntensityFrac div 100, 0, 255);
         GlowB := EnsureRange(Integer(Orig.B) + Integer(Blur.B) * IntensityFrac div 100, 0, 255);
+        { Clamp to alpha to maintain premultiplied invariant. }
+        GlowR := Min(GlowR, Orig.A);
+        GlowG := Min(GlowG, Orig.A);
+        GlowB := Min(GlowB, Orig.A);
         FPixels[Y * FWidth + X] := RGBA(GlowR, GlowG, GlowB, Orig.A);
       end;
   finally
@@ -2913,6 +3192,7 @@ begin
         BasePixel := Source[X, Y];
         HeightValue := 128 + (LumaOfColor(ForwardPixel) - LumaOfColor(BackPixel));
         HeightValue := EnsureRange(HeightValue, 0, 255);
+        HeightValue := Min(HeightValue, BasePixel.A);
         FPixels[Y * FWidth + X] := RGBA(
           HeightValue,
           HeightValue,
@@ -2928,27 +3208,27 @@ end;
 procedure TRasterSurface.RedEye(Threshold: Byte; Strength: Integer);
 var
   Index: Integer;
-  PixelValue: TRGBA32;
+  Straight: TRGBA32;
   TargetRed: Integer;
   Delta: Integer;
 begin
   Strength := EnsureRange(Strength, 0, 100);
   for Index := 0 to High(FPixels) do
   begin
-    PixelValue := FPixels[Index];
-    if PixelValue.A = 0 then
+    if FPixels[Index].A = 0 then
       Continue;
-    if (PixelValue.R <= PixelValue.G + Threshold) or
-       (PixelValue.R <= PixelValue.B + Threshold) or
-       (PixelValue.R < 80) then
+    Straight := Unpremultiply(FPixels[Index]);
+    if (Straight.R <= Straight.G + Threshold) or
+       (Straight.R <= Straight.B + Threshold) or
+       (Straight.R < 80) then
       Continue;
 
-    TargetRed := (Integer(PixelValue.G) + Integer(PixelValue.B)) div 2;
-    Delta := Integer(PixelValue.R) - TargetRed;
-    PixelValue.R := ClampChannel(Integer(PixelValue.R) - ((Delta * Strength) div 100));
-    if PixelValue.R < TargetRed then
-      PixelValue.R := Byte(TargetRed);
-    FPixels[Index] := PixelValue;
+    TargetRed := (Integer(Straight.G) + Integer(Straight.B)) div 2;
+    Delta := Integer(Straight.R) - TargetRed;
+    Straight.R := ClampChannel(Integer(Straight.R) - ((Delta * Strength) div 100));
+    if Straight.R < TargetRed then
+      Straight.R := Byte(TargetRed);
+    FPixels[Index] := Premultiply(Straight);
   end;
 end;
 
@@ -3081,9 +3361,9 @@ begin
       BaseB := (GrayValue * (100 - Coloring) + Integer(SourcePixel.B) * Coloring) div 100;
       OutlineShade := 255 - EnsureRange((LumaOfColor(EdgePixel) * InkStrength) div 100, 0, 255);
       FPixels[Index] := RGBA(
-        ClampChannel((BaseR * OutlineShade) div 255),
-        ClampChannel((BaseG * OutlineShade) div 255),
-        ClampChannel((BaseB * OutlineShade) div 255),
+        Min(ClampChannel((BaseR * OutlineShade) div 255), SourcePixel.A),
+        Min(ClampChannel((BaseG * OutlineShade) div 255), SourcePixel.A),
+        Min(ClampChannel((BaseB * OutlineShade) div 255), SourcePixel.A),
         SourcePixel.A
       );
     end;
@@ -3173,8 +3453,11 @@ procedure TRasterSurface.RecolorBrush(
 );
 var
   BX, BY: Integer;
-  Dist: Integer;
+  DistF: Double;
+  RadiusF: Double;
+  BoundaryCov: Byte;
   Pix: TRGBA32;
+  Straight: TRGBA32;
   TargetPix: TRGBA32;
   DR, DG, DB: Integer;
   ColorDist: Integer;
@@ -3189,13 +3472,15 @@ var
   Coverage: Byte;
   EffectiveOpacity: Integer;
 begin
-  for BY := Max(0, Y - Radius) to Min(FHeight - 1, Y + Radius) do
-    for BX := Max(0, X - Radius) to Min(FWidth - 1, X + Radius) do
+  RadiusF := Radius + 0.5;
+  for BY := Max(0, Y - Radius - 1) to Min(FHeight - 1, Y + Radius + 1) do
+    for BX := Max(0, X - Radius - 1) to Min(FWidth - 1, X + Radius + 1) do
     begin
-      Dist := Round(Sqrt((BX - X) * (BX - X) + (BY - Y) * (BY - Y)));
-      if Dist > Radius then
+      DistF := Sqrt((BX - X) * (BX - X) + (BY - Y) * (BY - Y));
+      BoundaryCov := SDFCoverageForBrush(RadiusF - DistF);
+      if BoundaryCov = 0 then
         Continue;
-      EffectiveOpacity := Opacity;
+      EffectiveOpacity := (Opacity * BoundaryCov + 127) div 255;
       if Assigned(ASelection) then
       begin
         Coverage := ASelection.Coverage(BX, BY);
@@ -3206,45 +3491,47 @@ begin
           Continue;
       end;
       Pix := FPixels[IndexOf(BX, BY)];
-      DR := Pix.R - SourceColor.R;
-      DG := Pix.G - SourceColor.G;
-      DB := Pix.B - SourceColor.B;
+      { Unpremultiply for correct color distance and HSV conversion. }
+      Straight := Unpremultiply(Pix);
+      DR := Straight.R - SourceColor.R;
+      DG := Straight.G - SourceColor.G;
+      DB := Straight.B - SourceColor.B;
       ColorDist := (Abs(DR) + Abs(DG) + Abs(DB)) div 3;
       if ColorDist <= Tolerance then
       begin
-        TargetPix := Pix;
+        TargetPix := Straight;
         if PreserveValue then
         begin
-          RGBToHSV(Pix, IgnoreHue, IgnoreSat, PixelVal);
+          RGBToHSV(Straight, IgnoreHue, IgnoreSat, PixelVal);
           RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
-          TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Pix.A);
+          TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Straight.A);
         end
         else
         begin
           case Mode of
             rbmColor:
               begin
-                RGBToHSV(Pix, IgnoreHue, IgnoreSat, PixelVal);
+                RGBToHSV(Straight, IgnoreHue, IgnoreSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
-                TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Pix.A);
+                TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Straight.A);
               end;
             rbmHue:
               begin
-                RGBToHSV(Pix, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(Straight, IgnoreHue, PixelSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, IgnoreSat, IgnoreVal);
-                TargetPix := HSVToRGBA(TargetHue, PixelSat, PixelVal, Pix.A);
+                TargetPix := HSVToRGBA(TargetHue, PixelSat, PixelVal, Straight.A);
               end;
             rbmSaturation:
               begin
-                RGBToHSV(Pix, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(Straight, IgnoreHue, PixelSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
-                TargetPix := HSVToRGBA(IgnoreHue, TargetSat, PixelVal, Pix.A);
+                TargetPix := HSVToRGBA(IgnoreHue, TargetSat, PixelVal, Straight.A);
               end;
             rbmLuminosity:
               begin
-                RGBToHSV(Pix, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(Straight, IgnoreHue, PixelSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, TargetSat, TargetVal);
-                TargetPix := HSVToRGBA(IgnoreHue, PixelSat, TargetVal, Pix.A);
+                TargetPix := HSVToRGBA(IgnoreHue, PixelSat, TargetVal, Straight.A);
               end;
           else
             TargetPix.R := NewColor.R;
@@ -3252,15 +3539,16 @@ begin
             TargetPix.B := NewColor.B;
           end;
         end;
+        { Blend in straight space, then premultiply the result. }
         if EffectiveOpacity >= 255 then
-          Pix := TargetPix
+          Straight := TargetPix
         else
         begin
-          Pix.R := (Pix.R * (255 - EffectiveOpacity) + TargetPix.R * EffectiveOpacity + 127) div 255;
-          Pix.G := (Pix.G * (255 - EffectiveOpacity) + TargetPix.G * EffectiveOpacity + 127) div 255;
-          Pix.B := (Pix.B * (255 - EffectiveOpacity) + TargetPix.B * EffectiveOpacity + 127) div 255;
+          Straight.R := (Straight.R * (255 - EffectiveOpacity) + TargetPix.R * EffectiveOpacity + 127) div 255;
+          Straight.G := (Straight.G * (255 - EffectiveOpacity) + TargetPix.G * EffectiveOpacity + 127) div 255;
+          Straight.B := (Straight.B * (255 - EffectiveOpacity) + TargetPix.B * EffectiveOpacity + 127) div 255;
         end;
-        FPixels[IndexOf(BX, BY)] := Pix;
+        FPixels[IndexOf(BX, BY)] := Premultiply(Straight);
       end;
     end;
 end;
@@ -3292,7 +3580,7 @@ var
   Y: Integer;
   Coverage: Byte;
   Pixel: TRGBA32;
-  NewAlpha: Integer;
+  Scale: Integer;
 begin
   if ASelection = nil then
     Exit;
@@ -3305,11 +3593,15 @@ begin
       Pixel := Pixels[X, Y];
       if Pixel.A = 0 then
         Continue;
-      NewAlpha := Pixel.A * (255 - Coverage) div 255;
-      if NewAlpha <= 0 then
+      Scale := 255 - Coverage;
+      if Scale <= 0 then
         Pixels[X, Y] := TransparentColor
       else
-        Pixels[X, Y] := RGBA(Pixel.R, Pixel.G, Pixel.B, ClampChannel(NewAlpha));
+        Pixels[X, Y] := RGBA(
+          (Pixel.R * Scale + 127) div 255,
+          (Pixel.G * Scale + 127) div 255,
+          (Pixel.B * Scale + 127) div 255,
+          (Pixel.A * Scale + 127) div 255);
     end;
 end;
 
@@ -3319,7 +3611,6 @@ var
   Y: Integer;
   Coverage: Byte;
   Pixel: TRGBA32;
-  NewAlpha: Integer;
 begin
   Result := TRasterSurface.Create(FWidth, FHeight);
   Result.Clear(TransparentColor);
@@ -3334,11 +3625,16 @@ begin
       Pixel := Pixels[X, Y];
       if Pixel.A = 0 then
         Continue;
-      NewAlpha := Pixel.A * Coverage div 255;
-      if NewAlpha <= 0 then
-        Continue;
-      Pixel.A := ClampChannel(NewAlpha);
-      Result[X, Y] := Pixel;
+      if Coverage >= 255 then
+        Result[X, Y] := Pixel
+      else
+      begin
+        Result[X, Y] := RGBA(
+          (Pixel.R * Coverage + 127) div 255,
+          (Pixel.G * Coverage + 127) div 255,
+          (Pixel.B * Coverage + 127) div 255,
+          (Pixel.A * Coverage + 127) div 255);
+      end;
     end;
 end;
 
@@ -3363,7 +3659,7 @@ var
     if Visited[PixelIndex] <> 0 then
       Exit;
     Visited[PixelIndex] := 1;
-    if not ColorsCloseEnough(FPixels[PixelIndex], TargetColor, Tolerance) then
+    if not ColorsCloseEnough(Unpremultiply(FPixels[PixelIndex]), TargetColor, Tolerance) then
       Exit;
     Result[AX, AY] := True;
     Queue[Tail] := PixelIndex;
@@ -3375,7 +3671,8 @@ begin
   if not InBounds(X, Y) then
     Exit;
 
-  TargetColor := Pixels[X, Y];
+  { Compare in straight-alpha space for correct visual matching. }
+  TargetColor := Unpremultiply(Pixels[X, Y]);
   Queue := nil;
   Visited := nil;
   SetLength(Queue, FWidth * FHeight);
@@ -3407,10 +3704,11 @@ begin
   Result := TSelectionMask.Create(FWidth, FHeight);
   if not InBounds(X, Y) then
     Exit;
-  TargetColor := Pixels[X, Y];
+  { Compare in straight-alpha space for correct visual matching. }
+  TargetColor := Unpremultiply(Pixels[X, Y]);
   for IY := 0 to FHeight - 1 do
     for IX := 0 to FWidth - 1 do
-      if ColorsCloseEnough(FPixels[IndexOf(IX, IY)], TargetColor, Tolerance) then
+      if ColorsCloseEnough(Unpremultiply(FPixels[IndexOf(IX, IY)]), TargetColor, Tolerance) then
         Result[IX, IY] := True;
 end;
 
@@ -3562,6 +3860,30 @@ begin
       );
     end;
   end;
+end;
+
+function TRasterSurface.RawPixels: Pointer;
+begin
+  if Length(FPixels) > 0 then
+    Result := @FPixels[0]
+  else
+    Result := nil;
+end;
+
+procedure TRasterSurface.PremultiplyAlpha;
+var
+  Index: Integer;
+begin
+  for Index := 0 to High(FPixels) do
+    FPixels[Index] := Premultiply(FPixels[Index]);
+end;
+
+procedure TRasterSurface.UnpremultiplyAlpha;
+var
+  Index: Integer;
+begin
+  for Index := 0 to High(FPixels) do
+    FPixels[Index] := Unpremultiply(FPixels[Index]);
 end;
 
 end.

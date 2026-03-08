@@ -53,6 +53,8 @@ type
     FZoomScale: Double;
     FCanvasPadX: Integer;
     FCanvasPadY: Integer;
+    FUpdatingCanvasSize: Boolean;
+    FCenterOnNextCanvasUpdate: Boolean;
     FDisplayUnit: TDisplayUnit;
     FCurrentTool: TToolKind;
     FBrushSize: Integer;
@@ -301,6 +303,7 @@ type
     FMagnifyInstalled: Boolean;
     FAquaAppearanceApplied: Boolean;
     FScrollElasticityDisabled: Boolean;
+    FScreenBackingScale: Integer;
     function ActivePaintColor: TRGBA32;
     function BackgroundToolColor: TRGBA32;
     function ColorForActiveTarget(AAlternate: Boolean = False): TRGBA32;
@@ -734,7 +737,7 @@ var
 implementation
 
 uses
-  Math, LCLType, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers, FPColorWheel,
+  Math, LCLType, LCLIntf, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers, FPColorWheel,
   FPNewImageDialog, FPResizeDialog, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
@@ -893,7 +896,8 @@ begin
   FPreparedRevision := 0;
   FStatusProgressActive := False;
 
-  FDocument := TImageDocument.Create(1024, 768);
+  FScreenBackingScale := Max(1, Round(FPGetScreenBackingScale));
+  FDocument := TImageDocument.Create(1024 * FScreenBackingScale, 768 * FScreenBackingScale);
   SetLength(FTabDocuments, 1);
   FNewImageResolutionDPI := 96.0;
   FShowPixelGrid := False;
@@ -1028,7 +1032,11 @@ begin
   FPreparedRevision := 0;
   FStatusProgressActive := False;
 
-  FDocument := TImageDocument.Create(1024, 768);
+  { Create default document at a size appropriate for the display.
+    On Retina (2x) screens, use 2048x1536 so one document pixel maps to
+    one physical pixel at 100 percent zoom.  On standard displays, keep 1024x768. }
+  FScreenBackingScale := Max(1, Round(FPGetScreenBackingScale));
+  FDocument := TImageDocument.Create(1024 * FScreenBackingScale, 768 * FScreenBackingScale);
   { Initialize tab arrays with the first document }
   SetLength(FTabDocuments, 1);
   SetLength(FTabFileNames, 1);
@@ -1275,6 +1283,8 @@ begin
   RestorePaletteLayout;
   RefreshPaletteMenuChecks;
 
+  FCenterOnNextCanvasUpdate := True;
+  FitDocumentToViewport(True);
   UpdateCanvasSize;
   RefreshLayers;
   RefreshCanvas;
@@ -1684,8 +1694,8 @@ begin
   if not Assigned(FCanvasHost) or not Assigned(FPaintBox) then
     Exit(Point(0, 0));
   Result := Point(
-    FPaintBox.Left - FCanvasHost.HorzScrollBar.Position,
-    FPaintBox.Top - FCanvasHost.VertScrollBar.Position
+    FPaintBox.Left + FCanvasPadX - FCanvasHost.HorzScrollBar.Position,
+    FPaintBox.Top + FCanvasPadY - FCanvasHost.VertScrollBar.Position
   );
 end;
 
@@ -2103,6 +2113,7 @@ begin
   else
     SetDirty(False);
   RefreshLayers;
+  FCenterOnNextCanvasUpdate := True;
   RefreshCanvas;
 end;
 
@@ -4497,10 +4508,10 @@ begin
   if (APoint.X < 0) or (APoint.Y < 0) then
     Exit;
 
-  LeftX := FCanvasPadX + Round(APoint.X * FZoomScale);
-  TopY := FCanvasPadY + Round(APoint.Y * FZoomScale);
-  RightX := FCanvasPadX + Round((APoint.X + 1) * FZoomScale);
-  BottomY := FCanvasPadY + Round((APoint.Y + 1) * FZoomScale);
+  LeftX := Round(APoint.X * FZoomScale);
+  TopY := Round(APoint.Y * FZoomScale);
+  RightX := Round((APoint.X + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + 1) * FZoomScale);
   if RightX <= LeftX then
     RightX := LeftX + 1;
   if BottomY <= TopY then
@@ -4538,10 +4549,10 @@ begin
     Exit;
   end;
 
-  LeftX := FCanvasPadX + Round((APoint.X - ARadius) * FZoomScale);
-  TopY := FCanvasPadY + Round((APoint.Y - ARadius) * FZoomScale);
-  RightX := FCanvasPadX + Round((APoint.X + ARadius + 1) * FZoomScale);
-  BottomY := FCanvasPadY + Round((APoint.Y + ARadius + 1) * FZoomScale);
+  LeftX := Round((APoint.X - ARadius) * FZoomScale);
+  TopY := Round((APoint.Y - ARadius) * FZoomScale);
+  RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
   if RightX <= LeftX then
     RightX := LeftX + 1;
   if BottomY <= TopY then
@@ -4553,8 +4564,8 @@ begin
   ACanvas.Pen.Color := clWhite;
   ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
 
-  CenterX := FCanvasPadX + Round((APoint.X + 0.5) * FZoomScale);
-  CenterY := FCanvasPadY + Round((APoint.Y + 0.5) * FZoomScale);
+  CenterX := Round((APoint.X + 0.5) * FZoomScale);
+  CenterY := Round((APoint.Y + 0.5) * FZoomScale);
   CrossHalf := Max(2, Round(FZoomScale));
   ACanvas.Pen.Color := clBlack;
   ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
@@ -4579,10 +4590,10 @@ begin
     Exit;
   end;
 
-  LeftX := FCanvasPadX + Round((APoint.X - ARadius) * FZoomScale);
-  TopY := FCanvasPadY + Round((APoint.Y - ARadius) * FZoomScale);
-  RightX := FCanvasPadX + Round((APoint.X + ARadius + 1) * FZoomScale);
-  BottomY := FCanvasPadY + Round((APoint.Y + ARadius + 1) * FZoomScale);
+  LeftX := Round((APoint.X - ARadius) * FZoomScale);
+  TopY := Round((APoint.Y - ARadius) * FZoomScale);
+  RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
   if RightX <= LeftX then
     RightX := LeftX + 1;
   if BottomY <= TopY then
@@ -4594,8 +4605,8 @@ begin
   ACanvas.Pen.Color := clWhite;
   ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
 
-  CenterX := FCanvasPadX + Round((APoint.X + 0.5) * FZoomScale);
-  CenterY := FCanvasPadY + Round((APoint.Y + 0.5) * FZoomScale);
+  CenterX := Round((APoint.X + 0.5) * FZoomScale);
+  CenterY := Round((APoint.Y + 0.5) * FZoomScale);
   CrossHalf := Max(2, Round(FZoomScale));
   ACanvas.Pen.Color := clBlack;
   ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
@@ -4622,10 +4633,10 @@ begin
     Exit;
   end;
 
-  LeftX := FCanvasPadX + Round((APoint.X - ARadius) * FZoomScale);
-  TopY := FCanvasPadY + Round((APoint.Y - ARadius) * FZoomScale);
-  RightX := FCanvasPadX + Round((APoint.X + ARadius + 1) * FZoomScale);
-  BottomY := FCanvasPadY + Round((APoint.Y + ARadius + 1) * FZoomScale);
+  LeftX := Round((APoint.X - ARadius) * FZoomScale);
+  TopY := Round((APoint.Y - ARadius) * FZoomScale);
+  RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+  BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
   if RightX <= LeftX then
     RightX := LeftX + 1;
   if BottomY <= TopY then
@@ -4648,10 +4659,10 @@ var
   DestX: Integer;
   DestY: Integer;
 begin
-  SourceX := FCanvasPadX + Round((ASourcePoint.X + 0.5) * FZoomScale);
-  SourceY := FCanvasPadY + Round((ASourcePoint.Y + 0.5) * FZoomScale);
-  DestX := FCanvasPadX + Round((ADestPoint.X + 0.5) * FZoomScale);
-  DestY := FCanvasPadY + Round((ADestPoint.Y + 0.5) * FZoomScale);
+  SourceX := Round((ASourcePoint.X + 0.5) * FZoomScale);
+  SourceY := Round((ASourcePoint.Y + 0.5) * FZoomScale);
+  DestX := Round((ADestPoint.X + 0.5) * FZoomScale);
+  DestY := Round((ADestPoint.Y + 0.5) * FZoomScale);
 
   ACanvas.Brush.Style := bsClear;
   ACanvas.Pen.Style := psDash;
@@ -4674,17 +4685,17 @@ var
 begin
   if ARadius <= 0 then
   begin
-    LeftX := FCanvasPadX + Round(APoint.X * FZoomScale);
-    TopY := FCanvasPadY + Round(APoint.Y * FZoomScale);
-    RightX := FCanvasPadX + Round((APoint.X + 1) * FZoomScale);
-    BottomY := FCanvasPadY + Round((APoint.Y + 1) * FZoomScale);
+    LeftX := Round(APoint.X * FZoomScale);
+    TopY := Round(APoint.Y * FZoomScale);
+    RightX := Round((APoint.X + 1) * FZoomScale);
+    BottomY := Round((APoint.Y + 1) * FZoomScale);
   end
   else
   begin
-    LeftX := FCanvasPadX + Round((APoint.X - ARadius) * FZoomScale);
-    TopY := FCanvasPadY + Round((APoint.Y - ARadius) * FZoomScale);
-    RightX := FCanvasPadX + Round((APoint.X + ARadius + 1) * FZoomScale);
-    BottomY := FCanvasPadY + Round((APoint.Y + ARadius + 1) * FZoomScale);
+    LeftX := Round((APoint.X - ARadius) * FZoomScale);
+    TopY := Round((APoint.Y - ARadius) * FZoomScale);
+    RightX := Round((APoint.X + ARadius + 1) * FZoomScale);
+    BottomY := Round((APoint.Y + ARadius + 1) * FZoomScale);
   end;
 
   if RightX <= LeftX then
@@ -4701,8 +4712,8 @@ begin
   else
     ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
 
-  CenterX := FCanvasPadX + Round((APoint.X + 0.5) * FZoomScale);
-  CenterY := FCanvasPadY + Round((APoint.Y + 0.5) * FZoomScale);
+  CenterX := Round((APoint.X + 0.5) * FZoomScale);
+  CenterY := Round((APoint.Y + 0.5) * FZoomScale);
   CrossHalf := Max(3, Round(FZoomScale * 1.5));
   ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
   ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
@@ -4732,20 +4743,20 @@ begin
   ACanvas.Pen.Width := 1;
   ACanvas.Pen.Color := clSilver;
   ACanvas.MoveTo(
-    FCanvasPadX + Round((AStartPoint.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AStartPoint.Y + 0.5) * FZoomScale)
+    Round((AStartPoint.X + 0.5) * FZoomScale),
+    Round((AStartPoint.Y + 0.5) * FZoomScale)
   );
   ACanvas.LineTo(
-    FCanvasPadX + Round((AControlPoint.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AControlPoint.Y + 0.5) * FZoomScale)
+    Round((AControlPoint.X + 0.5) * FZoomScale),
+    Round((AControlPoint.Y + 0.5) * FZoomScale)
   );
   ACanvas.MoveTo(
-    FCanvasPadX + Round((AEndPoint.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AEndPoint.Y + 0.5) * FZoomScale)
+    Round((AEndPoint.X + 0.5) * FZoomScale),
+    Round((AEndPoint.Y + 0.5) * FZoomScale)
   );
   ACanvas.LineTo(
-    FCanvasPadX + Round((AControlPoint.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AControlPoint.Y + 0.5) * FZoomScale)
+    Round((AControlPoint.X + 0.5) * FZoomScale),
+    Round((AControlPoint.Y + 0.5) * FZoomScale)
   );
 
   ACanvas.Pen.Style := psSolid;
@@ -4769,12 +4780,12 @@ begin
       )
     );
     ACanvas.MoveTo(
-      FCanvasPadX + Round((PrevPoint.X + 0.5) * FZoomScale),
-      FCanvasPadY + Round((PrevPoint.Y + 0.5) * FZoomScale)
+      Round((PrevPoint.X + 0.5) * FZoomScale),
+      Round((PrevPoint.Y + 0.5) * FZoomScale)
     );
     ACanvas.LineTo(
-      FCanvasPadX + Round((NextPoint.X + 0.5) * FZoomScale),
-      FCanvasPadY + Round((NextPoint.Y + 0.5) * FZoomScale)
+      Round((NextPoint.X + 0.5) * FZoomScale),
+      Round((NextPoint.Y + 0.5) * FZoomScale)
     );
     PrevPoint := NextPoint;
   end;
@@ -4807,20 +4818,20 @@ begin
   ACanvas.Pen.Width := 1;
   ACanvas.Pen.Color := clSilver;
   ACanvas.MoveTo(
-    FCanvasPadX + Round((AStartPoint.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AStartPoint.Y + 0.5) * FZoomScale)
+    Round((AStartPoint.X + 0.5) * FZoomScale),
+    Round((AStartPoint.Y + 0.5) * FZoomScale)
   );
   ACanvas.LineTo(
-    FCanvasPadX + Round((AControlPoint1.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AControlPoint1.Y + 0.5) * FZoomScale)
+    Round((AControlPoint1.X + 0.5) * FZoomScale),
+    Round((AControlPoint1.Y + 0.5) * FZoomScale)
   );
   ACanvas.MoveTo(
-    FCanvasPadX + Round((AEndPoint.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AEndPoint.Y + 0.5) * FZoomScale)
+    Round((AEndPoint.X + 0.5) * FZoomScale),
+    Round((AEndPoint.Y + 0.5) * FZoomScale)
   );
   ACanvas.LineTo(
-    FCanvasPadX + Round((AControlPoint2.X + 0.5) * FZoomScale),
-    FCanvasPadY + Round((AControlPoint2.Y + 0.5) * FZoomScale)
+    Round((AControlPoint2.X + 0.5) * FZoomScale),
+    Round((AControlPoint2.Y + 0.5) * FZoomScale)
   );
 
   ACanvas.Pen.Style := psSolid;
@@ -4846,12 +4857,12 @@ begin
       )
     );
     ACanvas.MoveTo(
-      FCanvasPadX + Round((PrevPoint.X + 0.5) * FZoomScale),
-      FCanvasPadY + Round((PrevPoint.Y + 0.5) * FZoomScale)
+      Round((PrevPoint.X + 0.5) * FZoomScale),
+      Round((PrevPoint.Y + 0.5) * FZoomScale)
     );
     ACanvas.LineTo(
-      FCanvasPadX + Round((NextPoint.X + 0.5) * FZoomScale),
-      FCanvasPadY + Round((NextPoint.Y + 0.5) * FZoomScale)
+      Round((NextPoint.X + 0.5) * FZoomScale),
+      Round((NextPoint.Y + 0.5) * FZoomScale)
     );
     PrevPoint := NextPoint;
   end;
@@ -4910,12 +4921,20 @@ var
   PreviewStrokeWidth: Integer;
   ShapePreviewFill: Boolean;
   ShapePreviewOutline: Boolean;
+  OldOrg: TPoint;
+  ContentW: Integer;
+  ContentH: Integer;
 begin
   ACanvas.Brush.Color := CanvasBackgroundColor;
   ACanvas.FillRect(ARect);
 
   if not Assigned(FPreparedBitmap) or not Assigned(FDocument) then
     Exit;
+
+  { Shift the canvas origin so all drawing code (overlays, pixel grid, etc.)
+    can use plain Round(X * FZoomScale) coordinates without adding FCanvasPadX.
+    SetWindowOrgEx(-PadX, -PadY) makes logical (0,0) appear at device (PadX,PadY). }
+  SetWindowOrgEx(ACanvas.Handle, -FCanvasPadX, -FCanvasPadY, @OldOrg);
 
   if (FPreparedRevision <> FRenderRevision) or
      (FPreparedBitmap.Width <> FDocument.Width) or
@@ -4927,11 +4946,18 @@ begin
   end;
 
   if not FPreparedBitmap.Empty then
-    ACanvas.StretchDraw(
-      Rect(FCanvasPadX, FCanvasPadY,
-           FCanvasPadX + Round(FDocument.Width * FZoomScale),
-           FCanvasPadY + Round(FDocument.Height * FZoomScale)),
-      FPreparedBitmap);
+  begin
+    ContentW := Max(1, Round(FDocument.Width * FZoomScale));
+    ContentH := Max(1, Round(FDocument.Height * FZoomScale));
+    { Use high-quality interpolation for downscaling/moderate upscaling so
+      brush strokes and shapes look smooth rather than pixelated.  Switch to
+      nearest-neighbor when zoomed far in so individual pixels stay crisp. }
+    if FZoomScale <= 1.0 then
+      FPSetInterpolationQuality(3)
+    else
+      FPSetInterpolationQuality(0);
+    ACanvas.StretchDraw(Rect(0, 0, ContentW, ContentH), FPreparedBitmap);
+  end;
 
   if ShouldRenderPixelGrid(FShowPixelGrid, FZoomScale) then
   begin
@@ -4939,15 +4965,15 @@ begin
     ACanvas.Pen.Width := 1;
     for GridIndex := 1 to FDocument.Width - 1 do
     begin
-      LeftX := FCanvasPadX + Round(GridIndex * FZoomScale);
-      ACanvas.MoveTo(LeftX, FCanvasPadY);
-      ACanvas.LineTo(LeftX, FCanvasPadY + Round(FDocument.Height * FZoomScale));
+      LeftX := Round(GridIndex * FZoomScale);
+      ACanvas.MoveTo(LeftX, 0);
+      ACanvas.LineTo(LeftX, Round(FDocument.Height * FZoomScale));
     end;
     for GridIndex := 1 to FDocument.Height - 1 do
     begin
-      TopY := FCanvasPadY + Round(GridIndex * FZoomScale);
-      ACanvas.MoveTo(FCanvasPadX, TopY);
-      ACanvas.LineTo(FCanvasPadX + Round(FDocument.Width * FZoomScale), TopY);
+      TopY := Round(GridIndex * FZoomScale);
+      ACanvas.MoveTo(0, TopY);
+      ACanvas.LineTo(Round(FDocument.Width * FZoomScale), TopY);
     end;
   end;
 
@@ -4961,12 +4987,12 @@ begin
     ACanvas.Pen.Style := psSolid;
     ACanvas.Brush.Style := bsClear;
     ACanvas.MoveTo(
-      FCanvasPadX + Round((FDragStart.X + 0.5) * FZoomScale),
-      FCanvasPadY + Round((FDragStart.Y + 0.5) * FZoomScale)
+      Round((FDragStart.X + 0.5) * FZoomScale),
+      Round((FDragStart.Y + 0.5) * FZoomScale)
     );
     ACanvas.LineTo(
-      FCanvasPadX + Round((FLastImagePoint.X + 0.5) * FZoomScale),
-      FCanvasPadY + Round((FLastImagePoint.Y + 0.5) * FZoomScale)
+      Round((FLastImagePoint.X + 0.5) * FZoomScale),
+      Round((FLastImagePoint.Y + 0.5) * FZoomScale)
     );
     DrawPointHoverOverlay(ACanvas, FDragStart);
     if (FLastImagePoint.X <> FDragStart.X) or (FLastImagePoint.Y <> FDragStart.Y) then
@@ -5027,12 +5053,12 @@ begin
           else
             ACanvas.Pen.Style := psSolid;
           ACanvas.MoveTo(
-            FCanvasPadX + Round((FDragStart.X + 0.5) * FZoomScale),
-            FCanvasPadY + Round((FDragStart.Y + 0.5) * FZoomScale)
+            Round((FDragStart.X + 0.5) * FZoomScale),
+            Round((FDragStart.Y + 0.5) * FZoomScale)
           );
           ACanvas.LineTo(
-            FCanvasPadX + Round((FLastImagePoint.X + 0.5) * FZoomScale),
-            FCanvasPadY + Round((FLastImagePoint.Y + 0.5) * FZoomScale)
+            Round((FLastImagePoint.X + 0.5) * FZoomScale),
+            Round((FLastImagePoint.Y + 0.5) * FZoomScale)
           );
         end;
       tkGradient:
@@ -5043,19 +5069,19 @@ begin
               Sqr(FLastImagePoint.X - FDragStart.X) +
               Sqr(FLastImagePoint.Y - FDragStart.Y)
             ));
-            LeftX := FCanvasPadX + Round((FDragStart.X - PreviewRadius) * FZoomScale);
-            TopY := FCanvasPadY + Round((FDragStart.Y - PreviewRadius) * FZoomScale);
-            RightX := FCanvasPadX + Round((FDragStart.X + PreviewRadius + 1) * FZoomScale);
-            BottomY := FCanvasPadY + Round((FDragStart.Y + PreviewRadius + 1) * FZoomScale);
+            LeftX := Round((FDragStart.X - PreviewRadius) * FZoomScale);
+            TopY := Round((FDragStart.Y - PreviewRadius) * FZoomScale);
+            RightX := Round((FDragStart.X + PreviewRadius + 1) * FZoomScale);
+            BottomY := Round((FDragStart.Y + PreviewRadius + 1) * FZoomScale);
             ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           end;
           ACanvas.MoveTo(
-            FCanvasPadX + Round((FDragStart.X + 0.5) * FZoomScale),
-            FCanvasPadY + Round((FDragStart.Y + 0.5) * FZoomScale)
+            Round((FDragStart.X + 0.5) * FZoomScale),
+            Round((FDragStart.Y + 0.5) * FZoomScale)
           );
           ACanvas.LineTo(
-            FCanvasPadX + Round((FLastImagePoint.X + 0.5) * FZoomScale),
-            FCanvasPadY + Round((FLastImagePoint.Y + 0.5) * FZoomScale)
+            Round((FLastImagePoint.X + 0.5) * FZoomScale),
+            Round((FLastImagePoint.Y + 0.5) * FZoomScale)
           );
         end;
       tkRectangle, tkSelectRect:
@@ -5085,10 +5111,10 @@ begin
             ACanvas.Pen.Style := psSolid;
             ACanvas.Brush.Style := bsClear;
           end;
-          LeftX := FCanvasPadX + Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-          TopY := FCanvasPadY + Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-          RightX := FCanvasPadX + Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-          BottomY := FCanvasPadY + Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
           if FCurrentTool = tkSelectRect then
           begin
@@ -5099,10 +5125,10 @@ begin
         end;
       tkCrop:
         begin
-          LeftX := FCanvasPadX + Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-          TopY := FCanvasPadY + Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-          RightX := FCanvasPadX + Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-          BottomY := FCanvasPadY + Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           { Dim the area outside the crop rectangle with a hatch overlay }
           ACanvas.Brush.Color := RGBToColor(0, 0, 0);
           ACanvas.Brush.Style := bsFDiagonal;
@@ -5142,10 +5168,10 @@ begin
             ACanvas.Brush.Style := bsDiagCross
           else
             ACanvas.Brush.Style := bsClear;
-          LeftX := FCanvasPadX + Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-          TopY := FCanvasPadY + Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-          RightX := FCanvasPadX + Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-          BottomY := FCanvasPadY + Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.RoundRect(
             LeftX,
             TopY,
@@ -5182,10 +5208,10 @@ begin
             ACanvas.Pen.Style := psSolid;
             ACanvas.Brush.Style := bsClear;
           end;
-          LeftX := FCanvasPadX + Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-          TopY := FCanvasPadY + Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-          RightX := FCanvasPadX + Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-          BottomY := FCanvasPadY + Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           if FCurrentTool = tkSelectEllipse then
           begin
@@ -5219,40 +5245,40 @@ begin
             ACanvas.Pen.Width := 1;
           end;
           ACanvas.MoveTo(
-            FCanvasPadX + Round((FLassoPoints[0].X + 0.5) * FZoomScale),
-            FCanvasPadY + Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
+            Round((FLassoPoints[0].X + 0.5) * FZoomScale),
+            Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
           );
           for PointIndex := 1 to High(FLassoPoints) do
             ACanvas.LineTo(
-              FCanvasPadX + Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
-              FCanvasPadY + Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
+              Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
+              Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
             );
           if FCurrentTool = tkSelectLasso then
           begin
             ACanvas.Pen.Style := psDash;
             ACanvas.Pen.Color := clWhite;
             ACanvas.MoveTo(
-              FCanvasPadX + Round((FLassoPoints[0].X + 0.5) * FZoomScale),
-              FCanvasPadY + Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
+              Round((FLassoPoints[0].X + 0.5) * FZoomScale),
+              Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
             );
             for PointIndex := 1 to High(FLassoPoints) do
               ACanvas.LineTo(
-                FCanvasPadX + Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
-                FCanvasPadY + Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
+                Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
+                Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
               );
           end;
           if (FCurrentTool = tkFreeformShape) and (Length(FLassoPoints) > 2) then
             ACanvas.LineTo(
-              FCanvasPadX + Round((FLassoPoints[0].X + 0.5) * FZoomScale),
-              FCanvasPadY + Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
+              Round((FLassoPoints[0].X + 0.5) * FZoomScale),
+              Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
             );
         end;
       tkMosaic:
         begin
-          LeftX := FCanvasPadX + Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-          TopY := FCanvasPadY + Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-          RightX := FCanvasPadX + Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-          BottomY := FCanvasPadY + Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           { Dashed border around the mosaic area }
           ACanvas.Pen.Style := psSolid;
           ACanvas.Pen.Color := clBlack;
@@ -5276,6 +5302,9 @@ begin
   end;
 
   DrawHoverToolOverlay(ACanvas);
+
+  { Restore the canvas origin that was shifted at the top of this method }
+  SetWindowOrgEx(ACanvas.Handle, OldOrg.X, OldOrg.Y, nil);
 end;
 
 procedure TMainForm.PaintRuler(ACanvas: TCanvas; const ARect: TRect; AOrientation: TRulerOrientation);
@@ -5389,58 +5418,89 @@ var
   ContentH: Integer;
   ViewW: Integer;
   ViewH: Integer;
+  BoxW: Integer;
+  BoxH: Integer;
 begin
+  if FUpdatingCanvasSize then Exit;
   if not Assigned(FPaintBox) then
   begin
     UpdateInlineTextEditBounds;
     Exit;
   end;
   if not Assigned(FDocument) then Exit;
-  ContentW := Max(1, Round(FDocument.Width * FZoomScale));
-  ContentH := Max(1, Round(FDocument.Height * FZoomScale));
-  if Assigned(FCanvasHost) then
-  begin
-    ViewW := FCanvasHost.ClientWidth;
-    ViewH := FCanvasHost.ClientHeight;
-    { Add half-viewport padding on each side when zoomed in, so the canvas
-      edge can be scrolled to the viewport center for edge-pixel editing. }
-    if ContentW > ViewW then
-      FCanvasPadX := Max(0, ViewW div 2)
+  FUpdatingCanvasSize := True;
+  try
+    ContentW := Max(1, Round(FDocument.Width * FZoomScale));
+    ContentH := Max(1, Round(FDocument.Height * FZoomScale));
+    if Assigned(FCanvasHost) then
+    begin
+      ViewW := FCanvasHost.ClientWidth;
+      ViewH := FCanvasHost.ClientHeight;
+      { Always add half-viewport padding on each side so the canvas edge
+        can be scrolled to the viewport centre.  This mirrors the scroll
+        range that image editors like GIMP provide (OVERPAN_FACTOR = 0.5).
+        Using a constant factor (not conditional on content > viewport)
+        avoids threshold discontinuities that cause visible "bounce". }
+      FCanvasPadX := Max(0, ViewW div 2);
+      FCanvasPadY := Max(0, ViewH div 2);
+      BoxW := ContentW + FCanvasPadX * 2;
+      BoxH := ContentH + FCanvasPadY * 2;
+      LeftOffset := CenteredContentOffset(ViewW, BoxW);
+      TopOffset := CenteredContentOffset(ViewH, BoxH);
+      FPaintBox.SetBounds(LeftOffset, TopOffset, BoxW, BoxH);
+      if FCenterOnNextCanvasUpdate and (ViewW > 0) and (ViewH > 0) then
+      begin
+        { Place the image centre at the viewport centre.
+          Keep the flag alive if the viewport has zero size (form not yet
+          shown) so that the first real UpdateCanvasSize centres properly. }
+        FCenterOnNextCanvasUpdate := False;
+        ClampedHorizontal := ClampViewportScrollPosition(
+          FPaintBox.Left + FCanvasPadX + ContentW div 2 - FCanvasHost.ClientWidth div 2,
+          FPaintBox.Left,
+          FPaintBox.Width,
+          FCanvasHost.ClientWidth
+        );
+        ClampedVertical := ClampViewportScrollPosition(
+          FPaintBox.Top + FCanvasPadY + ContentH div 2 - FCanvasHost.ClientHeight div 2,
+          FPaintBox.Top,
+          FPaintBox.Height,
+          FCanvasHost.ClientHeight
+        );
+      end
+      else
+      begin
+        { Re-read ClientWidth/ClientHeight because scrollbar visibility may
+          have changed after SetBounds. }
+        ClampedHorizontal := ClampViewportScrollPosition(
+          FCanvasHost.HorzScrollBar.Position,
+          FPaintBox.Left,
+          FPaintBox.Width,
+          FCanvasHost.ClientWidth
+        );
+        ClampedVertical := ClampViewportScrollPosition(
+          FCanvasHost.VertScrollBar.Position,
+          FPaintBox.Top,
+          FPaintBox.Height,
+          FCanvasHost.ClientHeight
+        );
+      end;
+      if ClampedHorizontal <> FCanvasHost.HorzScrollBar.Position then
+        FCanvasHost.HorzScrollBar.Position := ClampedHorizontal;
+      if ClampedVertical <> FCanvasHost.VertScrollBar.Position then
+        FCanvasHost.VertScrollBar.Position := ClampedVertical;
+      FLastScrollPosition := Point(
+        FCanvasHost.HorzScrollBar.Position,
+        FCanvasHost.VertScrollBar.Position
+      );
+    end
     else
+    begin
       FCanvasPadX := 0;
-    if ContentH > ViewH then
-      FCanvasPadY := Max(0, ViewH div 2)
-    else
       FCanvasPadY := 0;
-    FPaintBox.Width := ContentW + FCanvasPadX * 2;
-    FPaintBox.Height := ContentH + FCanvasPadY * 2;
-    LeftOffset := CenteredContentOffset(ViewW, FPaintBox.Width);
-    TopOffset := CenteredContentOffset(ViewH, FPaintBox.Height);
-    FPaintBox.Left := LeftOffset;
-    FPaintBox.Top := TopOffset;
-    ClampedHorizontal := ClampViewportScrollPosition(
-      FCanvasHost.HorzScrollBar.Position,
-      FPaintBox.Left,
-      FPaintBox.Width,
-      ViewW
-    );
-    ClampedVertical := ClampViewportScrollPosition(
-      FCanvasHost.VertScrollBar.Position,
-      FPaintBox.Top,
-      FPaintBox.Height,
-      ViewH
-    );
-    if ClampedHorizontal <> FCanvasHost.HorzScrollBar.Position then
-      FCanvasHost.HorzScrollBar.Position := ClampedHorizontal;
-    if ClampedVertical <> FCanvasHost.VertScrollBar.Position then
-      FCanvasHost.VertScrollBar.Position := ClampedVertical;
-  end
-  else
-  begin
-    FCanvasPadX := 0;
-    FCanvasPadY := 0;
-    FPaintBox.Width := ContentW;
-    FPaintBox.Height := ContentH;
+      FPaintBox.SetBounds(FPaintBox.Left, FPaintBox.Top, ContentW, ContentH);
+    end;
+  finally
+    FUpdatingCanvasSize := False;
   end;
   UpdateInlineTextEditBounds;
 end;
@@ -7668,14 +7728,14 @@ begin
       ViewportImageCoordinate(
         FCanvasHost.HorzScrollBar.Position,
         AnchorViewportPoint.X,
-        FPaintBox.Left,
+        FPaintBox.Left + FCanvasPadX,
         FZoomScale,
         FDocument.Width
       ),
       ViewportImageCoordinate(
         FCanvasHost.VertScrollBar.Position,
         AnchorViewportPoint.Y,
-        FPaintBox.Top,
+        FPaintBox.Top + FCanvasPadY,
         FZoomScale,
         FDocument.Height
       )
@@ -7693,7 +7753,7 @@ begin
       TargetHorizontal := ScrollPositionForAnchor(
         AnchorImagePoint.X,
         FZoomScale,
-        FPaintBox.Left,
+        FPaintBox.Left + FCanvasPadX,
         AnchorViewportPoint.X
       );
     TargetHorizontal := ClampViewportScrollPosition(
@@ -7711,7 +7771,7 @@ begin
       TargetVertical := ScrollPositionForAnchor(
         AnchorImagePoint.Y,
         FZoomScale,
-        FPaintBox.Top,
+        FPaintBox.Top + FCanvasPadY,
         AnchorViewportPoint.Y
       );
     TargetVertical := ClampViewportScrollPosition(
@@ -8657,9 +8717,30 @@ var
   TargetWidth: Integer;
   TargetHeight: Integer;
   NewDoc: TImageDocument;
+  ClipPic: TPicture;
 begin
-  TargetWidth := FDocument.Width;
-  TargetHeight := FDocument.Height;
+  { Determine default dimensions: prefer clipboard image size, then DPI-scaled default }
+  TargetWidth := 1024 * FScreenBackingScale;
+  TargetHeight := 768 * FScreenBackingScale;
+  if Clipboard.HasPictureFormat then
+  begin
+    ClipPic := TPicture.Create;
+    try
+      try
+        Clipboard.AssignTo(ClipPic);
+        if Assigned(ClipPic.Graphic) and (not ClipPic.Graphic.Empty) and
+           (ClipPic.Width > 0) and (ClipPic.Height > 0) then
+        begin
+          TargetWidth := ClipPic.Width;
+          TargetHeight := ClipPic.Height;
+        end;
+      except
+        { Ignore clipboard read errors; keep the fixed default }
+      end;
+    finally
+      ClipPic.Free;
+    end;
+  end;
   if not RunNewImageDialog(Self, TargetWidth, TargetHeight, FNewImageResolutionDPI) then
     Exit;
   CommitInlineTextEdit(True);
@@ -9686,6 +9767,7 @@ end;
 procedure TMainForm.FitToWindowClick(Sender: TObject);
 begin
   FitDocumentToViewport(False);
+  FCenterOnNextCanvasUpdate := True;
   RefreshCanvas;
 end;
 
@@ -9716,13 +9798,13 @@ begin
   SelectionCenterX := Bounds.Left + (SelectionWidth / 2.0);
   SelectionCenterY := Bounds.Top + (SelectionHeight / 2.0);
   TargetHorizontal := ClampViewportScrollPosition(
-    FPaintBox.Left + Round(SelectionCenterX * FZoomScale) - (FCanvasHost.ClientWidth div 2),
+    FPaintBox.Left + FCanvasPadX + Round(SelectionCenterX * FZoomScale) - (FCanvasHost.ClientWidth div 2),
     FPaintBox.Left,
     FPaintBox.Width,
     FCanvasHost.ClientWidth
   );
   TargetVertical := ClampViewportScrollPosition(
-    FPaintBox.Top + Round(SelectionCenterY * FZoomScale) - (FCanvasHost.ClientHeight div 2),
+    FPaintBox.Top + FCanvasPadY + Round(SelectionCenterY * FZoomScale) - (FCanvasHost.ClientHeight div 2),
     FPaintBox.Top,
     FPaintBox.Height,
     FCanvasHost.ClientHeight
@@ -9926,6 +10008,16 @@ begin
     RelayoutTopChrome;
     Dec(FDeferredLayoutPassesRemaining);
     FDeferredLayoutPass := FDeferredLayoutPassesRemaining > 0;
+    if not FDeferredLayoutPass then
+    begin
+      { All deferred layout passes complete — the viewport now has its final
+        dimensions.  Fit the document then re-center the canvas so the image
+        is centred inside the post-layout viewport rather than the smaller
+        pre-layout viewport that consumed the original flag. }
+      FitDocumentToViewport(True);
+      FCenterOnNextCanvasUpdate := True;
+      UpdateCanvasSize;
+    end;
   end;
 
   { Disable Cocoa rubber-band bounce for the canvas scroll view so viewport
@@ -12465,6 +12557,7 @@ begin
   FLastImagePoint := Point(-1, -1);
   FPointerDown := False;
   FitDocumentToViewport(False);
+  FCenterOnNextCanvasUpdate := True;
   RefreshTabStrip;
   RefreshLayers;
   RefreshCanvas;
@@ -12536,6 +12629,7 @@ begin
   FLastImagePoint := Point(-1, -1);
   FPointerDown := False;
   FitDocumentToViewport(False);
+  FCenterOnNextCanvasUpdate := True;
   RefreshTabStrip;
   RefreshLayers;
   RefreshCanvas;

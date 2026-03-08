@@ -194,17 +194,24 @@ end;
 
 function WheelScrollPixels(AWheelDelta: Integer; ABaseStep: Integer): Integer;
 var
-  WheelNotches: Integer;
-  StepSize: Integer;
+  AbsDelta: Integer;
+  Pixels: Integer;
 begin
   if AWheelDelta = 0 then
     Exit(0);
-  WheelNotches := Max(1, Abs(AWheelDelta) div 120);
-  StepSize := Max(1, ABaseStep) * WheelNotches;
-  if AWheelDelta > 0 then
-    Result := -StepSize
+  AbsDelta := Abs(AWheelDelta);
+  { On macOS trackpad the LCL Cocoa widgetset sends small WheelDelta values
+    (typically 1..40 per gesture tick) rather than the Windows-style multiples
+    of 120.  Scale the delta proportionally so trackpad scrolling feels smooth
+    instead of jumping ABaseStep pixels for every tiny gesture. }
+  if AbsDelta >= 120 then
+    Pixels := Max(1, ABaseStep) * (AbsDelta div 120)
   else
-    Result := StepSize;
+    Pixels := Max(1, (Max(1, ABaseStep) * AbsDelta + 60) div 120);
+  if AWheelDelta > 0 then
+    Result := -Pixels
+  else
+    Result := Pixels;
 end;
 
 end.

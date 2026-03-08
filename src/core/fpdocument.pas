@@ -1845,8 +1845,8 @@ var
   CanvasX: Integer;
   CanvasY: Integer;
   Layer: TRasterLayer;
-  Dst, Src: TRGBA32;
-  A, InvA, Opacity: Integer;
+  Dst, Src, SrcStraight, DstStraight: TRGBA32;
+  Opacity: Integer;
   Dr, Dg, Db: Integer;
   Sr, Sg, Sb: Integer;
 begin
@@ -1871,7 +1871,7 @@ begin
           CanvasX := LocalX + Layer.OffsetX;
           if (CanvasX < 0) or (CanvasX >= FWidth) then
             Continue;
-          ResultSurface.BlendPixel(CanvasX, CanvasY, Layer.Surface[LocalX, LocalY], Opacity);
+          ResultSurface.BlendPixelPremul(CanvasX, CanvasY, Layer.Surface[LocalX, LocalY], Opacity);
         end;
       end;
     end
@@ -1887,14 +1887,15 @@ begin
           CanvasX := LocalX + Layer.OffsetX;
           if (CanvasX < 0) or (CanvasX >= FWidth) then
             Continue;
-          Dst := ResultSurface[CanvasX, CanvasY];
           Src := Layer.Surface[LocalX, LocalY];
           if Src.A = 0 then
             Continue;
-          A := (Src.A * Opacity) div 255;
-          InvA := 255 - A;
-          Dr := Dst.R; Dg := Dst.G; Db := Dst.B;
-          Sr := Src.R; Sg := Src.G; Sb := Src.B;
+          Dst := ResultSurface[CanvasX, CanvasY];
+          { Unpremultiply to get straight-alpha values for blend mode formulas }
+          SrcStraight := Unpremultiply(Src);
+          DstStraight := Unpremultiply(Dst);
+          Dr := DstStraight.R; Dg := DstStraight.G; Db := DstStraight.B;
+          Sr := SrcStraight.R; Sg := SrcStraight.G; Sb := SrcStraight.B;
           case Layer.BlendMode of
             bmMultiply:
             begin
@@ -1946,10 +1947,9 @@ begin
                     (Db * Db div 255 * (255 - 2 * Sb) div 255);
             end;
           end;
-          Src.R := EnsureRange(Sr, 0, 255);
-          Src.G := EnsureRange(Sg, 0, 255);
-          Src.B := EnsureRange(Sb, 0, 255);
-          ResultSurface.BlendPixel(CanvasX, CanvasY, Src, Opacity);
+          { Re-premultiply the blended result and composite }
+          Src := Premultiply(RGBA(EnsureRange(Sr, 0, 255), EnsureRange(Sg, 0, 255), EnsureRange(Sb, 0, 255), SrcStraight.A));
+          ResultSurface.BlendPixelPremul(CanvasX, CanvasY, Src, Opacity);
         end;
       end;
     end;

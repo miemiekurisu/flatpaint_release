@@ -28,3 +28,37 @@ void FPForceAquaAppearance(void *nsViewHandle) {
         }
     }
 }
+
+/*
+ * Return the main screen's backing scale factor (e.g. 2.0 on Retina).
+ *
+ * Pascal side:
+ *   FPGetScreenBackingScale: Double; cdecl;
+ */
+double FPGetScreenBackingScale(void) {
+    NSScreen *screen = [NSScreen mainScreen];
+    if (!screen) return 1.0;
+    return (double)[screen backingScaleFactor];
+}
+
+/*
+ * Set the interpolation quality on the current graphics context.
+ * quality: 0 = none (nearest-neighbor), 1 = low, 2 = medium, 3 = high
+ *
+ * Pascal side:
+ *   FPSetInterpolationQuality(AQuality: LongInt); cdecl;
+ */
+void FPSetInterpolationQuality(int quality) {
+    NSGraphicsContext *gc = [NSGraphicsContext currentContext];
+    if (!gc) return;
+    CGContextRef ctx = (CGContextRef)[gc CGContext];
+    if (!ctx) return;
+    CGInterpolationQuality q;
+    switch (quality) {
+        case 0:  q = kCGInterpolationNone; break;
+        case 1:  q = kCGInterpolationLow; break;
+        case 2:  q = kCGInterpolationMedium; break;
+        default: q = kCGInterpolationHigh; break;
+    }
+    CGContextSetInterpolationQuality(ctx, q);
+}

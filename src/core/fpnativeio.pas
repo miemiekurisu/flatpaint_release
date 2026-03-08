@@ -107,7 +107,7 @@ begin
       for Y := 0 to ADocument.Height - 1 do
         for X := 0 to ADocument.Width - 1 do
         begin
-          Pixel := ADocument.Layers[LayerIndex].Surface[X, Y];
+          Pixel := Unpremultiply(ADocument.Layers[LayerIndex].Surface[X, Y]);
           Stream.WriteBuffer(Pixel, SizeOf(Pixel));
         end;
     end;
@@ -198,12 +198,11 @@ begin
         NewLayer.OffsetX := OffsetX;
         NewLayer.OffsetY := OffsetY;
 
-        Pixel := TransparentColor;
         for Y := 0 to HeightValue - 1 do
           for X := 0 to WidthValue - 1 do
           begin
             Stream.ReadBuffer(Pixel, SizeOf(Pixel));
-            NewLayer.Surface[X, Y] := Pixel;
+            NewLayer.Surface[X, Y] := Premultiply(Pixel);
           end;
       end;
 

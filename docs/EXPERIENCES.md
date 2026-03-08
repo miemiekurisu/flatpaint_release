@@ -16,6 +16,42 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-08 (stale `.ppu` object files cause phantom access violations after structural unit changes)
+- Problem: after premultiplied alpha migration changed function signatures and blend logic across multiple units, test builds produced 98 access violations in unrelated code paths despite clean compilation.
+- Core error: `RunError(216)` (access violations) in tests that had not been modified.
+- Investigation: suspected stale `.ppu`/`.o` files from incremental build. `find . -name '*.ppu' -delete && find . -name '*.o' -not -path './lib/*' -delete && rm -rf lib/ dist/` forced full recompilation.
+- Root cause: FPC incremental build reuses `.ppu` files that embed inlined function bodies and record layouts. When `TRGBA32` semantics change (straight → premultiplied) or `BlendNormal` signature changes, stale `.ppu` files produce linkage against old layouts/inlines, causing runtime corruption.
+- Fix: force clean rebuild after any structural change to core types or inlined functions. Initial `rm src/core/*.ppu` attempt failed with zsh `no matches found` glob error — use `find` instead of shell glob for safe cleanup.
+- Reuse note: after changing record layouts, inlined functions, or blend formulas in core units, always do a full clean rebuild. FPC's incremental compilation cannot detect semantic changes in inlined code across unit boundaries.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (8-bit premultiplied alpha round-trip has inherent precision loss at low alpha)
+- Problem: `UnpremultiplyRoundTripsWithinTolerance` test failed for alpha values below 128, with channel errors exceeding ±1.
+- Core error: at `A=1`, `Premultiply(RGBA(51,...,1))` produces `R=0`, and `Unpremultiply` cannot recover the original 51.
+- Investigation: tested systematic round-trip across all alpha values 1-255. Plotted error distribution and found that at `A >= 128`, error stays within ±1 per channel. Below 128, quantization error grows inversely with alpha.
+- Root cause: 8-bit premultiplication loses significant bits when alpha is small. `R_premul = R * A / 255` maps many distinct R values to the same premultiplied value, making the transformation non-injective at low alpha. This is a mathematical property of 8-bit storage, not a bug.
+- Fix: constrained round-trip test to `A >= 128` threshold. Documented as known limitation matching GIMP/Krita (they mitigate by using 32-bit float internally).
+- Reuse note: for 8-bit premultiplied pipelines, do not assume lossless round-trip below ~50% alpha. If sub-50% alpha precision matters, use float intermediate storage for the operation and convert back to 8-bit at the end.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (SDF AA is invisible when display pipeline upscales with nearest-neighbor on Retina)
+- Problem: user reported pencil aliasing was still severe after implementing SDF edge AA. "没什么区别" (no difference).
+- Core error: SDF AA produces correct 1px smooth transitions at document-pixel resolution, but the display pipeline nearest-neighbor upscales the document bitmap to 2× physical pixels on Retina, visually amplifying staircase edges.
+- Investigation: confirmed `DrawBrush` already had `SDFCoverage` at line 644 of `fpsurface.pas`. Traced display pipeline: `TRasterSurface` → `CopySurfaceToBitmap` → `StretchDraw`. On 2× Retina, a 1024×768 document bitmap is stretched to 2048×1536 physical pixels. Without explicit interpolation quality control, macOS uses nearest-neighbor for the upscale.
+- Root cause: the AA fringe exists at document pixel level but is invisible to the user because the display upscale destroys sub-pixel information. Two independent issues: (1) document resolution too low for screen density, (2) upscale interpolation quality uncontrolled.
+- Fix: (1) Scale default document size by `FPGetScreenBackingScale` (2048×1536 on Retina), giving AA fringe more physical pixels to work with. (2) Call `FPSetInterpolationQuality(3)` before `StretchDraw` at zoom ≤ 1.0 for CG high-quality bicubic interpolation.
+- Reuse note: AA at the rendering layer is necessary but not sufficient — the display pipeline's upscale quality is equally critical. On HiDPI, always verify both document resolution and display interpolation quality.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (first-launch canvas centering fails when deferred layout changes viewport dimensions after centering flag is consumed)
+- Problem: user reported that the image doesn't center on canvas when the app first opens ("第一次打开软件的时候那个图没有对准画布中心").
+- Core error: canvas appears offset from viewport center on first launch, but centers correctly after any subsequent resize or zoom action.
+- Investigation: traced `FCenterOnNextCanvasUpdate` lifecycle through constructor → `UpdateCanvasSize` → `AppIdle` deferred layout. Found that `FCenterOnNextCanvasUpdate` is set in constructor, consumed during the first `UpdateCanvasSize`, but then `AppIdle` runs multiple deferred layout passes that change `FCanvasHost` dimensions.
+- Root cause: deferred layout passes (`FDeferredLayoutPassesRemaining`) in `AppIdle` change viewport geometry AFTER the centering flag was already consumed and centering coordinates already computed. The canvas centers on pre-layout dimensions, then layout changes the viewport without re-centering.
+- Fix: after deferred layout completes (when `FDeferredLayoutPass` becomes `False`), re-trigger `FitDocumentToViewport(True)` + `FCenterOnNextCanvasUpdate := True` + `UpdateCanvasSize`. This ensures centering uses final post-layout viewport dimensions.
+- Reuse note: for Lazarus/Cocoa apps with deferred layout, never assume viewport dimensions are final during construction or early idle passes. Any geometry-dependent initialization (centering, fitting, scrollbar setup) should re-execute after layout stabilizes.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-07 (layer lock/visibility controls can appear coupled when icon hit-testing is coarse and double-click side effects are not isolated)
 - Problem: user reported lock and eye buttons in the layer row behaved as if linked; toggling one could trigger unintended behavior from the other interaction surface.
 - Core error: row interaction used coarse X-threshold hit logic and did not isolate icon-click flows from layer-row double-click behavior.

@@ -23,7 +23,8 @@ uses
   fpnoisehelpers_tests, fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpbrightnesscontrasthelpers_tests, fpresizehelpers_tests, fpviewporthelpers_tests,
   fpstatushelpers_tests, fpfilemenuhelpers_tests,
-  pipeline_integration_tests;
+  pipeline_integration_tests,
+  fpcolor_premul_tests;
 
 var
   Runner: TTestRunner;

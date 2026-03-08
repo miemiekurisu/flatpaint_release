@@ -23,6 +23,13 @@ Use one short block per issue.
 ## Note
 - `docs/EXPERIENCES.md` is now the primary cumulative issue log. This file remains only as the earlier session-local record.
 
+## 2026-03-08 (anti-aliasing module: premultiplied alpha + SDF AA + CG bridge + Retina DPI)
+- Problem: shape edges (ellipse, rounded rect, polygon) were aliased with hard staircase edges; selection masks were binary 0/255; pixel pipeline used straight alpha incompatible with CG/vImage; Retina displays showed poor rendering quality due to 1:1 document-to-pixel resolution and uncontrolled upscale interpolation.
+- Core error: binary inside/outside tests produced no sub-pixel coverage; straight alpha format blocked zero-copy CG buffer sharing; display pipeline nearest-neighbor upscale on Retina destroyed document-level AA fringe.
+- Investigation: (1) researched GIMP source code for SDF AA approach (`gimp-gegl-mask-combine.cc`), (2) evaluated FPC/Lazarus graphics libraries (BGRABitmap, AggPas, Cairo — all rejected), (3) audited Apple framework FPC bindings (CG fully available, vImage needs bridge, Metal needs bridge), (4) diagnosed display pipeline as critical path for visible quality on Retina.
+- Fix: (1) migrated entire pipeline to premultiplied alpha (`Premultiply`/`Unpremultiply` helpers, `BlendNormal` rewrite, all I/O boundaries, all erase ops, compositor, 26+ filters), (2) implemented SDF edge AA (`SDFCoverage`, `EllipseSDF`, `RoundedRectSDF`, `DistToSegment`) for DrawEllipse, DrawRoundedRectangle, FillPolygon, SelectEllipse, SelectPolygon, (3) created CG offscreen rendering bridge (`fp_cgrender.m` + `fpcgrenderbridge.pas`), (4) added Retina DPI detection (`FPGetScreenBackingScale`) and CG interpolation quality control (`FPSetInterpolationQuality`), (5) fixed first-launch centering race condition. 327 tests, 0 failures.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-05 (UI/UX polish pass)
 - Problem: 8 user-reported UI/UX issues including missing Preferences menu, wrong close-unsaved-tab logic, effect dialogs lacking sliders, layer list layout ordering, no layer lock feature, toolbar spacing too tight, and unreachable i18n settings
 - Core error: the Settings dialog existed but was unreachable from the menu bar; close-tab used discard-first logic; effect parameter dialogs had no TTrackBar sliders; layer list lacked lock icon column; `TRasterLayer` had no lock property; toolbar option row overlapped with first row

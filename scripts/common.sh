@@ -266,6 +266,17 @@ compile_native_modules() {
       -o "$output_dir/fp_scrollview.o" \
       "$src_dir/fp_scrollview.m"
   fi
+
+  if [[ -f "$src_dir/fp_cgrender.m" ]]; then
+    log "Compiling native module: fp_cgrender.m"
+    clang -c -O2 \
+      -arch "$(uname -m)" \
+      -mmacosx-version-min=11.0 \
+      -fobjc-arc \
+      -framework Cocoa -framework CoreGraphics \
+      -o "$output_dir/fp_cgrender.o" \
+      "$src_dir/fp_cgrender.m"
+  fi
 }
 
 clean_generated_artifacts() {

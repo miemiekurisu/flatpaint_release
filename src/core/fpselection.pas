@@ -58,6 +58,52 @@ implementation
 uses
   Math, SysUtils;
 
+{ --- SDF Anti-Aliasing Helpers (duplicated from fpsurface for dependency isolation) --- }
+
+function SDFCoverage(DistPixels: Double): Byte; inline;
+var
+  Coverage: Double;
+begin
+  Coverage := DistPixels + 0.5;
+  if Coverage <= 0.0 then
+    Exit(0);
+  if Coverage >= 1.0 then
+    Exit(255);
+  Result := Round(Coverage * 255.0);
+end;
+
+function EllipseSDF(PX, PY, CX, CY, RX, RY: Double): Double; inline;
+var
+  NX, NY, NLen: Double;
+begin
+  if (RX <= 0.0) or (RY <= 0.0) then
+    Exit(-1.0);
+  NX := (PX - CX) / RX;
+  NY := (PY - CY) / RY;
+  NLen := Sqrt(NX * NX + NY * NY);
+  if NLen < 1.0e-12 then
+    Exit(Min(RX, RY));
+  Result := (1.0 - NLen) * Min(RX, RY) * (NLen / Sqrt((NX * NX) / (RX * RX) + (NY * NY) / (RY * RY)));
+end;
+
+function DistToSegment(PX, PY, AX, AY, BX, BY: Double): Double;
+var
+  DX, DY, T, ProjX, ProjY: Double;
+begin
+  DX := BX - AX;
+  DY := BY - AY;
+  if (DX = 0.0) and (DY = 0.0) then
+    Exit(Sqrt(Sqr(PX - AX) + Sqr(PY - AY)));
+  T := ((PX - AX) * DX + (PY - AY) * DY) / (DX * DX + DY * DY);
+  if T < 0.0 then T := 0.0
+  else if T > 1.0 then T := 1.0;
+  ProjX := AX + T * DX;
+  ProjY := AY + T * DY;
+  Result := Sqrt(Sqr(PX - ProjX) + Sqr(PY - ProjY));
+end;
+
+{ --- End SDF Helpers --- }
+
 function PointInsidePolygon(const APoints: array of TPoint; AX, AY: Double): Boolean;
 var
   Index: Integer;
@@ -334,10 +380,11 @@ var
   CenterY: Double;
   RadiusX: Double;
   RadiusY: Double;
-  NX: Double;
-  NY: Double;
   X: Integer;
   Y: Integer;
+  Dist: Double;
+  Cov: Byte;
+  Existing: Byte;
 begin
   if AMode = scIntersect then
   begin
@@ -359,23 +406,37 @@ begin
   if AMode = scReplace then
     Clear;
 
-  { Sample against pixel centers so ellipse edges are symmetric and less jagged,
-    especially on small radii compared with rectangle selection outlines. }
   CenterX := (LeftX + RightX + 1) / 2.0;
   CenterY := (TopY + BottomY + 1) / 2.0;
   RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
   RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
 
-  for Y := TopY to BottomY do
-    for X := LeftX to RightX do
+  for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
+    for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
     begin
-      NX := ((X + 0.5) - CenterX) / RadiusX;
-      NY := ((Y + 0.5) - CenterY) / RadiusY;
-      if (NX * NX) + (NY * NY) <= 1.0 then
-        case AMode of
-          scReplace, scAdd: Selected[X, Y] := True;
-          scSubtract: Selected[X, Y] := False;
+      Dist := EllipseSDF(X + 0.5, Y + 0.5, CenterX, CenterY, RadiusX, RadiusY);
+      Cov := SDFCoverage(Dist);
+      if Cov = 0 then
+        Continue;
+      case AMode of
+        scReplace, scAdd:
+        begin
+          Existing := Coverage(X, Y);
+          if Cov > Existing then
+            SetCoverage(X, Y, Cov);
         end;
+        scSubtract:
+        begin
+          Existing := Coverage(X, Y);
+          if Existing > 0 then
+          begin
+            if Cov >= Existing then
+              SetCoverage(X, Y, 0)
+            else
+              SetCoverage(X, Y, Existing - Cov);
+          end;
+        end;
+      end;
     end;
 end;
 
@@ -387,59 +448,39 @@ var
   TopY: Integer;
   BottomY: Integer;
   PointIndex: Integer;
+  NextIndex: Integer;
   X: Integer;
   Y: Integer;
+  PX, PY: Double;
+  MinDist, EdgeDist: Double;
+  Inside: Boolean;
+  SignedDist: Double;
+  Cov: Byte;
+  Existing: Byte;
 
-  procedure ApplySelectionAt(AX, AY: Integer);
+  procedure ApplyCoverage(AX, AY: Integer; ACov: Byte);
   begin
     if not InBounds(AX, AY) then
       Exit;
+    if ACov = 0 then
+      Exit;
     case AMode of
-      scReplace, scAdd: Selected[AX, AY] := True;
-      scSubtract: Selected[AX, AY] := False;
-    end;
-  end;
-
-  procedure RasterizeEdge(const AFromPoint, AToPoint: TPoint);
-  var
-    CurrentX: Integer;
-    CurrentY: Integer;
-    DeltaX: Integer;
-    DeltaY: Integer;
-    StepX: Integer;
-    StepY: Integer;
-    ErrorValue: Integer;
-    DoubleError: Integer;
-  begin
-    CurrentX := AFromPoint.X;
-    CurrentY := AFromPoint.Y;
-    DeltaX := Abs(AToPoint.X - AFromPoint.X);
-    DeltaY := Abs(AToPoint.Y - AFromPoint.Y);
-    if AFromPoint.X < AToPoint.X then
-      StepX := 1
-    else
-      StepX := -1;
-    if AFromPoint.Y < AToPoint.Y then
-      StepY := 1
-    else
-      StepY := -1;
-
-    ErrorValue := DeltaX - DeltaY;
-    while True do
-    begin
-      ApplySelectionAt(CurrentX, CurrentY);
-      if (CurrentX = AToPoint.X) and (CurrentY = AToPoint.Y) then
-        Break;
-      DoubleError := ErrorValue * 2;
-      if DoubleError > -DeltaY then
+      scReplace, scAdd:
       begin
-        ErrorValue := ErrorValue - DeltaY;
-        CurrentX := CurrentX + StepX;
+        Existing := Coverage(AX, AY);
+        if ACov > Existing then
+          SetCoverage(AX, AY, ACov);
       end;
-      if DoubleError < DeltaX then
+      scSubtract:
       begin
-        ErrorValue := ErrorValue + DeltaX;
-        CurrentY := CurrentY + StepY;
+        Existing := Coverage(AX, AY);
+        if Existing > 0 then
+        begin
+          if ACov >= Existing then
+            SetCoverage(AX, AY, 0)
+          else
+            SetCoverage(AX, AY, Existing - ACov);
+        end;
       end;
     end;
   end;
@@ -460,7 +501,7 @@ begin
   if AMode = scReplace then
     Clear;
 
-  if Length(APoints) = 0 then
+  if Length(APoints) < 3 then
     Exit;
 
   LeftX := APoints[0].X;
@@ -475,21 +516,36 @@ begin
     BottomY := Max(BottomY, APoints[PointIndex].Y);
   end;
 
-  LeftX := Max(0, LeftX);
-  RightX := Min(FWidth - 1, RightX);
-  TopY := Max(0, TopY);
-  BottomY := Min(FHeight - 1, BottomY);
+  LeftX := Max(0, LeftX - 1);
+  RightX := Min(FWidth - 1, RightX + 1);
+  TopY := Max(0, TopY - 1);
+  BottomY := Min(FHeight - 1, BottomY + 1);
   if (LeftX > RightX) or (TopY > BottomY) then
     Exit;
 
-  if Length(APoints) >= 3 then
-    for Y := TopY to BottomY do
-      for X := LeftX to RightX do
-        if PointInsidePolygon(APoints, X + 0.5, Y + 0.5) then
-          ApplySelectionAt(X, Y);
-
-  for PointIndex := 0 to High(APoints) do
-    RasterizeEdge(APoints[PointIndex], APoints[(PointIndex + 1) mod Length(APoints)]);
+  for Y := TopY to BottomY do
+    for X := LeftX to RightX do
+    begin
+      PX := X + 0.5;
+      PY := Y + 0.5;
+      Inside := PointInsidePolygon(APoints, PX, PY);
+      MinDist := 1.0e30;
+      for PointIndex := 0 to High(APoints) do
+      begin
+        NextIndex := (PointIndex + 1) mod Length(APoints);
+        EdgeDist := DistToSegment(PX, PY,
+          APoints[PointIndex].X + 0.5, APoints[PointIndex].Y + 0.5,
+          APoints[NextIndex].X + 0.5, APoints[NextIndex].Y + 0.5);
+        if EdgeDist < MinDist then
+          MinDist := EdgeDist;
+      end;
+      if Inside then
+        SignedDist := MinDist
+      else
+        SignedDist := -MinDist;
+      Cov := SDFCoverage(SignedDist);
+      ApplyCoverage(X, Y, Cov);
+    end;
 end;
 
 procedure TSelectionMask.MoveBy(DeltaX, DeltaY: Integer);

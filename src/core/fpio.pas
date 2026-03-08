@@ -114,7 +114,7 @@ begin
         for X := 0 to Image.Width - 1 do
         begin
           Pixel := Image.Colors[X, Y];
-          ASurface[X, Y] := RGBA(Pixel.Red shr 8, Pixel.Green shr 8, Pixel.Blue shr 8, Pixel.Alpha shr 8);
+          ASurface[X, Y] := Premultiply(RGBA(Pixel.Red shr 8, Pixel.Green shr 8, Pixel.Blue shr 8, Pixel.Alpha shr 8));
         end;
       Result := True;
     except
@@ -288,7 +288,7 @@ begin
     for Y := 0 to ASurface.Height - 1 do
       for X := 0 to ASurface.Width - 1 do
       begin
-        Pixel := ASurface[X, Y];
+        Pixel := Unpremultiply(ASurface[X, Y]);
         Image.Colors[X, Y] := FPImage.FPColor(Pixel.R shl 8, Pixel.G shl 8, Pixel.B shl 8, Pixel.A shl 8);
       end;
     Image.SaveToStream(Stream, Writer);
