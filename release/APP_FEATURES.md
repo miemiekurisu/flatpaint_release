@@ -2,6 +2,7 @@
 
 ## Build target
 - macOS Apple Silicon (`arm64` / `aarch64`)
+- Minimum supported macOS: `11.0` (Big Sur) and later
 - Artifact: `FlatPaint.app`
 
 ## Core capabilities
