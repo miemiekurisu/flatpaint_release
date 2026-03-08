@@ -103,9 +103,9 @@ begin
   AssertEquals('zoom buttons share standard height', ToolbarButtonHeight, ZoomOutRect.Bottom - ZoomOutRect.Top);
   AssertEquals('zoom buttons share standard height', ToolbarButtonHeight, ZoomInRect.Bottom - ZoomInRect.Top);
   AssertEquals('zoom combo keeps compact control height', ToolbarZoomComboHeight, ZoomComboRect.Bottom - ZoomComboRect.Top);
-  AssertEquals('zoom combo should share the same visual vertical center as the zoom buttons',
-    (ZoomOutRect.Top + ZoomOutRect.Bottom) div 2,
-    (ZoomComboRect.Top + ZoomComboRect.Bottom) div 2);
+  AssertTrue('zoom combo vertical center within 1 px of button center (macOS visual nudge)',
+    Abs(((ZoomOutRect.Top + ZoomOutRect.Bottom) div 2) -
+        ((ZoomComboRect.Top + ZoomComboRect.Bottom) div 2)) <= 1);
 end;
 
 initialization

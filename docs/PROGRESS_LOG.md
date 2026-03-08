@@ -4,6 +4,18 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (Toolbar zoom-control centering and hover-style consistency)
+
+### Changes
+- Fixed zoom group horizontal centering: content padding was 6 px left / 2 px right; now 4 px each side (`ToolbarZoomButtonInsetLeft` 6→4, `ToolbarZoomComboLeft` 38→36, `ToolbarZoomInButtonLeft` 128→126).
+- Adjusted zoom combo vertical position 1 px up (`ToolbarZoomComboTop` 4→3) to compensate for macOS NSPopUpButton visual baseline offset.
+- Removed `Flat` toggle hover handler from New/Open/Save buttons; they now use the same native Cocoa hover as all other toolbar buttons.
+- Removed unused `ToolbarBtnMouseEnter`/`ToolbarBtnMouseLeave` procedures.
+- Updated `ZoomControlsFitInsideZoomCluster` test to accept 1 px vertical tolerance.
+
+### Test results
+- 350 tests, 0 errors, 0 failures.
+
 ## 2026-03-08 (About content build-time regeneration and source-sync guard)
 
 ### Changes
@@ -1633,3 +1645,37 @@ Six bugs were identified through systematic trace of the three reported failure 
   - Verification:
     - `bash ./scripts/run_tests_ci.sh` passed (`N:347 E:0 F:0`).
     - `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-08 — Zoom control centering + toolbar hover style polish.**
+  - Adjusted `ToolbarZoomButtonInsetLeft` (6→4), `ToolbarZoomComboLeft` (38→36), `ToolbarZoomComboTop` (4→3), `ToolbarZoomInButtonLeft` (128→126) in `fptoolbarhelpers.pas` to center the `– 100% +` cluster.
+  - Removed `ToolbarBtnMouseEnter`/`ToolbarBtnMouseLeave` flat-toggle from New/Open/Save buttons in `mainform.pas` so hover appearance matches other toolbar buttons.
+  - Relaxed `ZoomControlsFitInsideZoomCluster` test to 1px tolerance for macOS visual nudge.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:350 E:0 F:0`).
+- **2026-03-08 — Four critical bug fixes (bucket crash, selection re-click, keyboard shortcuts, brush hardness).**
+  - **Paint bucket crash on unfenced areas:** `SampleSurface := FDocument.ActiveLayer.Surface` stored a borrowed reference that `SampleSurface.Free` in the `finally` block destroyed, crashing the app. Fix: call methods directly on `FDocument.ActiveLayer.Surface` without storing into `SampleSurface`, so `finally` frees only actually-allocated masks.
+  - **Selection re-click requiring two clicks:** `ShouldAutoDeselectFromBlankClick` path set `FPointerDown := False; Exit;`, blocking new selection start. Fix: removed the early exit so auto-deselect flows into normal mouse-down handling for immediate new selection.
+  - **Undocumented keyboard tool switching:** `NextToolForKey` in `FormKeyDown` mapped 13 letter keys to tool cycles, not documented in `SHORTCUT_POLICY.md`. Fix: removed entire `NextToolForKey` block, kept only X (swap colors) and D (reset colors) bare-key shortcuts.
+  - **Brush hardness/parameters ineffective:** `DrawLine` used Bresenham every-pixel dab spacing, causing ~radius overlapping dabs per pixel that saturated opacity regardless of hardness setting. Fix: added `DrawSpacedLine`/`EraseSpacedLine` with GIMP-inspired 25% diameter dab spacing, routed brush and round-eraser through new methods.
+  - Removed 3 tests for deleted keyboard-switch behavior; rewrote `ClickingOutsideSelectionAutoDeselects` for new selection lifecycle.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:347 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-08 — Dashed shape commit fix (phase carry across polyline segments).**
+  - Feature row mapping: `Paint tools` in `docs/FEATURE_MATRIX.md`.
+  - User-facing defect: ellipse/circle dashed outline appeared solid after commit; rectangle/rounded-rectangle/freeform dash patterns looked different from preview.
+  - Root cause: `DrawDashedPolyline` called `DrawDashedLine` independently per segment, resetting dash phase at each vertex. Ellipse segments (many tiny arcs) were each shorter than `DashLength`, producing all-dash with no gaps. Rectangle/freeform dash alignment shifted at each corner due to phase reset.
+  - Fix: rewrote `DrawDashedPolyline` to carry a continuous dash phase across all segments. Phase tracks position within the dash+gap period and flows correctly through segment boundaries.
+  - Regression coverage: `DashedPolylineEllipseHasGapPixels` verifies decomposed-ellipse polyline has both painted and transparent pixels.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:348 E:0 F:0`).
+- **2026-03-08 — Selection masking for all paint/draw/shape tools (paint.net/Photoshop/GIMP parity).**
+  - Feature row mapping: `Selection tools` + `Paint tools` in `docs/FEATURE_MATRIX.md`.
+  - Fallback reference: paint.net clips all drawing tool output to the active selection boundary; Photoshop and GIMP do the same. Recorded per dev rules #14-15.
+  - User-facing defect: pencil, brush, eraser, line, rectangle, ellipse, freeform shape, and clone stamp did not respect active selection — strokes painted outside the selected area.
+  - Root cause: `ToolPaintPathUsesActiveSelection` returned `True` only for `tkFill`, `tkGradient`, `tkRecolor`. All other drawing tools got `nil` for `PaintSelection`. Additionally, `ShouldPreserveSelectionAcrossToolSwitch` deselected when switching from selection tools to drawing tools.
+  - Fix: expanded `ToolPaintPathUsesActiveSelection` to return `True` for all paint/draw/shape tools (exclusion-based: only navigation/utility tools are excluded). Updated `ShouldPreserveSelectionAcrossToolSwitch` to preserve selection when switching to any tool that uses selection masking.
+  - Text tool (`tkText`) already had its own selection-aware path via `PlaceTextAtPoint` using `FDocument.Selection` directly.
+  - Updated 2 tests: `LineDragIgnoresExistingSelectionMask` now verifies clipping instead of bypass; `SwitchingFromSelectionToBrushAutoDeselectsSelection` now verifies selection is preserved.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:348 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-08 — DrawDashedPolyline floating-point stall fix (hang on rounded rectangle dash commit).**
+  - Feature row mapping: `Paint tools` in `docs/FEATURE_MATRIX.md`.
+  - User-facing defect: app hung for ~1 s when committing dashed rounded-rectangle outline. macOS hang report showed main thread stuck in `DrawDashedPolyline` → `DrawLine` → `DrawBrush` loop.
+  - Root cause: floating-point drift could make `Phase` nearly equal to `DashLength` (or `Period`), producing `RemainingInChunk ≈ 0` (e.g., 1e-15). The inner `while CursorPos < SegLength` loop then advanced by sub-picometer increments, effectively infinite.
+  - Fix: added guard in `DrawDashedPolyline` — when `RemainingInChunk < 0.5`, snap `Phase` to the exact dash/gap boundary and re-evaluate. This guarantees the next iteration gets a full chunk (≥ 1 px) and the loop terminates in bounded time.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:348 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.

@@ -5,7 +5,7 @@ unit fpsurface_tests;
 interface
 
 uses
-  Types, fpcunit, testregistry, FPColor, FPSelection, FPSurface;
+  Types, Math, fpcunit, testregistry, FPColor, FPSelection, FPSurface;
 
 type
   TFPSurfaceTests = class(TTestCase)
@@ -41,6 +41,7 @@ type
     procedure DrawLineOpacityScalesAlphaChannel;
     procedure DashedLineLeavesExpectedGapPixels;
     procedure DashedPolylineClosesOutlineWithVisibleGaps;
+    procedure DashedPolylineEllipseHasGapPixels;
     procedure DrawLineFullOpacityMatchesDirectPaint;
     procedure EraserLineReducesAlphaChannel;
     procedure DrawLineSoftHardnessProducesGradientEdge;
@@ -734,6 +735,49 @@ begin
     AssertEquals('top edge should have painted dash segments', 255, Surface[11, 10].A);
     AssertEquals('top edge should retain dash gaps', 0, Surface[18, 10].A);
     AssertEquals('closing edge should be painted', 255, Surface[10, 15].A);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DashedPolylineEllipseHasGapPixels;
+var
+  Surface: TRasterSurface;
+  Points: array of TPoint;
+  SegCount, I: Integer;
+  CX, CY, RX, RY: Double;
+  PaintedCount, TransparentCount: Integer;
+  X: Integer;
+begin
+  { An ellipse decomposed into many short segments must still show gaps
+    when rendered with DrawDashedPolyline (phase must carry across segments). }
+  Surface := TRasterSurface.Create(120, 80);
+  try
+    Surface.Clear(TransparentColor);
+    CX := 60.0;
+    CY := 40.0;
+    RX := 40.0;
+    RY := 25.0;
+    SegCount := Max(24, Round(2.0 * Pi * Max(RX, RY)));
+    SetLength(Points, SegCount);
+    for I := 0 to SegCount - 1 do
+      Points[I] := Point(
+        Round(CX + Cos(2.0 * Pi * I / SegCount) * RX),
+        Round(CY + Sin(2.0 * Pi * I / SegCount) * RY)
+      );
+    Surface.DrawDashedPolyline(Points, 1, RGBA(255, 0, 0, 255), True, 8, 6);
+    { Scan the top row of the ellipse (y = CY - RY = 15) for alternating painted/gap pixels }
+    PaintedCount := 0;
+    TransparentCount := 0;
+    for X := Round(CX - RX) to Round(CX + RX) do
+    begin
+      if Surface[X, Round(CY - RY)].A > 0 then
+        Inc(PaintedCount)
+      else
+        Inc(TransparentCount);
+    end;
+    AssertTrue('ellipse top should have some painted pixels', PaintedCount > 0);
+    AssertTrue('ellipse top should have some gap (transparent) pixels', TransparentCount > 0);
   finally
     Surface.Free;
   end;

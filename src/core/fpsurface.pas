@@ -46,6 +46,8 @@ type
     procedure EraseBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure EraseSquareBrush(X, Y, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawSpacedLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil; SpacingFraction: Double = 0.25);
+    procedure EraseSpacedLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil; SpacingFraction: Double = 0.25);
     procedure DrawDashedLine(
       X1, Y1, X2, Y2, Radius: Integer;
       const AColor: TRGBA32;
@@ -108,7 +110,7 @@ type
     procedure Soften;
     procedure RenderClouds(Seed: Cardinal = 1);
     procedure Pixelate(BlockSize: Integer);
-    procedure PixelateRect(ALeft, ATop, ARight, ABottom, BlockSize: Integer);
+    procedure PixelateRect(ALeft, ATop, ARight, ABottom, BlockSize: Integer; ASelection: TSelectionMask = nil);
     procedure Vignette(Strength: Double);
     procedure MotionBlur(Angle: Integer; Distance: Integer);
     procedure MedianFilter(Radius: Integer);
@@ -749,6 +751,62 @@ begin
   end;
 end;
 
+procedure TRasterSurface.DrawSpacedLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask; SpacingFraction: Double);
+{ Place brush dabs at intervals proportional to the brush diameter.
+  Inspired by GIMP's dab spacing model: spacing = diameter * fraction.
+  This prevents massive opacity buildup from per-pixel dab placement. }
+var
+  DX, DY: Double;
+  Dist: Double;
+  Spacing: Double;
+  Steps: Integer;
+  I: Integer;
+  PX, PY: Integer;
+begin
+  { Always place at least the endpoint dab }
+  DrawBrush(X2, Y2, Radius, AColor, Opacity, Hardness, ASelection);
+  DX := X2 - X1;
+  DY := Y2 - Y1;
+  Dist := Sqrt(DX * DX + DY * DY);
+  Spacing := Max(1.0, (Radius * 2 + 1) * SpacingFraction);
+  if Dist < 0.5 then
+    Exit;
+  Steps := Max(1, Round(Dist / Spacing));
+  for I := 0 to Steps - 1 do
+  begin
+    PX := Round(X1 + DX * I / Steps);
+    PY := Round(Y1 + DY * I / Steps);
+    DrawBrush(PX, PY, Radius, AColor, Opacity, Hardness, ASelection);
+  end;
+end;
+
+procedure TRasterSurface.EraseSpacedLine(X1, Y1, X2, Y2, Radius: Integer; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask; SpacingFraction: Double);
+{ Erase dabs at intervals proportional to the brush diameter.
+  Mirrors DrawSpacedLine but uses EraseBrush instead of DrawBrush. }
+var
+  DX, DY: Double;
+  Dist: Double;
+  Spacing: Double;
+  Steps: Integer;
+  I: Integer;
+  PX, PY: Integer;
+begin
+  EraseBrush(X2, Y2, Radius, Opacity, Hardness, ASelection);
+  DX := X2 - X1;
+  DY := Y2 - Y1;
+  Dist := Sqrt(DX * DX + DY * DY);
+  Spacing := Max(1.0, (Radius * 2 + 1) * SpacingFraction);
+  if Dist < 0.5 then
+    Exit;
+  Steps := Max(1, Round(Dist / Spacing));
+  for I := 0 to Steps - 1 do
+  begin
+    PX := Round(X1 + DX * I / Steps);
+    PY := Round(Y1 + DY * I / Steps);
+    EraseBrush(PX, PY, Radius, Opacity, Hardness, ASelection);
+  end;
+end;
+
 procedure TRasterSurface.DrawDashedLine(
   X1, Y1, X2, Y2, Radius: Integer;
   const AColor: TRGBA32;
@@ -824,40 +882,91 @@ procedure TRasterSurface.DrawDashedPolyline(
 var
   PointIndex: Integer;
   Radius: Integer;
+  Phase: Double;
+  Period: Double;
+  SegDX, SegDY, SegLength, SegUnitX, SegUnitY: Double;
+  CursorPos, ChunkEnd, RemainingInChunk: Double;
+  InDash: Boolean;
+  X1, Y1, X2, Y2: Integer;
+  SP, EP: TPoint;
 begin
   if High(APoints) < 1 then
     Exit;
 
+  DashLength := Max(1, DashLength);
+  GapLength := Max(1, GapLength);
   Radius := Max(1, (Max(1, StrokeWidth) + 1) div 2);
-  for PointIndex := 0 to High(APoints) - 1 do
-    DrawDashedLine(
-      APoints[PointIndex].X,
-      APoints[PointIndex].Y,
-      APoints[PointIndex + 1].X,
-      APoints[PointIndex + 1].Y,
-      Radius,
-      AColor,
-      DashLength,
-      GapLength,
-      Opacity,
-      Hardness,
-      ASelection
-    );
+  Period := DashLength + GapLength;
+  Phase := 0.0;
 
-  if Closed and (High(APoints) >= 2) then
-    DrawDashedLine(
-      APoints[High(APoints)].X,
-      APoints[High(APoints)].Y,
-      APoints[0].X,
-      APoints[0].Y,
-      Radius,
-      AColor,
-      DashLength,
-      GapLength,
-      Opacity,
-      Hardness,
-      ASelection
-    );
+  for PointIndex := 0 to High(APoints) - 1 + Ord(Closed and (High(APoints) >= 2)) do
+  begin
+    if PointIndex <= High(APoints) - 1 then
+    begin
+      X1 := APoints[PointIndex].X;
+      Y1 := APoints[PointIndex].Y;
+      X2 := APoints[PointIndex + 1].X;
+      Y2 := APoints[PointIndex + 1].Y;
+    end
+    else
+    begin
+      { Closing segment: last point back to first }
+      X1 := APoints[High(APoints)].X;
+      Y1 := APoints[High(APoints)].Y;
+      X2 := APoints[0].X;
+      Y2 := APoints[0].Y;
+    end;
+
+    SegDX := X2 - X1;
+    SegDY := Y2 - Y1;
+    SegLength := Sqrt(SegDX * SegDX + SegDY * SegDY);
+    if SegLength < 0.5 then
+    begin
+      Phase := Phase + SegLength;
+      while Phase >= Period do
+        Phase := Phase - Period;
+      Continue;
+    end;
+
+    SegUnitX := SegDX / SegLength;
+    SegUnitY := SegDY / SegLength;
+    CursorPos := 0.0;
+
+    while CursorPos < SegLength do
+    begin
+      InDash := Phase < DashLength;
+      if InDash then
+        RemainingInChunk := DashLength - Phase
+      else
+        RemainingInChunk := Period - Phase;
+
+      { Guard: snap phase to exact boundary when float drift yields near-zero chunk }
+      if RemainingInChunk < 0.5 then
+      begin
+        if InDash then
+          Phase := DashLength
+        else
+          Phase := 0.0;
+        Continue;
+      end;
+
+      ChunkEnd := CursorPos + RemainingInChunk;
+      if ChunkEnd > SegLength then
+        ChunkEnd := SegLength;
+
+      if InDash then
+      begin
+        SP := Point(Round(X1 + SegUnitX * CursorPos), Round(Y1 + SegUnitY * CursorPos));
+        EP := Point(Round(X1 + SegUnitX * ChunkEnd), Round(Y1 + SegUnitY * ChunkEnd));
+        DrawLine(SP.X, SP.Y, EP.X, EP.Y, Radius, AColor, Opacity, Hardness, ASelection);
+      end;
+
+      Phase := Phase + (ChunkEnd - CursorPos);
+      while Phase >= Period do
+        Phase := Phase - Period;
+      CursorPos := ChunkEnd;
+    end;
+  end;
 end;
 
 procedure TRasterSurface.DrawSquareLine(X1, Y1, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte; Hardness: Byte; ASelection: TSelectionMask);
@@ -2455,7 +2564,7 @@ begin
   end;
 end;
 
-procedure TRasterSurface.PixelateRect(ALeft, ATop, ARight, ABottom, BlockSize: Integer);
+procedure TRasterSurface.PixelateRect(ALeft, ATop, ARight, ABottom, BlockSize: Integer; ASelection: TSelectionMask);
 var
   X, Y: Integer;
   BX, BY: Integer;
@@ -2465,6 +2574,9 @@ var
   SumR, SumG, SumB, SumA: Integer;
   AvgColor: TRGBA32;
   ClipLeft, ClipTop, ClipRight, ClipBottom: Integer;
+  Cov: Byte;
+  Idx: Integer;
+  Orig: TRGBA32;
 begin
   if BlockSize <= 1 then Exit;
   { Clamp rectangle to surface bounds }
@@ -2503,7 +2615,26 @@ begin
         AvgColor.A := SumA div Count;
         for BY := BlockStartY to BlockEndY do
           for BX := BlockStartX to BlockEndX do
-            FPixels[IndexOf(BX, BY)] := AvgColor;
+          begin
+            Idx := IndexOf(BX, BY);
+            if Assigned(ASelection) then
+            begin
+              Cov := ASelection.Coverage(BX, BY);
+              if Cov = 0 then Continue;
+              if Cov < 255 then
+              begin
+                Orig := FPixels[Idx];
+                FPixels[Idx].R := (AvgColor.R * Cov + Orig.R * (255 - Cov) + 127) div 255;
+                FPixels[Idx].G := (AvgColor.G * Cov + Orig.G * (255 - Cov) + 127) div 255;
+                FPixels[Idx].B := (AvgColor.B * Cov + Orig.B * (255 - Cov) + 127) div 255;
+                FPixels[Idx].A := (AvgColor.A * Cov + Orig.A * (255 - Cov) + 127) div 255;
+              end
+              else
+                FPixels[Idx] := AvgColor;
+            end
+            else
+              FPixels[Idx] := AvgColor;
+          end;
       end;
       Inc(X, BlockSize);
     end;

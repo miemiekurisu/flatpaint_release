@@ -16,6 +16,15 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-08 (zoom control group appeared off-centre and New/Open/Save hover used rectangular bezel)
+- Problem: zoom `-` / `100%` / `+` cluster appeared left-biased; combo visually closer to minus than plus. New/Open/Save hover showed rectangular system bezel while all other buttons showed rounded native Cocoa hover.
+- Core error: unequal outer padding in zoom group (6 px left vs 2 px right); `ToolbarBtnMouseEnter`/Leave toggled `Flat` property, forcing a non-flat NSButton bezel that differs from the system hover appearance.
+- Investigation: reviewed constants in `fptoolbarhelpers.pas` and `CreateButton` in `mainform.pas`.
+- Root cause: zoom group total content (148 px) was not centred in the 156 px group panel; large command buttons used explicit `Flat:=False` for hover instead of relying on the native Cocoa hover matching the rest of toolbar.
+- Fix: centred zoom content (equal 4 px padding); nudged combo 1 px up for macOS visual alignment; removed Flat toggle hover and its unused procedures.
+- Reuse note: on macOS Cocoa, avoid toggling `TSpeedButton.Flat` for hover effects — the native NSButton hover is superior and consistent.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-08 (palette drag clamp that ignores ruler bands can make floating palettes overlap ruler surfaces)
 - Problem: when rulers are visible, floating utility palettes could be dragged or restored into ruler bands and visually cover ruler ticks/labels.
 - Core error: palette clamp logic treated full workspace client rect as usable area regardless of ruler visibility.
@@ -2630,3 +2639,68 @@ Based on all findings, the strategy is revised from the previous entry's generic
   3. added regression `AboutSectionsMatchAssetSourceFiles` to assert compiled constants equal the source files.
 - Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:350 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
 - Reuse note: if human-editable text must ship as compiled constants, always keep a deterministic generator in the compile chain and a test that compares generated/runtime values against source-of-truth files.
+
+## 2026-03-08 (paint bucket crash on unfenced areas)
+
+- Problem: using paint bucket on unfenced areas crashed the application.
+- Core error: `SampleSurface := FDocument.ActiveLayer.Surface` stored a borrowed reference (not a copy). The `finally` block called `SampleSurface.Free`, which destroyed the live layer surface, leaving the document in a corrupted state and crashing on the next access.
+- Investigation: traced `ApplyImmediateTool -> tkFill` in `mainform.pas`; found `SampleSurface` was assigned the layer surface directly and freed unconditionally.
+- Root cause: confusion between owned (allocated) and borrowed (reference) objects in the `try/finally` pattern.
+- Fix: call `CreateContiguousSelection`/`CreateGlobalColorSelection` directly on `FDocument.ActiveLayer.Surface` without storing into `SampleSurface`; set `SampleSurface := nil` so the `finally` block only frees actually-allocated masks.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:347 E:0 F:0`.
+- Reuse note: never store a borrowed reference into a variable that will be freed in a `finally` block. Always verify whether an assignment produces an owned copy or a borrowed reference.
+
+## 2026-03-08 (selection tools required two clicks to start new selection)
+
+- Problem: all selection tools required clicking once to deselect, then clicking again to start a new selection.
+- Core error: `ShouldAutoDeselectFromBlankClick` path executed `AutoDeselectSelection('Deselect'); FPointerDown := False; Exit;`, which consumed the first click purely for deselection and blocked normal mouse-down flow.
+- Investigation: traced `FormMouseDown` → `ShouldAutoDeselectFromBlankClick` in `mainform.pas`; the early `Exit` prevented the rest of the mouse-down handler from executing.
+- Fix: removed `FPointerDown := False; Exit;` after `AutoDeselectSelection`, allowing control flow to continue into normal selection-start handling. Now a single click deselects the old selection and immediately begins the new one.
+- Verification: rewrote `ClickingOutsideSelectionAutoDeselects` test to verify old selection is cleared on the same mouse-down that begins a new selection drag.
+- Reuse note: auto-deselect should be a pre-step, not a consuming action; never swallow a pointer event for cleanup when the user expects it to also initiate new work.
+
+## 2026-03-08 (undocumented keyboard tool switching removed)
+
+- Problem: pressing letter keys (B, E, G, etc.) switched the active tool, but this behavior was never documented in `SHORTCUT_POLICY.md` and conflicted with user expectations.
+- Core error: `NextToolForKey` function in `FormKeyDown` mapped 13 letter keys to tool-cycle shortcuts without policy documentation.
+- Investigation: compared `NextToolForKey` mapping with `docs/SHORTCUT_POLICY.md`; only X (swap colors) and D (reset colors) are documented bare-key shortcuts.
+- Fix: removed entire `NextToolForKey` invocation block and its local variable from `FormKeyDown`; preserved X and D shortcuts.
+- Verification: removed 3 tests (`SwitchingFromSelectionToFillKeepsSelection`, `SwitchingFromSelectionToGradientKeepsSelection`, `KeyboardToolSwitchClearsTempPanFlag`) that tested the removed behavior.
+- Reuse note: always keep keyboard shortcuts documented in the shortcut policy. Undocumented shortcuts create user confusion and testing overhead for behavior nobody expects.
+
+## 2026-03-08 (brush hardness and parameters had no visible effect)
+
+- Problem: adjusting brush hardness and other parameters produced no visible difference in painted strokes.
+- Core error: `DrawLine` used Bresenham algorithm placing a dab at every single pixel along the line. For a brush with radius R, this meant ~R overlapping dabs per pixel position, causing massive opacity buildup that overwhelmed any hardness falloff gradient.
+- Investigation: traced `DrawLine` in `fpsurface.pas`; Bresenham steps at 1px intervals each call `DrawBrush`, and `DrawBrush` hardness falloff (linear from `EdgeRadiusF` to `RadiusF`) was correct but invisible because total accumulated alpha from overlapping dabs saturated immediately.
+- Root cause: dab spacing was 1 pixel regardless of brush diameter. GIMP spaces dabs at 25% of brush diameter (configurable), which avoids over-accumulation and makes hardness/opacity visible.
+- Fix: added `DrawSpacedLine` and `EraseSpacedLine` methods to `TRasterSurface` with GIMP-inspired dab spacing (`Max(1.0, (Radius*2+1) * SpacingFraction)`). Routed brush and round-eraser tools through new methods. Algorithm: place endpoint dab, then walk from start placing dabs at spacing intervals.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:347 E:0 F:0`.
+- Reuse note: when implementing brush/stamp-style painting, dab spacing relative to brush diameter is essential for parameter visibility. Per-pixel Bresenham is correct for 1px tools but wrong for soft/large brushes.
+
+## 2026-03-08 (dashed shape commit showed no gaps or wrong pattern)
+
+- Problem: ellipse dashed outline appeared solid after commit; rectangle/rounded-rectangle/freeform dash patterns looked different from their preview.
+- Core error: `DrawDashedPolyline` called `DrawDashedLine` per-segment independently, resetting dash phase at every vertex.
+- Investigation: traced `DrawDashedPolyline` → `DrawDashedLine` in `fpsurface.pas`. Ellipse decomposition into ~251 tiny arc segments meant each segment was a few pixels long — well below `DashLength` — so every segment drew as a full solid dash. For rectangles, phase reset at each corner created a different dash alignment from the continuous LCL `psDash` preview.
+- Root cause: no phase continuity across polyline segments.
+- Fix: rewrote `DrawDashedPolyline` with a continuous phase accumulator. Phase tracks position within the `DashLength + GapLength` period and carries across segment boundaries. The closing segment (for `Closed = True`) is also included in the single loop.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:348 E:0 F:0`.
+- Reuse note: whenever a polyline/polygon is rendered with a pattern (dash, stipple, etc.), the pattern phase must carry across segments. Resetting per-segment produces incorrect results for any shape decomposed into many short segments.
+
+## 2026-03-08 (drawing tools did not respect active selection)
+
+- Problem: pencil, brush, eraser, line, rectangle, ellipse, freeform shape, and clone stamp did not clip their output to the active selection area.
+- Core error: `ToolPaintPathUsesActiveSelection` returned `True` only for `tkFill, tkGradient, tkRecolor`. All other drawing tools received `nil` for their selection mask parameter, so selection was ignored.
+- Investigation: traced `ApplyImmediateTool` and `CommitShapeTool` in `mainform.pas`. Both call `ToolPaintPathUsesActiveSelection` to decide whether to capture `ActiveSelectionInLayerSpace`. The surface-level methods (`DrawLine`, `DrawSpacedLine`, `DrawBrush`, `DrawRectangle`, `DrawEllipse`, etc.) already accept and use an `ASelection` parameter with coverage-based masking.
+- Root cause: policy decision from 2026-03-07 split selection masking to fill-family only. This contradicts paint.net/Photoshop/GIMP behavior where all drawing tools are clipped to selection.
+- Additional issue: `ShouldPreserveSelectionAcrossToolSwitch` also only preserved selection for fill-family tools, so switching from selection to brush/pencil/etc. deselected immediately.
+- Fix: expanded `ToolPaintPathUsesActiveSelection` to return `True` for all tools except navigation/utility (`tkZoom, tkPan, tkColorPicker, tkCrop, tkText` plus selection tools). Updated `ShouldPreserveSelectionAcrossToolSwitch` to preserve selection for all tools except `tkZoom, tkPan, tkColorPicker, tkCrop`.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:348 E:0 F:0`.
+- Reuse note: selection masking is a universal paint-app convention — all tools that modify pixels should respect the active selection boundary. Gate this at the top-level policy function, not per-tool.
+
+## 2026-03-08 — Floating-point stall in DrawDashedPolyline
+- Symptom: app hang (~1 s) committing dashed rounded-rectangle. macOS hang report showed all samples in `DrawDashedPolyline` → `DrawLine` → `DrawBrush`.
+- Root cause: continuous-phase accumulator in `DrawDashedPolyline` uses Double arithmetic. After many segments, `Phase` can drift to be infinitesimally close to `DashLength` (e.g., 7.999999999999998 vs 8). This gives `RemainingInChunk = DashLength - Phase ≈ 2e-15`. The inner `while CursorPos < SegLength` loop advances by this near-zero amount each iteration, requiring ~1e17 iterations to traverse even one pixel.
+- Fix: guard `RemainingInChunk < 0.5` → snap `Phase` to the exact boundary (`DashLength` or `0.0`) and `Continue`. After snap, `InDash` flips and `RemainingInChunk` becomes at least `GapLength` or `DashLength` (both ≥ 1), so the guard fires at most once consecutively.
+- Reuse note: any loop driven by floating-point phase/cursor accumulation needs a minimum-advance guard to prevent drift-induced stalls. 0.5 px is a safe threshold — sub-pixel and invisible, but prevents infinite iteration.

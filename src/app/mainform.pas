@@ -681,8 +681,6 @@ type
     procedure PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure PaintBoxMouseLeave(Sender: TObject);
-    procedure ToolbarBtnMouseEnter(Sender: TObject);
-    procedure ToolbarBtnMouseLeave(Sender: TObject);
     procedure FormResize(Sender: TObject);
     { Stroke history helpers }
     function StrokeRectIsEmpty(const ARect: TRect): Boolean;
@@ -2068,10 +2066,12 @@ end;
 function ShouldPreserveSelectionAcrossToolSwitch(ANewTool: TToolKind): Boolean;
 begin
   { Selection tools always keep the current selection.
-    Selection-aware paint tools (fill/gradient/recolor) also keep it, so the
-    user can continue scoped operations after finishing selection. }
-  Result := IsSelectionTool(ANewTool) or
-    (ANewTool in [tkFill, tkGradient, tkRecolor]);
+    All paint/draw/shape tools also keep it so strokes and fills are
+    clipped to the selected region (matches paint.net/Photoshop/GIMP).
+    Only non-paint navigation/utility tools clear selection. }
+  Result := not (ANewTool in [
+    tkZoom, tkPan, tkColorPicker, tkCrop
+  ]);
 end;
 
 procedure TMainForm.MaybeAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind);
@@ -4447,12 +4447,6 @@ begin
   else
     Result.Height := 26;
   Result.Flat := True;
-  { Large command buttons (New/Open/Save) show rounded rect only on hover }
-  if (AIconContext = bicCommand) and (AWidth >= 54) then
-  begin
-    Result.OnMouseEnter := @ToolbarBtnMouseEnter;
-    Result.OnMouseLeave := @ToolbarBtnMouseLeave;
-  end;
   Result.Tag := ATag;
   Result.OnClick := AHandler;
   Result.ParentFont := False;
@@ -8015,9 +8009,14 @@ end;
 
 function ToolPaintPathUsesActiveSelection(ATool: TToolKind): Boolean;
 begin
-  { Keep selection masking only for area fill + recolor routes.
-    Shape/line/brush tools render regardless of selection presence. }
-  Result := ATool in [tkFill, tkGradient, tkRecolor];
+  { All paint/draw/shape tools honour the active selection mask so strokes
+    and fills are clipped to the selected region, matching paint.net/
+    Photoshop/GIMP behaviour.  Only non-paint tools are excluded. }
+  Result := not (ATool in [
+    tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand,
+    tkMoveSelection, tkMovePixels,
+    tkZoom, tkPan, tkColorPicker, tkCrop, tkText
+  ]);
 end;
 
 procedure TMainForm.ApplyImmediateTool(const APoint: TPoint);
@@ -8097,7 +8096,7 @@ begin
             BrushHardnessByte := EnsureRange((FBrushHardness * 240) div 100, 1, 240);
             StrokeRadius := Max(1, FBrushSize div 2);
             CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
-            MutableSurface.DrawLine(
+            MutableSurface.DrawSpacedLine(
               LocalLastPoint.X,
               LocalLastPoint.Y,
               LocalPoint.X,
@@ -8131,7 +8130,7 @@ begin
                 PaintSelection
               )
             else
-              MutableSurface.DrawLine(
+              MutableSurface.DrawSpacedLine(
                 LocalLastPoint.X,
                 LocalLastPoint.Y,
                 LocalPoint.X,
@@ -8170,7 +8169,7 @@ begin
           begin
             StrokeRadius := Max(1, FBrushSize div 2);
             CaptureStrokeBeforeRect(StrokeBoundsForSegment(LocalLastPoint, LocalPoint, StrokeRadius));
-            MutableSurface.EraseLine(
+            MutableSurface.EraseSpacedLine(
               LocalLastPoint.X,
               LocalLastPoint.Y,
               LocalPoint.X,
@@ -8197,7 +8196,8 @@ begin
               if FFillSampleSource = 1 then
                 SampleSurface := FDocument.Composite
               else
-                SampleSurface := FDocument.ActiveLayer.Surface;
+                { Use the layer surface directly; do NOT free it later. }
+                SampleSurface := nil;
 
               if FBucketFloodMode = 1 then
               begin
@@ -8208,7 +8208,7 @@ begin
                     EnsureRange(FFillTolerance, 0, 255)
                   )
                 else
-                  FillMask := SampleSurface.CreateGlobalColorSelection(
+                  FillMask := FDocument.ActiveLayer.Surface.CreateGlobalColorSelection(
                     LocalPoint.X,
                     LocalPoint.Y,
                     EnsureRange(FFillTolerance, 0, 255)
@@ -8224,7 +8224,7 @@ begin
                     EnsureRange(FFillTolerance, 0, 255)
                   )
                 else
-                  FillMask := SampleSurface.CreateContiguousSelection(
+                  FillMask := FDocument.ActiveLayer.Surface.CreateContiguousSelection(
                     LocalPoint.X,
                     LocalPoint.Y,
                     EnsureRange(FFillTolerance, 0, 255)
@@ -10952,8 +10952,6 @@ begin
 end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
-var
-  NewTool: TToolKind;
 begin
   { spacebar pan begins }
   if Key = VK_SPACE then
@@ -11016,37 +11014,20 @@ begin
         end;
     end;
 
-  { Tool shortcuts and single-letter color shortcuts should only run on
-    plain keypresses (Shift is allowed for reverse-cycling). Command/Ctrl/Alt
-    combinations belong to menu shortcuts or tool-specific pointer gestures.
+  { Esc deselects the active selection (paint.net / Photoshop convention) }
+  if (Key = VK_ESCAPE) and FDocument.HasSelection then
+  begin
+    DeselectClick(nil);
+    Key := 0;
+    Exit;
+  end;
+
+  { Single-letter color shortcuts should only run on plain keypresses.
+    Command/Ctrl/Alt combinations belong to menu shortcuts.
     Skip entirely when an inline text edit is active so typing works. }
   if ToolShortcutUsesPlainKeyOnly(Shift)
      and not (Assigned(FInlineTextEdit) and FInlineTextEdit.Visible) then
   begin
-    NewTool := NextToolForKey(Char(Key), ssShift in Shift, FCurrentTool);
-    if NewTool <> FCurrentTool then
-    begin
-      SealPendingStrokeHistory;
-      CommitInlineTextEdit(True);
-      ResetLineCurveState;
-      FTempToolActive := False;
-      MaybeAutoDeselectOnToolSwitch(FCurrentTool, NewTool);
-      { Save current tool's options before switching }
-      FToolSize[FCurrentTool] := FBrushSize;
-      FToolOpacity[FCurrentTool] := FBrushOpacity;
-      FToolHardness[FCurrentTool] := FBrushHardness;
-      FCurrentTool := NewTool;
-      { Restore new tool's remembered options }
-      FBrushSize := FToolSize[FCurrentTool];
-      FBrushOpacity := FToolOpacity[FCurrentTool];
-      FBrushHardness := FToolHardness[FCurrentTool];
-      SyncToolComboSelection;
-      UpdateToolOptionControl;
-      UpdateStatusForTool; { refresh label/hint etc }
-      Key := 0;
-      Exit;
-    end;
-
     case UpCase(Char(Key)) of
       'X':
         begin
@@ -11308,14 +11289,7 @@ begin
   end;
   FDragStart := ImagePoint;
   if ShouldAutoDeselectFromBlankClick(ImagePoint, Button, Shift) then
-  begin
     AutoDeselectSelection('Deselect');
-    FPointerDown := False;
-    if Assigned(FPaintBox) then
-      FPaintBox.MouseCapture := False;
-    RefreshStatus(ImagePoint);
-    Exit;
-  end;
   { Only override combo-selected mode when modifier keys are held }
   if (ssShift in Shift) or (ssAlt in Shift) then
     FPendingSelectionMode := TSelectionToolController.ModeFromModifiers(
@@ -11666,6 +11640,7 @@ end;
 procedure TMainForm.PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   ImagePoint: TPoint;
+  MosaicSelection: TSelectionMask;
 begin
   if not FPointerDown then
   begin
@@ -11755,13 +11730,21 @@ begin
     if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
       if FDocument.BeginActiveLayerMutation('Mosaic') then
       begin
+      MosaicSelection := nil;
+      if FDocument.HasSelection then
+        MosaicSelection := FDocument.ActiveSelectionInLayerSpace;
+      try
       FDocument.PixelateRect(
         Min(FDragStart.X, ImagePoint.X),
         Min(FDragStart.Y, ImagePoint.Y),
         Max(FDragStart.X, ImagePoint.X),
         Max(FDragStart.Y, ImagePoint.Y),
-        FMosaicBlockSize
+        FMosaicBlockSize,
+        MosaicSelection
       );
+      finally
+        MosaicSelection.Free;
+      end;
       InvalidatePreparedBitmap;
       SyncImageMutationUI(False, True);
       end;
@@ -11865,18 +11848,6 @@ begin
   if Assigned(FPaintBox) then
     FPaintBox.Invalidate;
   RefreshStatus(FLastImagePoint);
-end;
-
-procedure TMainForm.ToolbarBtnMouseEnter(Sender: TObject);
-begin
-  if Sender is TSpeedButton then
-    TSpeedButton(Sender).Flat := False;
-end;
-
-procedure TMainForm.ToolbarBtnMouseLeave(Sender: TObject);
-begin
-  if Sender is TSpeedButton then
-    TSpeedButton(Sender).Flat := True;
 end;
 
 procedure TMainForm.FormResize(Sender: TObject);

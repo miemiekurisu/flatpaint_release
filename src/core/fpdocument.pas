@@ -215,7 +215,7 @@ type
     procedure MoveSelectionBy(DeltaX, DeltaY: Integer);
     procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer); overload;
     procedure MoveSelectedPixelsBy(DeltaX, DeltaY: Integer; const ABackgroundColor: TRGBA32); overload;
-    procedure PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer);
+    procedure PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer; ASelection: TSelectionMask = nil);
     procedure RotateActiveLayer90Clockwise;
     procedure RotateActiveLayer90CounterClockwise;
     procedure RotateActiveLayer180;
@@ -1429,7 +1429,7 @@ begin
   end;
 end;
 
-procedure TImageDocument.PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer);
+procedure TImageDocument.PixelateRect(X1, Y1, X2, Y2: Integer; BlockSize: Integer; ASelection: TSelectionMask);
 var
   LocalStart: TPoint;
   LocalEnd: TPoint;
@@ -1438,7 +1438,7 @@ begin
     Exit;
   LocalStart := CanvasPointToLayerPoint(ActiveLayer, X1, Y1);
   LocalEnd := CanvasPointToLayerPoint(ActiveLayer, X2, Y2);
-  ActiveLayer.Surface.PixelateRect(LocalStart.X, LocalStart.Y, LocalEnd.X, LocalEnd.Y, BlockSize);
+  ActiveLayer.Surface.PixelateRect(LocalStart.X, LocalStart.Y, LocalEnd.X, LocalEnd.Y, BlockSize, ASelection);
 end;
 
 procedure TImageDocument.RotateActiveLayer90Clockwise;

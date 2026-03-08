@@ -22,8 +22,10 @@ Lucide Icons
 
 FlatPaint user community - bug reports, regression repro cases, and UX feedback
 
-
+@123Duo3
 
 -- Special Thanks --
 
-Everyone who tested, reviewed, and improved FlatPaint.
+@123Duo3
+
+And everyone who tested, reviewed, and improved FlatPaint.

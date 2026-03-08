@@ -61,11 +61,13 @@ const
     '' + LineEnding +
     'FlatPaint user community - bug reports, regression repro cases, and UX feedback' + LineEnding +
     '' + LineEnding +
-    '' + LineEnding +
+    '@123Duo3' + LineEnding +
     '' + LineEnding +
     '-- Special Thanks --' + LineEnding +
     '' + LineEnding +
-    'Everyone who tested, reviewed, and improved FlatPaint.';
+    '@123Duo3' + LineEnding +
+    '' + LineEnding +
+    'And everyone who tested, reviewed, and improved FlatPaint.';
 
   AboutThirdPartyLicensesText =
     'THIRD-PARTY LICENSES' + LineEnding +

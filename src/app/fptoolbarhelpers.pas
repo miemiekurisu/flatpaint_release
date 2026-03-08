@@ -57,14 +57,14 @@ const
   ToolbarOptionLabelTop = 60;
   ToolbarOptionCheckTop = 60;
 
-  ToolbarZoomButtonInsetLeft = 6;
+  ToolbarZoomButtonInsetLeft = 4;
   ToolbarZoomButtonTop = 2;
   ToolbarZoomButtonWidth = 26;
-  ToolbarZoomComboLeft = 38;
-  ToolbarZoomComboTop = 4;        { Vertically centred with 28 px buttons: (28-24)/2 = 2 → 2+2 = 4 }
+  ToolbarZoomComboLeft = 36;
+  ToolbarZoomComboTop = 3;        { Nudged 1 px up from geometric centre (4) to match macOS NSPopUpButton visual baseline }
   ToolbarZoomComboWidth = 84;
   ToolbarZoomComboHeight = 24;
-  ToolbarZoomInButtonLeft = 128;
+  ToolbarZoomInButtonLeft = 126;
 
 function ToolbarFileGroupRect: TRect;
 function ToolbarEditGroupRect: TRect;
