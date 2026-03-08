@@ -7,8 +7,8 @@
 
 ## Evidence snapshot (2026-03-08)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `bash ./scripts/run_tests_ci.sh` => 347 tests, 0 failures.
-- Consequence: P0 anti-aliasing module remains complete; premultiplied boundary correctness fixes, system-clipboard bridge behavior, ruler-aware palette bounds, recolor contiguous mode, About-content embedding, and crop-offset rebasing regressions are all regression-backed.
+- Test status: `bash ./scripts/run_tests_ci.sh` => 350 tests, 0 failures.
+- Consequence: P0 anti-aliasing module remains complete; premultiplied boundary correctness fixes, system-clipboard bridge behavior, ruler-aware palette bounds, recolor contiguous mode, About-content embedding (now build-time regenerated from `assets/about/*.txt`), and crop-offset rebasing regressions are all regression-backed.
 
 ## Status legend
 - `Implemented`: code path exists and is used by visible UI route(s).
@@ -32,11 +32,11 @@
 | Effects | Broad built-in effect families + repeat-last-effect | Implemented | High | Large effect set routed through menu and document operations. |
 | Export/options | Format-specific export controls | Partial | Medium | Practical controls exist; deeper parity for all format-specific workflows remains open. |
 | Compatibility IO | PSD/PDN/XCF/KRA fallback-oriented support | Partial | Medium | Usable baseline with explicit fallbacks; full layered fidelity intentionally out of scope. |
-| Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | High-use shortcut audit is closed and test-backed, and long-tail route coverage was expanded again (including selection lifecycle routing beyond keyboard switching, with tool-classified keep/clear behavior); residual long-tail opportunities remain non-blocking polish. |
+| Menus/shortcuts | Command discoverability and shortcut policy adherence | Implemented | High | High-use shortcut audit is closed and test-backed, and long-tail route coverage was expanded again (including selection lifecycle routing beyond keyboard switching, with tool-classified keep/clear behavior); About text payload is now compile-time synced from `assets/about/*.txt` during build/test flows. Residual long-tail opportunities remain non-blocking polish. |
 | Iconography | Cohesive icon surface across command/tool/utility controls | Implemented | High | Runtime icon pipeline now ships complete rendered icon assets in bundle (`1x` + `@2x`), loader prefers `@2x` with safe `1x` fallback, and previously fallback-only mapped tools (`Move Pixels`/`Mosaic`) now resolve asset-backed `pointer`/`grid-2x2` icons. Remaining work is visual polish, not missing asset-chain coverage. |
 | Rendering quality | Premultiplied alpha, SDF edge AA, CG bridge, Retina DPI | Implemented | High | Premultiplied alpha pipeline (GIMP/Krita-aligned), SDF 1px smooth edge AA on ellipse/rounded rect/polygon shapes and selections, Core Graphics offscreen AA bridge for stroked curves, Retina-aware document sizing + CG high-quality interpolation. 16 dedicated tests. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
-| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 347 tests, 0 failures. |
+| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 350 tests, 0 failures. |
 
 ## Current insufficient items (post-P0, still important before release)
 1. Residual route-level coverage opportunities:

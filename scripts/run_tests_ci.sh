@@ -7,6 +7,7 @@ mkdir -p "$PROJECT_ROOT/dist"
 # compile any native Objective-C modules (pinch-zoom bridge, etc.)
 source ./scripts/common.sh
 compile_native_modules
+refresh_about_content
 # ensure the object file is available in cwd for {$LINK fp_magnify.o}
 # common.sh writes into lib/<arch>-darwin; copy with wildcard
 cp -f "$PROJECT_ROOT/lib/"*"-darwin"/fp_magnify.o . || true

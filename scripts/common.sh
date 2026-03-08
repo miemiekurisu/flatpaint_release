@@ -307,11 +307,24 @@ prepare_icon_assets() {
   return 0
 }
 
+refresh_about_content() {
+  local generator_script="$SCRIPT_DIR/generate_about_content.sh"
+
+  if [[ ! -f "$generator_script" ]]; then
+    printf 'Missing required about-content generator: %s\n' "$generator_script" >&2
+    return 1
+  fi
+
+  log "Refreshing compiled About content from assets/about"
+  bash "$generator_script"
+}
+
 build_default_artifacts() {
   clean_generated_artifacts
   kill_running_flatpaint
   compile_native_modules
   prepare_icon_assets
+  refresh_about_content
   run_lazbuild -B "$PROJECT_FILE"
 
   if [[ ! -f "$DEFAULT_BINARY" ]]; then
@@ -327,6 +340,7 @@ build_release_artifacts() {
   kill_running_flatpaint
   compile_native_modules
   prepare_icon_assets
+  refresh_about_content
   # -CX: smartlink each compiled unit (FPC guide: dead-code removal at unit level)
   # -XX: smartlink the final linked program
   # -O2 is already set in the project file; listed here explicitly for release traceability

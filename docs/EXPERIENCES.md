@@ -2617,3 +2617,16 @@ Based on all findings, the strategy is revised from the previous entry's generic
 - Fix: introduced dedicated `FColorSVRenderedHue` for SV bitmap cache and helper-level rebuild gate (`ShouldRebuildSVSquare`), while keeping `FColorSVCachedHue` only as zero-saturation hue fallback memory.
 - Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:347 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
 - Reuse note: never reuse one cache variable for multiple semantic domains (display-cache state vs interaction-memory state); split them and encode the contract in names/tests.
+
+## 2026-03-08 (About metadata updates were not reflected in compiled app)
+
+- Problem: editing `assets/about/AUTHOR.txt` (and other about text files) did not reliably show up in the app after rebuild.
+- Core error: About content was embedded as static constants in `src/app/fpaboutcontent.pas`, but there was no build-time regeneration path from `assets/about/*.txt`.
+- Investigation: audited build/test scripts (`scripts/common.sh`, `scripts/run_tests_ci.sh`) and confirmed no pre-compile sync step existed; only manual one-time content copy had been done previously.
+- Root cause: source-of-truth files (`assets/about/*.txt`) and compiled source (`fpaboutcontent.pas`) were disconnected.
+- Fix:
+  1. added generator `scripts/generate_about_content.sh` to rebuild `fpaboutcontent.pas` directly from the four about text files;
+  2. hooked generator into both build flows (`build_default_artifacts`, `build_release_artifacts`) and CI test flow (`run_tests_ci.sh`) before compile;
+  3. added regression `AboutSectionsMatchAssetSourceFiles` to assert compiled constants equal the source files.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:350 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Reuse note: if human-editable text must ship as compiled constants, always keep a deterministic generator in the compile chain and a test that compares generated/runtime values against source-of-truth files.

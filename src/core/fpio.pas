@@ -11,11 +11,13 @@ type
   { Options passed to SaveSurfaceToFileWithOpts.
     JpegQuality: 1..100 (default 90 if 0).
     JpegProgressive: whether JPEG should use progressive encoding.
+    JpegGrayscale: whether JPEG should encode grayscale output.
     PngCompressionLevel: 0..9 user-facing scale mapped onto zlib levels.
     PngUseAlpha: whether PNG should preserve alpha data. }
   TSaveSurfaceOptions = record
     JpegQuality: Integer;
     JpegProgressive: Boolean;
+    JpegGrayscale: Boolean;
     PngCompressionLevel: Integer;
     PngUseAlpha: Boolean;
   end;
@@ -25,6 +27,12 @@ function TryLoadDocumentFromFile(const AFileName: string; out ADocument: TImageD
 function LoadSurfaceFromFile(const AFileName: string): TRasterSurface;
 procedure SaveSurfaceToFile(const AFileName: string; ASurface: TRasterSurface);
 procedure SaveSurfaceToFileWithOpts(const AFileName: string; ASurface: TRasterSurface; const AOpts: TSaveSurfaceOptions);
+procedure SaveSurfaceToStreamWithOpts(
+  AStream: TStream;
+  const AExtension: string;
+  ASurface: TRasterSurface;
+  const AOpts: TSaveSurfaceOptions
+);
 function SupportedSurfaceOpenPattern: string;
 function SupportedOpenDialogFilter: string;
 function SupportedImportDialogFilter: string;
@@ -246,9 +254,25 @@ end;
 
 procedure SaveSurfaceToFileWithOpts(const AFileName: string; ASurface: TRasterSurface; const AOpts: TSaveSurfaceOptions);
 var
+  Stream: TFileStream;
+begin
+  Stream := TFileStream.Create(AFileName, fmCreate);
+  try
+    SaveSurfaceToStreamWithOpts(Stream, ExtractFileExt(AFileName), ASurface, AOpts);
+  finally
+    Stream.Free;
+  end;
+end;
+
+procedure SaveSurfaceToStreamWithOpts(
+  AStream: TStream;
+  const AExtension: string;
+  ASurface: TRasterSurface;
+  const AOpts: TSaveSurfaceOptions
+);
+var
   Writer: TFPCustomImageWriter;
   Image: TFPMemoryImage;
-  Stream: TFileStream;
   X: Integer;
   Y: Integer;
   Pixel: TRGBA32;
@@ -257,10 +281,13 @@ var
   PngLevel: Integer;
   PngCompression: TCompressionLevel;
 begin
-  Extension := LowerCase(ExtractFileExt(AFileName));
+  if AStream = nil then
+    raise Exception.Create('SaveSurfaceToStreamWithOpts requires a valid output stream.');
+  Extension := LowerCase(AExtension);
+  if (Extension <> '') and (Extension[1] <> '.') then
+    Extension := '.' + Extension;
   Writer := CreateWriter(Extension);
   Image := TFPMemoryImage.Create(ASurface.Width, ASurface.Height);
-  Stream := TFileStream.Create(AFileName, fmCreate);
   try
     { Configure writer options }
     if Writer is TFPWriterJPEG then
@@ -269,6 +296,7 @@ begin
       if JpegQuality <= 0 then JpegQuality := 90;
       TFPWriterJPEG(Writer).CompressionQuality := JpegQuality;
       TFPWriterJPEG(Writer).ProgressiveEncoding := AOpts.JpegProgressive;
+      TFPWriterJPEG(Writer).GrayScale := AOpts.JpegGrayscale;
     end
     else if Writer is TFPWriterPNG then
     begin
@@ -291,9 +319,10 @@ begin
         Pixel := Unpremultiply(ASurface[X, Y]);
         Image.Colors[X, Y] := FPImage.FPColor(Pixel.R shl 8, Pixel.G shl 8, Pixel.B shl 8, Pixel.A shl 8);
       end;
-    Image.SaveToStream(Stream, Writer);
+    AStream.Position := 0;
+    AStream.Size := 0;
+    Image.SaveToStream(AStream, Writer);
   finally
-    Stream.Free;
     Image.Free;
     Writer.Free;
   end;
@@ -303,6 +332,7 @@ function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
 begin
   Result.JpegQuality := 90;
   Result.JpegProgressive := False;
+  Result.JpegGrayscale := False;
   Result.PngCompressionLevel := 6;
   Result.PngUseAlpha := True;
 end;

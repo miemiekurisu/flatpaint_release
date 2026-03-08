@@ -4,6 +4,39 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (About content build-time regeneration and source-sync guard)
+
+### Changes
+
+1. **Added a build-time About-content generator from `assets/about/*.txt`**:
+   - new script: `scripts/generate_about_content.sh`.
+   - regenerates `src/app/fpaboutcontent.pas` constants from:
+     - `assets/about/APP_INFO.txt`
+     - `assets/about/AUTHOR.txt`
+     - `assets/about/ACKNOWLEDGMENTS.txt`
+     - `assets/about/THIRD_PARTY_LICENSES.txt`
+   - this removes stale hardcoded About text risk (including `author`) when source txt files change.
+
+2. **Integrated generator into compile paths so each build/test refreshes About constants before compile**:
+   - added `refresh_about_content` in `scripts/common.sh`.
+   - wired into both `build_default_artifacts` and `build_release_artifacts`.
+   - wired into `scripts/run_tests_ci.sh` before CLI/tests compile.
+
+3. **Added regression coverage to guarantee compiled About constants match source text files**:
+   - `src/tests/fpaboutcontent_tests.pas` now includes `AboutSectionsMatchAssetSourceFiles`.
+   - test compares each About section constant against its `assets/about` source file content.
+
+4. **Feature-matrix mapping**:
+   - `Workspace shell` / `Menus/shortcuts`: About surface content is now deterministic and build-synced.
+   - `Regression health`: added source-sync assertion to prevent stale metadata regressions.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `350` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-08 (ruler-aware palette bounds + clone overlay polish + zoom loupe restore + recolor contiguous + embedded About content)
 
 ### Changes

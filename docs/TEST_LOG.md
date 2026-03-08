@@ -4,6 +4,12 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-08 (About content build-time regeneration + source-sync regression coverage)
+- Full CI verification after adding `scripts/generate_about_content.sh`, wiring it into build/test scripts, regenerating `FPAboutContent`, and adding `TFPAboutContentTests.AboutSectionsMatchAssetSourceFiles`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `350` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-08 (ruler-aware palette clamp + clone overlay polish + zoom loupe + recolor contiguous + About embed + CI script fix)
 - Full CI verification after landing ruler-aware palette clamp helpers/routes, clone-stamp overlay style adjustment, zoom-tool loupe overlay helper integration, recolor contiguous-mode end-to-end path, app-menu About dialog with embedded content, and `run_tests_ci.sh` `dist/` bootstrap guard: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `341` tests, `0` errors, `0` failures.
