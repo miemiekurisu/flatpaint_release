@@ -538,22 +538,11 @@ function TImageDocument.TranslateSelectionMask(
   ADestWidth, ADestHeight: Integer;
   DeltaX, DeltaY: Integer
 ): TSelectionMask;
-var
-  X: Integer;
-  Y: Integer;
-  SourceX: Integer;
-  SourceY: Integer;
 begin
   if ASource = nil then
     Exit(nil);
   Result := TSelectionMask.Create(ADestWidth, ADestHeight);
-  for Y := 0 to Result.Height - 1 do
-    for X := 0 to Result.Width - 1 do
-    begin
-      SourceX := X - DeltaX;
-      SourceY := Y - DeltaY;
-      Result.SetCoverage(X, Y, ASource.Coverage(SourceX, SourceY));
-    end;
+  ASource.TranslateTo(Result, DeltaX, DeltaY);
 end;
 
 function TImageDocument.SelectionInLayerSpace(ALayer: TRasterLayer; ASelection: TSelectionMask): TSelectionMask;

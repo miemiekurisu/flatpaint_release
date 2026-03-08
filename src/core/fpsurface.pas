@@ -642,6 +642,10 @@ procedure TRasterSurface.DrawBrush(X, Y, Radius: Integer; const AColor: TRGBA32;
 var
   DrawX: Integer;
   DrawY: Integer;
+  DrawLeft: Integer;
+  DrawRight: Integer;
+  DrawTop: Integer;
+  DrawBottom: Integer;
   DeltaX: Integer;
   DeltaY: Integer;
   Dist: Double;
@@ -650,13 +654,22 @@ var
   EffectiveOpacity: Integer;
   BoundaryCov: Byte;
   FalloffOpacity: Integer;
+  PremulColor: TRGBA32;
 begin
   Radius := Max(0, Radius);
+  DrawLeft := Max(0, X - Radius - 1);
+  DrawRight := Min(FWidth - 1, X + Radius + 1);
+  DrawTop := Max(0, Y - Radius - 1);
+  DrawBottom := Min(FHeight - 1, Y + Radius + 1);
+  if (DrawLeft > DrawRight) or (DrawTop > DrawBottom) then
+    Exit;
+
   RadiusF := Radius + 0.5;
   EdgeRadiusF := RadiusF * Hardness / 255.0;
-  for DrawY := Y - Radius - 1 to Y + Radius + 1 do
+  PremulColor := Premultiply(AColor);
+  for DrawY := DrawTop to DrawBottom do
   begin
-    for DrawX := X - Radius - 1 to X + Radius + 1 do
+    for DrawX := DrawLeft to DrawRight do
     begin
       DeltaX := DrawX - X;
       DeltaY := DrawY - Y;
@@ -674,7 +687,7 @@ begin
         Continue;
       EffectiveOpacity := (FalloffOpacity * BoundaryCov + 127) div 255;
       if EffectiveOpacity > 0 then
-        BlendPixel(DrawX, DrawY, AColor, Min(255, EffectiveOpacity), ASelection);
+        BlendPixelPremul(DrawX, DrawY, PremulColor, Min(255, EffectiveOpacity), ASelection);
     end;
   end;
 end;
@@ -1185,33 +1198,81 @@ var
   RightX: Integer;
   TopY: Integer;
   BottomY: Integer;
-  X: Integer;
-  Y: Integer;
+  ClipLeft: Integer;
+  ClipRight: Integer;
+  ClipTop: Integer;
+  ClipBottom: Integer;
+  TopBandBottom: Integer;
+  BottomBandTop: Integer;
+  SideTop: Integer;
+  SideBottom: Integer;
+  LeftBandRight: Integer;
+  RightBandLeft: Integer;
+  PremulColor: TRGBA32;
+
+  procedure BlendRect(ARectLeft, ARectTop, ARectRight, ARectBottom: Integer);
+  var
+    DrawX: Integer;
+    DrawY: Integer;
+  begin
+    for DrawY := ARectTop to ARectBottom do
+      for DrawX := ARectLeft to ARectRight do
+        BlendPixelPremul(DrawX, DrawY, PremulColor, Opacity, ASelection);
+  end;
 begin
   LeftX := Min(X1, X2);
   RightX := Max(X1, X2);
   TopY := Min(Y1, Y2);
   BottomY := Max(Y1, Y2);
+  if (LeftX > RightX) or (TopY > BottomY) then
+    Exit;
+
+  ClipLeft := Max(0, LeftX);
+  ClipRight := Min(FWidth - 1, RightX);
+  ClipTop := Max(0, TopY);
+  ClipBottom := Min(FHeight - 1, BottomY);
+  if (ClipLeft > ClipRight) or (ClipTop > ClipBottom) then
+    Exit;
+  PremulColor := Premultiply(AColor);
 
   if Filled then
   begin
-    for Y := TopY to BottomY do
-      for X := LeftX to RightX do
-        BlendPixel(X, Y, AColor, Opacity, ASelection);
+    BlendRect(ClipLeft, ClipTop, ClipRight, ClipBottom);
     Exit;
   end;
 
   StrokeWidth := Max(1, StrokeWidth);
-  for Y := TopY to BottomY do
+  TopBandBottom := Min(BottomY, TopY + StrokeWidth - 1);
+  BottomBandTop := Max(TopY, BottomY - StrokeWidth + 1);
+  SideTop := TopY + StrokeWidth;
+  SideBottom := BottomY - StrokeWidth;
+  LeftBandRight := Min(RightX, LeftX + StrokeWidth - 1);
+  RightBandLeft := Max(LeftX, RightX - StrokeWidth + 1);
+
+  if ClipTop <= Min(ClipBottom, TopBandBottom) then
+    BlendRect(ClipLeft, ClipTop, ClipRight, Min(ClipBottom, TopBandBottom));
+  if (BottomBandTop > TopBandBottom) and (Max(ClipTop, BottomBandTop) <= ClipBottom) then
+    BlendRect(ClipLeft, Max(ClipTop, BottomBandTop), ClipRight, ClipBottom);
+
+  if (SideTop <= SideBottom) then
   begin
-    for X := LeftX to RightX do
-    begin
-      if (X < LeftX + StrokeWidth) or
-         (X > RightX - StrokeWidth) or
-         (Y < TopY + StrokeWidth) or
-         (Y > BottomY - StrokeWidth) then
-        BlendPixel(X, Y, AColor, Opacity, ASelection);
-    end;
+    if (ClipLeft <= Min(ClipRight, LeftBandRight)) and
+       (Max(ClipTop, SideTop) <= Min(ClipBottom, SideBottom)) then
+      BlendRect(
+        ClipLeft,
+        Max(ClipTop, SideTop),
+        Min(ClipRight, LeftBandRight),
+        Min(ClipBottom, SideBottom)
+      );
+    if (RightBandLeft > LeftBandRight) and
+       (Max(ClipLeft, RightBandLeft) <= ClipRight) and
+       (Max(ClipTop, SideTop) <= Min(ClipBottom, SideBottom)) then
+      BlendRect(
+        Max(ClipLeft, RightBandLeft),
+        Max(ClipTop, SideTop),
+        ClipRight,
+        Min(ClipBottom, SideBottom)
+      );
   end;
 end;
 
@@ -1509,11 +1570,13 @@ var
   SpanLeft: Integer;
   SpanRight: Integer;
   Intersections: array of Integer;
+  IntersectionCount: Integer;
   PX, PY: Double;
   MinDist, EdgeDist: Double;
   SignedDist: Double;
   Cov: Byte;
   EffOpacity: Integer;
+  PremulColor: TRGBA32;
 begin
   if High(APoints) < 2 then
     Exit;
@@ -1534,9 +1597,11 @@ begin
       MaxY := APoints[PointIndex].Y;
   end;
 
+  SetLength(Intersections, Length(APoints));
+  PremulColor := Premultiply(AColor);
   for Y := Max(0, MinY - 1) to Min(FHeight - 1, MaxY + 1) do
   begin
-    SetLength(Intersections, 0);
+    IntersectionCount := 0;
     for PointIndex := 0 to High(APoints) do
     begin
       NextIndex := PointIndex + 1;
@@ -1551,26 +1616,31 @@ begin
       if (Y < Min(Y1, Y2)) or (Y >= Max(Y1, Y2)) then
         Continue;
       CrossX := X1 + Round((Y - Y1) * (X2 - X1) / (Y2 - Y1));
-      InsertAt := Length(Intersections);
-      SetLength(Intersections, InsertAt + 1);
+      InsertAt := IntersectionCount;
       while (InsertAt > 0) and (Intersections[InsertAt - 1] > CrossX) do
       begin
-        SwapValue := Intersections[InsertAt - 1];
-        Intersections[InsertAt] := SwapValue;
+        Intersections[InsertAt] := Intersections[InsertAt - 1];
         Dec(InsertAt);
       end;
       Intersections[InsertAt] := CrossX;
+      Inc(IntersectionCount);
     end;
 
     PointIndex := 0;
-    while PointIndex + 1 < Length(Intersections) do
+    while PointIndex + 1 < IntersectionCount do
     begin
       SpanLeft := Intersections[PointIndex];
       SpanRight := Intersections[PointIndex + 1];
+      if SpanLeft > SpanRight then
+      begin
+        SwapValue := SpanLeft;
+        SpanLeft := SpanRight;
+        SpanRight := SwapValue;
+      end;
       for FillX := Max(0, SpanLeft - 1) to Min(FWidth - 1, SpanRight + 1) do
       begin
         if (FillX > SpanLeft) and (FillX < SpanRight) then
-          BlendPixel(FillX, Y, AColor, Opacity, ASelection)
+          BlendPixelPremul(FillX, Y, PremulColor, Opacity, ASelection)
         else
         begin
           PX := FillX + 0.5;
@@ -1594,7 +1664,7 @@ begin
           begin
             EffOpacity := (Opacity * Cov + 127) div 255;
             if EffOpacity > 0 then
-              BlendPixel(FillX, Y, AColor, EffOpacity, ASelection);
+              BlendPixelPremul(FillX, Y, PremulColor, EffOpacity, ASelection);
           end;
         end;
       end;

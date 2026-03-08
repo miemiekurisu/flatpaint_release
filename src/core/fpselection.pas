@@ -20,9 +20,13 @@ type
     FWidth: Integer;
     FHeight: Integer;
     FData: array of Byte;
+    FSelectedCount: Integer;
+    FBoundsCache: TRect;
+    FBoundsDirty: Boolean;
     function GetSelected(X, Y: Integer): Boolean;
     procedure SetSelected(X, Y: Integer; AValue: Boolean);
     function IndexOf(X, Y: Integer): Integer; inline;
+    procedure RebuildSelectionCache;
   public
     constructor Create(AWidth, AHeight: Integer);
     procedure SetSize(AWidth, AHeight: Integer);
@@ -38,6 +42,7 @@ type
     procedure SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
     procedure SelectPolygon(const APoints: array of TPoint; AMode: TSelectionCombineMode = scReplace);
     procedure MoveBy(DeltaX, DeltaY: Integer);
+    procedure TranslateTo(ADest: TSelectionMask; DeltaX, DeltaY: Integer);
     procedure FlipHorizontal;
     procedure FlipVertical;
     procedure Rotate90Clockwise;
@@ -142,6 +147,47 @@ begin
   Result := (Y * FWidth) + X;
 end;
 
+procedure TSelectionMask.RebuildSelectionCache;
+var
+  X: Integer;
+  Y: Integer;
+  DataIndex: Integer;
+  MinX: Integer;
+  MinY: Integer;
+  MaxX: Integer;
+  MaxY: Integer;
+begin
+  FSelectedCount := 0;
+  MinX := FWidth;
+  MinY := FHeight;
+  MaxX := -1;
+  MaxY := -1;
+  DataIndex := 0;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      if FData[DataIndex] <> 0 then
+      begin
+        Inc(FSelectedCount);
+        if X < MinX then
+          MinX := X;
+        if Y < MinY then
+          MinY := Y;
+        if X > MaxX then
+          MaxX := X;
+        if Y > MaxY then
+          MaxY := Y;
+      end;
+      Inc(DataIndex);
+    end;
+
+  if FSelectedCount = 0 then
+    FBoundsCache := Rect(0, 0, 0, 0)
+  else
+    FBoundsCache := Rect(MinX, MinY, MaxX + 1, MaxY + 1);
+  FBoundsDirty := False;
+end;
+
 procedure TSelectionMask.SetSize(AWidth, AHeight: Integer);
 begin
   FWidth := Max(1, AWidth);
@@ -154,12 +200,21 @@ procedure TSelectionMask.Clear;
 begin
   if Length(FData) > 0 then
     FillChar(FData[0], Length(FData), 0);
+  FSelectedCount := 0;
+  FBoundsCache := Rect(0, 0, 0, 0);
+  FBoundsDirty := False;
 end;
 
 procedure TSelectionMask.SelectAll;
 begin
   if Length(FData) > 0 then
     FillChar(FData[0], Length(FData), 255);
+  FSelectedCount := Length(FData);
+  if FSelectedCount > 0 then
+    FBoundsCache := Rect(0, 0, FWidth, FHeight)
+  else
+    FBoundsCache := Rect(0, 0, 0, 0);
+  FBoundsDirty := False;
 end;
 
 procedure TSelectionMask.Invert;
@@ -168,6 +223,7 @@ var
 begin
   for Index := 0 to High(FData) do
     FData[Index] := 255 - FData[Index];
+  RebuildSelectionCache;
 end;
 
 procedure TSelectionMask.Assign(ASource: TSelectionMask);
@@ -179,6 +235,9 @@ begin
   SetLength(FData, Length(ASource.FData));
   if Length(FData) > 0 then
     Move(ASource.FData[0], FData[0], Length(FData));
+  FSelectedCount := ASource.FSelectedCount;
+  FBoundsCache := ASource.FBoundsCache;
+  FBoundsDirty := ASource.FBoundsDirty;
 end;
 
 function TSelectionMask.Clone: TSelectionMask;
@@ -201,6 +260,7 @@ begin
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
       FData[IndexOf(X, Y)] := Min(FData[IndexOf(X, Y)], AMask.Coverage(X, Y));
+  RebuildSelectionCache;
 end;
 
 function TSelectionMask.InBounds(X, Y: Integer): Boolean;
@@ -217,22 +277,15 @@ end;
 
 procedure TSelectionMask.SetSelected(X, Y: Integer; AValue: Boolean);
 begin
-  if not InBounds(X, Y) then
-    Exit;
   if AValue then
-    FData[IndexOf(X, Y)] := 255
+    SetCoverage(X, Y, 255)
   else
-    FData[IndexOf(X, Y)] := 0;
+    SetCoverage(X, Y, 0);
 end;
 
 function TSelectionMask.HasSelection: Boolean;
-var
-  Index: Integer;
 begin
-  for Index := 0 to High(FData) do
-    if FData[Index] <> 0 then
-      Exit(True);
-  Result := False;
+  Result := FSelectedCount > 0;
 end;
 
 function TSelectionMask.Coverage(X, Y: Integer): Byte;
@@ -243,10 +296,56 @@ begin
 end;
 
 procedure TSelectionMask.SetCoverage(X, Y: Integer; AValue: Byte);
+var
+  PixelIndex: Integer;
+  OldSelected: Boolean;
+  NewSelected: Boolean;
 begin
   if not InBounds(X, Y) then
     Exit;
-  FData[IndexOf(X, Y)] := AValue;
+  PixelIndex := IndexOf(X, Y);
+  if FData[PixelIndex] = AValue then
+    Exit;
+
+  OldSelected := FData[PixelIndex] <> 0;
+  NewSelected := AValue <> 0;
+  FData[PixelIndex] := AValue;
+
+  if OldSelected = NewSelected then
+    Exit;
+
+  if NewSelected then
+  begin
+    Inc(FSelectedCount);
+    if FSelectedCount = 1 then
+    begin
+      FBoundsCache := Rect(X, Y, X + 1, Y + 1);
+      FBoundsDirty := False;
+    end
+    else if not FBoundsDirty then
+    begin
+      if X < FBoundsCache.Left then
+        FBoundsCache.Left := X;
+      if Y < FBoundsCache.Top then
+        FBoundsCache.Top := Y;
+      if X >= FBoundsCache.Right then
+        FBoundsCache.Right := X + 1;
+      if Y >= FBoundsCache.Bottom then
+        FBoundsCache.Bottom := Y + 1;
+    end;
+  end
+  else
+  begin
+    if FSelectedCount > 0 then
+      Dec(FSelectedCount);
+    if FSelectedCount = 0 then
+    begin
+      FBoundsCache := Rect(0, 0, 0, 0);
+      FBoundsDirty := False;
+    end
+    else
+      FBoundsDirty := True;
+  end;
 end;
 
 procedure TSelectionMask.Feather(ARadius: Integer);
@@ -329,6 +428,7 @@ begin
       CoverageValue := 0;
     FData[Index] := EnsureRange(CoverageValue, 0, 255);
   end;
+  RebuildSelectionCache;
 end;
 
 procedure TSelectionMask.SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
@@ -572,6 +672,54 @@ begin
 
   if Length(FData) > 0 then
     Move(NewData[0], FData[0], Length(FData));
+  RebuildSelectionCache;
+end;
+
+procedure TSelectionMask.TranslateTo(ADest: TSelectionMask; DeltaX, DeltaY: Integer);
+var
+  DestY: Integer;
+  SourceY: Integer;
+  DestStartX: Integer;
+  SourceStartX: Integer;
+  CopyLen: Integer;
+begin
+  if ADest = nil then
+    Exit;
+  if ADest = Self then
+  begin
+    MoveBy(DeltaX, DeltaY);
+    Exit;
+  end;
+
+  ADest.Clear;
+  if (FSelectedCount = 0) or (Length(FData) = 0) then
+    Exit;
+
+  for DestY := 0 to ADest.FHeight - 1 do
+  begin
+    SourceY := DestY - DeltaY;
+    if (SourceY < 0) or (SourceY >= FHeight) then
+      Continue;
+
+    SourceStartX := -DeltaX;
+    DestStartX := 0;
+    if SourceStartX < 0 then
+    begin
+      DestStartX := -SourceStartX;
+      SourceStartX := 0;
+    end;
+
+    CopyLen := Min(FWidth - SourceStartX, ADest.FWidth - DestStartX);
+    if CopyLen <= 0 then
+      Continue;
+
+    Move(
+      FData[SourceY * FWidth + SourceStartX],
+      ADest.FData[DestY * ADest.FWidth + DestStartX],
+      CopyLen
+    );
+  end;
+  ADest.RebuildSelectionCache;
 end;
 
 procedure TSelectionMask.FlipHorizontal;
@@ -593,6 +741,8 @@ begin
       FData[LeftIndex] := FData[RightIndex];
       FData[RightIndex] := Temp;
     end;
+  if FSelectedCount > 0 then
+    FBoundsDirty := True;
 end;
 
 procedure TSelectionMask.FlipVertical;
@@ -614,6 +764,8 @@ begin
       FData[TopIndex] := FData[BottomIndex];
       FData[BottomIndex] := Temp;
     end;
+  if FSelectedCount > 0 then
+    FBoundsDirty := True;
 end;
 
 procedure TSelectionMask.Rotate90Clockwise;
@@ -697,36 +849,12 @@ begin
 end;
 
 function TSelectionMask.BoundsRect: TRect;
-var
-  MinX: Integer;
-  MinY: Integer;
-  MaxX: Integer;
-  MaxY: Integer;
-  X: Integer;
-  Y: Integer;
 begin
-  if not HasSelection then
+  if FSelectedCount = 0 then
     Exit(Rect(0, 0, 0, 0));
-
-  MinX := FWidth - 1;
-  MinY := FHeight - 1;
-  MaxX := 0;
-  MaxY := 0;
-  for Y := 0 to FHeight - 1 do
-    for X := 0 to FWidth - 1 do
-      if Selected[X, Y] then
-      begin
-        if X < MinX then
-          MinX := X;
-        if Y < MinY then
-          MinY := Y;
-        if X > MaxX then
-          MaxX := X;
-        if Y > MaxY then
-          MaxY := Y;
-      end;
-
-  Result := Rect(MinX, MinY, MaxX + 1, MaxY + 1);
+  if FBoundsDirty then
+    RebuildSelectionCache;
+  Result := FBoundsCache;
 end;
 
 end.
