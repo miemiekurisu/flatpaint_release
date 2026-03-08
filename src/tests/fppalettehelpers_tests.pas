@@ -22,6 +22,8 @@ type
     procedure PaletteDragTintDiffersFromRestTint;
     procedure ToolsPaletteUsesNarrowTwoColumnLayout;
     procedure SnapPaletteRectAlignsToNearbyWorkspaceEdges;
+    procedure ClampWorkspaceRectReservesRulerBands;
+    procedure ClampPaletteRectHonorsRulerBands;
     procedure ColorsPanelFitsSystemPickerAndSliderRows;
     procedure PaletteHeightsFitDeeperPanelControls;
     procedure ToolsPaletteHeightFitsAllVisibleToolRows;
@@ -199,6 +201,42 @@ begin
   Snapped := SnapPaletteRect(Rect(206, 150, 306, 230), Rect(0, 0, 300, 220));
   AssertEquals('snap right', 300, Snapped.Right);
   AssertEquals('snap bottom', 220, Snapped.Bottom);
+end;
+
+procedure TFPPaletteHelpersTests.ClampWorkspaceRectReservesRulerBands;
+var
+  Clamped: TRect;
+begin
+  Clamped := PaletteClampWorkspaceRect(Rect(0, 0, 300, 220), True);
+  AssertEquals('ruler-aware left inset', 18, Clamped.Left);
+  AssertEquals('ruler-aware top inset', 18, Clamped.Top);
+  AssertEquals('right edge unchanged', 300, Clamped.Right);
+  AssertEquals('bottom edge unchanged', 220, Clamped.Bottom);
+
+  Clamped := PaletteClampWorkspaceRect(Rect(0, 0, 300, 220), False);
+  AssertEquals('no-ruler left inset', 0, Clamped.Left);
+  AssertEquals('no-ruler top inset', 0, Clamped.Top);
+end;
+
+procedure TFPPaletteHelpersTests.ClampPaletteRectHonorsRulerBands;
+var
+  Clamped: TRect;
+begin
+  Clamped := ClampPaletteRectToWorkspace(
+    Rect(0, 0, 100, 80),
+    Rect(0, 0, 300, 220),
+    True
+  );
+  AssertEquals('palette left should not cover vertical ruler', 18, Clamped.Left);
+  AssertEquals('palette top should not cover horizontal ruler', 18, Clamped.Top);
+
+  Clamped := ClampPaletteRectToWorkspace(
+    Rect(-12, -8, 88, 72),
+    Rect(0, 0, 300, 220),
+    False
+  );
+  AssertEquals('palette without rulers should clamp to workspace left', 0, Clamped.Left);
+  AssertEquals('palette without rulers should clamp to workspace top', 0, Clamped.Top);
 end;
 
 procedure TFPPaletteHelpersTests.ColorsPanelFitsSystemPickerAndSliderRows;

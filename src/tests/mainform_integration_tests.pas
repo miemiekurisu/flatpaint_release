@@ -15,6 +15,7 @@ type
     procedure PencilStyleStrokeChangesVisibleCompositePixel;
     procedure BucketMaskIntersectedWithSelectionOnlyFillsInsideSelection;
     procedure ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel;
+    procedure ColorPickerUnpremultipliesSampledRGB;
     procedure DefaultLineToolCommitsStraightSegmentOnRelease;
     procedure DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp;
     procedure NewMouseDownCommitsPendingBrushStroke;
@@ -141,6 +142,23 @@ begin
   AssertEquals('sampled red should still come from the picked pixel', 0, ResultColor.R);
   AssertEquals('sampled green should still come from the picked pixel', 0, ResultColor.G);
   AssertEquals('sampled blue should still come from the picked pixel', 0, ResultColor.B);
+end;
+
+procedure TMainFormIntegrationTests.ColorPickerUnpremultipliesSampledRGB;
+var
+  CurrentColor: TRGBA32;
+  SampledColor: TRGBA32;
+  ResultColor: TRGBA32;
+begin
+  CurrentColor := RGBA(10, 20, 30, 255);
+  SampledColor := Premultiply(RGBA(255, 0, 0, 128));
+
+  ResultColor := AdoptSampledRGBPreservingAlpha(CurrentColor, SampledColor);
+
+  AssertEquals('sampled premultiplied red is decoded back to straight RGB', 255, ResultColor.R);
+  AssertEquals('sampled premultiplied green remains zero', 0, ResultColor.G);
+  AssertEquals('sampled premultiplied blue remains zero', 0, ResultColor.B);
+  AssertEquals('active alpha remains visible for future paint actions', 255, ResultColor.A);
 end;
 
 procedure TMainFormIntegrationTests.DefaultLineToolCommitsStraightSegmentOnRelease;

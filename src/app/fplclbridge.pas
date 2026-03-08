@@ -29,26 +29,36 @@ var
   RawImage: TRawImage;
   Buffer: Pointer;
   ByteCount: PtrUInt;
-  X: Integer;
-  Y: Integer;
-  PixelPtr: ^TRGBA32;
+  PixelCount: PtrUInt;
+  PixelIndex: PtrUInt;
+  SourcePtr: ^TRGBA32;
+  DestPtr: ^TRGBA32;
 begin
   if (ASurface = nil) or (ABitmap = nil) then
     Exit;
   RawImage.Init;
   RawImage.Description.Init_BPP32_B8G8R8A8_BIO_TTB(ASurface.Width, ASurface.Height);
-  ByteCount := PtrUInt(ASurface.Width) * PtrUInt(ASurface.Height) * SizeOf(TRGBA32);
+  PixelCount := PtrUInt(ASurface.Width) * PtrUInt(ASurface.Height);
+  ByteCount := PixelCount * SizeOf(TRGBA32);
   GetMem(Buffer, ByteCount);
-  PixelPtr := Buffer;
-  for Y := 0 to ASurface.Height - 1 do
-    for X := 0 to ASurface.Width - 1 do
+  SourcePtr := ASurface.RawPixels;
+  DestPtr := Buffer;
+  if PixelCount > 0 then
+    for PixelIndex := 0 to PixelCount - 1 do
     begin
-      PixelPtr^ := Unpremultiply(ASurface[X, Y]);
-      Inc(PixelPtr);
+      DestPtr^ := Unpremultiply(SourcePtr^);
+      Inc(DestPtr);
+      Inc(SourcePtr);
     end;
   RawImage.Data := Buffer;
   RawImage.DataSize := ByteCount;
-  ABitmap.LoadFromRawImage(RawImage, True);
+  try
+    ABitmap.LoadFromRawImage(RawImage, True);
+    Buffer := nil; { ownership transferred to bitmap internals }
+  finally
+    if Buffer <> nil then
+      FreeMem(Buffer);
+  end;
 end;
 
 function SurfaceToBitmap(ASurface: TRasterSurface): TBitmap;

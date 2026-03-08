@@ -25,11 +25,15 @@ type
     procedure MoveLayerReordersAndTracksActiveLayer;
     procedure BackgroundLayerStaysLockedAtBottom;
     procedure BackgroundLayerEraseAndMovePreserveOpacity;
+    procedure BackgroundLayerSoftMoveKeepsFeatheredIntensity;
+    procedure MergeDownUsesPremultipliedBlendPath;
     procedure StoredSelectionRoundtrips;
     procedure CopySelectionStoresSelectionForPasteRoute;
     procedure CopyMergedStoresSelectionForPasteRoute;
     procedure CompositeAppliesLayerOffsetsAtRuntime;
     procedure FillSelectionUsesLayerOffsetMapping;
+    procedure CropWithOffsetLayerKeepsVisiblePixels;
+    procedure CropToSelectionWithOffsetLayerKeepsVisiblePixels;
     procedure NewBlankStartsWithWhiteBackground;
     procedure NewToolKindCountIsCorrect;
   end;
@@ -433,6 +437,51 @@ begin
   end;
 end;
 
+procedure TFPDocumentTests.BackgroundLayerSoftMoveKeepsFeatheredIntensity;
+var
+  Document: TImageDocument;
+  Pixel: TRGBA32;
+begin
+  Document := TImageDocument.Create(4, 2);
+  try
+    Document.ActiveLayer.Surface[1, 0] := RGBA(255, 0, 0, 255);
+    Document.Selection.Clear;
+    Document.Selection.SetCoverage(1, 0, 128);
+
+    Document.MoveSelectedPixelsBy(1, 0);
+
+    Pixel := Document.ActiveLayer.Surface[2, 0];
+    AssertEquals('soft-moved red keeps expected intensity on background', 255, Pixel.R);
+    AssertEquals('soft-moved green blends against white background', 127, Pixel.G);
+    AssertEquals('soft-moved blue blends against white background', 127, Pixel.B);
+    AssertEquals('background target stays opaque', 255, Pixel.A);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.MergeDownUsesPremultipliedBlendPath;
+var
+  Document: TImageDocument;
+  Pixel: TRGBA32;
+begin
+  Document := TImageDocument.Create(2, 2);
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayer.Surface[0, 0] := Premultiply(RGBA(255, 0, 0, 128));
+
+    Document.MergeDown;
+
+    Pixel := Document.ActiveLayer.Surface[0, 0];
+    AssertEquals('merge-down keeps red channel intensity for half-alpha source-over-white', 255, Pixel.R);
+    AssertEquals('merge-down green channel matches expected blend', 127, Pixel.G);
+    AssertEquals('merge-down blue channel matches expected blend', 127, Pixel.B);
+    AssertEquals('merge-down result stays opaque on background', 255, Pixel.A);
+  finally
+    Document.Free;
+  end;
+end;
+
 procedure TFPDocumentTests.StoredSelectionRoundtrips;
 var
   Document: TImageDocument;
@@ -543,6 +592,73 @@ begin
     CompositeSurface := Document.Composite;
     AssertTrue('composite shows filled pixel at selected canvas location',
       RGBAEqual(CompositeSurface[2, 1], RGBA(0, 120, 255, 255)));
+  finally
+    CompositeSurface.Free;
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.CropWithOffsetLayerKeepsVisiblePixels;
+var
+  Document: TImageDocument;
+  CompositeSurface: TRasterSurface;
+  PixelColor: TRGBA32;
+begin
+  Document := TImageDocument.Create(10, 10);
+  CompositeSurface := nil;
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayerIndex := 1;
+    Document.ActiveLayer.Surface.Clear(TransparentColor);
+    Document.ActiveLayer.OffsetX := 3;
+    Document.ActiveLayer.OffsetY := 2;
+    PixelColor := RGBA(20, 180, 40, 255);
+    Document.ActiveLayer.Surface[1, 1] := PixelColor; { canvas (4,3) }
+
+    Document.Crop(4, 3, 3, 3);
+
+    AssertEquals('cropped width', 3, Document.Width);
+    AssertEquals('cropped height', 3, Document.Height);
+    AssertEquals('offset x should rebase to crop-local space', 0, Document.ActiveLayer.OffsetX);
+    AssertEquals('offset y should rebase to crop-local space', 0, Document.ActiveLayer.OffsetY);
+
+    CompositeSurface := Document.Composite;
+    AssertTrue('cropped visible pixel stays in the new canvas',
+      RGBAEqual(CompositeSurface[0, 0], PixelColor));
+  finally
+    CompositeSurface.Free;
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.CropToSelectionWithOffsetLayerKeepsVisiblePixels;
+var
+  Document: TImageDocument;
+  CompositeSurface: TRasterSurface;
+  PixelColor: TRGBA32;
+begin
+  Document := TImageDocument.Create(10, 10);
+  CompositeSurface := nil;
+  try
+    Document.AddLayer('Top');
+    Document.ActiveLayerIndex := 1;
+    Document.ActiveLayer.Surface.Clear(TransparentColor);
+    Document.ActiveLayer.OffsetX := 2;
+    Document.ActiveLayer.OffsetY := 1;
+    PixelColor := RGBA(30, 70, 220, 255);
+    Document.ActiveLayer.Surface[2, 2] := PixelColor; { canvas (4,3) }
+    Document.SelectRectangle(4, 3, 4, 3, scReplace);
+
+    Document.CropToSelection;
+
+    AssertEquals('crop-to-selection width', 1, Document.Width);
+    AssertEquals('crop-to-selection height', 1, Document.Height);
+    AssertEquals('offset x should reset after crop-to-selection', 0, Document.ActiveLayer.OffsetX);
+    AssertEquals('offset y should reset after crop-to-selection', 0, Document.ActiveLayer.OffsetY);
+
+    CompositeSurface := Document.Composite;
+    AssertTrue('selected content remains visible after crop-to-selection',
+      RGBAEqual(CompositeSurface[0, 0], PixelColor));
   finally
     CompositeSurface.Free;
     Document.Free;

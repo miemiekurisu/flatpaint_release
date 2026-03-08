@@ -4,6 +4,150 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (ruler-aware palette bounds + clone overlay polish + zoom loupe restore + recolor contiguous + embedded About content)
+
+### Changes
+
+1. **Palette bounds now respect ruler occupancy when rulers are enabled**:
+   - added `PaletteClampWorkspaceRect(...)` and `ClampPaletteRectToWorkspace(...)` in `src/app/fppalettehelpers.pas`.
+   - integrated ruler-aware clamp flow in `mainform` palette creation, layout restore, drag-snap, resize, and ruler-toggle paths.
+   - behavior contract:
+     - rulers on: four utility palettes cannot cross ruler bands.
+     - rulers off: original workspace-bounds-only clamp behavior remains.
+
+2. **Clone stamp overlay visuals were restyled to reduce distraction and improve readability**:
+   - replaced red dashed source-link line with neutral gray dotted line.
+   - source cursor now uses dual-contrast black/white ring + crosshair.
+   - source-link line is rendered only during active stamping (`pointer down`) to reduce idle clutter.
+
+3. **Zoom tool local loupe overlay restored with bounded geometry**:
+   - new helper `src/app/fpmagnifierhelpers.pas` computes source/destination rectangles with edge clamping.
+   - `mainform` now renders a zoom loupe overlay for `tkZoom` hover path.
+   - edge and small-canvas cases are bounded to visible canvas extents.
+
+4. **Recolor functionality completed with contiguous-region option**:
+   - `TRasterSurface.RecolorBrush(...)` adds `ContiguousOnly` flag with local BFS connectivity mask.
+   - options bar gains `Contiguous` checkbox for recolor tool.
+   - recolor apply route now passes contiguous-mode state through UI -> core path.
+
+5. **FlatPaint app-menu About route + compile-time embedded About texts**:
+   - added `FlatPaint` top-level menu with `About FlatPaint`.
+   - added `FPAboutDialog` and `FPAboutContent`; about text now ships as compiled constants (no runtime file loading).
+   - template about text assets were finalized and synchronized with embedded content.
+
+6. **CI script robustness fix**:
+   - `scripts/run_tests_ci.sh` now ensures `dist/` exists before copying CLI output.
+   - removes false-negative CI failures when running tests from a freshly cleaned workspace.
+
+7. **Reference baseline used in this pass**:
+   - Photoshop/GIMP were used only as behavior/style references for clone-cursor ergonomics and contiguous recolor expectations.
+   - no external private/proprietary assets were imported; no GPL code or identifiers were reused.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `341` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (clipboard bridge + zoom interpolation quality refinement)
+
+### Changes
+
+1. **Integrated Edit copy/cut/paste routes with macOS system clipboard**:
+   - `Cut` / `Copy` / `Copy Merged` now continue to fill in-app clipboard cache (`FClipboardSurface`) and additionally publish bitmap data to `Clipboard`.
+   - `Paste` / `Paste into New Layer` / `Paste into New Image` now resolve source from system clipboard first (when picture format exists), and fall back to in-app cache only when needed.
+
+2. **Added clipboard metadata channel to preserve in-app paste offset semantics across system clipboard**:
+   - new helper unit: `src/app/fpclipboardhelpers.pas`.
+   - publishes app-specific clipboard metadata (`com.flatpaint.surface-meta.v1`) with copied surface dimensions + offset.
+   - paste path validates metadata against resolved clipboard image dimensions before applying offset (dimension mismatch safely falls back to origin).
+
+3. **Refined zoom interpolation strategy so anti-aliased pencil edges remain visible at moderate zoom-in**:
+   - added `DisplayInterpolationQualityForZoom(...)` in `src/app/fpviewporthelpers.pas`.
+   - `PaintCanvasTo` now uses zoom-band mapping instead of hard switch at `>1.0`:
+     - `<=1.0` high quality (`3`)
+     - `<=2.0` medium (`2`)
+     - `<=4.0` low (`1`)
+     - `>4.0` nearest (`0`)
+
+4. **Added regression coverage for new helper contracts**:
+   - `src/tests/fpclipboardhelpers_tests.pas` (`3` tests) for metadata roundtrip/validation.
+   - expanded `src/tests/fpviewporthelpers_tests.pas` with `DisplayInterpolationQualityTracksZoomBands`.
+   - registered new suite in `src/tests/flatpaint_tests.lpr`.
+
+5. **Reference/doc baseline used in this pass**:
+   - Lazarus clipboard and control docs from local toolchain (`lcl/clipbrd.pp`, `docs/xml/lcl/controls.xml`).
+   - project performance baseline (`docs/FPC_MACOS_PERFORMANCE_GUIDE.md`) and Apple High Resolution guidance already tracked there.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `334` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (performance audit pass: LCL bridge hot-path micro-optimization)
+
+### Changes
+
+1. **Completed a focused performance audit against the render/display hot path**:
+   - traced repaint path `PaintCanvasTo` → `BuildDisplaySurface` → `CopySurfaceToBitmap`.
+   - identified per-pixel property access in `CopySurfaceToBitmap` as a high-frequency cost center (`ASurface[X, Y]` triggers bounds/index work for each pixel).
+   - mapped this work to Feature Matrix row: `Rendering quality` (display pipeline responsiveness).
+
+2. **Optimized `CopySurfaceToBitmap` without changing output semantics** (`src/app/fplclbridge.pas`):
+   - replaced `X/Y` indexer loops with contiguous raw-pointer iteration (`ASurface.RawPixels`) while keeping `Unpremultiply(...)` conversion per pixel.
+   - kept destination format identical (`B8G8R8A8`, top-to-bottom) and retained `LoadFromRawImage(..., True)` ownership flow.
+   - added an explicit `Buffer` cleanup fallback around `LoadFromRawImage` to avoid leak risk on exceptional exits.
+
+3. **Reduced repeated constant construction in compositor checkerboard path** (`src/app/mainform.pas`):
+   - precomputed checkerboard colors once per call (`CheckerDark`/`CheckerLight`) instead of re-creating `RGBA(...)` values inside every transparent-pixel branch.
+   - behavior stays unchanged; this is a hot-loop micro-optimization only.
+
+4. **Documentation/source baseline cross-check used for this pass**:
+   - local FPC toolchain option reference via `fpc -h` (reviewed `-O1/-O2/-O3/-O4`, `-CX`, `-XX`, `-Xs`).
+   - local Lazarus docs (`docs/xml/lcl/controls.xml`) for `TWinControl.DoubleBuffered` repaint/flicker guidance.
+   - project Apple guidance baseline kept aligned with High Resolution docs already tracked in `docs/FPC_MACOS_PERFORMANCE_GUIDE.md`.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `330` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (premul boundary correctness pass: merge/move/clone/color sampling)
+
+### Changes
+
+1. **Fixed premultiplied-source blend routing in three mutation paths**:
+   - `TImageDocument.MergeDown` now uses `BlendPixelPremul`.
+   - `TImageDocument.MoveSelectedPixelsBy` background-layer path now uses `BlendPixelPremul` for copied soft-coverage pixels.
+   - `mainform` clone-stamp apply loop now uses `BlendPixelPremul`.
+   - Result: semi-transparent source pixels are no longer double-premultiplied (prevents visible darkening).
+
+2. **Fixed sampled-color decoding on premultiplied surfaces**:
+   - `RecolorSourceAtPoint` now unpremultiplies sampled active-layer pixels.
+   - Color picker sampling from current-layer/composite surfaces now unpremultiplies before swatch adoption.
+   - `AdoptSampledRGBPreservingAlpha` now decodes premultiplied samples while preserving the current paint alpha.
+
+3. **Added regression tests for the corrected behavior**:
+   - `TFPDocumentTests.BackgroundLayerSoftMoveKeepsFeatheredIntensity`
+   - `TFPDocumentTests.MergeDownUsesPremultipliedBlendPath`
+   - `TMainFormIntegrationTests.ColorPickerUnpremultipliesSampledRGB`
+
+4. **Fixed `run_tests_ci.sh` Lazarus path fallback**:
+   - replaced hardcoded `/Users/kurisu/...` fallback with workspace-relative auto-resolution (`$PROJECT_ROOT/../..` + `/lazarus`), while still honoring explicit `LAZARUS_DIR`.
+   - Result: default local/CI invocation (`bash ./scripts/run_tests_ci.sh`) no longer depends on a specific username path.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `330` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-08 (Anti-aliasing module: premultiplied alpha migration + SDF edge AA + CG bridge + Retina DPI)
 
 ### Changes
@@ -1418,3 +1562,41 @@ Six bugs were identified through systematic trace of the three reported failure 
 - **2026-03-07 — Viewport edge jitter phase-2 hardening (GIMP-style unoverscroll gate + zoom-limit no-op).** Added pre-clamp delta gating modeled after GIMP's unoverscroll pattern (`scroll_unoverscrollify` intent): wheel deltas that push further past a reached bound are now collapsed to `0` before any scroll write. Also added zoom-limit no-op guards so repeated zoom input at min/max scale no longer triggers anchor/scroll recomputation. This removes remaining multi-step rebound behavior when users keep pushing toward an already reached edge/zoom bound.
 - **2026-03-07 — Phase-2 verification.** Re-ran full CI and build (`N:309 E:0 F:0`), refreshed `dist/FlatPaint.app`, and kept docs synced to the new test count.
 - **2026-03-07 — Viewport edge jitter phase-3 hardening (disable Cocoa elastic bounce).** Added a dedicated native bridge (`fp_scrollview.m`) and runtime hookup in `AppIdle` to disable `NSScrollView` horizontal/vertical elasticity for the canvas host once the handle is ready, preventing macOS rubber-band rebound from reintroducing edge wobble.
+- **2026-03-08 — Crop layer-offset rebasing correctness fix (transparent-crop regression closure).** Fixed `TImageDocument.Crop(...)` to rebase each cropped layer into new document-local coordinates (`OffsetX/OffsetY := 0`) instead of re-applying the crop origin shift after local-space cropping, which could move visible content outside the canvas and produce transparent crop output.
+- **2026-03-08 — Regression hardening for canvas overwrite + crop-offset flows.** Added `TFPDocumentTests.CropWithOffsetLayerKeepsVisiblePixels`, `TFPDocumentTests.CropToSelectionWithOffsetLayerKeepsVisiblePixels`, and `TPipelineIntegrationTests.OpaquePencilStrokeOverwritesExistingPixel`; CI now runs green at `N:344 E:0 F:0`.
+- **2026-03-08 — Zoom interpolation policy follow-up (AA visibility at high zoom).**
+  - Feature row mapping: `View surface` + `Rendering quality` in `docs/FEATURE_MATRIX.md`.
+  - Performance/reference check before code change: re-reviewed local `docs/FPC_MACOS_PERFORMANCE_GUIDE.md` guidance and aligned decisions with official references used in project research notes (FPC optimization-switch docs, Lazarus/LCL invalidation guidance, Apple CoreGraphics interpolation API behavior).
+  - Behavior change: `DisplayInterpolationQualityForZoom(...)` now keeps low-cost smoothing through `<=8.0x` and only falls back to nearest-neighbor above that range, so anti-aliased stroke edges remain readable during common zoom inspection.
+  - Safety scope: display-only interpolation policy; document pixel data, compositing math, and history semantics unchanged.
+- **2026-03-08 — Zoom local-loupe feature de-scope (Photoshop/GIMP parity alignment).**
+  - Fallback reference record (per development rules): reviewed official Photoshop Zoom/Navigator docs and GIMP Zoom/Navigation Window docs; both expose global-canvas zoom/navigation semantics and do not define a Windows-Magnifier-style local pixel loupe as baseline zoom behavior.
+  - Product decision: stop supplementing local loupe overlay behavior and keep zoom tool semantics focused on full-canvas zoom.
+  - Implementation: removed runtime `DrawZoomLoupeOverlay(...)` invocation and `FPMagnifierHelpers` dependency from `mainform` paint/overlay path, leaving standard zoom interaction unchanged.
+  - Feature row mapping: `View surface` in `docs/FEATURE_MATRIX.md` updated to global-zoom baseline wording.
+- **2026-03-08 — Selection-first bucket overwrite fix (selected-region residual stroke closure).**
+  - Feature row mapping: `Paint tools` in `docs/FEATURE_MATRIX.md`.
+  - User-facing defect: bucket fill inside an active selection could leave previously drawn pencil/brush pixels visible in the selected area, which looked like failed overwrite/compositing.
+  - Root cause: fill path still built a color/tolerance candidate mask first, then intersected with selection; non-matching ink pixels were excluded by mask construction, so they remained unchanged.
+  - Implementation:
+    1. `mainform` `tkFill` path now uses selection-first semantics: when an active selection exists, bucket fill clones and applies the active selection coverage mask directly (in active-layer space) instead of color-candidate masking.
+    2. kept existing contiguous/global + tolerance route unchanged for no-selection fills.
+    3. hardened fill-mask space bookkeeping to avoid double conversion/free hazards.
+  - Regression coverage:
+    - added `TPipelineIntegrationTests.FillWithinActiveSelectionOverwritesExistingPixels` to lock the reported scenario (selected-area fill overwrites pre-existing ink inside selection, keeps outside pixels untouched).
+  - Verification:
+    - `bash ./scripts/run_tests_ci.sh` passed (`N:345 E:0 F:0`).
+    - `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-08 — Colors panel wheel-sync latency fix (foreground alignment).**
+  - Feature row mapping: `Colors panel` in `docs/FEATURE_MATRIX.md`.
+  - User-facing defect: lower SV area in the wheel-first Colors panel could appear one step behind current foreground hue during wheel hue scrubs.
+  - Root cause: `FColorSVCachedHue` was shared between two unrelated responsibilities (grayscale fallback hue memory and SV bitmap rendered-hue cache), so hue-drag updates could mark cache-as-fresh before SV bitmap re-render.
+  - Implementation:
+    1. added dedicated `FColorSVRenderedHue` state for SV bitmap render cache tracking.
+    2. added helper `ShouldRebuildSVSquare(...)` in `FPColorWheelHelpers` and routed `ColorWheelBoxPaint` rebuild decision through it.
+    3. kept `FColorSVCachedHue` only for zero-saturation hue-memory fallback and explicit hue tracking.
+  - Regression coverage:
+    - new suite `TFPColorWheelHelpersTests` (`SVSquareRebuildsWhenHueChangesOrCacheMissing`, `SVSquareSkipsRebuildForStableHueAndSize`).
+  - Verification:
+    - `bash ./scripts/run_tests_ci.sh` passed (`N:347 E:0 F:0`).
+    - `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.

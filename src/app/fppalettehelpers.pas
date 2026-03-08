@@ -20,6 +20,8 @@ function PaletteShortcutDigit(APalette: TPaletteKind): Char;
 function PaletteShortcutLabel(APalette: TPaletteKind): string;
 function PaletteDefaultRect(APalette: TPaletteKind): TRect;
 function PaletteDefaultRectForWorkspace(APalette: TPaletteKind; const AWorkspaceRect: TRect): TRect;
+function PaletteClampWorkspaceRect(const AWorkspaceRect: TRect; AShowRulers: Boolean): TRect;
+function ClampPaletteRectToWorkspace(const ARect, AWorkspaceRect: TRect; AShowRulers: Boolean): TRect;
 function ToolsPaletteColumnCount: Integer;
 function PaletteHeaderHeight: Integer;
 function WorkspaceBackgroundColor: LongInt;
@@ -43,7 +45,7 @@ function SnapPaletteRect(const ARect, AWorkspaceRect: TRect; AThreshold: Integer
 implementation
 
 uses
-  Math, FPI18n;
+  Math, FPI18n, FPRulerHelpers;
 
 const
   PaletteMargin = 12;
@@ -206,6 +208,43 @@ begin
     Max(AWorkspaceRect.Top, AWorkspaceRect.Bottom - PaletteHeight)
   );
   Result := Rect(LeftPos, TopPos, LeftPos + PaletteWidth, TopPos + PaletteHeight);
+end;
+
+function PaletteClampWorkspaceRect(const AWorkspaceRect: TRect; AShowRulers: Boolean): TRect;
+begin
+  Result := AWorkspaceRect;
+  if AShowRulers then
+  begin
+    Inc(Result.Left, RulerThickness);
+    Inc(Result.Top, RulerThickness);
+    if Result.Left > Result.Right then
+      Result.Left := Result.Right;
+    if Result.Top > Result.Bottom then
+      Result.Top := Result.Bottom;
+  end;
+end;
+
+function ClampPaletteRectToWorkspace(const ARect, AWorkspaceRect: TRect; AShowRulers: Boolean): TRect;
+var
+  PaletteWidth: Integer;
+  PaletteHeight: Integer;
+  ClampRect: TRect;
+begin
+  ClampRect := PaletteClampWorkspaceRect(AWorkspaceRect, AShowRulers);
+  PaletteWidth := Max(0, ARect.Right - ARect.Left);
+  PaletteHeight := Max(0, ARect.Bottom - ARect.Top);
+  Result.Left := EnsureRange(
+    ARect.Left,
+    ClampRect.Left,
+    Max(ClampRect.Left, ClampRect.Right - PaletteWidth)
+  );
+  Result.Top := EnsureRange(
+    ARect.Top,
+    ClampRect.Top,
+    Max(ClampRect.Top, ClampRect.Bottom - PaletteHeight)
+  );
+  Result.Right := Result.Left + PaletteWidth;
+  Result.Bottom := Result.Top + PaletteHeight;
 end;
 
 function ToolsPaletteColumnCount: Integer;

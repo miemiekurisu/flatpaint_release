@@ -14,6 +14,7 @@ function ZoomSliderPositionForScale(AScale: Double): Integer;
 function ZoomScaleForSliderPosition(APosition: Integer): Double;
 function ClampZoomScale(AScale: Double): Double;
 function ZoomScaleEffectivelyEqual(AScaleA, AScaleB: Double): Boolean;
+function DisplayInterpolationQualityForZoom(AScale: Double): Integer;
 function ViewportImageCoordinate(
   AScrollPosition,
   AViewportCoordinate,
@@ -94,6 +95,18 @@ end;
 function ZoomScaleEffectivelyEqual(AScaleA, AScaleB: Double): Boolean;
 begin
   Result := Abs(ClampZoomScale(AScaleA) - ClampZoomScale(AScaleB)) <= ZoomScaleEpsilon;
+end;
+
+function DisplayInterpolationQualityForZoom(AScale: Double): Integer;
+begin
+  AScale := ClampZoomScale(AScale);
+  if AScale <= 1.0 then
+    Exit(3); { high quality for downscale / 1:1 }
+  if AScale <= 2.0 then
+    Exit(2); { medium to keep AA edge smoothness visible at modest zoom-in }
+  if AScale <= 8.0 then
+    Exit(1); { keep a smoothing band longer so AA edges survive common zoom inspection }
+  Result := 0; { nearest for very deep pixel-inspection zoom levels }
 end;
 
 function ViewportImageCoordinate(

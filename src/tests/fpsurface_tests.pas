@@ -28,6 +28,7 @@ type
     procedure EmbossShiftsPixelsRelativeToNeighbors;
     procedure SoftenBlursHighContrastEdge;
     procedure RecolorBrushReplacesMatchingPixels;
+    procedure RecolorBrushContiguousLimitsConnectedRegion;
     procedure RecolorBrushOpacityBlendsTowardTarget;
     procedure RecolorBrushPreserveValueKeepsShading;
     procedure RecolorBrushColorModePreservesValue;
@@ -454,6 +455,45 @@ begin
     Surface.RecolorBrush(5, 5, 4, Source, Target, 10);
     AssertEquals('center pixel recolored R', 50, Surface[5, 5].R);
     AssertEquals('center pixel recolored G', 200, Surface[5, 5].G);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushContiguousLimitsConnectedRegion;
+var
+  Surface: TRasterSurface;
+  Source: TRGBA32;
+  Target: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(12, 3);
+  try
+    Source := RGBA(200, 50, 50, 255);
+    Target := RGBA(40, 180, 60, 255);
+
+    Surface.Clear(RGBA(240, 240, 240, 255));
+    Surface[2, 1] := Source;
+    Surface[3, 1] := Source;
+    Surface[8, 1] := Source;
+    Surface[9, 1] := Source;
+
+    Surface.RecolorBrush(3, 1, 7, Source, Target, 0, 255, False, nil, rbmReplaceRGBCompat, True);
+
+    AssertEquals('connected source family recolored (left cluster)', Target.G, Surface[2, 1].G);
+    AssertEquals('connected source family recolored (center cluster)', Target.G, Surface[3, 1].G);
+    AssertEquals('disconnected matching family should stay unchanged', Source.R, Surface[8, 1].R);
+    AssertEquals('disconnected matching family should stay unchanged', Source.G, Surface[9, 1].G);
+
+    Surface.Clear(RGBA(240, 240, 240, 255));
+    Surface[2, 1] := Source;
+    Surface[3, 1] := Source;
+    Surface[8, 1] := Source;
+    Surface[9, 1] := Source;
+
+    Surface.RecolorBrush(3, 1, 7, Source, Target, 0, 255, False, nil, rbmReplaceRGBCompat, False);
+
+    AssertEquals('discontiguous mode should recolor remote match 1', Target.G, Surface[8, 1].G);
+    AssertEquals('discontiguous mode should recolor remote match 2', Target.G, Surface[9, 1].G);
   finally
     Surface.Free;
   end;

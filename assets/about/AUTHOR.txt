@@ -1,3 +1,3 @@
-[Author Name]
-[Author Email or Website]
-[Author Bio / Description]
+FlatPaint Contributors
+https://github.com/flatpaint
+Community-driven raster editor project focused on practical daily workflows.

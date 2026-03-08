@@ -4,6 +4,30 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-08 (ruler-aware palette clamp + clone overlay polish + zoom loupe + recolor contiguous + About embed + CI script fix)
+- Full CI verification after landing ruler-aware palette clamp helpers/routes, clone-stamp overlay style adjustment, zoom-tool loupe overlay helper integration, recolor contiguous-mode end-to-end path, app-menu About dialog with embedded content, and `run_tests_ci.sh` `dist/` bootstrap guard: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `341` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (system clipboard edit bridge + zoom interpolation policy verification)
+- Full CI verification after wiring Edit copy/cut/paste to system clipboard (with app metadata guard for paste offsets), adding `fpclipboardhelpers` helper tests, and refining zoom-band interpolation policy via `DisplayInterpolationQualityForZoom`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `334` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (performance audit + display bridge hot-loop optimization verification)
+- Full CI verification after optimizing `CopySurfaceToBitmap` to raw-pointer traversal (removing per-pixel indexed property access overhead while preserving unpremultiply semantics), adding safe raw-image buffer cleanup, and precomputing checkerboard colors in `BuildDisplaySurface`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `330` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (premultiplied boundary correctness fix verification)
+- Full CI verification after fixing premultiplied-source blend routing (`MergeDown`, background `MoveSelectedPixelsBy`, clone-stamp apply), correcting sampled-color unpremultiply paths (color picker + recolor source), adding dedicated regressions, and repairing `run_tests_ci.sh` default Lazarus path fallback: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `330` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-07 (Retina point-size compliance fix for options-bar icon path)
 - Full CI verification after changing options-bar tool-icon `TImage` to fixed logical size with scaled rendering (`Stretch=True`, `Proportional=True`) so `@2x` icon assets are not clipped inside a 20pt box: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `311` tests, `0` errors, `0` failures.
@@ -894,3 +918,33 @@
 - Build verification (2026-03-07, edge-jitter phase-2): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
 - Viewport edge-jitter phase-3 rerun (2026-03-07): `bash ./scripts/run_tests_ci.sh` passed with `N:309 E:0 F:0` after adding native `NSScrollView` elasticity-disable bridge wiring for the canvas host.
 - Build verification (2026-03-07, edge-jitter phase-3): `bash ./scripts/build.sh` completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (crop offset rebasing + overwrite regression hardening)
+- Full CI verification after crop-offset rebasing fix and new regression tests (`CropWithOffsetLayerKeepsVisiblePixels`, `CropToSelectionWithOffsetLayerKeepsVisiblePixels`, `OpaquePencilStrokeOverwritesExistingPixel`): `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:344 E:0 F:0`, including all newly added document/pipeline regressions.
+- Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (zoom interpolation threshold follow-up)
+- Full CI verification after extending display interpolation smoothing band (`DisplayInterpolationQualityForZoom` now keeps smoothing through `<=8x` and falls back to nearest above that): `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:344 E:0 F:0`.
+- Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (zoom local-loupe de-scope parity update)
+- Full CI verification after removing runtime zoom local-loupe overlay invocation and restoring strict global-zoom semantics in `mainform`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:344 E:0 F:0`.
+- Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (selection-first bucket overwrite fix)
+- Full CI verification after changing bucket behavior to use active-selection coverage directly when selection exists, and adding `FillWithinActiveSelectionOverwritesExistingPixels`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:345 E:0 F:0`.
+- Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (color wheel SV pane sync-latency fix)
+- Full CI verification after splitting SV rendered-hue cache from hue-memory fallback and adding `fpcolorwheelhelpers_tests` (`2` tests): `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:347 E:0 F:0`.
+- Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.

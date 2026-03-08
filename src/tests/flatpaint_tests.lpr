@@ -22,9 +22,10 @@ uses
   fpcurveshelpers_tests, fpposterizehelpers_tests, fpblurhelpers_tests,
   fpnoisehelpers_tests, fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpbrightnesscontrasthelpers_tests, fpresizehelpers_tests, fpviewporthelpers_tests,
-  fpstatushelpers_tests, fpfilemenuhelpers_tests,
+  fpstatushelpers_tests, fpfilemenuhelpers_tests, fpmagnifierhelpers_tests,
   pipeline_integration_tests,
-  fpcolor_premul_tests;
+  fpcolor_premul_tests, fpclipboardhelpers_tests, fpaboutcontent_tests,
+  fpcolorwheelhelpers_tests;
 
 var
   Runner: TTestRunner;

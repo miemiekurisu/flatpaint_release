@@ -16,6 +16,60 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-08 (palette drag clamp that ignores ruler bands can make floating palettes overlap ruler surfaces)
+- Problem: when rulers are visible, floating utility palettes could be dragged or restored into ruler bands and visually cover ruler ticks/labels.
+- Core error: palette clamp logic treated full workspace client rect as usable area regardless of ruler visibility.
+- Investigation: traced palette create/restore/drag/resize paths and compared clamp inputs before/after `FShowRulers` toggles.
+- Root cause: clamp helpers had no concept of reserved ruler thickness.
+- Fix: introduced ruler-aware clamp helpers (`PaletteClampWorkspaceRect` and `ClampPaletteRectToWorkspace`) and routed all palette clamp call sites through those helpers.
+- Reuse note: for overlay/floating UI in editors, reserve non-canvas chrome (rulers/status bands/tool strips) in one shared geometry helper and forbid ad-hoc clamp math in individual handlers.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (`run_tests_ci.sh` can fail on clean workspaces if output directories are assumed to exist)
+- Problem: CI/local test script failed early with `cp: dist/flatpaint_cli: No such file or directory` after clean builds.
+- Core error: script copied CLI output into `dist/` without ensuring the directory existed.
+- Investigation: reproduced by running tests after clean/build resets and traced failure to the first CLI copy step.
+- Root cause: directory existence was previously guaranteed only by other scripts, not by `run_tests_ci.sh` itself.
+- Fix: added `mkdir -p "$PROJECT_ROOT/dist"` at script start.
+- Reuse note: each script should bootstrap its own required output directories; never depend on side effects from prior scripts in the execution chain.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (edit copy/paste felt local-only because menu routes never bridged to system clipboard)
+- Problem: users observed `Cmd+V` reusing app-internal copied regions instead of external macOS clipboard images.
+- Core error: `Cut/Copy/Paste` routes in `mainform` only consumed `FClipboardSurface` and did not publish/read system clipboard for standard edit flows.
+- Investigation: audited `CutClick`/`CopyClick`/`CopyMergedClick`/`PasteClick` handlers and found system clipboard usage existed only in `Acquire` route.
+- Root cause: clipboard integration was split by feature history: `Acquire` implemented OS clipboard import, while Edit command-surface kept an internal-only surface buffer.
+- Fix: added system clipboard publish/read bridge for Edit routes, introduced validated metadata format (`com.flatpaint.surface-meta.v1`) to preserve offset semantics safely, and kept internal buffer as fallback.
+- Reuse note: when implementing an app-local clipboard cache for richer semantics (offset, selection bounds), always mirror to system clipboard and make paste resolution explicit (`system first`, `local fallback`) to match platform expectations.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (AA can appear ineffective at zoom-in if display interpolation flips to nearest too early)
+- Problem: after anti-aliasing work, pencil strokes still looked jagged during zoom-in inspection.
+- Core error: display pipeline switched to nearest-neighbor for every zoom factor `>1.0`, which visually suppressed AA fringe at moderate zoom levels.
+- Investigation: traced render path in `PaintCanvasTo` and confirmed interpolation policy was binary (`high` for `<=1.0`, otherwise `nearest`).
+- Root cause: interpolation policy optimized for pixel inspection but lacked a middle band for AA-visibility at common zoom levels.
+- Fix: introduced zoom-band interpolation mapping (`3/2/1/0` quality bands via `DisplayInterpolationQualityForZoom`) and wired paint path to helper-driven policy.
+- Reuse note: AA quality is not only a drawing algorithm concern; display-resampling policy must include a mid-zoom compromise band to avoid negating anti-aliased edges.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (display bridge repaint path spent excess CPU in per-pixel property access)
+- Problem: repaint-heavy routes had avoidable CPU overhead while converting composited surfaces into `TBitmap` for on-screen draw.
+- Core error: `CopySurfaceToBitmap` iterated with `ASurface[X, Y]` for every pixel, which adds bounds/index function overhead on a hot full-surface loop.
+- Investigation: traced `mainform.PaintCanvasTo` refresh flow and audited pixel-bridge loops against performance guidance in local FPC/Lazarus docs.
+- Root cause: bridge code favored safe property access over contiguous memory traversal, even though `TRasterSurface` already exposes `RawPixels`.
+- Fix: switched to raw-pointer iteration in `fplclbridge.CopySurfaceToBitmap` (preserving `Unpremultiply` and output pixel format), added safe buffer cleanup around `LoadFromRawImage`, and precomputed checkerboard colors once per compositor pass in `BuildDisplaySurface`.
+- Reuse note: in LCL/FPC image pipelines, full-frame conversion loops should default to contiguous pointer traversal when format/layout are known; keep property/indexed access for non-hot or safety-critical sparse writes.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (premultiplied-source pixels were routed through straight-alpha blend/sampling entry points)
+- Problem: after the premultiplied-alpha migration, some routes (merge down, soft move on background layer, clone stamp, and sampled-color pickup) produced darker-than-expected colors in semi-transparent scenarios.
+- Core error: premultiplied surface pixels were still consumed by APIs expecting straight-alpha colors (`BlendPixel` and direct sampled RGB usage).
+- Investigation: audited all `BlendPixel` call sites with `Surface[...]` sources and traced picker/recolor sampling paths for premultiplied-to-UI color handoff.
+- Root cause: migration introduced both `BlendPixel` (straight input) and `BlendPixelPremul` (premul input), but several boundary routes were not switched; sampled color paths also missed `Unpremultiply`.
+- Fix: switched affected mutation routes to `BlendPixelPremul`, added `Unpremultiply` at picker/recolor sampling boundaries, and added dedicated regression tests for merge, soft move, and picker decode behavior.
+- Reuse note: in premultiplied pipelines, mark every API boundary with explicit "expects straight" vs "expects premul" contracts and enforce with route-level tests whenever a surface pixel is forwarded into another mutation API.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## 2026-03-08 (stale `.ppu` object files cause phantom access violations after structural unit changes)
 - Problem: after premultiplied alpha migration changed function signatures and blend logic across multiple units, test builds produced 98 access violations in unrelated code paths despite clean compilation.
 - Core error: `RunError(216)` (access violations) in tests that had not been modified.
@@ -2515,3 +2569,51 @@ Based on all findings, the strategy is revised from the previous entry's generic
   3. recompute column widths on panel resize to preserve proportions and avoid visual clipping.
 - Verification: `bash ./scripts/build.sh` passed; `bash ./scripts/run_tests_ci.sh` passed (`N:311 E:0 F:0`).
 - Lesson: if a list row contains multiple independent click targets, grid column semantics are safer than owner-draw list emulation, but visual consistency requires explicitly suppressing grid chrome (lines/focus seams).
+
+## 2026-03-08 (crop produced transparent output due double-applied offset shift)
+
+- Problem: crop/crop-to-selection could output a transparent-looking canvas even when source pixels were inside the crop rectangle, and follow-up drawing appeared to miss expected positions.
+- Core error: `TImageDocument.Crop(...)` performed both local-space crop (`X - Layer.OffsetX`, `Y - Layer.OffsetY`) and a second global offset translation (`OffsetX := OffsetX - X`, `OffsetY := OffsetY - Y`), effectively applying crop-origin shift twice.
+- Investigation: traced canvas-to-layer coordinate flow across `Crop`, `Composite`, and active-layer tool-local mapping; compared architecture intent to Photoshop/GIMP crop behavior (crop rebases surviving content into new document-local origin without an extra post-crop translation step).
+- Fix: after layer-local crop assign, rebase layer offsets to crop-local document coordinates (`OffsetX := 0; OffsetY := 0`) and add regression coverage for both direct crop and crop-to-selection on offset layers.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:344 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Lesson: for transforms that already remap pixel buffers into a new coordinate space, never apply a second metadata translation unless the remap contract explicitly requires it; otherwise compositing and tool-local writes drift immediately.
+
+## 2026-03-08 (AA looked pixelated too early when zooming in)
+
+- Problem: anti-aliased pencil/shape edges still looked overly blocky at common zoom-ins.
+- Core error: display interpolation switched to nearest-neighbor at `>4x`, so AA fringe visibility dropped too early even though raster-level AA data was correct.
+- Investigation: re-traced `PaintCanvasTo -> DisplayInterpolationQualityForZoom` and re-checked project performance baseline guidance (`docs/FPC_MACOS_PERFORMANCE_GUIDE.md`) plus prior Apple/FPC/Lazarus reference notes used by the project.
+- Root cause: zoom-band policy favored pixel-inspection too aggressively, with no extended mid/high zoom smoothing window.
+- Fix: extended low-quality interpolation band to `<=8x` and kept nearest-neighbor only for very deep zoom (`>8x`), with helper-level regression assertions updated accordingly.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:344 E:0 F:0`.
+- Reuse note: AA quality complaints at zoom are often display-policy issues, not rasterization bugs; treat interpolation-band tuning as a first-class quality control.
+
+## 2026-03-08 (zoom local-loupe overlay was not baseline behavior in Photoshop/GIMP)
+
+- Problem: whether to keep extending cursor-local loupe overlay behavior for zoom tool.
+- Core error: treated optional local loupe as parity target without confirming upstream baseline behavior.
+- Investigation: checked official Photoshop Zoom/Navigator documentation and official GIMP Zoom/Navigation Window documentation; both describe global-canvas zoom/navigation and do not define a Windows-Magnifier-style local pixel loupe as standard zoom behavior.
+- Root cause: feature direction drift from parity baseline to additive custom behavior.
+- Fix: de-scoped local loupe supplementation and removed runtime loupe overlay invocation from zoom hover path; retained standard full-canvas zoom behavior.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:344 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Reuse note: before investing in parity-sensitive UX detail, lock baseline behavior from official docs first; treat non-baseline helpers as optional extensions, not default scope.
+
+## 2026-03-08 (bucket fill inside selection left old stroke pixels visible)
+
+- Problem: using bucket fill inside an active selection could leave pre-existing pencil/brush ink visible inside the selected region.
+- Core error: fill path always built a color/tolerance candidate mask first and only then intersected with selection; pixels whose color did not match the sampled seed (for example black ink over white) were never in the mask and therefore never overwritten.
+- Investigation: traced `mainform` `ApplyImmediateTool -> tkFill`; verified `TRasterSurface.FillSelection` writes pixels correctly and history snapshots are normal, so this was mask-construction semantics rather than history overlay/cache replay.
+- Fix: switched active-selection bucket behavior to selection-first mask application (clone active selection coverage in layer space and fill it directly), while preserving existing contiguous/global+tolerance behavior for no-selection fills.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:345 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Reuse note: when a tool is selection-scoped by UX contract, prioritize selection mask ownership over color-candidate mask ownership to avoid partial-overwrite surprises.
+
+## 2026-03-08 (color wheel SV pane looked one step behind foreground hue)
+
+- Problem: in the Colors panel, the lower SV pane/indicator could look out-of-sync with the active foreground hue during hue-ring scrubbing.
+- Core error: one field (`FColorSVCachedHue`) carried two contracts at once: grayscale fallback hue memory and SV bitmap rendered-hue cache.
+- Investigation: traced `ColorWheelBoxPaint` rebuild gate and hue-drag paths; found hue drag updated `FColorSVCachedHue` before paint, so rebuild gate could falsely treat the existing SV bitmap as up to date.
+- Root cause: cache-state aliasing between “what hue to remember” and “what hue bitmap was rendered with.”
+- Fix: introduced dedicated `FColorSVRenderedHue` for SV bitmap cache and helper-level rebuild gate (`ShouldRebuildSVSquare`), while keeping `FColorSVCachedHue` only as zero-saturation hue fallback memory.
+- Verification: `bash ./scripts/run_tests_ci.sh` passed with `N:347 E:0 F:0`; `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- Reuse note: never reuse one cache variable for multiple semantic domains (display-cache state vs interaction-memory state); split them and encode the contract in names/tests.

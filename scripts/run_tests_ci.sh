@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PROJECT_ROOT=$(pwd)
+mkdir -p "$PROJECT_ROOT/dist"
 
 # compile any native Objective-C modules (pinch-zoom bridge, etc.)
 source ./scripts/common.sh
@@ -16,9 +17,10 @@ cp -f flatpaint_cli dist/flatpaint_cli
 
 echo "CI: compiling test runner..."
 # add Lazarus/LCL unit paths so Forms/Controls are available
-# allow LAZARUS_DIR to be overridden in the environment; fall back to
-# a workspace-relative path so CI instances don't depend on a specific user
-LAZARUS_DIR="${LAZARUS_DIR:-/Users/kurisu/Documents/workspace.nosync/lazarus}"
+# allow LAZARUS_DIR to be overridden in the environment; otherwise resolve
+# lazarus checkout relative to the workspace root (two levels up from project)
+WORKSPACE_LAZARUS="$(cd "$PROJECT_ROOT/../.." 2>/dev/null && pwd)/lazarus"
+LAZARUS_DIR="${LAZARUS_DIR:-$WORKSPACE_LAZARUS}"
 # add path to compiled .o files for the current architecture so the
 # LCL widgetset registration symbols are pulled in during linking
 ARCH="$(uname -m)"

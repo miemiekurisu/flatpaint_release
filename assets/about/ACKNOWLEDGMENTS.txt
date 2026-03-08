@@ -20,10 +20,8 @@ Lucide Icons
 
 -- Testing --
 
-[Friend Name 1] - [contribution description, e.g. beta testing, UX feedback]
-[Friend Name 2] - [contribution description]
-[Friend Name 3] - [contribution description]
+FlatPaint user community - bug reports, regression repro cases, and UX feedback
 
 -- Special Thanks --
 
-[Any additional acknowledgments]
+Everyone who tested, reviewed, and improved FlatPaint.

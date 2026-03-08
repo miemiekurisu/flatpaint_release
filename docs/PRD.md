@@ -102,10 +102,10 @@ These are explicit product decisions and not treated as parity regressions.
 - Performance: common interactions should feel immediate for typical document sizes.
 - Maintainability: feature work should preserve separation between core image logic and UI routing.
 
-## Current implementation snapshot (as of 2026-03-07)
+## Current implementation snapshot (as of 2026-03-08)
 - App build: passes via `bash ./scripts/build.sh`.
-- Regression run: `311` tests executed, `0` failures (regression-clean).
-- Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, completed layer-offset runtime semantics activation (compositor and tool math are now offset-driven), completed Phase-5 history optimization with unified core region-transaction routing (stroke + move-pixels, including selection-aware undo/redo snapshots), guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths, recolor R2 sampling/mode behavior with route-level regression coverage, and closed P1 functional targets (draw parity depth, deterministic quick-size semantics, long-tail command-route coverage reduction). Remaining UAT risk is concentrated in parity/polish depth, not unresolved P0/P1 architecture debt.
+- Regression run: `347` tests executed, `0` failures (regression-clean).
+- Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, completed layer-offset runtime semantics activation (compositor and tool math are now offset-driven), completed Phase-5 history optimization with unified core region-transaction routing (stroke + move-pixels, including selection-aware undo/redo snapshots), guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths, recolor R2 sampling/mode behavior with route-level regression coverage (including contiguous-mode connectivity control), system-clipboard edit bridge, ruler-aware floating-palette bounds, app-menu About route with compile-time embedded About content, and post-premul boundary correctness fixes across merge/move/clone/picker sampling routes plus crop-offset rebasing regression closure with dedicated coverage. Zoom route semantics are aligned to Photoshop/GIMP global-canvas zoom behavior (no dedicated local loupe overlay). Remaining UAT risk is concentrated in parity/polish depth, not unresolved P0/P1 architecture debt.
 
 ## UAT gate
 FlatPaint is UAT-ready only when all are true:

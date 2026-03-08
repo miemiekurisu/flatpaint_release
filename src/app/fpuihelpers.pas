@@ -362,8 +362,11 @@ begin
 end;
 
 function AdoptSampledRGBPreservingAlpha(const ACurrentColor, ASampledColor: TRGBA32): TRGBA32;
+var
+  StraightSample: TRGBA32;
 begin
-  Result := RGBA(ASampledColor.R, ASampledColor.G, ASampledColor.B, ACurrentColor.A);
+  StraightSample := Unpremultiply(ASampledColor);
+  Result := RGBA(StraightSample.R, StraightSample.G, StraightSample.B, ACurrentColor.A);
 end;
 
 function DragButtonIsStillPressed(AButton: TMouseButton; const AShift: TShiftState): Boolean;

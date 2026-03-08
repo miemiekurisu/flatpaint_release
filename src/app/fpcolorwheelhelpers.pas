@@ -10,6 +10,10 @@ uses
 procedure HSVToRGB(H, S, V: Double; out R, G, B: Byte);
 procedure RGBToHSV(R, G, B: Byte; out H, S, V: Double);
 function ColorFromHSV(H, S, V: Double): TRGBA32;
+function ShouldRebuildSVSquare(
+  ARenderedHue, ATargetHue: Double;
+  ABitmapWidth, ABitmapHeight, ATargetSize: Integer
+): Boolean;
 
 implementation
 
@@ -86,6 +90,18 @@ var
 begin
   HSVToRGB(H, S, V, R, G, B);
   Result := RGBA(R, G, B, 255);
+end;
+
+function ShouldRebuildSVSquare(
+  ARenderedHue, ATargetHue: Double;
+  ABitmapWidth, ABitmapHeight, ATargetSize: Integer
+): Boolean;
+begin
+  Result :=
+    (ARenderedHue < 0.0) or
+    (ABitmapWidth <> ATargetSize) or
+    (ABitmapHeight <> ATargetSize) or
+    (Abs(ARenderedHue - ATargetHue) > 0.001);
 end;
 
 end.

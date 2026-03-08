@@ -218,6 +218,7 @@ type
     FColorWheelBitmap: TBitmap;
     FColorSVBitmap: TBitmap;
     FColorSVCachedHue: Double;
+    FColorSVRenderedHue: Double;
     FColorWheelDragMode: Integer;  { 0=none, 1=hue ring, 2=SV square }
     FColorExpandButton: TButton;
     FColorExpanded: Boolean;
@@ -264,6 +265,8 @@ type
     FCloneAlignedCheck: TCheckBox;
     FRecolorPreserveValue: Boolean;
     FRecolorPreserveValueCheck: TCheckBox;
+    FRecolorContiguous: Boolean;
+    FRecolorContiguousCheck: TCheckBox;
     FRecolorSamplingMode: TRecolorSamplingMode;
     FRecolorSamplingLabel: TLabel;
     FRecolorSamplingCombo: TComboBox;
@@ -467,6 +470,9 @@ type
     procedure SaveToPath(const AFileName: string);
     procedure LoadDocumentFromPath(const AFileName: string);
     function LoadSurfaceForImportPath(const AFileName: string): TRasterSurface;
+    procedure PublishSurfaceToSystemClipboard(ASurface: TRasterSurface; const AOffset: TPoint);
+    function TryLoadSurfaceFromSystemClipboard(out ASurface: TRasterSurface; out AOffset: TPoint): Boolean;
+    function TryResolvePasteSurface(out ASurface: TRasterSurface; out AOffset: TPoint): Boolean;
     procedure ApplyZoomScale(ANewScale: Double);
     procedure ApplyZoomScaleAtViewportPoint(ANewScale: Double; const AViewportPoint: TPoint);
     procedure ApplyImmediateTool(const APoint: TPoint);
@@ -608,6 +614,7 @@ type
     procedure GradientReverseChanged(Sender: TObject);
     procedure CloneAlignedChanged(Sender: TObject);
     procedure RecolorPreserveValueChanged(Sender: TObject);
+    procedure RecolorContiguousChanged(Sender: TObject);
     procedure RecolorSamplingModeChanged(Sender: TObject);
     procedure RecolorModeChanged(Sender: TObject);
     procedure MosaicBlockSpinChanged(Sender: TObject);
@@ -638,6 +645,7 @@ type
     procedure UnitsCentimetersClick(Sender: TObject);
     procedure UtilityButtonClick(Sender: TObject);
     procedure SettingsClick(Sender: TObject);
+    procedure AboutClick(Sender: TObject);
     procedure RefreshLocalizedUI;
     procedure HelpClick(Sender: TObject);
     procedure TogglePaletteViewClick(Sender: TObject);
@@ -718,7 +726,8 @@ type
       ASamplingMode: TRecolorSamplingMode;
       ABlendMode: TRecolorBlendMode;
       ATolerance: Integer;
-      APreserveValue: Boolean
+      APreserveValue: Boolean;
+      AContiguous: Boolean = False
     );
     procedure SetBrushSizeForTest(ASize: Integer);
     procedure SetShapeLineStyleForTest(AStyleIndex: Integer);
@@ -742,12 +751,14 @@ uses
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
-  FPTextRenderer, FPLayerPropertiesDialog, FPShortcutHelpers,
+  FPTextRenderer, FPLayerPropertiesDialog, FPShortcutHelpers, FPClipboardHelpers,
+  FPAboutDialog,
   FPMagnifyBridge, FPAlphaBridge, FPScrollViewBridge,
   FPListBgBridge, FPAppearanceBridge;
 
 const
   DisplayDPI = 96.0;
+  FlatPaintClipboardMetaFormatName = 'com.flatpaint.surface-meta.v1';
   ToolbarLargeCommandCaptionPrefix = '         '; { reserve icon lane for 20px overlay }
   ToolbarLargeCommandIconLeft = 6;
   ToolbarLargeCommandMaxIconSize = 20;
@@ -895,6 +906,8 @@ begin
   FRenderRevision := 1;
   FPreparedRevision := 0;
   FStatusProgressActive := False;
+  FColorSVCachedHue := -1.0;
+  FColorSVRenderedHue := -1.0;
 
   FScreenBackingScale := Max(1, Round(FPGetScreenBackingScale));
   FDocument := TImageDocument.Create(1024 * FScreenBackingScale, 768 * FScreenBackingScale);
@@ -1006,6 +1019,7 @@ begin
   FGradientReverse := False;
   FCloneAligned := True;
   FRecolorPreserveValue := True;
+  FRecolorContiguous := False;
   FRecolorSamplingMode := rsmOnce;
   FRecolorBlendMode := rbmColor;
   FRecolorStrokeSourceColor := FPrimaryColor;
@@ -1414,7 +1428,7 @@ begin
   LocalPoint := ActiveLayerLocalPoint(ACanvasPoint);
   if not FDocument.ActiveLayer.Surface.InBounds(LocalPoint.X, LocalPoint.Y) then
     Exit;
-  AColor := FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y];
+  AColor := Unpremultiply(FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y]);
   Result := True;
 end;
 
@@ -1425,6 +1439,8 @@ var
   X: Integer;
   Y: Integer;
   TileColor: TRGBA32;
+  CheckerDark: TRGBA32;
+  CheckerLight: TRGBA32;
   PixelColor: TRGBA32;
   PixelIndex: Integer;
   BacktrackIndex: Integer;
@@ -1601,6 +1617,8 @@ begin
       Early-exit for fully-opaque pixels (the common case) avoids two div+mod
       and a branch per pixel, and defers TileColor calculation to only when
       the pixel is actually transparent or semi-transparent. }
+    CheckerDark := RGBA(214, 214, 214, 255);
+    CheckerLight := RGBA(245, 245, 245, 255);
     for Y := 0 to CompositeSurface.Height - 1 do
       for X := 0 to CompositeSurface.Width - 1 do
       begin
@@ -1611,9 +1629,9 @@ begin
         begin
           { Compute tile colour only when the pixel is transparent or blended }
           if ((X shr 3) + (Y shr 3)) and 1 = 0 then
-            TileColor := RGBA(214, 214, 214, 255)
+            TileColor := CheckerDark
           else
-            TileColor := RGBA(245, 245, 245, 255);
+            TileColor := CheckerLight;
           if PixelColor.A = 0 then
             FDisplaySurface[X, Y] := TileColor
           else
@@ -2282,6 +2300,8 @@ begin
     if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
+    if Assigned(FRecolorContiguousCheck) then FRecolorContiguousCheck.Visible := FCurrentTool = tkRecolor;
+    if Assigned(FRecolorContiguousCheck) then FRecolorContiguousCheck.Checked := FRecolorContiguous;
     if Assigned(FRecolorSamplingLabel) then FRecolorSamplingLabel.Visible := FCurrentTool = tkRecolor;
     if Assigned(FRecolorSamplingCombo) then FRecolorSamplingCombo.Visible := FCurrentTool = tkRecolor;
     if Assigned(FRecolorSamplingCombo) then FRecolorSamplingCombo.ItemIndex := Ord(FRecolorSamplingMode);
@@ -2464,6 +2484,9 @@ begin
   { Recolor Preserve Value }
   PlaceControl(FRecolorPreserveValueCheck);
 
+  { Recolor Limits (Contiguous) }
+  PlaceControl(FRecolorContiguousCheck);
+
   { Recolor Sampling }
   PlaceLabel(FRecolorSamplingLabel);
   PlaceControl(FRecolorSamplingCombo);
@@ -2606,6 +2629,7 @@ end;
 
 procedure TMainForm.BuildMenus;
 var
+  AppMenu: TMenuItem;
   FileMenu: TMenuItem;
   EditMenu: TMenuItem;
   LayerMenu: TMenuItem;
@@ -2618,6 +2642,13 @@ var
   SubMenu: TMenuItem;
 begin
   FMainMenu := TMainMenu.Create(Self);
+
+  AppMenu := TMenuItem.Create(FMainMenu);
+  AppMenu.Caption := TR('FlatPaint', 'FlatPaint');
+  FMainMenu.Items.Add(AppMenu);
+  CreateMenuItem(AppMenu, TR('About FlatPaint', #$E5#$85#$B3#$E4#$BA#$8E' FlatPaint'), @AboutClick);
+  CreateMenuItem(AppMenu, '-', nil);
+  CreateMenuItem(AppMenu, TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...'), @SettingsClick);
 
   FileMenu := TMenuItem.Create(FMainMenu);
   FileMenu.Caption := TR('&File', '&' + #$E6#$96#$87#$E4#$BB#$B6);
@@ -3665,6 +3696,19 @@ begin
   FRecolorPreserveValueCheck.Hint := 'Keep original brightness while shifting the color';
   FRecolorPreserveValueCheck.ShowHint := True;
 
+  FRecolorContiguousCheck := TCheckBox.Create(FOptionsBarPanel);
+  FRecolorContiguousCheck.Parent := FOptionsBarPanel;
+  FRecolorContiguousCheck.Left := 752;
+  FRecolorContiguousCheck.Top := OptionsBarCheckTop;
+  FRecolorContiguousCheck.Width := 110;
+  FRecolorContiguousCheck.Font.Size := OptionsBarFontSize;
+  FRecolorContiguousCheck.Caption := 'Contiguous';
+  FRecolorContiguousCheck.Checked := FRecolorContiguous;
+  FRecolorContiguousCheck.Visible := False;
+  FRecolorContiguousCheck.OnChange := @RecolorContiguousChanged;
+  FRecolorContiguousCheck.Hint := 'Only recolor connected pixels in the sampled family';
+  FRecolorContiguousCheck.ShowHint := True;
+
   FRecolorSamplingLabel := TLabel.Create(FOptionsBarPanel);
   FRecolorSamplingLabel.Parent := FOptionsBarPanel;
   FRecolorSamplingLabel.Caption := 'Sampling:';
@@ -3922,6 +3966,7 @@ begin
   FColorWheelBitmap := TBitmap.Create;
   FColorSVBitmap := TBitmap.Create;
   FColorSVCachedHue := -1.0;
+  FColorSVRenderedHue := -1.0;
   FColorWheelDragMode := 0;
 
   { ── Detail gradient bars (RGB / HSV / Alpha) ────────────────────────── }
@@ -4665,9 +4710,9 @@ begin
   DestY := Round((ADestPoint.Y + 0.5) * FZoomScale);
 
   ACanvas.Brush.Style := bsClear;
-  ACanvas.Pen.Style := psDash;
+  ACanvas.Pen.Style := psDot;
   ACanvas.Pen.Width := 1;
-  ACanvas.Pen.Color := clRed;
+  ACanvas.Pen.Color := clGray;
   ACanvas.MoveTo(SourceX, SourceY);
   ACanvas.LineTo(DestX, DestY);
   ACanvas.Pen.Style := psSolid;
@@ -4682,6 +4727,10 @@ var
   CenterX: Integer;
   CenterY: Integer;
   CrossHalf: Integer;
+  InnerLeftX: Integer;
+  InnerTopY: Integer;
+  InnerRightX: Integer;
+  InnerBottomY: Integer;
 begin
   if ARadius <= 0 then
   begin
@@ -4706,19 +4755,41 @@ begin
   ACanvas.Brush.Style := bsClear;
   ACanvas.Pen.Style := psSolid;
   ACanvas.Pen.Width := 1;
-  ACanvas.Pen.Color := clRed;
+  ACanvas.Pen.Color := clBlack;
   if ARadius <= 0 then
     ACanvas.Rectangle(LeftX, TopY, RightX, BottomY)
   else
     ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
 
+  InnerLeftX := LeftX + 1;
+  InnerTopY := TopY + 1;
+  InnerRightX := RightX - 1;
+  InnerBottomY := BottomY - 1;
+  if (InnerRightX > InnerLeftX) and (InnerBottomY > InnerTopY) then
+  begin
+    ACanvas.Pen.Color := clWhite;
+    if ARadius <= 0 then
+      ACanvas.Rectangle(InnerLeftX, InnerTopY, InnerRightX, InnerBottomY)
+    else
+      ACanvas.Ellipse(InnerLeftX, InnerTopY, InnerRightX, InnerBottomY);
+  end;
+
   CenterX := Round((APoint.X + 0.5) * FZoomScale);
   CenterY := Round((APoint.Y + 0.5) * FZoomScale);
-  CrossHalf := Max(3, Round(FZoomScale * 1.5));
+  CrossHalf := Max(3, Round(FZoomScale));
+  ACanvas.Pen.Color := clBlack;
   ACanvas.MoveTo(CenterX - CrossHalf, CenterY);
   ACanvas.LineTo(CenterX + CrossHalf + 1, CenterY);
   ACanvas.MoveTo(CenterX, CenterY - CrossHalf);
   ACanvas.LineTo(CenterX, CenterY + CrossHalf + 1);
+  if CrossHalf > 2 then
+  begin
+    ACanvas.Pen.Color := clWhite;
+    ACanvas.MoveTo(CenterX - (CrossHalf - 1), CenterY);
+    ACanvas.LineTo(CenterX + CrossHalf, CenterY);
+    ACanvas.MoveTo(CenterX, CenterY - (CrossHalf - 1));
+    ACanvas.LineTo(CenterX, CenterY + CrossHalf);
+  end;
 end;
 
 procedure TMainForm.DrawQuadraticCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
@@ -4902,9 +4973,11 @@ begin
 
   if (FCurrentTool = tkCloneStamp) and TryGetCloneOverlaySourcePoint(SourcePoint) then
   begin
-    DrawCloneLinkOverlay(ACanvas, SourcePoint, FLastImagePoint);
+    if FPointerDown then
+      DrawCloneLinkOverlay(ACanvas, SourcePoint, FLastImagePoint);
     DrawCloneSourceOverlay(ACanvas, SourcePoint, ActiveToolOverlayRadius);
   end;
+
 end;
 
 procedure TMainForm.PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
@@ -4949,13 +5022,9 @@ begin
   begin
     ContentW := Max(1, Round(FDocument.Width * FZoomScale));
     ContentH := Max(1, Round(FDocument.Height * FZoomScale));
-    { Use high-quality interpolation for downscaling/moderate upscaling so
-      brush strokes and shapes look smooth rather than pixelated.  Switch to
-      nearest-neighbor when zoomed far in so individual pixels stay crisp. }
-    if FZoomScale <= 1.0 then
-      FPSetInterpolationQuality(3)
-    else
-      FPSetInterpolationQuality(0);
+    { Keep anti-aliased edges visible for modest zoom-ins, and only switch
+      back to nearest-neighbor for deep pixel-inspection zoom levels. }
+    FPSetInterpolationQuality(DisplayInterpolationQualityForZoom(FZoomScale));
     ACanvas.StretchDraw(Rect(0, 0, ContentW, ContentH), FPreparedBitmap);
   end;
 
@@ -6085,6 +6154,8 @@ begin
   { Use cached hue when saturation drops to zero to avoid snap-to-red }
   if (CurS < 0.001) and (FColorSVCachedHue >= 0.0) then
     CurH := FColorSVCachedHue;
+  if CurS >= 0.001 then
+    FColorSVCachedHue := CurH;
 
   { Draw SV square inside the ring }
   SVSize := Round((InnerR - 4) * 1.414);
@@ -6095,12 +6166,16 @@ begin
   { Rebuild SV square if hue changed or first render }
   if Assigned(FColorSVBitmap) then
   begin
-    if (Abs(FColorSVCachedHue - CurH) > 0.001) or
-       (FColorSVBitmap.Width <> SVSize) or
-       (FColorSVCachedHue < 0.0) then
+    if ShouldRebuildSVSquare(
+      FColorSVRenderedHue,
+      CurH,
+      FColorSVBitmap.Width,
+      FColorSVBitmap.Height,
+      SVSize
+    ) then
     begin
       RenderSVSquare(FColorSVBitmap, CurH, SVSize);
-      FColorSVCachedHue := CurH;
+      FColorSVRenderedHue := CurH;
     end;
     if (FColorSVBitmap.Width > 0) and (FColorSVBitmap.Height > 0) then
       PB.Canvas.Draw(SVLeft, SVTop, FColorSVBitmap);
@@ -7094,6 +7169,7 @@ var
   PaletteKind: TPaletteKind;
   PaletteHost: TPanel;
   PaletteRect: TRect;
+  WorkspaceRect: TRect;
 begin
   for PaletteKind := Low(TPaletteKind) to High(TPaletteKind) do
   begin
@@ -7101,10 +7177,16 @@ begin
     if not Assigned(PaletteHost) then
       Continue;
     if Assigned(FWorkspacePanel) and (FWorkspacePanel.ClientWidth > 0) and (FWorkspacePanel.ClientHeight > 0) then
+    begin
+      WorkspaceRect := PaletteClampWorkspaceRect(
+        Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight),
+        FShowRulers
+      );
       PaletteRect := PaletteDefaultRectForWorkspace(
         PaletteKind,
-        Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight)
+        WorkspaceRect
       )
+    end
     else
       PaletteRect := PaletteDefaultRect(PaletteKind);
     PaletteHost.SetBounds(
@@ -7121,18 +7203,26 @@ begin
 end;
 
 procedure TMainForm.ClampPaletteToWorkspace(APalette: TControl);
+var
+  ClampedRect: TRect;
 begin
   if (APalette = nil) or (FWorkspacePanel = nil) then
     Exit;
-  APalette.Left := EnsureRange(
-    APalette.Left,
-    0,
-    Max(0, FWorkspacePanel.ClientWidth - APalette.Width)
+  ClampedRect := ClampPaletteRectToWorkspace(
+    Rect(
+      APalette.Left,
+      APalette.Top,
+      APalette.Left + APalette.Width,
+      APalette.Top + APalette.Height
+    ),
+    Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight),
+    FShowRulers
   );
-  APalette.Top := EnsureRange(
-    APalette.Top,
-    0,
-    Max(0, FWorkspacePanel.ClientHeight - APalette.Height)
+  APalette.SetBounds(
+    ClampedRect.Left,
+    ClampedRect.Top,
+    ClampedRect.Right - ClampedRect.Left,
+    ClampedRect.Bottom - ClampedRect.Top
   );
 end;
 
@@ -7237,12 +7327,19 @@ end;
 procedure TMainForm.CreatePalette(ATarget: TPanel; AKind: TPaletteKind);
 var
   PaletteRect: TRect;
+  WorkspaceRect: TRect;
 begin
   if Assigned(FWorkspacePanel) and (FWorkspacePanel.ClientWidth > 0) and (FWorkspacePanel.ClientHeight > 0) then
+  begin
+    WorkspaceRect := PaletteClampWorkspaceRect(
+      Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight),
+      FShowRulers
+    );
     PaletteRect := PaletteDefaultRectForWorkspace(
       AKind,
-      Rect(0, 0, FWorkspacePanel.ClientWidth, FWorkspacePanel.ClientHeight)
+      WorkspaceRect
     )
+  end
   else
     PaletteRect := PaletteDefaultRect(AKind);
   ATarget.Parent := FWorkspacePanel;
@@ -7688,6 +7785,118 @@ begin
     Result := LoadSurfaceFromFile(ResolvedFileName);
 end;
 
+function FlatPaintClipboardMetaFormatID: TClipboardFormat;
+begin
+  Result := RegisterClipboardFormat(FlatPaintClipboardMetaFormatName);
+end;
+
+procedure TMainForm.PublishSurfaceToSystemClipboard(ASurface: TRasterSurface; const AOffset: TPoint);
+var
+  Bitmap: TBitmap;
+  Picture: TPicture;
+  MetaStream: TMemoryStream;
+begin
+  if ASurface = nil then
+    Exit;
+  Bitmap := nil;
+  Picture := nil;
+  MetaStream := nil;
+  try
+    Bitmap := SurfaceToBitmap(ASurface);
+    Picture := TPicture.Create;
+    Picture.Assign(Bitmap);
+    Clipboard.Assign(Picture);
+
+    MetaStream := TMemoryStream.Create;
+    WriteClipboardSurfaceMeta(MetaStream, AOffset, ASurface.Width, ASurface.Height);
+    MetaStream.Position := 0;
+    Clipboard.SetFormat(FlatPaintClipboardMetaFormatID, MetaStream);
+  except
+    { Keep in-app clipboard routes usable even if system clipboard access fails. }
+  end;
+  MetaStream.Free;
+  Picture.Free;
+  Bitmap.Free;
+end;
+
+function TMainForm.TryLoadSurfaceFromSystemClipboard(
+  out ASurface: TRasterSurface;
+  out AOffset: TPoint
+): Boolean;
+var
+  ClipboardPicture: TPicture;
+  ClipboardBitmap: TBitmap;
+  MetaStream: TMemoryStream;
+  LoadedOffset: TPoint;
+begin
+  Result := False;
+  ASurface := nil;
+  AOffset := Point(0, 0);
+  if not Clipboard.HasPictureFormat then
+    Exit;
+
+  ClipboardPicture := nil;
+  ClipboardBitmap := nil;
+  MetaStream := nil;
+  try
+    ClipboardPicture := TPicture.Create;
+    Clipboard.AssignTo(ClipboardPicture);
+    if (ClipboardPicture.Graphic = nil) or ClipboardPicture.Graphic.Empty then
+      Exit;
+
+    ClipboardBitmap := TBitmap.Create;
+    ClipboardBitmap.Assign(ClipboardPicture.Graphic);
+    ASurface := BitmapToSurface(ClipboardBitmap);
+    if ASurface = nil then
+      Exit;
+
+    MetaStream := TMemoryStream.Create;
+    if Clipboard.GetFormat(FlatPaintClipboardMetaFormatID, MetaStream) then
+    begin
+      if TryReadClipboardSurfaceMeta(
+        MetaStream,
+        LoadedOffset,
+        ASurface.Width,
+        ASurface.Height
+      ) then
+        AOffset := LoadedOffset;
+    end;
+    Result := True;
+  except
+    FreeAndNil(ASurface);
+    AOffset := Point(0, 0);
+    Result := False;
+  end;
+  MetaStream.Free;
+  ClipboardBitmap.Free;
+  ClipboardPicture.Free;
+end;
+
+function TMainForm.TryResolvePasteSurface(out ASurface: TRasterSurface; out AOffset: TPoint): Boolean;
+var
+  LoadedSurface: TRasterSurface;
+begin
+  LoadedSurface := nil;
+  if TryLoadSurfaceFromSystemClipboard(LoadedSurface, AOffset) then
+  begin
+    FreeAndNil(FClipboardSurface);
+    FClipboardSurface := LoadedSurface;
+    FClipboardOffset := AOffset;
+  end;
+
+  Result := FClipboardSurface <> nil;
+  if Result then
+  begin
+    ASurface := FClipboardSurface;
+    AOffset := FClipboardOffset;
+  end
+  else
+  begin
+    ASurface := nil;
+    AOffset := Point(0, 0);
+  end;
+end;
+
 procedure TMainForm.ApplyZoomScale(ANewScale: Double);
 begin
   ANewScale := ClampZoomScale(ANewScale);
@@ -7828,10 +8037,13 @@ var
   MutableSurface: TRasterSurface;
   RecolorSourceColor: TRGBA32;
   BrushHardnessByte: Byte;
+  FillMaskIsLayerSpace: Boolean;
 begin
   OwnedPaintSelection := nil;
+  SampleSurface := nil;
   FillMask := nil;
   LocalFillMask := nil;
+  FillMaskIsLayerSpace := False;
   try
     if ToolPaintPathUsesActiveSelection(FCurrentTool) and FDocument.HasSelection then
       OwnedPaintSelection := FDocument.ActiveSelectionInLayerSpace;
@@ -7959,45 +8171,58 @@ begin
         end;
       tkFill:
         begin
-          if FFillSampleSource = 1 then
-            SampleSurface := FDocument.Composite
-          else
-            SampleSurface := FDocument.ActiveLayer.Surface;
           try
-            if FBucketFloodMode = 1 then
+            { Selection-first bucket semantics: when a selection is active and
+              the click is inside it, fill the full selected coverage. }
+            if PaintSelection <> nil then
             begin
-              if FFillSampleSource = 1 then
-                FillMask := SampleSurface.CreateGlobalColorSelection(
-                  APoint.X,
-                  APoint.Y,
-                  EnsureRange(FFillTolerance, 0, 255)
-                )
-              else
-                FillMask := SampleSurface.CreateGlobalColorSelection(
-                  LocalPoint.X,
-                  LocalPoint.Y,
-                  EnsureRange(FFillTolerance, 0, 255)
-                );
+              FillMask := PaintSelection.Clone;
+              FillMaskIsLayerSpace := True;
             end
             else
             begin
               if FFillSampleSource = 1 then
-                FillMask := SampleSurface.CreateContiguousSelection(
-                  APoint.X,
-                  APoint.Y,
-                  EnsureRange(FFillTolerance, 0, 255)
-                )
+                SampleSurface := FDocument.Composite
               else
-                FillMask := SampleSurface.CreateContiguousSelection(
-                  LocalPoint.X,
-                  LocalPoint.Y,
-                  EnsureRange(FFillTolerance, 0, 255)
-                );
+                SampleSurface := FDocument.ActiveLayer.Surface;
+
+              if FBucketFloodMode = 1 then
+              begin
+                if FFillSampleSource = 1 then
+                  FillMask := SampleSurface.CreateGlobalColorSelection(
+                    APoint.X,
+                    APoint.Y,
+                    EnsureRange(FFillTolerance, 0, 255)
+                  )
+                else
+                  FillMask := SampleSurface.CreateGlobalColorSelection(
+                    LocalPoint.X,
+                    LocalPoint.Y,
+                    EnsureRange(FFillTolerance, 0, 255)
+                  );
+                FillMaskIsLayerSpace := FFillSampleSource = 0;
+              end
+              else
+              begin
+                if FFillSampleSource = 1 then
+                  FillMask := SampleSurface.CreateContiguousSelection(
+                    APoint.X,
+                    APoint.Y,
+                    EnsureRange(FFillTolerance, 0, 255)
+                  )
+                else
+                  FillMask := SampleSurface.CreateContiguousSelection(
+                    LocalPoint.X,
+                    LocalPoint.Y,
+                    EnsureRange(FFillTolerance, 0, 255)
+                  );
+                FillMaskIsLayerSpace := FFillSampleSource = 0;
+              end;
             end;
 
             if FillMask <> nil then
             begin
-              if FFillSampleSource = 1 then
+              if (FFillSampleSource = 1) and (not FillMaskIsLayerSpace) then
               begin
                 if FDocument.HasSelection then
                   FillMask.IntersectWith(FDocument.Selection);
@@ -8005,8 +8230,9 @@ begin
                 FillMask.Free;
                 FillMask := LocalFillMask;
                 LocalFillMask := nil;
+                FillMaskIsLayerSpace := True;
               end
-              else if PaintSelection <> nil then
+              else if (PaintSelection <> nil) and (not FillMaskIsLayerSpace) then
                 FillMask.IntersectWith(PaintSelection);
             end;
 
@@ -8020,8 +8246,11 @@ begin
           finally
             FillMask.Free;
             FillMask := nil;
-            if FFillSampleSource = 1 then
+            if SampleSurface <> nil then
+            begin
               SampleSurface.Free;
+              SampleSurface := nil;
+            end;
           end;
         end;
       tkColorPicker:
@@ -8032,7 +8261,7 @@ begin
             { Sample from composite image }
             CompositeSurface := FDocument.Composite;
             try
-              PickedColor := CompositeSurface[APoint.X, APoint.Y];
+              PickedColor := Unpremultiply(CompositeSurface[APoint.X, APoint.Y]);
             finally
               CompositeSurface.Free;
             end;
@@ -8041,7 +8270,7 @@ begin
           begin
             { Sample from current layer only }
             if FDocument.ActiveLayer.Surface.InBounds(LocalPoint.X, LocalPoint.Y) then
-              PickedColor := FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y];
+              PickedColor := Unpremultiply(FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y]);
           end;
           if FPickSecondaryTarget then
             FSecondaryColor := AdoptSampledRGBPreservingAlpha(FSecondaryColor, PickedColor)
@@ -8106,7 +8335,8 @@ begin
                 FBrushOpacity * 255 div 100,
                 FRecolorPreserveValue,
                 PaintSelection,
-                FRecolorBlendMode
+                FRecolorBlendMode,
+                FRecolorContiguous
               );
             end;
           end;
@@ -8154,7 +8384,7 @@ begin
                   end;
                   if not FCloneStampSnapshot.InBounds(SourceX, SourceY) then
                     Continue;
-                  MutableSurface.BlendPixel(
+                  MutableSurface.BlendPixelPremul(
                     DestX,
                     DestY,
                     FCloneStampSnapshot[SourceX, SourceY],
@@ -9007,6 +9237,7 @@ begin
     FClipboardOffset := Point(0, 0);
     FClipboardSurface := FDocument.CutSelectionToSurface(False, BackgroundToolColor);
   end;
+  PublishSurfaceToSystemClipboard(FClipboardSurface, FClipboardOffset);
   SyncImageMutationUI(False, True);
 end;
 
@@ -9027,6 +9258,7 @@ begin
     FClipboardOffset := Point(0, 0);
     FClipboardSurface := FDocument.CopySelectionToSurface(False);
   end;
+  PublishSurfaceToSystemClipboard(FClipboardSurface, FClipboardOffset);
   RefreshStatus(FLastImagePoint);
 end;
 
@@ -9053,41 +9285,50 @@ begin
     FClipboardOffset := Point(0, 0);
     FClipboardSurface := FDocument.CopyMergedToSurface(False);
   end;
+  PublishSurfaceToSystemClipboard(FClipboardSurface, FClipboardOffset);
   RefreshStatus(FLastImagePoint);
 end;
 
 procedure TMainForm.PasteClick(Sender: TObject);
+var
+  PasteSurface: TRasterSurface;
+  PasteOffset: TPoint;
 begin
   SealPendingStrokeHistory;
-  if FClipboardSurface = nil then
+  if not TryResolvePasteSurface(PasteSurface, PasteOffset) then
     Exit;
   if not FDocument.BeginActiveLayerMutation('Paste') then
     Exit;
   { Paste onto the active layer through core guarded mutation route. }
   FDocument.PasteSurfaceToActiveLayer(
-    FClipboardSurface,
-    FClipboardOffset.X - FDocument.ActiveLayer.OffsetX,
-    FClipboardOffset.Y - FDocument.ActiveLayer.OffsetY
+    PasteSurface,
+    PasteOffset.X - FDocument.ActiveLayer.OffsetX,
+    PasteOffset.Y - FDocument.ActiveLayer.OffsetY
   );
   SyncImageMutationUI(False, True);
 end;
 
 procedure TMainForm.PasteIntoNewLayerClick(Sender: TObject);
+var
+  PasteSurface: TRasterSurface;
+  PasteOffset: TPoint;
 begin
   SealPendingStrokeHistory;
-  if FClipboardSurface = nil then
+  if not TryResolvePasteSurface(PasteSurface, PasteOffset) then
     Exit;
   FDocument.PushHistory('Paste into New Layer');
-  FDocument.PasteAsNewLayer(FClipboardSurface, FClipboardOffset.X, FClipboardOffset.Y, 'Pasted Layer');
+  FDocument.PasteAsNewLayer(PasteSurface, PasteOffset.X, PasteOffset.Y, 'Pasted Layer');
   SyncImageMutationUI(True, True);
 end;
 
 procedure TMainForm.PasteIntoNewImageClick(Sender: TObject);
+var
+  PasteSurface: TRasterSurface;
 begin
-  if FClipboardSurface = nil then
+  if not TryResolvePasteSurface(PasteSurface, FClipboardOffset) then
     Exit;
   SealPendingStrokeHistory;
-  FDocument.ReplaceWithSingleLayer(FClipboardSurface, 'Pasted Layer');
+  FDocument.ReplaceWithSingleLayer(PasteSurface, 'Pasted Layer');
   FCurrentFileName := '';
   ResetTransientCanvasState;
   SyncDocumentReplacementUI(True);
@@ -9834,6 +10075,10 @@ procedure TMainForm.ToggleRulersClick(Sender: TObject);
 begin
   FShowRulers := not FShowRulers;
   RefreshRulers;
+  ClampPaletteToWorkspace(FToolsPanel);
+  ClampPaletteToWorkspace(FColorsPanel);
+  ClampPaletteToWorkspace(FHistoryPanel);
+  ClampPaletteToWorkspace(FRightPanel);
 end;
 
 procedure TMainForm.UnitsPixelsClick(Sender: TObject);
@@ -9905,6 +10150,11 @@ begin
   RefreshUnitsMenu;
   if LanguageChanged then
     RefreshLocalizedUI;
+end;
+
+procedure TMainForm.AboutClick(Sender: TObject);
+begin
+  ShowAboutDialog(Self);
 end;
 
 procedure TMainForm.RefreshLocalizedUI;
@@ -10656,10 +10906,12 @@ end;
 procedure TMainForm.PaletteMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
 var
   SnappedRect: TRect;
+  WorkspaceRect: TRect;
 begin
   if (FDraggingPalette <> nil) and (Sender is TControl) and
      ControlBelongsToPalette(TControl(Sender), FDraggingPalette) then
   begin
+    WorkspaceRect := PaletteClampWorkspaceRect(FWorkspacePanel.ClientRect, FShowRulers);
     SnappedRect := SnapPaletteRect(
       Rect(
         FDraggingPalette.Left,
@@ -10667,7 +10919,7 @@ begin
         FDraggingPalette.Left + FDraggingPalette.Width,
         FDraggingPalette.Top + FDraggingPalette.Height
       ),
-      FWorkspacePanel.ClientRect
+      WorkspaceRect
     );
     FDraggingPalette.SetBounds(
       SnappedRect.Left,
@@ -10675,6 +10927,7 @@ begin
       SnappedRect.Right - SnappedRect.Left,
       SnappedRect.Bottom - SnappedRect.Top
     );
+    ClampPaletteToWorkspace(FDraggingPalette);
     ApplyPaletteVisualState(FDraggingPalette, False);
     FDraggingPalette := nil;
   end;
@@ -10859,13 +11112,15 @@ procedure TMainForm.SetRecolorOptionsForTest(
   ASamplingMode: TRecolorSamplingMode;
   ABlendMode: TRecolorBlendMode;
   ATolerance: Integer;
-  APreserveValue: Boolean
+  APreserveValue: Boolean;
+  AContiguous: Boolean
 );
 begin
   FRecolorSamplingMode := ASamplingMode;
   FRecolorBlendMode := ABlendMode;
   FRecolorTolerance := EnsureRange(ATolerance, 0, 255);
   FRecolorPreserveValue := APreserveValue;
+  FRecolorContiguous := AContiguous;
   FRecolorStrokeSourceValid := False;
 end;
 
@@ -11612,34 +11867,13 @@ begin
 end;
 
 procedure TMainForm.FormResize(Sender: TObject);
-
-  procedure ClampPanel(APanel: TPanel);
-  var
-    Host: TWinControl;
-    MaxRight, MaxBottom: Integer;
-  begin
-    if (APanel = nil) or not APanel.Visible then Exit;
-    Host := APanel.Parent;
-    if Host = nil then Exit;
-    MaxRight := Host.ClientWidth;
-    MaxBottom := Host.ClientHeight;
-    if APanel.Left + APanel.Width > MaxRight then
-      APanel.Left := Max(0, MaxRight - APanel.Width);
-    if APanel.Top + APanel.Height > MaxBottom then
-      APanel.Top := Max(0, MaxBottom - APanel.Height);
-    if APanel.Left < 0 then
-      APanel.Left := 0;
-    if APanel.Top < 0 then
-      APanel.Top := 0;
-  end;
-
 begin
   RelayoutTopChrome;
   LayoutStatusBarControls(nil);
-  ClampPanel(FToolsPanel);
-  ClampPanel(FColorsPanel);
-  ClampPanel(FHistoryPanel);
-  ClampPanel(FRightPanel);
+  ClampPaletteToWorkspace(FToolsPanel);
+  ClampPaletteToWorkspace(FColorsPanel);
+  ClampPaletteToWorkspace(FHistoryPanel);
+  ClampPaletteToWorkspace(FRightPanel);
 end;
 
 procedure TMainForm.PlaceTextAtPoint(const AResult: TTextDialogResult;
@@ -13488,6 +13722,14 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FRecolorPreserveValueCheck) then Exit;
   FRecolorPreserveValue := FRecolorPreserveValueCheck.Checked;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.RecolorContiguousChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FRecolorContiguousCheck) then Exit;
+  FRecolorContiguous := FRecolorContiguousCheck.Checked;
   RefreshCanvas;
 end;
 

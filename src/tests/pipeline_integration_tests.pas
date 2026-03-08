@@ -24,6 +24,7 @@ type
   published
     { Drawing pipeline }
     procedure PencilStrokeModifiesSurfacePixels;
+    procedure OpaquePencilStrokeOverwritesExistingPixel;
     procedure BrushStrokeModifiesSurfacePixels;
     procedure EraserStrokeModifiesSurfacePixels;
     procedure SelectionOverlayUsesDashedBoundaryPattern;
@@ -34,6 +35,7 @@ type
     procedure RectangleDragCommitsPixels;
     procedure EllipseDragCommitsPixels;
     procedure OffsetLayerLineDragCommitsPixelsAtLayerLocalPosition;
+    procedure FillWithinActiveSelectionOverwritesExistingPixels;
     procedure RecolorToolRespectsSelectionScopeAndUndoRedo;
     procedure RecolorOnceSamplingKeepsInitialSourceAcrossDrag;
     procedure RecolorContinuousSamplingResamplesAcrossDrag;
@@ -103,6 +105,29 @@ begin
     AssertFalse('pencil mouse-down should change the surface pixel',
       RGBAEqual(Before, After));
     F.SimulateMouseUp(mbLeft, [], 20, 20);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.OpaquePencilStrokeOverwritesExistingPixel;
+var
+  F: TMainForm;
+  FinalPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkPencil);
+  try
+    F.SetPrimaryColorForTest(RGBA(220, 40, 30, 255));
+    F.SimulateMouseDown(mbLeft, [ssLeft], 24, 24);
+    F.SimulateMouseUp(mbLeft, [], 24, 24);
+
+    F.SetPrimaryColorForTest(RGBA(0, 0, 0, 255));
+    F.SimulateMouseDown(mbLeft, [ssLeft], 24, 24);
+    F.SimulateMouseUp(mbLeft, [], 24, 24);
+
+    FinalPixel := F.TestDocument.ActiveLayer.Surface[24, 24];
+    AssertTrue('opaque pencil should overwrite prior pixel data at same location',
+      RGBAEqual(FinalPixel, RGBA(0, 0, 0, 255)));
   finally
     F.Destroy;
   end;
@@ -338,6 +363,37 @@ begin
       RGBAEqual(BeforeLocalMid, AfterLocalMid));
     AssertTrue('line should not paint the old un-offset midpoint',
       RGBAEqual(BeforeWrongMid, AfterWrongMid));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.FillWithinActiveSelectionOverwritesExistingPixels;
+var
+  F: TMainForm;
+  InkPixel: TRGBA32;
+  FillColor: TRGBA32;
+begin
+  F := CreateTestForm(tkFill);
+  try
+    InkPixel := RGBA(0, 0, 0, 255);
+    FillColor := RGBA(170, 170, 20, 255);
+    F.TestDocument.ActiveLayer.Surface[30, 20] := InkPixel;
+    F.TestDocument.ActiveLayer.Surface[10, 20] := InkPixel;
+    F.TestDocument.SelectRectangle(20, 15, 40, 30, scReplace);
+    F.SetPrimaryColorForTest(FillColor);
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 25, 25);
+    F.SimulateMouseUp(mbLeft, [], 25, 25);
+
+    AssertTrue(
+      'fill should overwrite previously drawn pixels inside the active selection',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[30, 20], FillColor)
+    );
+    AssertTrue(
+      'fill should not touch matching pixels outside the active selection',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[10, 20], InkPixel)
+    );
   finally
     F.Destroy;
   end;

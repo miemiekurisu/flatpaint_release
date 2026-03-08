@@ -889,7 +889,7 @@ begin
       BottomY := CanvasY - BottomLayer.OffsetY;
       if not BottomLayer.Surface.InBounds(BottomX, BottomY) then
         Continue;
-      BottomLayer.Surface.BlendPixel(BottomX, BottomY, TopLayer.Surface[LocalX, LocalY], TopLayer.Opacity);
+      BottomLayer.Surface.BlendPixelPremul(BottomX, BottomY, TopLayer.Surface[LocalX, LocalY], TopLayer.Opacity);
     end;
 
   BottomLayer.Name := BottomLayer.Name + ' + ' + TopLayer.Name;
@@ -948,8 +948,12 @@ begin
     Cropped := Layer.Surface.Crop(LocalCropX, LocalCropY, AWidth, AHeight);
     try
       Layer.Surface.Assign(Cropped);
-      Layer.OffsetX := Layer.OffsetX - X;
-      Layer.OffsetY := Layer.OffsetY - Y;
+      { Crop() already remaps each layer into the new document-local
+        coordinate space [0..AWidth/Height). Keeping an extra translated
+        layer offset here would double-apply the crop origin shift and can
+        move all drawable content outside the visible canvas. }
+      Layer.OffsetX := 0;
+      Layer.OffsetY := 0;
     finally
       Cropped.Free;
     end;
@@ -1413,7 +1417,7 @@ begin
         if ActiveLayer.Surface.InBounds(TargetX, TargetY) then
         begin
           if Copied[X, Y].A > 0 then
-            ActiveLayer.Surface.BlendPixel(TargetX, TargetY, Copied[X, Y], 255);
+            ActiveLayer.Surface.BlendPixelPremul(TargetX, TargetY, Copied[X, Y], 255);
         end;
       end;
     finally

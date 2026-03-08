@@ -139,7 +139,8 @@ type
       Opacity: Byte = 255;
       PreserveValue: Boolean = False;
       ASelection: TSelectionMask = nil;
-      Mode: TRecolorBlendMode = rbmReplaceRGBCompat
+      Mode: TRecolorBlendMode = rbmReplaceRGBCompat;
+      ContiguousOnly: Boolean = False
     );
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
@@ -3449,7 +3450,8 @@ procedure TRasterSurface.RecolorBrush(
   Opacity: Byte;
   PreserveValue: Boolean;
   ASelection: TSelectionMask;
-  Mode: TRecolorBlendMode
+  Mode: TRecolorBlendMode;
+  ContiguousOnly: Boolean
 );
 var
   BX, BY: Integer;
@@ -3471,8 +3473,142 @@ var
   TargetVal: Double;
   Coverage: Byte;
   EffectiveOpacity: Integer;
+  BoundsLeft: Integer;
+  BoundsTop: Integer;
+  BoundsWidth: Integer;
+  BoundsHeight: Integer;
+  ConnectedMask: array of Byte;
+  Queue: array of Integer;
+  QueueHead: Integer;
+  QueueTail: Integer;
+  PixelIndex: Integer;
+  LocalX: Integer;
+  LocalY: Integer;
+  NeighborX: Integer;
+  NeighborY: Integer;
+  NeighborIndex: Integer;
+  ConnectedReady: Boolean;
+
+  function BoundsIndex(AX, AY: Integer): Integer; inline;
+  begin
+    Result := (AY - BoundsTop) * BoundsWidth + (AX - BoundsLeft);
+  end;
+
+  function IsRecolorCandidate(AX, AY: Integer): Boolean;
+  var
+    LocalDist: Double;
+    LocalBoundaryCov: Byte;
+    LocalCoverage: Byte;
+    LocalStraight: TRGBA32;
+    LocalDr: Integer;
+    LocalDg: Integer;
+    LocalDb: Integer;
+    LocalColorDist: Integer;
+  begin
+    if (AX < 0) or (AY < 0) or (AX >= FWidth) or (AY >= FHeight) then
+      Exit(False);
+    LocalDist := Sqrt((AX - X) * (AX - X) + (AY - Y) * (AY - Y));
+    LocalBoundaryCov := SDFCoverageForBrush(RadiusF - LocalDist);
+    if LocalBoundaryCov = 0 then
+      Exit(False);
+    if Assigned(ASelection) then
+    begin
+      LocalCoverage := ASelection.Coverage(AX, AY);
+      if LocalCoverage = 0 then
+        Exit(False);
+    end;
+    LocalStraight := Unpremultiply(FPixels[IndexOf(AX, AY)]);
+    LocalDr := LocalStraight.R - SourceColor.R;
+    LocalDg := LocalStraight.G - SourceColor.G;
+    LocalDb := LocalStraight.B - SourceColor.B;
+    LocalColorDist := (Abs(LocalDr) + Abs(LocalDg) + Abs(LocalDb)) div 3;
+    Result := LocalColorDist <= Tolerance;
+  end;
 begin
   RadiusF := Radius + 0.5;
+
+  ConnectedReady := not ContiguousOnly;
+  if ContiguousOnly then
+  begin
+    BoundsLeft := Max(0, X - Radius - 1);
+    BoundsTop := Max(0, Y - Radius - 1);
+    BoundsWidth := Max(0, Min(FWidth - 1, X + Radius + 1) - BoundsLeft + 1);
+    BoundsHeight := Max(0, Min(FHeight - 1, Y + Radius + 1) - BoundsTop + 1);
+    if (BoundsWidth > 0) and (BoundsHeight > 0) then
+    begin
+      SetLength(ConnectedMask, BoundsWidth * BoundsHeight);
+      SetLength(Queue, BoundsWidth * BoundsHeight);
+      if IsRecolorCandidate(X, Y) then
+      begin
+        QueueHead := 0;
+        QueueTail := 1;
+        PixelIndex := BoundsIndex(X, Y);
+        ConnectedMask[PixelIndex] := 1;
+        Queue[0] := PixelIndex;
+        while QueueHead < QueueTail do
+        begin
+          PixelIndex := Queue[QueueHead];
+          Inc(QueueHead);
+          LocalX := PixelIndex mod BoundsWidth;
+          LocalY := PixelIndex div BoundsWidth;
+
+          NeighborX := BoundsLeft + LocalX - 1;
+          NeighborY := BoundsTop + LocalY;
+          if NeighborX >= BoundsLeft then
+          begin
+            NeighborIndex := BoundsIndex(NeighborX, NeighborY);
+            if (ConnectedMask[NeighborIndex] = 0) and IsRecolorCandidate(NeighborX, NeighborY) then
+            begin
+              ConnectedMask[NeighborIndex] := 1;
+              Queue[QueueTail] := NeighborIndex;
+              Inc(QueueTail);
+            end;
+          end;
+
+          NeighborX := BoundsLeft + LocalX + 1;
+          NeighborY := BoundsTop + LocalY;
+          if NeighborX < BoundsLeft + BoundsWidth then
+          begin
+            NeighborIndex := BoundsIndex(NeighborX, NeighborY);
+            if (ConnectedMask[NeighborIndex] = 0) and IsRecolorCandidate(NeighborX, NeighborY) then
+            begin
+              ConnectedMask[NeighborIndex] := 1;
+              Queue[QueueTail] := NeighborIndex;
+              Inc(QueueTail);
+            end;
+          end;
+
+          NeighborX := BoundsLeft + LocalX;
+          NeighborY := BoundsTop + LocalY - 1;
+          if NeighborY >= BoundsTop then
+          begin
+            NeighborIndex := BoundsIndex(NeighborX, NeighborY);
+            if (ConnectedMask[NeighborIndex] = 0) and IsRecolorCandidate(NeighborX, NeighborY) then
+            begin
+              ConnectedMask[NeighborIndex] := 1;
+              Queue[QueueTail] := NeighborIndex;
+              Inc(QueueTail);
+            end;
+          end;
+
+          NeighborX := BoundsLeft + LocalX;
+          NeighborY := BoundsTop + LocalY + 1;
+          if NeighborY < BoundsTop + BoundsHeight then
+          begin
+            NeighborIndex := BoundsIndex(NeighborX, NeighborY);
+            if (ConnectedMask[NeighborIndex] = 0) and IsRecolorCandidate(NeighborX, NeighborY) then
+            begin
+              ConnectedMask[NeighborIndex] := 1;
+              Queue[QueueTail] := NeighborIndex;
+              Inc(QueueTail);
+            end;
+          end;
+        end;
+      end;
+      ConnectedReady := True;
+    end;
+  end;
+
   for BY := Max(0, Y - Radius - 1) to Min(FHeight - 1, Y + Radius + 1) do
     for BX := Max(0, X - Radius - 1) to Min(FWidth - 1, X + Radius + 1) do
     begin
@@ -3480,6 +3616,13 @@ begin
       BoundaryCov := SDFCoverageForBrush(RadiusF - DistF);
       if BoundaryCov = 0 then
         Continue;
+      if ContiguousOnly then
+      begin
+        if not ConnectedReady then
+          Continue;
+        if ConnectedMask[BoundsIndex(BX, BY)] = 0 then
+          Continue;
+      end;
       EffectiveOpacity := (Opacity * BoundaryCov + 127) div 255;
       if Assigned(ASelection) then
       begin
