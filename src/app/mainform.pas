@@ -12,7 +12,7 @@ uses
   FPIO,
   FPToolControllers,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
-  FPUtilityHelpers, FPToolbarHelpers, FPI18n;
+  FPUtilityHelpers, FPToolbarHelpers, FPI18n, FPMarqueeHelpers;
 
 type
   TMainForm = class;
@@ -101,6 +101,16 @@ type
     FDisplaySurface: TRasterSurface;  { persistent buffer; reused across repaints to avoid per-repaint heap alloc }
     FRenderRevision: QWord;
     FPreparedRevision: QWord;
+    FMarqueeDashPhase: Integer;
+    FMarqueeLastTickMS: QWord;
+    FMarqueeTimer: TTimer;
+    FSelectionMarqueePoints: array of TPoint;
+    FSelectionMarqueeContourOffsets: array of Integer;
+    FSelectionMarqueeContourLengths: array of Integer;
+    FSelectionMarqueeStepMap: array of Integer;
+    FSelectionMarqueeCacheValid: Boolean;
+    FSelectionMarqueeWidth: Integer;
+    FSelectionMarqueeHeight: Integer;
     FMainMenu: TMainMenu;
     FRecentMenu: TMenuItem;
     FSaveMenuItem: TMenuItem;
@@ -133,6 +143,7 @@ type
     FStatusProgressBar: TProgressBar;
     FStatusProgressLabel: TLabel;
     FStatusProgressActive: Boolean;
+    FStatusDragLastUpdateMS: QWord;
     FStatusZoomTrack: TTrackBar;
     FStatusZoomLabel: TLabel;
     FLayerList: TDrawGrid;
@@ -274,6 +285,7 @@ type
     FRecolorModeCombo: TComboBox;
     FRecolorStrokeSourceColor: TRGBA32;
     FRecolorStrokeSourceValid: Boolean;
+    FRecolorStrokeSnapshot: TRasterSurface;
     FCloneAlignedOffset: TPoint;
     FCloneAlignedOffsetValid: Boolean;
     { Recolor tool tolerance (separate from FWandTolerance) }
@@ -355,6 +367,9 @@ type
     procedure CommitInlineTextEdit(ACommit: Boolean = True);
     procedure InitializeMinimalState;
     procedure InvalidatePreparedBitmap;
+    procedure InvalidateSelectionMarqueeCache;
+    procedure EnsureSelectionMarqueeCache;
+    procedure RebuildSelectionMarqueeCache;
     procedure RefreshAuxiliaryImageViews(ARefreshLayers: Boolean = False);
     procedure ResetTransientCanvasState;
     procedure SyncSelectionOverlayUI(AMarkDirty: Boolean = True);
@@ -407,6 +422,9 @@ type
     function CreateButton(const ACaption: string; ALeft, ATop, AWidth: Integer; AHandler: TNotifyEvent; AParent: TWinControl; ATag: Integer = 0; AIconContext: TButtonIconContext = bicAuto): TSpeedButton;
     procedure CreateMenuItem(AParent: TMenuItem; const ACaption: string; AHandler: TNotifyEvent; AShortcut: TShortCut = 0);
     procedure PaintCanvasTo(ACanvas: TCanvas; const ARect: TRect);
+    function ShouldAnimateMarqueeNow: Boolean;
+    procedure UpdateMarqueeAnimationState;
+    procedure MarqueeTimerTick(Sender: TObject);
     procedure DrawBrushHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawSquareHoverOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawEraserHoverOverlay(
@@ -417,6 +435,10 @@ type
     );
     procedure DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
     procedure DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
+    procedure DrawSelectionMarqueeOverlay(ACanvas: TCanvas);
+    procedure DrawMarqueeRectangleOverlay(ACanvas: TCanvas; ALeft, ATop, ARight, ABottom: Integer);
+    procedure DrawMarqueeEllipseOverlay(ACanvas: TCanvas; ALeft, ATop, ARight, ABottom: Integer);
+    procedure DrawMarqueePolylineOverlay(ACanvas: TCanvas; const APoints: array of TPoint; AClosePath: Boolean);
     procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
     procedure DrawQuadraticCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
     procedure DrawCubicCurvePreview(ACanvas: TCanvas; const AStartPoint, AControlPoint1, AControlPoint2, AEndPoint: TPoint; AStrokeColor: TColor; AStrokeWidth: Integer);
@@ -424,6 +446,7 @@ type
     procedure DrawHoverToolOverlay(ACanvas: TCanvas);
     function ActiveToolOverlayRadius: Integer;
     function TryGetCloneOverlaySourcePoint(out APoint: TPoint): Boolean;
+    function TrySelectionMarqueePixelColor(X, Y: Integer; out AColor: TRGBA32): Boolean;
     procedure PaintRuler(ACanvas: TCanvas; const ARect: TRect; AOrientation: TRulerOrientation);
     procedure UpdateCanvasSize;
     procedure FitDocumentToViewport(AOnlyShrink: Boolean);
@@ -718,6 +741,7 @@ type
     procedure SimulateMouseDown(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseMove(Shift: TShiftState; X, Y: Integer);
     procedure SimulateMouseUp(Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure SimulateMagnifyGestureForTest(AMagnification: Double; ALocationX, ALocationY: Double);
     procedure SimulateToolButtonSwitch(ATool: TToolKind);
     procedure SetPrimaryColorForTest(const AColor: TRGBA32);
     procedure SetSecondaryColorForTest(const AColor: TRGBA32);
@@ -732,12 +756,16 @@ type
     procedure SetShapeLineStyleForTest(AStyleIndex: Integer);
     property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
     property TestDocument: TImageDocument read FDocument;
+    property ZoomScaleForTest: Double read FZoomScale;
     property RenderRevisionForTest: QWord read FRenderRevision;
     property TempToolActiveForTest: Boolean read FTempToolActive;
     property DirtyForTest: Boolean read FDirty;
     function DisplayPixelForTest(X, Y: Integer): TRGBA32;
     procedure MakeTestSafe; { lightweight test-mode initialization }
   end;
+
+var
+  AppMainForm: TMainForm;
 
 implementation
 
@@ -821,11 +849,12 @@ begin
   if not Assigned(AContext) then
     Exit;
   MainForm := TMainForm(AContext);
-  if not Assigned(MainForm.FCanvasHost) then
-    Exit;
   { magnification is a delta: +0.02 means 2% zoom in per event }
   NewScale := MainForm.FZoomScale * (1.0 + AMagnification);
-  VP := Point(Round(ALocationX), MainForm.FCanvasHost.ClientHeight - Round(ALocationY));
+  if Assigned(MainForm.FCanvasHost) then
+    VP := Point(Round(ALocationX), MainForm.FCanvasHost.ClientHeight - Round(ALocationY))
+  else
+    VP := Point(Round(ALocationX), Round(ALocationY));
   MainForm.ApplyZoomScaleAtViewportPoint(NewScale, VP);
 end;
 
@@ -904,7 +933,17 @@ begin
   FShapeLineStyle := 0;
   FRenderRevision := 1;
   FPreparedRevision := 0;
+  FMarqueeDashPhase := 0;
+  FMarqueeLastTickMS := 0;
+  FSelectionMarqueeCacheValid := False;
+  FSelectionMarqueeWidth := 0;
+  FSelectionMarqueeHeight := 0;
+  SetLength(FSelectionMarqueePoints, 0);
+  SetLength(FSelectionMarqueeContourOffsets, 0);
+  SetLength(FSelectionMarqueeContourLengths, 0);
+  SetLength(FSelectionMarqueeStepMap, 0);
   FStatusProgressActive := False;
+  FStatusDragLastUpdateMS := 0;
   FColorSVCachedHue := -1.0;
   FColorSVRenderedHue := -1.0;
 
@@ -1218,6 +1257,13 @@ begin
   FPaintBox.OnMouseUp := @PaintBoxMouseUp;
   FPaintBox.OnMouseLeave := @PaintBoxMouseLeave;
 
+  FMarqueeTimer := TTimer.Create(Self);
+  FMarqueeTimer.Enabled := False;
+  { Keep smooth cadence and tune apparent speed via phase step so motion
+    stays fluid while avoiding abrupt/over-fast ant travel. }
+  FMarqueeTimer.Interval := 18;
+  FMarqueeTimer.OnTimer := @MarqueeTimerTick;
+
   FInlineTextEdit := TEdit.Create(FCanvasHost);
   FInlineTextEdit.Parent := FCanvasHost;
   FInlineTextEdit.Visible := False;
@@ -1330,6 +1376,7 @@ begin
   if FMagnifyInstalled and Assigned(FCanvasHost) and FCanvasHost.HandleAllocated then
     FPUninstallMagnifyHandler(Pointer(FCanvasHost.Handle));
   FMagnifyInstalled := False;
+  FreeAndNil(FMarqueeTimer);
   if Assigned(Application) then
     Application.RemoveOnIdleHandler(@AppIdle);
   FreeAndNil(FRecentFiles);
@@ -1341,6 +1388,7 @@ begin
   FreeAndNil(FLayerEyeOnIcon);
   FreeAndNil(FLayerEyeOffIcon);
   FreeAndNil(FCloneStampSnapshot);
+  FreeAndNil(FRecolorStrokeSnapshot);
   FreeAndNil(FSelectionController);
   FreeAndNil(FMovePixelsController);
   FreeAndNil(FStrokeController);
@@ -1438,6 +1486,12 @@ begin
   if (FDocument = nil) or (FDocument.LayerCount <= 0) then
     Exit;
   LocalPoint := ActiveLayerLocalPoint(ACanvasPoint);
+  if Assigned(FRecolorStrokeSnapshot) and
+     FRecolorStrokeSnapshot.InBounds(LocalPoint.X, LocalPoint.Y) then
+  begin
+    AColor := Unpremultiply(FRecolorStrokeSnapshot[LocalPoint.X, LocalPoint.Y]);
+    Exit(True);
+  end;
   if not FDocument.ActiveLayer.Surface.InBounds(LocalPoint.X, LocalPoint.Y) then
     Exit;
   AColor := Unpremultiply(FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y]);
@@ -1472,9 +1526,6 @@ var
   BoundaryVisited: array of Byte;
   BoundaryContour: array of TPoint;
 const
-  SelectionDashLength = 3;
-  SelectionDashGap = 2;
-  SelectionDashPeriod = SelectionDashLength + SelectionDashGap;
   NeighborDX: array[0..7] of Integer = (-1, 0, 1, 1, 1, 0, -1, -1);
   NeighborDY: array[0..7] of Integer = (-1, -1, -1, 0, 1, 1, 1, 0);
 
@@ -1514,9 +1565,9 @@ const
     if (APoint.X < 0) or (APoint.X >= FDisplaySurface.Width) or
        (APoint.Y < 0) or (APoint.Y >= FDisplaySurface.Height) then
       Exit;
-    if (ADashStep mod SelectionDashPeriod) >= SelectionDashLength then
+    if not MarqueeStepVisible(ADashStep, FMarqueeDashPhase) then
       Exit;
-    if (ADashStep and 1) = 0 then
+    if MarqueeStepUsesDarkColor(ADashStep, FMarqueeDashPhase) then
       FDisplaySurface[APoint.X, APoint.Y] := RGBA(0, 0, 0, 255)
     else
       FDisplaySurface[APoint.X, APoint.Y] := RGBA(255, 255, 255, 255);
@@ -1660,7 +1711,7 @@ begin
   { Selection outline pass:
     trace boundary contours and apply dash by contour step, avoiding
     coordinate-mod artifacts where diagonal edges collapse into long lines. }
-  if FDocument.HasSelection then
+  if False and FDocument.HasSelection then
   begin
     SetLength(SelectionMask, FDisplaySurface.Width * FDisplaySurface.Height);
     SetLength(BoundaryMask, Length(SelectionMask));
@@ -2119,6 +2170,273 @@ begin
   Inc(FRenderRevision);
 end;
 
+procedure TMainForm.InvalidateSelectionMarqueeCache;
+begin
+  FSelectionMarqueeCacheValid := False;
+  FSelectionMarqueeWidth := 0;
+  FSelectionMarqueeHeight := 0;
+  SetLength(FSelectionMarqueePoints, 0);
+  SetLength(FSelectionMarqueeContourOffsets, 0);
+  SetLength(FSelectionMarqueeContourLengths, 0);
+  SetLength(FSelectionMarqueeStepMap, 0);
+end;
+
+procedure TMainForm.EnsureSelectionMarqueeCache;
+begin
+  if not Assigned(FDocument) then
+    Exit;
+  if FSelectionMarqueeCacheValid and
+     (FSelectionMarqueeWidth = FDocument.Width) and
+     (FSelectionMarqueeHeight = FDocument.Height) then
+    Exit;
+  RebuildSelectionMarqueeCache;
+end;
+
+procedure TMainForm.RebuildSelectionMarqueeCache;
+var
+  WidthPixels: Integer;
+  HeightPixels: Integer;
+  SelectionMask: array of Byte;
+  BoundaryMask: array of Byte;
+  BoundaryVisited: array of Byte;
+  BoundaryContour: array of TPoint;
+  ContourCount: Integer;
+  ContourCapacity: Integer;
+  X: Integer;
+  Y: Integer;
+  PixelIndex: Integer;
+  NeighborIndex: Integer;
+  BacktrackIndex: Integer;
+  TraceGuard: Integer;
+  StartPoint: TPoint;
+  CurrentPoint: TPoint;
+  NextPoint: TPoint;
+  BacktrackPoint: TPoint;
+  StartBacktrackPoint: TPoint;
+  NeighborFound: Boolean;
+  OffsetIndex: Integer;
+  PointIndex: Integer;
+  DashIndex: Integer;
+const
+  NeighborDX: array[0..7] of Integer = (-1, 0, 1, 1, 1, 0, -1, -1);
+  NeighborDY: array[0..7] of Integer = (-1, -1, -1, 0, 1, 1, 1, 0);
+
+  function SelectionIndex(AX, AY: Integer): Integer; inline;
+  begin
+    Result := AY * WidthPixels + AX;
+  end;
+
+  function SelectionInside(AX, AY: Integer): Boolean; inline;
+  begin
+    if (AX < 0) or (AX >= WidthPixels) or
+       (AY < 0) or (AY >= HeightPixels) then
+      Exit(False);
+    Result := SelectionMask[SelectionIndex(AX, AY)] <> 0;
+  end;
+
+  function BoundaryAt(AX, AY: Integer): Boolean; inline;
+  begin
+    if (AX < 0) or (AX >= WidthPixels) or
+       (AY < 0) or (AY >= HeightPixels) then
+      Exit(False);
+    Result := BoundaryMask[SelectionIndex(AX, AY)] <> 0;
+  end;
+
+  function NeighborDeltaIndex(ADX, ADY: Integer): Integer;
+  var
+    SearchIndex: Integer;
+  begin
+    for SearchIndex := 0 to 7 do
+      if (NeighborDX[SearchIndex] = ADX) and (NeighborDY[SearchIndex] = ADY) then
+        Exit(SearchIndex);
+    Result := -1;
+  end;
+
+  procedure ResetContour;
+  begin
+    ContourCount := 0;
+    ContourCapacity := 0;
+    SetLength(BoundaryContour, 0);
+  end;
+
+  procedure AppendContourPoint(const APoint: TPoint);
+  begin
+    if (ContourCount > 0) and
+       (BoundaryContour[ContourCount - 1].X = APoint.X) and
+       (BoundaryContour[ContourCount - 1].Y = APoint.Y) then
+      Exit;
+    if ContourCount >= ContourCapacity then
+    begin
+      if ContourCapacity = 0 then
+        ContourCapacity := 64
+      else
+        ContourCapacity := ContourCapacity * 2;
+      SetLength(BoundaryContour, ContourCapacity);
+    end;
+    BoundaryContour[ContourCount] := APoint;
+    Inc(ContourCount);
+  end;
+
+  procedure AppendContourToCache;
+  var
+    CacheOffset: Integer;
+    LocalIndex: Integer;
+    LocalPoint: TPoint;
+    LocalPixelIndex: Integer;
+  begin
+    if ContourCount <= 0 then
+      Exit;
+
+    OffsetIndex := Length(FSelectionMarqueeContourOffsets);
+    SetLength(FSelectionMarqueeContourOffsets, OffsetIndex + 1);
+    SetLength(FSelectionMarqueeContourLengths, OffsetIndex + 1);
+    CacheOffset := Length(FSelectionMarqueePoints);
+    FSelectionMarqueeContourOffsets[OffsetIndex] := CacheOffset;
+    FSelectionMarqueeContourLengths[OffsetIndex] := ContourCount;
+
+    SetLength(FSelectionMarqueePoints, CacheOffset + ContourCount);
+    for LocalIndex := 0 to ContourCount - 1 do
+    begin
+      LocalPoint := BoundaryContour[LocalIndex];
+      FSelectionMarqueePoints[CacheOffset + LocalIndex] := LocalPoint;
+      LocalPixelIndex := SelectionIndex(LocalPoint.X, LocalPoint.Y);
+      if (LocalPixelIndex >= 0) and (LocalPixelIndex < Length(FSelectionMarqueeStepMap)) and
+         (FSelectionMarqueeStepMap[LocalPixelIndex] < 0) then
+        FSelectionMarqueeStepMap[LocalPixelIndex] := LocalIndex;
+    end;
+  end;
+
+  procedure TraceBoundaryContour(const AStartPoint: TPoint);
+  var
+    SearchStep: Integer;
+  begin
+    ResetContour;
+    CurrentPoint := AStartPoint;
+    BacktrackPoint := Point(CurrentPoint.X - 1, CurrentPoint.Y);
+    StartBacktrackPoint := BacktrackPoint;
+    TraceGuard := 0;
+    repeat
+      PixelIndex := SelectionIndex(CurrentPoint.X, CurrentPoint.Y);
+      BoundaryVisited[PixelIndex] := 1;
+      AppendContourPoint(CurrentPoint);
+
+      BacktrackIndex := NeighborDeltaIndex(
+        BacktrackPoint.X - CurrentPoint.X,
+        BacktrackPoint.Y - CurrentPoint.Y
+      );
+      if BacktrackIndex < 0 then
+        BacktrackIndex := 7;
+
+      NeighborFound := False;
+      for SearchStep := 1 to 8 do
+      begin
+        NeighborIndex := (BacktrackIndex + SearchStep) mod 8;
+        NextPoint := Point(
+          CurrentPoint.X + NeighborDX[NeighborIndex],
+          CurrentPoint.Y + NeighborDY[NeighborIndex]
+        );
+        if not BoundaryAt(NextPoint.X, NextPoint.Y) then
+          Continue;
+        BacktrackPoint := Point(
+          CurrentPoint.X + NeighborDX[(NeighborIndex + 7) mod 8],
+          CurrentPoint.Y + NeighborDY[(NeighborIndex + 7) mod 8]
+        );
+        CurrentPoint := NextPoint;
+        NeighborFound := True;
+        Break;
+      end;
+      if not NeighborFound then
+        Break;
+      Inc(TraceGuard);
+      if TraceGuard > (WidthPixels * HeightPixels * 4) then
+        Break;
+    until (CurrentPoint.X = AStartPoint.X) and
+          (CurrentPoint.Y = AStartPoint.Y) and
+          (BacktrackPoint.X = StartBacktrackPoint.X) and
+          (BacktrackPoint.Y = StartBacktrackPoint.Y);
+
+    AppendContourToCache;
+  end;
+begin
+  InvalidateSelectionMarqueeCache;
+  if not Assigned(FDocument) or not FDocument.HasSelection then
+  begin
+    FSelectionMarqueeCacheValid := True;
+    Exit;
+  end;
+
+  WidthPixels := FDocument.Width;
+  HeightPixels := FDocument.Height;
+  if (WidthPixels <= 0) or (HeightPixels <= 0) then
+  begin
+    FSelectionMarqueeCacheValid := True;
+    Exit;
+  end;
+
+  FSelectionMarqueeWidth := WidthPixels;
+  FSelectionMarqueeHeight := HeightPixels;
+  SetLength(SelectionMask, WidthPixels * HeightPixels);
+  SetLength(BoundaryMask, WidthPixels * HeightPixels);
+  SetLength(BoundaryVisited, WidthPixels * HeightPixels);
+  SetLength(FSelectionMarqueeStepMap, WidthPixels * HeightPixels);
+  for PixelIndex := 0 to High(FSelectionMarqueeStepMap) do
+    FSelectionMarqueeStepMap[PixelIndex] := -1;
+
+  for Y := 0 to HeightPixels - 1 do
+    for X := 0 to WidthPixels - 1 do
+    begin
+      PixelIndex := SelectionIndex(X, Y);
+      if FDocument.Selection.Coverage(X, Y) >= 128 then
+        SelectionMask[PixelIndex] := 1
+      else
+        SelectionMask[PixelIndex] := 0;
+    end;
+
+  for Y := 0 to HeightPixels - 1 do
+    for X := 0 to WidthPixels - 1 do
+    begin
+      PixelIndex := SelectionIndex(X, Y);
+      if SelectionMask[PixelIndex] = 0 then
+        Continue;
+      if SelectionInside(X - 1, Y) and SelectionInside(X + 1, Y) and
+         SelectionInside(X, Y - 1) and SelectionInside(X, Y + 1) then
+        Continue;
+      BoundaryMask[PixelIndex] := 1;
+    end;
+
+  for Y := 0 to HeightPixels - 1 do
+    for X := 0 to WidthPixels - 1 do
+    begin
+      PixelIndex := SelectionIndex(X, Y);
+      if (BoundaryMask[PixelIndex] = 0) or (BoundaryVisited[PixelIndex] <> 0) then
+        Continue;
+      StartPoint := Point(X, Y);
+      TraceBoundaryContour(StartPoint);
+    end;
+
+  DashIndex := 0;
+  for Y := 0 to HeightPixels - 1 do
+    for X := 0 to WidthPixels - 1 do
+    begin
+      PixelIndex := SelectionIndex(X, Y);
+      if (BoundaryMask[PixelIndex] = 0) or (BoundaryVisited[PixelIndex] <> 0) then
+        Continue;
+      if FSelectionMarqueeStepMap[PixelIndex] < 0 then
+        FSelectionMarqueeStepMap[PixelIndex] := DashIndex;
+      PointIndex := Length(FSelectionMarqueePoints);
+      OffsetIndex := Length(FSelectionMarqueeContourOffsets);
+      SetLength(FSelectionMarqueePoints, PointIndex + 1);
+      SetLength(FSelectionMarqueeContourOffsets, OffsetIndex + 1);
+      SetLength(FSelectionMarqueeContourLengths, OffsetIndex + 1);
+      FSelectionMarqueePoints[PointIndex] := Point(X, Y);
+      FSelectionMarqueeContourOffsets[OffsetIndex] := PointIndex;
+      FSelectionMarqueeContourLengths[OffsetIndex] := 1;
+      Inc(DashIndex);
+    end;
+
+  FSelectionMarqueeCacheValid := True;
+end;
+
 procedure TMainForm.RefreshAuxiliaryImageViews(ARefreshLayers: Boolean);
 begin
   if ARefreshLayers then
@@ -2205,7 +2523,7 @@ end;
 
 procedure TMainForm.SyncSelectionOverlayUI(AMarkDirty: Boolean);
 begin
-  InvalidatePreparedBitmap;
+  InvalidateSelectionMarqueeCache;
   if AMarkDirty then
     SetDirty(True);
   RefreshCanvas;
@@ -2247,6 +2565,7 @@ procedure TMainForm.SyncImageMutationUI(ARefreshLayers: Boolean; AMarkDirty: Boo
 begin
   if FStatusProgressActive then
     UpdateStatusProgress(82);
+  InvalidateSelectionMarqueeCache;
   InvalidatePreparedBitmap;
   if AMarkDirty then
     SetDirty(True)
@@ -2261,6 +2580,7 @@ end;
 procedure TMainForm.SyncDocumentReplacementUI(AMarkDirty: Boolean);
 begin
   FitDocumentToViewport(True);
+  InvalidateSelectionMarqueeCache;
   InvalidatePreparedBitmap;
   FLastImagePoint := Point(-1, -1);
   if AMarkDirty then
@@ -4728,6 +5048,33 @@ begin
     (APoint.X < FDocument.Width) and (APoint.Y < FDocument.Height);
 end;
 
+function TMainForm.TrySelectionMarqueePixelColor(X, Y: Integer; out AColor: TRGBA32): Boolean;
+var
+  PixelIndex: Integer;
+  DashStep: Integer;
+begin
+  Result := False;
+  if not Assigned(FDocument) or not FDocument.HasSelection then
+    Exit;
+  EnsureSelectionMarqueeCache;
+  if (X < 0) or (Y < 0) or
+     (X >= FSelectionMarqueeWidth) or (Y >= FSelectionMarqueeHeight) then
+    Exit;
+  PixelIndex := Y * FSelectionMarqueeWidth + X;
+  if (PixelIndex < 0) or (PixelIndex >= Length(FSelectionMarqueeStepMap)) then
+    Exit;
+  DashStep := FSelectionMarqueeStepMap[PixelIndex];
+  if DashStep < 0 then
+    Exit;
+  if not MarqueeStepVisible(DashStep, FMarqueeDashPhase) then
+    Exit;
+  if MarqueeStepUsesDarkColor(DashStep, FMarqueeDashPhase) then
+    AColor := RGBA(0, 0, 0, 255)
+  else
+    AColor := RGBA(255, 255, 255, 255);
+  Result := True;
+end;
+
 procedure TMainForm.DrawPointHoverOverlay(ACanvas: TCanvas; const APoint: TPoint);
 var
   LeftX: Integer;
@@ -4749,6 +5096,17 @@ begin
     RightX := LeftX + 1;
   if BottomY <= TopY then
     BottomY := TopY + 1;
+
+  if FCurrentTool = tkCloneStamp then
+  begin
+    DrawMarqueeEllipseOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
+    Exit;
+  end;
+  if FCurrentTool = tkMagicWand then
+  begin
+    DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
+    Exit;
+  end;
 
   ACanvas.Brush.Style := bsClear;
   ACanvas.Pen.Style := psSolid;
@@ -4790,6 +5148,12 @@ begin
     RightX := LeftX + 1;
   if BottomY <= TopY then
     BottomY := TopY + 1;
+
+  if FCurrentTool = tkCloneStamp then
+  begin
+    DrawMarqueeEllipseOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
+    Exit;
+  end;
 
   ACanvas.Brush.Style := bsClear;
   ACanvas.Pen.Style := psSolid;
@@ -4906,6 +5270,262 @@ begin
   ACanvas.Pen.Style := psSolid;
 end;
 
+procedure TMainForm.DrawSelectionMarqueeOverlay(ACanvas: TCanvas);
+var
+  ContourIndex: Integer;
+  Offset: Integer;
+  SegmentCount: Integer;
+  StepIndex: Integer;
+  PointA: TPoint;
+  PointB: TPoint;
+  X1: Integer;
+  Y1: Integer;
+  X2: Integer;
+  Y2: Integer;
+begin
+  if not Assigned(FDocument) or not FDocument.HasSelection then
+    Exit;
+
+  EnsureSelectionMarqueeCache;
+  if Length(FSelectionMarqueeContourOffsets) = 0 then
+    Exit;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+
+  for ContourIndex := 0 to High(FSelectionMarqueeContourOffsets) do
+  begin
+    Offset := FSelectionMarqueeContourOffsets[ContourIndex];
+    SegmentCount := FSelectionMarqueeContourLengths[ContourIndex];
+    if SegmentCount <= 0 then
+      Continue;
+    if SegmentCount = 1 then
+    begin
+      PointA := FSelectionMarqueePoints[Offset];
+      if MarqueeStepUsesDarkColor(0, FMarqueeDashPhase) then
+        ACanvas.Pen.Color := clBlack
+      else
+        ACanvas.Pen.Color := clWhite;
+      X1 := Round((PointA.X + 0.5) * FZoomScale);
+      Y1 := Round((PointA.Y + 0.5) * FZoomScale);
+      ACanvas.MoveTo(X1, Y1);
+      ACanvas.LineTo(X1 + 1, Y1);
+      Continue;
+    end;
+    for StepIndex := 0 to SegmentCount - 1 do
+    begin
+      if not MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+        Continue;
+      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+        ACanvas.Pen.Color := clBlack
+      else
+        ACanvas.Pen.Color := clWhite;
+
+      PointA := FSelectionMarqueePoints[Offset + StepIndex];
+      PointB := FSelectionMarqueePoints[Offset + ((StepIndex + 1) mod SegmentCount)];
+      X1 := Round((PointA.X + 0.5) * FZoomScale);
+      Y1 := Round((PointA.Y + 0.5) * FZoomScale);
+      X2 := Round((PointB.X + 0.5) * FZoomScale);
+      Y2 := Round((PointB.Y + 0.5) * FZoomScale);
+      ACanvas.MoveTo(X1, Y1);
+      ACanvas.LineTo(X2, Y2);
+    end;
+  end;
+end;
+
+procedure TMainForm.DrawMarqueeRectangleOverlay(
+  ACanvas: TCanvas;
+  ALeft, ATop, ARight, ABottom: Integer
+);
+var
+  StepIndex: Integer;
+  X: Integer;
+  Y: Integer;
+begin
+  if ARight <= ALeft then
+    Exit;
+  if ABottom <= ATop then
+    Exit;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+  StepIndex := 0;
+
+  for X := ALeft to ARight - 2 do
+  begin
+    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+    begin
+      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+        ACanvas.Pen.Color := clBlack
+      else
+        ACanvas.Pen.Color := clWhite;
+      ACanvas.MoveTo(X, ATop);
+      ACanvas.LineTo(X + 1, ATop);
+    end;
+    Inc(StepIndex);
+  end;
+
+  for Y := ATop to ABottom - 2 do
+  begin
+    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+    begin
+      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+        ACanvas.Pen.Color := clBlack
+      else
+        ACanvas.Pen.Color := clWhite;
+      ACanvas.MoveTo(ARight - 1, Y);
+      ACanvas.LineTo(ARight - 1, Y + 1);
+    end;
+    Inc(StepIndex);
+  end;
+
+  for X := ARight - 1 downto ALeft + 1 do
+  begin
+    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+    begin
+      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+        ACanvas.Pen.Color := clBlack
+      else
+        ACanvas.Pen.Color := clWhite;
+      ACanvas.MoveTo(X, ABottom - 1);
+      ACanvas.LineTo(X - 1, ABottom - 1);
+    end;
+    Inc(StepIndex);
+  end;
+
+  for Y := ABottom - 1 downto ATop + 1 do
+  begin
+    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+    begin
+      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+        ACanvas.Pen.Color := clBlack
+      else
+        ACanvas.Pen.Color := clWhite;
+      ACanvas.MoveTo(ALeft, Y);
+      ACanvas.LineTo(ALeft, Y - 1);
+    end;
+    Inc(StepIndex);
+  end;
+end;
+
+procedure TMainForm.DrawMarqueeEllipseOverlay(
+  ACanvas: TCanvas;
+  ALeft, ATop, ARight, ABottom: Integer
+);
+var
+  WidthPixels: Integer;
+  HeightPixels: Integer;
+  RadiusX: Double;
+  RadiusY: Double;
+  CenterX: Double;
+  CenterY: Double;
+  StepCount: Integer;
+  StepIndex: Integer;
+  ThetaA: Double;
+  ThetaB: Double;
+  X1: Integer;
+  Y1: Integer;
+  X2: Integer;
+  Y2: Integer;
+begin
+  WidthPixels := ARight - ALeft;
+  HeightPixels := ABottom - ATop;
+  if (WidthPixels <= 1) or (HeightPixels <= 1) then
+  begin
+    DrawMarqueeRectangleOverlay(ACanvas, ALeft, ATop, ARight, ABottom);
+    Exit;
+  end;
+
+  CenterX := (ALeft + ARight - 1) * 0.5;
+  CenterY := (ATop + ABottom - 1) * 0.5;
+  RadiusX := Max(0.5, WidthPixels * 0.5);
+  RadiusY := Max(0.5, HeightPixels * 0.5);
+  StepCount := Max(24, Round(2.0 * Pi * Max(RadiusX, RadiusY)));
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+
+  for StepIndex := 0 to StepCount - 1 do
+  begin
+    if not MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+      Continue;
+    if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+      ACanvas.Pen.Color := clBlack
+    else
+      ACanvas.Pen.Color := clWhite;
+
+    ThetaA := 2.0 * Pi * StepIndex / StepCount;
+    ThetaB := 2.0 * Pi * (StepIndex + 1) / StepCount;
+    X1 := Round(CenterX + Cos(ThetaA) * RadiusX);
+    Y1 := Round(CenterY + Sin(ThetaA) * RadiusY);
+    X2 := Round(CenterX + Cos(ThetaB) * RadiusX);
+    Y2 := Round(CenterY + Sin(ThetaB) * RadiusY);
+    ACanvas.MoveTo(X1, Y1);
+    ACanvas.LineTo(X2, Y2);
+  end;
+end;
+
+procedure TMainForm.DrawMarqueePolylineOverlay(
+  ACanvas: TCanvas;
+  const APoints: array of TPoint;
+  AClosePath: Boolean
+);
+var
+  SegmentIndex: Integer;
+  SegmentCount: Integer;
+  StartPoint: TPoint;
+  EndPoint: TPoint;
+  StepCount: Integer;
+  StepInSegment: Integer;
+  StepIndex: Integer;
+  X1: Integer;
+  Y1: Integer;
+  X2: Integer;
+  Y2: Integer;
+begin
+  if Length(APoints) < 2 then
+    Exit;
+
+  ACanvas.Brush.Style := bsClear;
+  ACanvas.Pen.Style := psSolid;
+  ACanvas.Pen.Width := 1;
+  StepIndex := 0;
+
+  SegmentCount := High(APoints);
+  if AClosePath then
+    Inc(SegmentCount);
+
+  for SegmentIndex := 0 to SegmentCount - 1 do
+  begin
+    StartPoint := APoints[SegmentIndex mod Length(APoints)];
+    EndPoint := APoints[(SegmentIndex + 1) mod Length(APoints)];
+    StepCount := Max(
+      1,
+      Max(Abs(EndPoint.X - StartPoint.X), Abs(EndPoint.Y - StartPoint.Y))
+    );
+    for StepInSegment := 0 to StepCount - 1 do
+    begin
+      if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
+      begin
+        if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
+          ACanvas.Pen.Color := clBlack
+        else
+          ACanvas.Pen.Color := clWhite;
+        X1 := Round((StartPoint.X + (EndPoint.X - StartPoint.X) * StepInSegment / StepCount + 0.5) * FZoomScale);
+        Y1 := Round((StartPoint.Y + (EndPoint.Y - StartPoint.Y) * StepInSegment / StepCount + 0.5) * FZoomScale);
+        X2 := Round((StartPoint.X + (EndPoint.X - StartPoint.X) * (StepInSegment + 1) / StepCount + 0.5) * FZoomScale);
+        Y2 := Round((StartPoint.Y + (EndPoint.Y - StartPoint.Y) * (StepInSegment + 1) / StepCount + 0.5) * FZoomScale);
+        ACanvas.MoveTo(X1, Y1);
+        ACanvas.LineTo(X2, Y2);
+      end;
+      Inc(StepIndex);
+    end;
+  end;
+end;
+
 procedure TMainForm.DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
 var
   LeftX: Integer;
@@ -4915,10 +5535,6 @@ var
   CenterX: Integer;
   CenterY: Integer;
   CrossHalf: Integer;
-  InnerLeftX: Integer;
-  InnerTopY: Integer;
-  InnerRightX: Integer;
-  InnerBottomY: Integer;
 begin
   if ARadius <= 0 then
   begin
@@ -4940,27 +5556,10 @@ begin
   if BottomY <= TopY then
     BottomY := TopY + 1;
 
-  ACanvas.Brush.Style := bsClear;
-  ACanvas.Pen.Style := psSolid;
-  ACanvas.Pen.Width := 1;
-  ACanvas.Pen.Color := clBlack;
   if ARadius <= 0 then
-    ACanvas.Rectangle(LeftX, TopY, RightX, BottomY)
+    DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY)
   else
-    ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
-
-  InnerLeftX := LeftX + 1;
-  InnerTopY := TopY + 1;
-  InnerRightX := RightX - 1;
-  InnerBottomY := BottomY - 1;
-  if (InnerRightX > InnerLeftX) and (InnerBottomY > InnerTopY) then
-  begin
-    ACanvas.Pen.Color := clWhite;
-    if ARadius <= 0 then
-      ACanvas.Rectangle(InnerLeftX, InnerTopY, InnerRightX, InnerBottomY)
-    else
-      ACanvas.Ellipse(InnerLeftX, InnerTopY, InnerRightX, InnerBottomY);
-  end;
+    DrawMarqueeEllipseOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
 
   CenterX := Round((APoint.X + 0.5) * FZoomScale);
   CenterY := Round((APoint.Y + 0.5) * FZoomScale);
@@ -5234,6 +5833,8 @@ begin
     end;
   end;
 
+  DrawSelectionMarqueeOverlay(ACanvas);
+
   if (FCurrentTool = tkLine) and FLineBezierMode and FLinePathOpen and (not FLineCurvePending) and
      (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) then
   begin
@@ -5374,11 +5975,7 @@ begin
           BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
           if FCurrentTool = tkSelectRect then
-          begin
-            ACanvas.Pen.Style := psDash;
-            ACanvas.Pen.Color := clWhite;
-            ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
-          end;
+            DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
         end;
       tkCrop:
         begin
@@ -5471,12 +6068,7 @@ begin
           BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
           ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           if FCurrentTool = tkSelectEllipse then
-          begin
-            { Keep marquee preview style consistent across rectangle/ellipse/lasso. }
-            ACanvas.Pen.Style := psDash;
-            ACanvas.Pen.Color := clWhite;
-            ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
-          end;
+            DrawMarqueeEllipseOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
         end;
       tkSelectLasso, tkFreeformShape:
         if Length(FLassoPoints) > 1 then
@@ -5511,19 +6103,7 @@ begin
               Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
             );
           if FCurrentTool = tkSelectLasso then
-          begin
-            ACanvas.Pen.Style := psDash;
-            ACanvas.Pen.Color := clWhite;
-            ACanvas.MoveTo(
-              Round((FLassoPoints[0].X + 0.5) * FZoomScale),
-              Round((FLassoPoints[0].Y + 0.5) * FZoomScale)
-            );
-            for PointIndex := 1 to High(FLassoPoints) do
-              ACanvas.LineTo(
-                Round((FLassoPoints[PointIndex].X + 0.5) * FZoomScale),
-                Round((FLassoPoints[PointIndex].Y + 0.5) * FZoomScale)
-              );
-          end;
+            DrawMarqueePolylineOverlay(ACanvas, FLassoPoints, True);
           if (FCurrentTool = tkFreeformShape) and (Length(FLassoPoints) > 2) then
             ACanvas.LineTo(
               Round((FLassoPoints[0].X + 0.5) * FZoomScale),
@@ -7033,6 +7613,7 @@ end;
 function TMainForm.DisplayPixelForTest(X, Y: Integer): TRGBA32;
 var
   DisplaySurface: TRasterSurface;
+  OverlayColor: TRGBA32;
 begin
   Result := TransparentColor;
   if not Assigned(FDocument) then
@@ -7041,6 +7622,8 @@ begin
   if not Assigned(DisplaySurface) or not DisplaySurface.InBounds(X, Y) then
     Exit;
   Result := DisplaySurface[X, Y];
+  if TrySelectionMarqueePixelColor(X, Y, OverlayColor) then
+    Result := OverlayColor;
 end;
 
 procedure TMainForm.UpdateZoomControls;
@@ -8473,7 +9056,8 @@ begin
                 FRecolorPreserveValue,
                 PaintSelection,
                 FRecolorBlendMode,
-                FRecolorContiguous
+                FRecolorContiguous,
+                FRecolorStrokeSnapshot
               );
             end;
           end;
@@ -10849,11 +11433,65 @@ begin
     ActualSizeClick(Sender);
 end;
 
+function TMainForm.ShouldAnimateMarqueeNow: Boolean;
+var
+  PointerInCanvas: Boolean;
+  HasSelectionMarquee: Boolean;
+begin
+  PointerInCanvas := Assigned(FDocument) and
+    (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) and
+    (FLastImagePoint.X < FDocument.Width) and (FLastImagePoint.Y < FDocument.Height);
+  HasSelectionMarquee := Assigned(FDocument) and FDocument.HasSelection;
+  Result := ShouldAnimateMarqueeOverlay(
+    FCurrentTool,
+    HasSelectionMarquee,
+    FCloneStampSampled,
+    PointerInCanvas
+  );
+end;
+
+procedure TMainForm.UpdateMarqueeAnimationState;
+var
+  ShouldAnimate: Boolean;
+begin
+  if not Assigned(FMarqueeTimer) then
+    Exit;
+  ShouldAnimate := ShouldAnimateMarqueeNow;
+  if not ShouldAnimate then
+    FMarqueeLastTickMS := 0;
+  if FMarqueeTimer.Enabled <> ShouldAnimate then
+    FMarqueeTimer.Enabled := ShouldAnimate;
+end;
+
+procedure TMainForm.MarqueeTimerTick(Sender: TObject);
+var
+  PhaseStep: Integer;
+const
+  { Half-speed tuning: keep frame cadence, reduce phase stride. }
+  MarqueePhaseAdvancePerTick = 1;
+begin
+  if not Assigned(FPaintBox) then
+    Exit;
+  if not ShouldAnimateMarqueeNow then
+  begin
+    if Assigned(FMarqueeTimer) then
+      FMarqueeTimer.Enabled := False;
+    FMarqueeLastTickMS := 0;
+    Exit;
+  end;
+  FMarqueeLastTickMS := GetTickCount64;
+  for PhaseStep := 1 to MarqueePhaseAdvancePerTick do
+    FMarqueeDashPhase := NextMarqueePhase(FMarqueeDashPhase);
+  FPaintBox.Invalidate;
+end;
+
 procedure TMainForm.AppIdle(Sender: TObject; var Done: Boolean);
 var
   ScrollPosition: TPoint;
 begin
-  Done := True;
+  { Keep idle loop event-driven; marquee uses a dedicated timer so animation
+    remains smooth even without pointer movement. }
+  Done := not FDeferredLayoutPass;
   if not Assigned(FCanvasHost) then
     Exit;
 
@@ -10901,6 +11539,8 @@ begin
     FPForceAquaAppearance(Pointer(Handle));
     FAquaAppearanceApplied := True;
   end;
+
+  UpdateMarqueeAnimationState;
 
   ScrollPosition := Point(
     FCanvasHost.HorzScrollBar.Position,
@@ -11722,6 +12362,12 @@ begin
   PaintBoxMouseUp(nil, Button, Shift, X, Y);
 end;
 
+procedure TMainForm.SimulateMagnifyGestureForTest(AMagnification: Double;
+  ALocationX, ALocationY: Double);
+begin
+  FPMagnifyCallbackProc(Self, AMagnification, ALocationX, ALocationY);
+end;
+
 procedure TMainForm.SimulateToolButtonSwitch(ATool: TToolKind);
 var
   SenderComponent: TComponent;
@@ -11841,6 +12487,11 @@ begin
     RefreshTabCardVisuals(FActiveTabIndex);
     RefreshAuxiliaryImageViews(False);
     RefreshHistoryPanel;
+  end;
+  if FStrokeTool = tkRecolor then
+  begin
+    FRecolorStrokeSourceValid := False;
+    FreeAndNil(FRecolorStrokeSnapshot);
   end;
 end;
 
@@ -12070,6 +12721,8 @@ begin
       end;
     tkRecolor:
       begin
+        FreeAndNil(FRecolorStrokeSnapshot);
+        FRecolorStrokeSnapshot := FDocument.ActiveLayer.Surface.Clone;
         FRecolorStrokeSourceValid := False;
         case FRecolorSamplingMode of
           rsmOnce:
@@ -12157,6 +12810,7 @@ var
   ButtonStillDown: Boolean;
   PannedHorizontal: Integer;
   PannedVertical: Integer;
+  TickNow: QWord;
 begin
   ImagePoint := CanvasToImage(X, Y);
   DeltaX := ImagePoint.X - FLastImagePoint.X;
@@ -12282,7 +12936,22 @@ begin
        ((FCurrentTool = tkLine) and FLineBezierMode and (FLineCurvePending or FLinePathOpen))
      ) then
     FPaintBox.Invalidate;
-  RefreshStatus(ImagePoint);
+  if FPointerDown then
+  begin
+    TickNow := GetTickCount64;
+    { Throttle drag-time status relayout to reduce high-frequency UI churn
+      on large canvases / older Apple Silicon machines. }
+    if (FStatusDragLastUpdateMS = 0) or (TickNow - FStatusDragLastUpdateMS >= 33) then
+    begin
+      FStatusDragLastUpdateMS := TickNow;
+      RefreshStatus(ImagePoint);
+    end;
+  end
+  else
+  begin
+    FStatusDragLastUpdateMS := 0;
+    RefreshStatus(ImagePoint);
+  end;
 end;
 
 procedure TMainForm.PaintBoxMouseUp(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -12300,7 +12969,10 @@ begin
     DeactivateTempPan;
   FPointerDown := False;
   if FCurrentTool = tkRecolor then
+  begin
     FRecolorStrokeSourceValid := False;
+    FreeAndNil(FRecolorStrokeSnapshot);
+  end;
   if Assigned(FPaintBox) then
     FPaintBox.MouseCapture := False;
   { Finalise stroke-based region history for painting tools }
@@ -12487,6 +13159,7 @@ begin
     RefreshTabCardVisuals(FActiveTabIndex);
     RefreshAuxiliaryImageViews(True);
   end;
+  FStatusDragLastUpdateMS := 0;
   RefreshStatus(ImagePoint);
 end;
 
@@ -13437,6 +14110,7 @@ begin
   FCurrentFileName := AFileName;
   FDirty := ADirty;
 
+  InvalidateSelectionMarqueeCache;
   InvalidatePreparedBitmap;
   RefreshTabStrip;
   UpdateCaption;
@@ -13463,9 +14137,12 @@ begin
   FreeAndNil(FCloneStampSnapshot);
   FCloneStampSampled := False;
   FCloneAlignedOffsetValid := False;
+  FreeAndNil(FRecolorStrokeSnapshot);
+  FRecolorStrokeSourceValid := False;
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
 
+  InvalidateSelectionMarqueeCache;
   InvalidatePreparedBitmap;
   FLastImagePoint := Point(-1, -1);
   FPointerDown := False;

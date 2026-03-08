@@ -4,6 +4,36 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-08 (release preflight: marquee half-speed + drag-status throttle + min-macOS declaration sync)
+- Full CI verification after reducing marquee phase stride (`2 -> 1`), adding drag-time status refresh throttling in `PaintBoxMouseMove`, and syncing min-macOS declaration into `Info.plist`/native compile flags via `scripts/common.sh`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `371` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (marquee continuous-animation regression verification)
+- Full CI verification after fixing the regression where marching-ants only advanced during pointer movement by moving phase driving from `AppIdle` to a dedicated `TTimer` (`18ms`, 2-step phase advance) and keeping idle as state-sync only: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `371` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (marquee motion/style tuning verification)
+- Full CI verification after switching marquee contract from sparse gap-dash to continuous alternating marching-ants segments, increasing effective motion speed via `90ms` tick + 2-step phase advance, and updating helper/pipeline overlay assertions for new visual contract: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `371` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (selection marquee parity follow-up: lasso + magic wand)
+- Full CI verification after extending marquee animation policy to include `tkMagicWand`, switching wand hover overlay to marquee style, closing lasso preview marquee path, and adding lasso/wand selection-overlay regressions in `pipeline_integration_tests`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `371` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
+## 2026-03-08 (A6 closure + recolor/clone marquee hardening verification)
+- Full CI verification after adding marquee-helper extraction/tests, animated marquee overlay routing for selection + clone cursor paths, recolor immutable-stroke sampling path (`FRecolorStrokeSnapshot` + `ASourceSurface`), contiguous recolor large-region regression, and pinch-gesture zoom regression: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `369` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-08 (public-pack staging verification: release + extracted library smoke builds)
 - Release build verification before packaging: `bash ./scripts/build-release.sh`
 - Result: passed; refreshed `dist/release/flatpaint` and `dist/FlatPaint.app`.

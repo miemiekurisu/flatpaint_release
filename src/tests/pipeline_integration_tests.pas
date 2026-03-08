@@ -28,6 +28,8 @@ type
     procedure BrushStrokeModifiesSurfacePixels;
     procedure EraserStrokeModifiesSurfacePixels;
     procedure SelectionOverlayUsesDashedBoundaryPattern;
+    procedure LassoSelectionOverlayUsesDashedBoundaryPattern;
+    procedure MagicWandSelectionOverlayUsesDashedBoundaryPattern;
     procedure DrawingWithMoveChangesPixels;
     procedure LineDragCommitsPixels;
     procedure LineDashedStyleCommitsVisibleGapPattern;
@@ -39,6 +41,7 @@ type
     procedure RecolorToolRespectsSelectionScopeAndUndoRedo;
     procedure RecolorOnceSamplingKeepsInitialSourceAcrossDrag;
     procedure RecolorContinuousSamplingResamplesAcrossDrag;
+    procedure RecolorContiguousDragKeepsApplyingAcrossLargeFlatRegion;
 
     { History pipeline }
     procedure MouseUpAfterPencilStrokePushesHistory;
@@ -62,6 +65,7 @@ type
     procedure SpaceKeyActivatesTempPan;
     procedure SpaceKeyUpDeactivatesTempPan;
     procedure ExplicitToolPropertyChangeClearsTempPanFlag;
+    procedure PinchGestureAdjustsZoomScale;
 
     { Render revision tracking }
     procedure DrawingBumpsRenderRevision;
@@ -188,7 +192,68 @@ begin
 
     AssertTrue('selection dash-on segment should render an outline pixel',
       RGBAEqual(DashOnPixel, RGBA(0, 0, 0, 255)));
-    AssertTrue('selection dash-off segment should leave the base pixel visible',
+    AssertTrue('selection light ant segment should render white for contrast',
+      RGBAEqual(DashOffPixel, RGBA(255, 255, 255, 255)));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.LassoSelectionOverlayUsesDashedBoundaryPattern;
+var
+  F: TMainForm;
+  LassoPoints: array of TPoint;
+  DashOnPixel: TRGBA32;
+  DashOffPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkSelectLasso);
+  try
+    SetLength(LassoPoints, 4);
+    LassoPoints[0] := Point(10, 10);
+    LassoPoints[1] := Point(20, 10);
+    LassoPoints[2] := Point(18, 18);
+    LassoPoints[3] := Point(10, 20);
+    F.TestDocument.SelectLasso(LassoPoints, scReplace);
+
+    DashOnPixel := F.DisplayPixelForTest(12, 10);
+    DashOffPixel := F.DisplayPixelForTest(14, 10);
+
+    AssertTrue('lasso selection dash-on segment should render an outline pixel',
+      RGBAEqual(DashOnPixel, RGBA(0, 0, 0, 255)));
+    AssertTrue('lasso selection light ant segment should render white for contrast',
+      RGBAEqual(DashOffPixel, RGBA(255, 255, 255, 255)));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.MagicWandSelectionOverlayUsesDashedBoundaryPattern;
+var
+  F: TMainForm;
+  X: Integer;
+  Y: Integer;
+  RegionColor: TRGBA32;
+  DashOnPixel: TRGBA32;
+  DashOffPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkMagicWand);
+  try
+    RegionColor := RGBA(210, 50, 50, 255);
+    F.TestDocument.ActiveLayer.Surface.Clear(RGBA(255, 255, 255, 255));
+    for Y := 12 to 19 do
+      for X := 12 to 19 do
+        F.TestDocument.ActiveLayer.Surface[X, Y] := RegionColor;
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 15, 15);
+    AssertTrue('magic wand should create selection for sampled region',
+      F.TestDocument.HasSelection);
+
+    DashOnPixel := F.DisplayPixelForTest(14, 12);
+    DashOffPixel := F.DisplayPixelForTest(16, 12);
+
+    AssertTrue('magic wand selection dash-on segment should render an outline pixel',
+      RGBAEqual(DashOnPixel, RGBA(0, 0, 0, 255)));
+    AssertTrue('magic wand selection light ant segment should render white for contrast',
       RGBAEqual(DashOffPixel, RGBA(255, 255, 255, 255)));
   finally
     F.Destroy;
@@ -511,6 +576,42 @@ begin
       RGBAEqual(F.TestDocument.ActiveLayer.Surface[10, 20], TargetColor));
     AssertTrue('continuous sampling should resample and recolor second family',
       RGBAEqual(F.TestDocument.ActiveLayer.Surface[40, 20], TargetColor));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.RecolorContiguousDragKeepsApplyingAcrossLargeFlatRegion;
+var
+  F: TMainForm;
+  SourceColor: TRGBA32;
+  TargetColor: TRGBA32;
+  SampleX: Integer;
+begin
+  F := CreateTestForm(tkRecolor);
+  try
+    SourceColor := RGBA(200, 40, 40, 255);
+    TargetColor := RGBA(30, 200, 90, 255);
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    for SampleX := 8 to 56 do
+      F.TestDocument.ActiveLayer.Surface[SampleX, 20] := SourceColor;
+
+    F.SetPrimaryColorForTest(TargetColor);
+    F.SetRecolorOptionsForTest(
+      rsmOnce,
+      rbmReplaceRGBCompat,
+      0,
+      False,
+      True
+    );
+    F.SetBrushSizeForTest(5);
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 20);
+    F.SimulateMouseMove([ssLeft], 50, 20);
+    F.SimulateMouseUp(mbLeft, [], 50, 20);
+
+    AssertTrue('contiguous recolor drag should still recolor far pixels in same flat region',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[45, 20], TargetColor));
   finally
     F.Destroy;
   end;
@@ -880,6 +981,28 @@ begin
     AssertTrue('StopTempPan should restore previous tool (pencil)',
       F.CurrentToolForTest = tkPencil);
     AssertFalse('temp pan no longer active', F.TempToolActiveForTest);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.PinchGestureAdjustsZoomScale;
+var
+  F: TMainForm;
+  StartZoom: Double;
+  ZoomAfterIn: Double;
+begin
+  F := CreateTestForm(tkPencil);
+  try
+    StartZoom := F.ZoomScaleForTest;
+    F.SimulateMagnifyGestureForTest(0.25, 100.0, 100.0);
+    ZoomAfterIn := F.ZoomScaleForTest;
+    AssertTrue('positive pinch magnification should zoom in',
+      ZoomAfterIn > StartZoom);
+
+    F.SimulateMagnifyGestureForTest(-0.20, 100.0, 100.0);
+    AssertTrue('negative pinch magnification should zoom out',
+      F.ZoomScaleForTest < ZoomAfterIn);
   finally
     F.Destroy;
   end;

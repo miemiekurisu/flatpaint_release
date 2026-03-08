@@ -4,6 +4,170 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (release preflight: marquee half-speed + drag responsiveness + min-macOS declaration sync)
+
+### Changes
+
+1. **Marquee speed tuned down to requested half-speed**:
+   - kept timer cadence smooth (`18ms`) and reduced phase stride from `2` to `1`.
+   - preserves fluid motion while slowing ant travel.
+
+2. **Drag-time responsiveness guard for slower machines**:
+   - `PaintBoxMouseMove` now throttles status-bar refresh/reflow to ~30 FPS while pointer is down (`33ms` gate).
+   - keeps final mouse-up status exact while reducing drag-loop UI churn on large canvases / older Apple Silicon.
+
+3. **Compatibility declaration consistency hardening**:
+   - centralized minimum macOS declaration as `APP_MIN_MACOS` in `scripts/common.sh`.
+   - native module compile flags now consume the same value.
+   - `Info.plist` now explicitly writes `LSMinimumSystemVersion` to match binary deployment target.
+   - release feature summary now states `macOS 11.0+`.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `371` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-08 (marquee continuous-animation regression fix: idle -> timer driver)
+
+### Changes
+
+1. **Fixed root cause of “ants only move when mouse moves” regression**:
+   - prior implementation advanced marquee phase in `AppIdle` while `Done := True`, which does not guarantee continuous idle callbacks when no input events arrive.
+   - this caused animation to appear event-driven (mouse movement) instead of continuously time-driven.
+
+2. **Moved marquee phase advance to a dedicated `TTimer`**:
+   - added `FMarqueeTimer` (`18ms`) and `MarqueeTimerTick`.
+   - each timer tick advances marquee phase by `2` steps and invalidates paintbox overlay.
+   - ensures continuous marching-ants motion even when cursor is stationary.
+
+3. **Kept low-resource architecture intact**:
+   - retained cached selection-boundary overlay model.
+   - `AppIdle` now only syncs whether marquee animation should be active (`UpdateMarqueeAnimationState`) instead of driving frame cadence.
+   - avoids high-CPU busy-idle loops while preserving smooth flow.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `371` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-08 (marquee smoothness architecture pass: overlay-only animation)
+
+### Changes
+
+1. **Removed marquee animation from full display-surface rebuild path**:
+   - selection ants are no longer animated by forcing `InvalidatePreparedBitmap` every tick.
+   - animation now invalidates only the paintbox overlay path, avoiding repeated full composite + bitmap copy work per marquee frame.
+
+2. **Introduced cached selection-boundary contour model for overlay drawing**:
+   - added cache lifecycle (`InvalidateSelectionMarqueeCache`, `EnsureSelectionMarqueeCache`, `RebuildSelectionMarqueeCache`).
+   - cache stores traced boundary contours + per-pixel marquee step mapping for test visibility parity.
+   - cache is invalidated on selection/document replacement routes and image-mutation sync routes.
+
+3. **Moved committed selection ants rendering to canvas overlay stage**:
+   - `PaintCanvasTo` now draws committed selection marquee via `DrawSelectionMarqueeOverlay` after base image render.
+   - this keeps ants crisp at zoom and decouples animation smoothness from base-scene recomposition.
+
+4. **Kept integration-test semantics stable**:
+   - `DisplayPixelForTest` now overlays cached marquee color (`TrySelectionMarqueePixelColor`) so existing dashed-boundary integration tests remain route-valid.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `371` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-08 (marquee motion/style tuning: faster + clearer without high repaint rate)
+
+### Changes
+
+1. **Marquee visual style aligned to mainstream editor behavior (Photoshop/GIMP/paint.net-style marching ants)**:
+   - switched from gap-based sparse dash to continuous alternating dark/light segments (1px continuous boundary, segment-length based alternation).
+   - this makes selection boundaries more legible on both light and mid-tone content.
+
+2. **Animation speed increased with low-risk cadence strategy**:
+   - instead of pushing very high frame frequency, idle cadence now uses moderate interval plus multi-step phase advance:
+     - tick interval: `90ms`
+     - phase advance per tick: `2`
+   - effective ant travel speed is about `2.4x` prior behavior, while repaint frequency rises only modestly.
+
+3. **Selection parity remains intact across requested routes**:
+   - rectangle/ellipse/lasso committed selection boundaries share the same ant style.
+   - magic wand hover/selection visuals stay on the same marquee system.
+
+4. **Tests updated for continuous-ant contract**:
+   - helper tests now assert continuous visibility and segment-based color alternation.
+   - pipeline assertions now validate light ant segments directly (instead of old “gap shows base pixel” expectation).
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `371` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-08 (selection marquee parity follow-up: lasso + magic wand)
+
+### Changes
+
+1. **Completed marquee-visual parity for user-requested selection tools**:
+   - `tkMagicWand` is now included in marquee animation policy (`FPMarqueeHelpers.ShouldAnimateMarqueeOverlay`) so wand hover/selection visuals share the same flowing cadence.
+   - Wand hover cursor in `mainform` now renders as an animated marquee rectangle (instead of static solid box).
+   - Lasso in-progress preview now uses a closed flowing marquee polyline (`DrawMarqueePolylineOverlay(..., True)`) for region readability.
+
+2. **Added regression coverage for the two explicitly requested paths**:
+   - `LassoSelectionOverlayUsesDashedBoundaryPattern`
+   - `MagicWandSelectionOverlayUsesDashedBoundaryPattern`
+   - Plus helper-policy assertion update for `tkMagicWand` marquee animation intent.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `371` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-08 (A6 closure pass + recolor/clone marquee hardening)
+
+### Changes
+
+1. **Closed A6 decomposition tail at mitigation threshold**:
+   - Added `src/app/fpmarqueehelpers.pas` to extract marquee dash math, phase progression, and overlay animation policy from `mainform`.
+   - Added `src/tests/fpmarqueehelpers_tests.pas` and wired it into `src/tests/flatpaint_tests.lpr`.
+   - `mainform` now uses helper-driven animated marquee phase in `AppIdle`, selection boundary rendering, and selection-preview overlays (rect/ellipse/lasso).
+
+2. **Recolor reliability/performance hardening for large connected regions**:
+   - `TRasterSurface.RecolorBrush` now accepts an immutable source surface for candidate sampling (`ASourceSurface`).
+   - Mainform recolor stroke now captures a per-stroke snapshot (`FRecolorStrokeSnapshot`) and passes it through apply/sample routes so contiguous recolor does not self-drift on already-updated pixels.
+   - Recolor brush inner loop now uses cached coverage checks (`BrushCoverageAt`) and avoids repeated full-distance work for interior pixels.
+
+3. **Clone stamp visual targeting improved to GIMP/PS-style clarity**:
+   - Source anchor overlay stays animated dashed marquee circle/rect.
+   - Destination cursor overlay for clone stamp now also uses animated dashed marquee circle for both point and radius cases.
+
+4. **Pinch-zoom regression guard added after architecture edits**:
+   - Added test hooks for simulated magnify gesture in `mainform`.
+   - Added integration test `PinchGestureAdjustsZoomScale` in `pipeline_integration_tests`.
+
+5. **Pipeline regression expansion for recolor residual issue**:
+   - Added `RecolorContiguousDragKeepsApplyingAcrossLargeFlatRegion` to ensure contiguous recolor drag keeps replacing across same connected color family without leaving stale original pixels.
+
+6. **Architecture docs synchronized for A6 closure state**:
+   - `docs/ARCHITECTURE_DEFECT_ASSESSMENT.md`
+   - `docs/ARCHITECTURE_MOD_PLAN_EVALUATION.md`
+   - `docs/ARCHITECTURE_RENOVATION_PLAN.md`
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `369` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
 ## 2026-03-08 (A6 decomposition-tail pass 3: native magnify callback de-globalization)
 
 ### Changes

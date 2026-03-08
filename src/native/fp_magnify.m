@@ -29,6 +29,23 @@ static FPMagnifyCallback gMagnifyCallback = NULL;
 static const void *kFPMagnifyContextKey = &kFPMagnifyContextKey;
 static const void *kFPMagnifySwizzledClassKey = &kFPMagnifySwizzledClassKey;
 
+static void *FPMagnifyContextForView(NSView *view, NSView **contextViewOut) {
+    NSView *cursor = view;
+    while (cursor) {
+        NSValue *ctxValue = objc_getAssociatedObject(cursor, kFPMagnifyContextKey);
+        if (ctxValue) {
+            void *context = [ctxValue pointerValue];
+            if (context) {
+                if (contextViewOut) *contextViewOut = cursor;
+                return context;
+            }
+        }
+        cursor = cursor.superview;
+    }
+    if (contextViewOut) *contextViewOut = nil;
+    return NULL;
+}
+
 /* ---------- category on NSView ---------- */
 
 @interface NSView (FPMagnify)
@@ -39,10 +56,12 @@ static const void *kFPMagnifySwizzledClassKey = &kFPMagnifySwizzledClassKey;
 
 - (void)fp_magnifyWithEvent:(NSEvent *)event {
     if (gMagnifyCallback) {
-        NSValue *ctxValue = objc_getAssociatedObject(self, kFPMagnifyContextKey);
-        void *context = [ctxValue pointerValue];
+        NSView *contextView = nil;
+        void *context = FPMagnifyContextForView(self, &contextView);
         if (!context) return;
-        NSPoint loc = [self convertPoint:[event locationInWindow] fromView:nil];
+        NSPoint loc = [(contextView ? contextView : self)
+            convertPoint:[event locationInWindow]
+                 fromView:nil];
         gMagnifyCallback(context, [event magnification], loc.x, loc.y);
     }
     /* Do NOT call the original — LCL's default impl is a no-op; calling it

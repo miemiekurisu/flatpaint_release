@@ -142,7 +142,8 @@ type
       PreserveValue: Boolean = False;
       ASelection: TSelectionMask = nil;
       Mode: TRecolorBlendMode = rbmReplaceRGBCompat;
-      ContiguousOnly: Boolean = False
+      ContiguousOnly: Boolean = False;
+      ASourceSurface: TRasterSurface = nil
     );
     procedure FillSelection(ASelection: TSelectionMask; const AColor: TRGBA32; Opacity: Byte = 255);
     procedure EraseSelection(ASelection: TSelectionMask);
@@ -3598,15 +3599,17 @@ procedure TRasterSurface.RecolorBrush(
   PreserveValue: Boolean;
   ASelection: TSelectionMask;
   Mode: TRecolorBlendMode;
-  ContiguousOnly: Boolean
+  ContiguousOnly: Boolean;
+  ASourceSurface: TRasterSurface
 );
 var
   BX, BY: Integer;
-  DistF: Double;
   RadiusF: Double;
+  RadiusSqFull: Integer;
+  RadiusSqOuter: Integer;
   BoundaryCov: Byte;
-  Pix: TRGBA32;
-  Straight: TRGBA32;
+  CurrentStraight: TRGBA32;
+  SampleStraight: TRGBA32;
   TargetPix: TRGBA32;
   DR, DG, DB: Integer;
   ColorDist: Integer;
@@ -3635,6 +3638,26 @@ var
   NeighborY: Integer;
   NeighborIndex: Integer;
   ConnectedReady: Boolean;
+  SampleSurface: TRasterSurface;
+
+  function BrushCoverageAt(AX, AY: Integer): Byte; inline;
+  var
+    DistSq: Integer;
+    Dist: Double;
+  begin
+    DistSq := Sqr(AX - X) + Sqr(AY - Y);
+    if DistSq > RadiusSqOuter then
+      Exit(0);
+    if DistSq <= RadiusSqFull then
+      Exit(255);
+    Dist := Sqrt(DistSq);
+    Result := SDFCoverageForBrush(RadiusF - Dist);
+  end;
+
+  function SampleStraightAt(AX, AY: Integer): TRGBA32; inline;
+  begin
+    Result := Unpremultiply(SampleSurface.FPixels[SampleSurface.IndexOf(AX, AY)]);
+  end;
 
   function BoundsIndex(AX, AY: Integer): Integer; inline;
   begin
@@ -3643,7 +3666,6 @@ var
 
   function IsRecolorCandidate(AX, AY: Integer): Boolean;
   var
-    LocalDist: Double;
     LocalBoundaryCov: Byte;
     LocalCoverage: Byte;
     LocalStraight: TRGBA32;
@@ -3654,8 +3676,7 @@ var
   begin
     if (AX < 0) or (AY < 0) or (AX >= FWidth) or (AY >= FHeight) then
       Exit(False);
-    LocalDist := Sqrt((AX - X) * (AX - X) + (AY - Y) * (AY - Y));
-    LocalBoundaryCov := SDFCoverageForBrush(RadiusF - LocalDist);
+    LocalBoundaryCov := BrushCoverageAt(AX, AY);
     if LocalBoundaryCov = 0 then
       Exit(False);
     if Assigned(ASelection) then
@@ -3664,7 +3685,7 @@ var
       if LocalCoverage = 0 then
         Exit(False);
     end;
-    LocalStraight := Unpremultiply(FPixels[IndexOf(AX, AY)]);
+    LocalStraight := SampleStraightAt(AX, AY);
     LocalDr := LocalStraight.R - SourceColor.R;
     LocalDg := LocalStraight.G - SourceColor.G;
     LocalDb := LocalStraight.B - SourceColor.B;
@@ -3672,7 +3693,18 @@ var
     Result := LocalColorDist <= Tolerance;
   end;
 begin
+  if Radius <= 0 then
+    Exit;
+
+  SampleSurface := Self;
+  if Assigned(ASourceSurface) and
+     (ASourceSurface.Width = FWidth) and
+     (ASourceSurface.Height = FHeight) then
+    SampleSurface := ASourceSurface;
+
   RadiusF := Radius + 0.5;
+  RadiusSqFull := Radius * Radius;
+  RadiusSqOuter := Sqr(Radius + 1);
 
   ConnectedReady := not ContiguousOnly;
   if ContiguousOnly then
@@ -3759,8 +3791,7 @@ begin
   for BY := Max(0, Y - Radius - 1) to Min(FHeight - 1, Y + Radius + 1) do
     for BX := Max(0, X - Radius - 1) to Min(FWidth - 1, X + Radius + 1) do
     begin
-      DistF := Sqrt((BX - X) * (BX - X) + (BY - Y) * (BY - Y));
-      BoundaryCov := SDFCoverageForBrush(RadiusF - DistF);
+      BoundaryCov := BrushCoverageAt(BX, BY);
       if BoundaryCov = 0 then
         Continue;
       if ContiguousOnly then
@@ -3780,48 +3811,46 @@ begin
         if EffectiveOpacity <= 0 then
           Continue;
       end;
-      Pix := FPixels[IndexOf(BX, BY)];
-      { Unpremultiply for correct color distance and HSV conversion. }
-      Straight := Unpremultiply(Pix);
-      DR := Straight.R - SourceColor.R;
-      DG := Straight.G - SourceColor.G;
-      DB := Straight.B - SourceColor.B;
+      SampleStraight := SampleStraightAt(BX, BY);
+      DR := SampleStraight.R - SourceColor.R;
+      DG := SampleStraight.G - SourceColor.G;
+      DB := SampleStraight.B - SourceColor.B;
       ColorDist := (Abs(DR) + Abs(DG) + Abs(DB)) div 3;
       if ColorDist <= Tolerance then
       begin
-        TargetPix := Straight;
+        TargetPix := SampleStraight;
         if PreserveValue then
         begin
-          RGBToHSV(Straight, IgnoreHue, IgnoreSat, PixelVal);
+          RGBToHSV(SampleStraight, IgnoreHue, IgnoreSat, PixelVal);
           RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
-          TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Straight.A);
+          TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, SampleStraight.A);
         end
         else
         begin
           case Mode of
             rbmColor:
               begin
-                RGBToHSV(Straight, IgnoreHue, IgnoreSat, PixelVal);
+                RGBToHSV(SampleStraight, IgnoreHue, IgnoreSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
-                TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, Straight.A);
+                TargetPix := HSVToRGBA(TargetHue, TargetSat, PixelVal, SampleStraight.A);
               end;
             rbmHue:
               begin
-                RGBToHSV(Straight, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(SampleStraight, IgnoreHue, PixelSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, IgnoreSat, IgnoreVal);
-                TargetPix := HSVToRGBA(TargetHue, PixelSat, PixelVal, Straight.A);
+                TargetPix := HSVToRGBA(TargetHue, PixelSat, PixelVal, SampleStraight.A);
               end;
             rbmSaturation:
               begin
-                RGBToHSV(Straight, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(SampleStraight, IgnoreHue, PixelSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, TargetSat, IgnoreVal);
-                TargetPix := HSVToRGBA(IgnoreHue, TargetSat, PixelVal, Straight.A);
+                TargetPix := HSVToRGBA(IgnoreHue, TargetSat, PixelVal, SampleStraight.A);
               end;
             rbmLuminosity:
               begin
-                RGBToHSV(Straight, IgnoreHue, PixelSat, PixelVal);
+                RGBToHSV(SampleStraight, IgnoreHue, PixelSat, PixelVal);
                 RGBToHSV(NewColor, TargetHue, TargetSat, TargetVal);
-                TargetPix := HSVToRGBA(IgnoreHue, PixelSat, TargetVal, Straight.A);
+                TargetPix := HSVToRGBA(IgnoreHue, PixelSat, TargetVal, SampleStraight.A);
               end;
           else
             TargetPix.R := NewColor.R;
@@ -3829,16 +3858,17 @@ begin
             TargetPix.B := NewColor.B;
           end;
         end;
+        CurrentStraight := Unpremultiply(FPixels[IndexOf(BX, BY)]);
         { Blend in straight space, then premultiply the result. }
         if EffectiveOpacity >= 255 then
-          Straight := TargetPix
+          CurrentStraight := TargetPix
         else
         begin
-          Straight.R := (Straight.R * (255 - EffectiveOpacity) + TargetPix.R * EffectiveOpacity + 127) div 255;
-          Straight.G := (Straight.G * (255 - EffectiveOpacity) + TargetPix.G * EffectiveOpacity + 127) div 255;
-          Straight.B := (Straight.B * (255 - EffectiveOpacity) + TargetPix.B * EffectiveOpacity + 127) div 255;
+          CurrentStraight.R := (CurrentStraight.R * (255 - EffectiveOpacity) + TargetPix.R * EffectiveOpacity + 127) div 255;
+          CurrentStraight.G := (CurrentStraight.G * (255 - EffectiveOpacity) + TargetPix.G * EffectiveOpacity + 127) div 255;
+          CurrentStraight.B := (CurrentStraight.B * (255 - EffectiveOpacity) + TargetPix.B * EffectiveOpacity + 127) div 255;
         end;
-        FPixels[IndexOf(BX, BY)] := Premultiply(Straight);
+        FPixels[IndexOf(BX, BY)] := Premultiply(CurrentStraight);
       end;
     end;
 end;

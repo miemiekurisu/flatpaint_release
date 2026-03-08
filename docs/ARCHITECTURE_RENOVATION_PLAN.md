@@ -160,7 +160,7 @@ Exit criteria:
 - `mainform.pas` complexity reduced without route regression.
 - Tool controllers independently unit-testable.
 
-### Current implementation status (2026-03-07 latest)
+### Current implementation status (2026-03-08 latest)
 - Phase 0: complete (baseline gates established).
 - Phase 1: partial (infrastructure introduced, now extended with core `MutationGuard` module).
 - Phase 2: complete (transactional move-pixels flow + `tool_transaction_tests` passing).
@@ -169,7 +169,7 @@ Exit criteria:
 - Phase 4.5: complete (layer offset metadata model + native persistence + XCF metadata preservation, with clone/full-snapshot/native-roundtrip/XCF regression coverage).
 - Phase 4.6: complete (offset-aware compositor/tool semantic activation landed, including local-space selection mapping in mutation routes and dedicated offset regression coverage in document/pipeline tests).
 - Phase 5: complete (stroke-start full-layer clone path replaced by incremental region capture, move-pixels history switched to dirty-rect + selection-aware snapshots, and both stroke/move-pixels routes now converge on the core `TRegionHistoryTransaction` service with regression coverage).
-- Phase 6: complete for top-risk tool/session routes (split into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with independent controller-suite coverage); decomposition-tail hardening continues via low-risk extraction of shared non-render orchestration policy into helper units with focused tests (tool-switch deselect/option-memory policy, blank-click deselect policy, temporary-pan transitions, tab-cycle policy), plus removal of process-global native pinch callback coupling (`GMainForm`) in favor of per-view callback context install/uninstall.
+- Phase 6: complete at mitigation threshold (top-risk tool/session routes are split into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController` with independent controller-suite coverage; shared non-render orchestration policies are extracted to helper units with focused tests; marquee animation policy/math is extracted to `FPMarqueeHelpers` with dedicated helper tests; process-global native pinch callback coupling (`GMainForm`) is removed in favor of per-view callback context install/uninstall).
 - A7 follow-up: complete (stored-selection lifecycle moved into core selection-copy routes with regression coverage, removing app-route underwiring).
 
 ## 6. Test renovation plan (to prevent repeat render breakage)

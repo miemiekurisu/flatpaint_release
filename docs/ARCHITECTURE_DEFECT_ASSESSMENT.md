@@ -18,16 +18,16 @@
   - **A3 (lock/editability invariants):** materially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive shape/fill/crop commit routes to prevent no-op undo noise, guard-coupled move-pixels controller commit/begin-session flow, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops; route-level UI-edge locked-layer blocking regression checks are additionally covered in `pipeline_integration_tests`.
   - **A4 (layer geometry semantics):** materially mitigated; metadata foundation plus runtime semantic activation are complete (offset-aware compositor + tool/local-selection mapping + offset-preserving XCF/native routes) with regression coverage.
   - **A5 (history capture cost):** materially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture, switching move-pixels commit to dirty-rect + selection-aware region snapshots, and converging stroke/move transaction routes on core `TRegionHistoryTransaction`.
-  - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests, plus ongoing extraction of shared non-render UI policy logic into helper units (`tool-switch deselect policy`, `tool-option switch memory policy`, `blank-click auto-deselect policy`, `temporary-pan state transitions`, `tab-cycle index policy`) with focused helper tests; native magnify callback routing has also moved from process-global `GMainForm` coupling to per-view context installation/uninstallation, reducing global callback/state coupling in the app shell.
+  - **A6 (mainform decomposition):** materially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests, extracting shared non-render UI policy logic into helper units (`tool-switch deselect policy`, `tool-option switch memory policy`, `blank-click auto-deselect policy`, `temporary-pan state transitions`, `tab-cycle index policy`), moving marquee animation policy/math into dedicated helpers (`FPMarqueeHelpers`) with focused helper tests, and removing process-global native magnify callback coupling (`GMainForm`) in favor of per-view context install/uninstall.
   - **A7 (stored-selection route closure):** materially mitigated by moving `StoreSelectionForPaste` into core selection-copy routes (`CopySelectionToSurface`/`CopyMergedToSurface`), eliminating app-route dependency.
-- Defects still treated as open architecture work in the active plan: **A6 (mainform orchestration coupling)**.
+- Defects still treated as open architecture work in the active plan: **none** (current architecture defect set A1-A7 is closed at mitigation threshold).
 
 ## Executive summary
 FlatPaint is functionally broad, and previously critical selection/edit-transaction architecture defects are materially mitigated.
-The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior; current highest-risk open architecture gap is residual high-coupling UI orchestration risk (A6), not unresolved P0 semantic correctness.
+The historically largest defect (`Move Selected Pixels` destructive drag behavior) has been mitigated by transactional edit-session behavior, and the previous highest-risk maintainability tail (A6) has now crossed the mitigation threshold with dedicated helper/controller extraction and regression coverage.
 
 Current architecture has reusable strengths (separate core units, region-history transaction service, mutation-guarded routes, active offset-aware layer semantics).
-The remaining release-grade architecture priority is maintainability decomposition and long-tail route hardening.
+Remaining work is now release-polish governance (continued helper-first extraction for new routes), not unresolved architecture defect debt in the tracked A1-A7 set.
 
 ## Critical defect list
 The sections below preserve the originally validated defect evidence snapshot for traceability.
@@ -97,7 +97,7 @@ Current status for each item is defined by the **Implementation delta** section 
 - User-visible risk:
   - Substantially reduced versus baseline; remaining risk is mainly future-route governance (new interactive tools should reuse the same transaction service rather than reintroduce ad-hoc history paths).
 
-### A6. Main form is a high-coupling orchestration monolith (partially mitigated, P2)
+### A6. Main form is a high-coupling orchestration monolith (materially mitigated, P2 historical)
 - Evidence:
   - `src/app/mainform.pas` remains a very large shell (~12k lines in current workspace audit).
   - Former global native magnify callback coupling through `GMainForm` has been removed; callback dispatch now uses per-view context passed through `FPMagnifyBridge` install/uninstall APIs.
@@ -105,10 +105,11 @@ Current status for each item is defined by the **Implementation delta** section 
     - `src/app/fptoolcontrollers.pas` (`TMovePixelsController`, `TStrokeHistoryController`, `TSelectionToolController`)
     - `src/tests/tool_controller_tests.pas` (independent controller regression coverage)
   - Additional non-render policy extraction now lives in `src/app/fpuihelpers.pas` and is covered in `src/tests/fpuihelpers_tests.pas` (tool-switch selection retention/deselect, tool-option switch memory persistence, blank-click auto-deselect policy, temporary pan state transitions, and tab-cycle index policy).
+  - Marquee animation policy/math is now extracted to `src/app/fpmarqueehelpers.pas` and covered in `src/tests/fpmarqueehelpers_tests.pas` (`NextMarqueePhase`, dash visibility/color policy, overlay animation policy).
 - Architectural problem:
-  - Tool-state coupling was reduced for top-risk flows, but rendering/IO/panel choreography and many command routes still live in one form class.
+  - `mainform` remains large, but high-risk mutable-tool orchestration and marquee/policy state logic now route through dedicated helper/controller seams with direct regression coverage.
 - User-visible risk:
-  - Regression risk is lower in extracted tool flows, but non-tool orchestration changes can still have broad blast radius.
+  - materially reduced versus baseline; residual risk is primarily future growth governance if new routes bypass helper/controller seams.
 
 ### A7. Selection store/paste flow was underwired at app layer (mitigated, P2)
 - Evidence:
@@ -181,3 +182,4 @@ Recommended practice:
 - Lock/editability checks are enforced centrally in core mutation services.
 - Layer offset metadata is first-class in document model and preserved by compatibility import paths.
 - Undo memory profile improves from full-layer-start snapshots to bounded transaction deltas for brush-like edits.
+- High-risk `mainform` orchestration routes are helper/controller-extracted and regression-locked (tool controllers, UI policy helpers, marquee animation helpers, and context-based native magnify callback routing).

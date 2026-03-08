@@ -13,6 +13,7 @@ RELEASE_BINARY="$RELEASE_DIR/flatpaint"
 APP_BUNDLE_IDENTIFIER="${FLATPAINT_BUNDLE_ID:-com.flatpaint.app}"
 APP_VERSION="${FLATPAINT_VERSION:-0.1.0}"
 APP_BUILD="${FLATPAINT_BUILD:-1}"
+APP_MIN_MACOS="${FLATPAINT_MIN_MACOS:-11.0}"
 
 log() {
   printf '==> %s\n' "$*"
@@ -127,6 +128,8 @@ write_info_plist() {
   <string>${APP_VERSION}</string>
   <key>CFBundleVersion</key>
   <string>${APP_BUILD}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>${APP_MIN_MACOS}</string>
   <key>CSResourcesFileMapped</key>
   <true/>
   <key>CFBundleDocumentTypes</key>
@@ -204,6 +207,7 @@ compile_native_modules() {
   local arch
   local output_dir
   local src_dir="$ROOT_DIR/src/native"
+  local min_macos="$APP_MIN_MACOS"
 
   # Determine target architecture
   arch="$(uname -m)"
@@ -217,7 +221,7 @@ compile_native_modules() {
     log "Compiling native module: fp_magnify.m"
     clang -c -O2 \
       -arch "$(uname -m)" \
-      -mmacosx-version-min=11.0 \
+      -mmacosx-version-min="$min_macos" \
       -fobjc-arc \
       -framework Cocoa \
       -o "$output_dir/fp_magnify.o" \
@@ -228,7 +232,7 @@ compile_native_modules() {
     log "Compiling native module: fp_alpha.m"
     clang -c -O2 \
       -arch "$(uname -m)" \
-      -mmacosx-version-min=11.0 \
+      -mmacosx-version-min="$min_macos" \
       -fobjc-arc \
       -framework Cocoa \
       -o "$output_dir/fp_alpha.o" \
@@ -239,7 +243,7 @@ compile_native_modules() {
     log "Compiling native module: fp_listbg.m"
     clang -c -O2 \
       -arch "$(uname -m)" \
-      -mmacosx-version-min=11.0 \
+      -mmacosx-version-min="$min_macos" \
       -fobjc-arc \
       -framework Cocoa \
       -o "$output_dir/fp_listbg.o" \
@@ -250,7 +254,7 @@ compile_native_modules() {
     log "Compiling native module: fp_appearance.m"
     clang -c -O2 \
       -arch "$(uname -m)" \
-      -mmacosx-version-min=11.0 \
+      -mmacosx-version-min="$min_macos" \
       -fobjc-arc \
       -framework Cocoa \
       -o "$output_dir/fp_appearance.o" \
@@ -261,7 +265,7 @@ compile_native_modules() {
     log "Compiling native module: fp_scrollview.m"
     clang -c -O2 \
       -arch "$(uname -m)" \
-      -mmacosx-version-min=11.0 \
+      -mmacosx-version-min="$min_macos" \
       -fobjc-arc \
       -framework Cocoa \
       -o "$output_dir/fp_scrollview.o" \
@@ -272,7 +276,7 @@ compile_native_modules() {
     log "Compiling native module: fp_cgrender.m"
     clang -c -O2 \
       -arch "$(uname -m)" \
-      -mmacosx-version-min=11.0 \
+      -mmacosx-version-min="$min_macos" \
       -fobjc-arc \
       -framework Cocoa -framework CoreGraphics \
       -o "$output_dir/fp_cgrender.o" \

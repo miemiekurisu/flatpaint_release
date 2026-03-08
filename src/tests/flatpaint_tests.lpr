@@ -23,6 +23,7 @@ uses
   fpnoisehelpers_tests, fphuesaturationhelpers_tests, fplevelshelpers_tests,
   fpbrightnesscontrasthelpers_tests, fpresizehelpers_tests, fpviewporthelpers_tests,
   fpstatushelpers_tests, fpfilemenuhelpers_tests, fpmagnifierhelpers_tests,
+  fpmarqueehelpers_tests,
   pipeline_integration_tests,
   fpcolor_premul_tests, fpclipboardhelpers_tests, fpaboutcontent_tests,
   fpcolorwheelhelpers_tests, fpmenuhelpers_tests;

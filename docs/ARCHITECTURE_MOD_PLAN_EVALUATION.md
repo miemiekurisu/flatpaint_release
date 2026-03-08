@@ -12,9 +12,9 @@
 2. Confirmed each cited line still matches described behavior.
 3. Ran assertion checks for ambiguous claims.
 
-Conclusion: defects A1/A2/A3/A4/A5/A7 moved to mitigated or materially mitigated status; A6 remains the primary partial-mitigation maintainability tail.
+Conclusion: defects A1/A2/A3/A4/A5/A6/A7 are all now at mitigated/materially mitigated status; no open high-priority architecture defect remains in this tracked set.
 
-## Implementation delta (2026-03-07 latest)
+## Implementation delta (2026-03-08 latest)
 - This evaluation section above is preserved as the pre-renovation baseline verdict.
 - Current code status after latest implementation pass:
   - **A1**: mitigated by transactional move-pixels workflow (`tool_transaction_tests` green).
@@ -22,10 +22,9 @@ Conclusion: defects A1/A2/A3/A4/A5/A7 moved to mitigated or materially mitigated
   - **A3**: materially mitigated by core `FPMutationGuard`, additional guarded core APIs for formerly UI-direct mutations (active-layer paste/pixelate-rect/rotate routes), guard-coupled history begin APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive fill/shape/crop routes to prevent no-op history entries, move-pixels controller commit/begin-session migration to guarded core mutation APIs, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
   - **A4**: materially mitigated; metadata foundation and runtime offset semantics are active (offset-aware compositor and tool mapping, offset-preserving native/XCF routes, and focused regression coverage).
   - **A5**: materially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture, moving move-pixels commit history to dirty-rect + selection-aware region snapshots, and converging both routes on core `TRegionHistoryTransaction` services.
-  - **A6**: partially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with dedicated `tool_controller_tests`; additional non-render orchestration policy is now incrementally moved into `FPUIHelpers` (tool-switch selection retention/deselect, tool-option switch memory persistence, blank-click auto-deselect policy, temporary-pan state transitions, tab-cycle index policy) with focused helper tests, and native pinch callback wiring no longer depends on a process-global `GMainForm` pointer (per-view context install/uninstall via bridge API).
+  - **A6**: materially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController` (with dedicated `tool_controller_tests`), converging shared non-render orchestration policy into `FPUIHelpers` (tool-switch selection retention/deselect, tool-option switch memory persistence, blank-click auto-deselect policy, temporary-pan transitions, tab-cycle index policy), extracting marquee animation policy/math into `FPMarqueeHelpers` (with dedicated helper tests), and removing process-global native pinch callback coupling (`GMainForm`) in favor of per-view bridge context install/uninstall.
   - **A7**: materially mitigated by centralizing selection-store lifecycle in core copy routes (`CopySelectionToSurface` / `CopyMergedToSurface`) with route-level regression tests.
-- Remaining priority architecture work still aligns with the plan sequence:
-  - **A6 decomposition tail** (non-tool orchestration coupling reduction + route-level coverage expansion).
+- Remaining priority work is now release-polish governance and incremental helper-first extraction for newly added routes, not unresolved architecture defect debt.
 
 ### Additional assertion checks
 - `StoreSelectionForPaste()` usage:
