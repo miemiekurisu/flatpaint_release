@@ -104,7 +104,7 @@ These are explicit product decisions and not treated as parity regressions.
 
 ## Current implementation snapshot (as of 2026-03-08)
 - App build: passes via `bash ./scripts/build.sh`.
-- Regression run: `351` tests executed, `0` failures (regression-clean).
+- Regression run: `363` tests executed, `0` failures (regression-clean).
 - Product status: functionally broad and test-clean; architecture renovation now includes transactional move-pixels, coverage-aware selection pipeline, completed layer-offset runtime semantics activation (compositor and tool math are now offset-driven), completed Phase-5 history optimization with unified core region-transaction routing (stroke + move-pixels, including selection-aware undo/redo snapshots), guard-coupled mutation routes across menu/controller/interactive/high-frequency apply paths, recolor R2 sampling/mode behavior with route-level regression coverage (including contiguous-mode connectivity control), system-clipboard edit bridge, ruler-aware floating-palette bounds, app-menu About route with compile-time embedded About content, and post-premul boundary correctness fixes across merge/move/clone/picker sampling routes plus crop-offset rebasing regression closure with dedicated coverage. Zoom route semantics are aligned to Photoshop/GIMP global-canvas zoom behavior (no dedicated local loupe overlay). Export options now cover writer-backed controls across JPEG/PNG/BMP/TIFF/PCX/PNM/XPM with live preview (including PNM full-width 16-bit control); BMP paletted/RLE requests are currently safety-clamped to true-color output in the RGBA save path. Remaining UAT risk is concentrated in parity/polish depth, not unresolved P0/P1 architecture debt.
 
 ## UAT gate

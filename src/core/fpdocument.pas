@@ -1144,6 +1144,8 @@ var
   SelectionInCanvasSpace: TSelectionMask;
   SelectX: Integer;
   SelectY: Integer;
+  Coverage: Byte;
+  ExistingCoverage: Byte;
   SamplePoint: TPoint;
   SampleSurface: TRasterSurface;
   OwnsSampleSurface: Boolean;
@@ -1195,11 +1197,22 @@ begin
 
     for SelectY := 0 to Min(FSelection.Height, SelectionFromWand.Height) - 1 do
       for SelectX := 0 to Min(FSelection.Width, SelectionFromWand.Width) - 1 do
-        if SelectionFromWand[SelectX, SelectY] then
-          case AMode of
-            scAdd: FSelection[SelectX, SelectY] := True;
-            scSubtract: FSelection[SelectX, SelectY] := False;
-          end;
+      begin
+        Coverage := SelectionFromWand.Coverage(SelectX, SelectY);
+        if Coverage = 0 then
+          Continue;
+        ExistingCoverage := FSelection.Coverage(SelectX, SelectY);
+        case AMode of
+          scAdd:
+            if Coverage > ExistingCoverage then
+              FSelection.SetCoverage(SelectX, SelectY, Coverage);
+          scSubtract:
+            if Coverage >= ExistingCoverage then
+              FSelection.SetCoverage(SelectX, SelectY, 0)
+            else
+              FSelection.SetCoverage(SelectX, SelectY, ExistingCoverage - Coverage);
+        end;
+      end;
   finally
     SelectionFromWand.Free;
   end;

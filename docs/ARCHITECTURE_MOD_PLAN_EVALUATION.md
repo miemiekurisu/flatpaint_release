@@ -18,11 +18,11 @@ Conclusion: defects A1/A2/A3/A4/A5/A7 moved to mitigated or materially mitigated
 - This evaluation section above is preserved as the pre-renovation baseline verdict.
 - Current code status after latest implementation pass:
   - **A1**: mitigated by transactional move-pixels workflow (`tool_transaction_tests` green).
-  - **A2**: materially mitigated by byte-coverage propagation through selection transforms, weighted selection-aware apply paths, and native mask persistence (`FPDOC04`, legacy-compatible load) with regression tests.
+  - **A2**: materially mitigated by byte-coverage propagation through selection transforms, weighted selection-aware apply paths, native mask persistence (`FPDOC04`, legacy-compatible load), and coverage-preserving magic-wand add/subtract merge semantics with regression tests.
   - **A3**: materially mitigated by core `FPMutationGuard`, additional guarded core APIs for formerly UI-direct mutations (active-layer paste/pixelate-rect/rotate routes), guard-coupled history begin APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive fill/shape/crop routes to prevent no-op history entries, move-pixels controller commit/begin-session migration to guarded core mutation APIs, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops.
   - **A4**: materially mitigated; metadata foundation and runtime offset semantics are active (offset-aware compositor and tool mapping, offset-preserving native/XCF routes, and focused regression coverage).
   - **A5**: materially mitigated by replacing brush-like stroke-start full-layer clone with incremental region capture, moving move-pixels commit history to dirty-rect + selection-aware region snapshots, and converging both routes on core `TRegionHistoryTransaction` services.
-  - **A6**: partially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with dedicated `tool_controller_tests`.
+  - **A6**: partially mitigated by extracting high-risk tool routes into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with dedicated `tool_controller_tests`; additional non-render orchestration policy is now incrementally moved into `FPUIHelpers` (tool-switch selection retention/deselect, tool-option switch memory persistence, blank-click auto-deselect policy, temporary-pan state transitions, tab-cycle index policy) with focused helper tests, and native pinch callback wiring no longer depends on a process-global `GMainForm` pointer (per-view context install/uninstall via bridge API).
   - **A7**: materially mitigated by centralizing selection-store lifecycle in core copy routes (`CopySelectionToSurface` / `CopyMergedToSurface`) with route-level regression tests.
 - Remaining priority architecture work still aligns with the plan sequence:
   - **A6 decomposition tail** (non-tool orchestration coupling reduction + route-level coverage expansion).
@@ -35,6 +35,9 @@ Conclusion: defects A1/A2/A3/A4/A5/A7 moved to mitigated or materially mitigated
   - Current `TImageDocument` mutation methods are now guard-gated through centralized mutation checks.
   - Guard-aware begin-mutation APIs now couple lock checks and history push, eliminating routed no-op-history noise.
   - High-frequency and commit-time tool writes now use guard-coupled mutable-surface acquisition in core; current app runtime routes no longer perform direct pixel mutation writes in `mainform`.
+- Native callback coupling:
+  - `mainform` no longer owns a process-global callback target (`GMainForm`) for pinch-zoom events.
+  - Native magnify callback now receives explicit context set per canvas view and is detached in form teardown.
 
 ## GIMP architecture reference findings (pattern-level only)
 

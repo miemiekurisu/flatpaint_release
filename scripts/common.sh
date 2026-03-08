@@ -10,6 +10,9 @@ LOCAL_APP_BUNDLE="$ROOT_DIR/flatpaint.app"
 DIST_APP_BUNDLE="$ROOT_DIR/dist/FlatPaint.app"
 RELEASE_DIR="$ROOT_DIR/dist/release"
 RELEASE_BINARY="$RELEASE_DIR/flatpaint"
+APP_BUNDLE_IDENTIFIER="${FLATPAINT_BUNDLE_ID:-com.flatpaint.app}"
+APP_VERSION="${FLATPAINT_VERSION:-0.1.0}"
+APP_BUILD="${FLATPAINT_BUILD:-1}"
 
 log() {
   printf '==> %s\n' "$*"
@@ -113,7 +116,7 @@ write_info_plist() {
   <key>CFBundleName</key>
   <string>${bundle_name}</string>
   <key>CFBundleIdentifier</key>
-  <string>com.company.flatpaint</string>
+  <string>${APP_BUNDLE_IDENTIFIER}</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundlePackageType</key>
@@ -121,25 +124,23 @@ write_info_plist() {
   <key>CFBundleSignature</key>
   <string>flat</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1</string>
+  <string>${APP_VERSION}</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>${APP_BUILD}</string>
   <key>CSResourcesFileMapped</key>
   <true/>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>
+      <key>CFBundleTypeName</key>
+      <string>FlatPaint Document</string>
       <key>CFBundleTypeRole</key>
-      <string>Viewer</string>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
       <key>CFBundleTypeExtensions</key>
       <array>
-        <string>*</string>
-      </array>
-      <key>CFBundleTypeOSTypes</key>
-      <array>
-        <string>fold</string>
-        <string>disk</string>
-        <string>****</string>
+        <string>fpd</string>
       </array>
     </dict>
   </array>

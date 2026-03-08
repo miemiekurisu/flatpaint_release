@@ -739,9 +739,6 @@ type
     procedure MakeTestSafe; { lightweight test-mode initialization }
   end;
 
-var
-  AppMainForm: TMainForm;
-
 implementation
 
 uses
@@ -814,20 +811,22 @@ begin
   );
 end;
 
-var
-  GMainForm: TMainForm = nil;
-procedure FPMagnifyCallbackProc(AMagnification: Double;
+procedure FPMagnifyCallbackProc(AContext: Pointer; AMagnification: Double;
   ALocationX, ALocationY: Double); cdecl;
 var
+  MainForm: TMainForm;
   NewScale: Double;
   VP: TPoint;
 begin
-  if not Assigned(GMainForm) then Exit;
-  if not Assigned(GMainForm.FCanvasHost) then Exit;
+  if not Assigned(AContext) then
+    Exit;
+  MainForm := TMainForm(AContext);
+  if not Assigned(MainForm.FCanvasHost) then
+    Exit;
   { magnification is a delta: +0.02 means 2% zoom in per event }
-  NewScale := GMainForm.FZoomScale * (1.0 + AMagnification);
-  VP := Point(Round(ALocationX), GMainForm.FCanvasHost.ClientHeight - Round(ALocationY));
-  GMainForm.ApplyZoomScaleAtViewportPoint(NewScale, VP);
+  NewScale := MainForm.FZoomScale * (1.0 + AMagnification);
+  VP := Point(Round(ALocationX), MainForm.FCanvasHost.ClientHeight - Round(ALocationY));
+  MainForm.ApplyZoomScaleAtViewportPoint(NewScale, VP);
 end;
 
 constructor TCanvasView.Create(AOwner: TComponent);
@@ -930,7 +929,6 @@ begin
   FStrokeController := TStrokeHistoryController.Create;
   FMovePixelsController := TMovePixelsController.Create;
   FSelectionController := TSelectionToolController.Create;
-  GMainForm := Self;
 end;
 
 constructor TMainForm.Create(TheOwner: TComponent);
@@ -1306,7 +1304,6 @@ begin
   RefreshTabStrip;
   if Assigned(Application) then
     Application.AddOnIdleHandler(@AppIdle);
-  GMainForm := Self;
 end;
 
 class function TMainForm.CreateForTesting: TMainForm;
@@ -1330,7 +1327,9 @@ destructor TMainForm.Destroy;
 var
   I: Integer;
 begin
-  GMainForm := nil;
+  if FMagnifyInstalled and Assigned(FCanvasHost) and FCanvasHost.HandleAllocated then
+    FPUninstallMagnifyHandler(Pointer(FCanvasHost.Handle));
+  FMagnifyInstalled := False;
   if Assigned(Application) then
     Application.RemoveOnIdleHandler(@AppIdle);
   FreeAndNil(FRecentFiles);
@@ -2221,24 +2220,9 @@ begin
   SyncSelectionOverlayUI(True);
 end;
 
-function ShouldPreserveSelectionAcrossToolSwitch(ANewTool: TToolKind): Boolean;
-begin
-  { Selection tools always keep the current selection.
-    All paint/draw/shape tools also keep it so strokes and fills are
-    clipped to the selected region (matches paint.net/Photoshop/GIMP).
-    Only non-paint navigation/utility tools clear selection. }
-  Result := not (ANewTool in [
-    tkZoom, tkPan, tkColorPicker, tkCrop
-  ]);
-end;
-
 procedure TMainForm.MaybeAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind);
 begin
-  if AOldTool = ANewTool then
-    Exit;
-  if not IsSelectionTool(AOldTool) then
-    Exit;
-  if ShouldPreserveSelectionAcrossToolSwitch(ANewTool) then
+  if not ShouldAutoDeselectOnToolSwitch(AOldTool, ANewTool) then
     Exit;
   AutoDeselectSelection(LocalizedAction('Deselect'));
 end;
@@ -2249,19 +2233,14 @@ function TMainForm.ShouldAutoDeselectFromBlankClick(
   AShift: TShiftState
 ): Boolean;
 begin
-  if not IsSelectionTool(FCurrentTool) then
-    Exit(False);
-  if not Assigned(FDocument) then
-    Exit(False);
-  if not FDocument.HasSelection then
-    Exit(False);
-  if AButton <> mbLeft then
-    Exit(False);
-  if (ssShift in AShift) or (ssAlt in AShift) or (ssCtrl in AShift) or (ssMeta in AShift) then
-    Exit(False);
-  if FDocument.Selection[APoint.X, APoint.Y] then
-    Exit(False);
-  Result := True;
+  Result := FPUIHelpers.ShouldAutoDeselectFromBlankClick(
+    FCurrentTool,
+    Assigned(FDocument),
+    Assigned(FDocument) and FDocument.HasSelection,
+    Assigned(FDocument) and FDocument.Selection[APoint.X, APoint.Y],
+    AButton,
+    AShift
+  );
 end;
 
 procedure TMainForm.SyncImageMutationUI(ARefreshLayers: Boolean; AMarkDirty: Boolean);
@@ -2778,6 +2757,8 @@ procedure TMainForm.BuildTabPopupMenu;
 var
   Item: TMenuItem;
 begin
+  if Assigned(FTabPopupMenu) then
+    FreeAndNil(FTabPopupMenu);
   FTabPopupMenu := TPopupMenu.Create(Self);
   
   Item := TMenuItem.Create(FTabPopupMenu);
@@ -6894,27 +6875,20 @@ end;
 procedure TMainForm.ActivateTempPan;
 begin
   SealPendingStrokeHistory;
-  if not FTempToolActive then
-  begin
-    FTempToolActive := True;
-    FPreviousTool := FCurrentTool;
-    FCurrentTool := tkPan;
-    SyncToolComboSelection;
-    UpdateToolOptionControl;
-    UpdateStatusForTool;
-  end;
+  if not TryActivateTemporaryPan(FCurrentTool, FPreviousTool, FTempToolActive) then
+    Exit;
+  SyncToolComboSelection;
+  UpdateToolOptionControl;
+  UpdateStatusForTool;
 end;
 
 procedure TMainForm.DeactivateTempPan;
 begin
-  if FTempToolActive then
-  begin
-    FTempToolActive := False;
-    FCurrentTool := FPreviousTool;
-    SyncToolComboSelection;
-    UpdateToolOptionControl;
-    UpdateStatusForTool;
-  end;
+  if not TryDeactivateTemporaryPan(FCurrentTool, FPreviousTool, FTempToolActive) then
+    Exit;
+  SyncToolComboSelection;
+  UpdateToolOptionControl;
+  UpdateStatusForTool;
 end;
 
 procedure TMainForm.ToggleColorEditTarget;
@@ -6936,23 +6910,16 @@ begin
   { Lightweight temp-pan activation for tests: set internal state and update
     the tool combo without invoking UI refresh logic that relies on a
     fully-initialized widgetset. }
-  if not FTempToolActive then
-  begin
-    FTempToolActive := True;
-    FPreviousTool := FCurrentTool;
-    FCurrentTool := tkPan;
-    SyncToolComboSelection;
-  end;
+  if not TryActivateTemporaryPan(FCurrentTool, FPreviousTool, FTempToolActive) then
+    Exit;
+  SyncToolComboSelection;
 end;
 
 procedure TMainForm.StopTempPan;
 begin
-  if FTempToolActive then
-  begin
-    FTempToolActive := False;
-    FCurrentTool := FPreviousTool;
-    SyncToolComboSelection;
-  end;
+  if not TryDeactivateTemporaryPan(FCurrentTool, FPreviousTool, FTempToolActive) then
+    Exit;
+  SyncToolComboSelection;
 end;
 
 procedure TMainForm.LayoutStatusBarControls(Sender: TObject);
@@ -9322,11 +9289,49 @@ begin
 end;
 
 procedure TMainForm.SaveAllDocumentsClick(Sender: TObject);
+var
+  I: Integer;
+  OriginalTabIndex: Integer;
+  TabCount: Integer;
 begin
-  if SaveAllFallsBackToSaveAs(FCurrentFileName) then
-    SaveAsDocumentClick(Sender)
-  else
-    SaveToPath(FCurrentFileName);
+  TabCount := Length(FTabDocuments);
+  if TabCount = 0 then
+    Exit;
+
+  OriginalTabIndex := FActiveTabIndex;
+  if Length(FTabFileNames) > FActiveTabIndex then
+    FTabFileNames[FActiveTabIndex] := FCurrentFileName;
+  if Length(FTabDirtyFlags) > FActiveTabIndex then
+    FTabDirtyFlags[FActiveTabIndex] := FDirty;
+
+  try
+    for I := 0 to TabCount - 1 do
+    begin
+      if I <> FActiveTabIndex then
+        SwitchToTab(I);
+
+      if not FDirty then
+        Continue;
+
+      if SaveAllFallsBackToSaveAs(FCurrentFileName) then
+      begin
+        SaveAsDocumentClick(Sender);
+        if FDirty then
+          Break;
+      end
+      else
+      begin
+        SaveToPath(FCurrentFileName);
+        if FDirty then
+          Break;
+      end;
+    end;
+  finally
+    if (OriginalTabIndex >= 0) and
+       (OriginalTabIndex < Length(FTabDocuments)) and
+       (OriginalTabIndex <> FActiveTabIndex) then
+      SwitchToTab(OriginalTabIndex);
+  end;
 end;
 
 procedure TMainForm.PrintDocumentClick(Sender: TObject);
@@ -9549,7 +9554,12 @@ begin
   if not TryResolvePasteSurface(PasteSurface, PasteOffset) then
     Exit;
   FDocument.PushHistory(LocalizedAction('Paste into New Layer'));
-  FDocument.PasteAsNewLayer(PasteSurface, PasteOffset.X, PasteOffset.Y, 'Pasted Layer');
+  FDocument.PasteAsNewLayer(
+    PasteSurface,
+    PasteOffset.X,
+    PasteOffset.Y,
+    TR('Pasted Layer', '粘贴图层')
+  );
   SyncImageMutationUI(True, True);
 end;
 
@@ -9560,7 +9570,7 @@ begin
   if not TryResolvePasteSurface(PasteSurface, FClipboardOffset) then
     Exit;
   SealPendingStrokeHistory;
-  FDocument.ReplaceWithSingleLayer(PasteSurface, 'Pasted Layer');
+  FDocument.ReplaceWithSingleLayer(PasteSurface, TR('Pasted Layer', '粘贴图层'));
   FCurrentFileName := '';
   ResetTransientCanvasState;
   SyncDocumentReplacementUI(True);
@@ -10401,11 +10411,62 @@ procedure TMainForm.RefreshLocalizedUI;
 var
   OldMenu: TMainMenu;
   ToolIndex: Integer;
+  ToolKind: TToolKind;
+  UtilityCommand: TUtilityCommandKind;
   PaletteKind: TPaletteKind;
   TitleLabel: TLabel;
   PalettePanel: TPanel;
   HeaderPanel: TPanel;
   ChildIndex: Integer;
+  GrandChildIndex: Integer;
+  LayerBlendIndex: Integer;
+  RecolorModeIndex: Integer;
+  OptionUpdating: Boolean;
+  LayerUpdating: Boolean;
+  Button: TSpeedButton;
+  HostControl: TWinControl;
+  OverlayImage: TImage;
+  function SameNotify(const ALeft, ARight: TNotifyEvent): Boolean;
+  begin
+    Result := (TMethod(ALeft).Code = TMethod(ARight).Code) and
+      (TMethod(ALeft).Data = TMethod(ARight).Data);
+  end;
+  procedure UpdateButtonHint(AButton: TSpeedButton; const AHint: string);
+  begin
+    if not Assigned(AButton) then
+      Exit;
+    AButton.Hint := AHint;
+    OverlayImage := FindButtonIconOverlay(AButton);
+    if Assigned(OverlayImage) then
+    begin
+      OverlayImage.Hint := AHint;
+      OverlayImage.ShowHint := AButton.ShowHint;
+    end;
+  end;
+  procedure ResetComboItems(ACombo: TComboBox; const AItems: array of string;
+    AItemIndex: Integer = -1);
+  var
+    I: Integer;
+    TargetIndex: Integer;
+  begin
+    if not Assigned(ACombo) then
+      Exit;
+    TargetIndex := AItemIndex;
+    if TargetIndex < 0 then
+      TargetIndex := ACombo.ItemIndex;
+    ACombo.Items.BeginUpdate;
+    try
+      ACombo.Items.Clear;
+      for I := 0 to High(AItems) do
+        ACombo.Items.Add(AItems[I]);
+      if ACombo.Items.Count = 0 then
+        ACombo.ItemIndex := -1
+      else
+        ACombo.ItemIndex := EnsureRange(TargetIndex, 0, ACombo.Items.Count - 1);
+    finally
+      ACombo.Items.EndUpdate;
+    end;
+  end;
 begin
   { 1. Rebuild the main menu bar }
   OldMenu := FMainMenu;
@@ -10413,21 +10474,315 @@ begin
   if Assigned(OldMenu) then
     OldMenu.Free;
 
-  { 2. Refresh tool combo items }
+  { 2. Rebuild tab context menu + attach to rebuilt cards }
+  BuildTabPopupMenu;
+  RefreshTabStrip;
+
+  { 3. Refresh tool combo items (preserve tool objects) }
   if Assigned(FToolCombo) then
   begin
     FToolCombo.Items.BeginUpdate;
     try
       FToolCombo.Items.Clear;
       for ToolIndex := 0 to PaintToolDisplayCount - 1 do
-        FToolCombo.Items.Add(PaintToolDisplayLabel(PaintToolAtDisplayIndex(ToolIndex)));
-      FToolCombo.ItemIndex := PaintToolDisplayIndex(FCurrentTool);
+      begin
+        ToolKind := PaintToolAtDisplayIndex(ToolIndex);
+        if ToolKind = tkZoom then
+          Continue;
+        FToolCombo.Items.AddObject(
+          PaintToolDisplayLabel(ToolKind),
+          TObject(PtrInt(Ord(ToolKind)))
+        );
+      end;
     finally
       FToolCombo.Items.EndUpdate;
     end;
+    SyncToolComboSelection;
   end;
 
-  { 3. Refresh palette panel headers }
+  { 4. Refresh top/side button hints that were set only at construction time }
+  if Assigned(FTopPanel) then
+    for ChildIndex := 0 to FTopPanel.ControlCount - 1 do
+      if FTopPanel.Controls[ChildIndex] is TWinControl then
+      begin
+        HostControl := TWinControl(FTopPanel.Controls[ChildIndex]);
+        for GrandChildIndex := 0 to HostControl.ControlCount - 1 do
+          if HostControl.Controls[GrandChildIndex] is TSpeedButton then
+          begin
+            Button := TSpeedButton(HostControl.Controls[GrandChildIndex]);
+            if SameNotify(Button.OnClick, @NewDocumentClick) then
+              UpdateButtonHint(Button, TR('New document (Cmd+N)', #$E6#$96#$B0#$E5#$BB#$BA#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+N)'))
+            else if SameNotify(Button.OnClick, @OpenDocumentClick) then
+              UpdateButtonHint(Button, TR('Open document (Cmd+O)', #$E6#$89#$93#$E5#$BC#$80#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+O)'))
+            else if SameNotify(Button.OnClick, @SaveDocumentClick) then
+              UpdateButtonHint(Button, TR('Save document (Cmd+S)', #$E4#$BF#$9D#$E5#$AD#$98#$E6#$96#$87#$E6#$A1#$A3 + ' (Cmd+S)'))
+            else if SameNotify(Button.OnClick, @CutClick) then
+              UpdateButtonHint(Button, TR('Cut selection (Cmd+X)', #$E5#$89#$AA#$E5#$88#$87#$E9#$80#$89#$E5#$8C#$BA + ' (Cmd+X)'))
+            else if SameNotify(Button.OnClick, @CopyClick) then
+              UpdateButtonHint(Button, TR('Copy selection (Cmd+C)', #$E5#$A4#$8D#$E5#$88#$B6#$E9#$80#$89#$E5#$8C#$BA + ' (Cmd+C)'))
+            else if SameNotify(Button.OnClick, @PasteClick) then
+              UpdateButtonHint(Button, TR('Paste (Cmd+V)', #$E7#$B2#$98#$E8#$B4#$B4 + ' (Cmd+V)'))
+            else if SameNotify(Button.OnClick, @UndoClick) then
+              UpdateButtonHint(Button, TR('Undo last action (Cmd+Z)', #$E6#$92#$A4#$E9#$94#$80 + ' (Cmd+Z)'))
+            else if SameNotify(Button.OnClick, @RedoClick) then
+              UpdateButtonHint(Button, TR('Redo (Cmd+Shift+Z)', #$E9#$87#$8D#$E5#$81#$9A + ' (Cmd+Shift+Z)'))
+            else if SameNotify(Button.OnClick, @ZoomOutClick) then
+              UpdateButtonHint(Button, TR('Zoom out (Cmd+-)', #$E7#$BC#$A9#$E5#$B0#$8F + ' (Cmd+-)'))
+            else if SameNotify(Button.OnClick, @ZoomInClick) then
+              UpdateButtonHint(Button, TR('Zoom in (Cmd+=)', #$E6#$94#$BE#$E5#$A4#$A7 + ' (Cmd+=)'))
+            else if SameNotify(Button.OnClick, @UtilityButtonClick) and
+              (Button.Tag >= Ord(Low(TUtilityCommandKind))) and
+              (Button.Tag <= Ord(High(TUtilityCommandKind))) then
+              UpdateButtonHint(
+                Button,
+                UtilityCommandHint(TUtilityCommandKind(Button.Tag)) + ' (' +
+                  UtilityCommandShortcutLabel(TUtilityCommandKind(Button.Tag)) + ')'
+              );
+          end;
+      end;
+  if Assigned(FHistoryPanel) then
+    for ChildIndex := 0 to FHistoryPanel.ControlCount - 1 do
+      if FHistoryPanel.Controls[ChildIndex] is TSpeedButton then
+      begin
+        Button := TSpeedButton(FHistoryPanel.Controls[ChildIndex]);
+        if SameNotify(Button.OnClick, @UndoClick) then
+          UpdateButtonHint(Button, TR('Undo last action (Cmd+Z)', #$E6#$92#$A4#$E9#$94#$80 + ' (Cmd+Z)'))
+        else if SameNotify(Button.OnClick, @RedoClick) then
+          UpdateButtonHint(Button, TR('Redo (Cmd+Shift+Z)', #$E9#$87#$8D#$E5#$81#$9A + ' (Cmd+Shift+Z)'));
+      end;
+  if Assigned(FColorsPanel) then
+    for ChildIndex := 0 to FColorsPanel.ControlCount - 1 do
+      if FColorsPanel.Controls[ChildIndex] is TSpeedButton then
+      begin
+        Button := TSpeedButton(FColorsPanel.Controls[ChildIndex]);
+        if SameNotify(Button.OnClick, @SwapColorsClick) then
+          UpdateButtonHint(Button, TR('Swap primary and secondary colors (X)', '交换前景色和背景色 (X)'))
+        else if SameNotify(Button.OnClick, @ResetColorsClick) then
+          UpdateButtonHint(Button, TR('Reset colors to black and white (D)', '重置为黑白默认颜色 (D)'));
+      end;
+  if Assigned(FRightPanel) then
+    for ChildIndex := 0 to FRightPanel.ControlCount - 1 do
+      if FRightPanel.Controls[ChildIndex] is TSpeedButton then
+      begin
+        Button := TSpeedButton(FRightPanel.Controls[ChildIndex]);
+        if SameNotify(Button.OnClick, @AddLayerClick) then
+          UpdateButtonHint(Button, TR('Add new layer', '添加新图层'))
+        else if SameNotify(Button.OnClick, @DuplicateLayerClick) then
+          UpdateButtonHint(Button, TR('Duplicate layer', '复制图层'))
+        else if SameNotify(Button.OnClick, @DeleteLayerClick) then
+          UpdateButtonHint(Button, TR('Delete layer', '删除图层'))
+        else if SameNotify(Button.OnClick, @MergeDownClick) then
+          UpdateButtonHint(Button, TR('Merge down', '向下合并'))
+        else if SameNotify(Button.OnClick, @MoveLayerDownClick) then
+          UpdateButtonHint(Button, TR('Move layer up in list', '图层上移'))
+        else if SameNotify(Button.OnClick, @MoveLayerUpClick) then
+          UpdateButtonHint(Button, TR('Move layer down in list', '图层下移'))
+        else if SameNotify(Button.OnClick, @FlattenClick) then
+          UpdateButtonHint(Button, TR('Flatten image', '合并图像'))
+        else if SameNotify(Button.OnClick, @RenameLayerClick) then
+          UpdateButtonHint(Button, TR('Rename layer', '重命名图层'))
+        else if SameNotify(Button.OnClick, @LayerPropertiesClick) then
+          UpdateButtonHint(Button, TR('Layer properties', '图层属性'));
+      end;
+  for UtilityCommand := Low(TUtilityCommandKind) to High(TUtilityCommandKind) do
+    if Assigned(FUtilityButtons[UtilityCommand]) then
+      UpdateButtonHint(
+        FUtilityButtons[UtilityCommand],
+        UtilityCommandHint(UtilityCommand) + ' (' + UtilityCommandShortcutLabel(UtilityCommand) + ')'
+      );
+  for ToolKind := Low(TToolKind) to High(TToolKind) do
+    if Assigned(FToolButtons[ToolKind]) then
+      UpdateButtonHint(FToolButtons[ToolKind], PaintToolDisplayLabel(ToolKind) + ' — ' + PaintToolHint(ToolKind));
+
+  { 5. Refresh tool/options and palette controls that were created once }
+  OptionUpdating := FUpdatingToolOption;
+  FUpdatingToolOption := True;
+  try
+    if Assigned(FOptionLabel) then
+      FOptionLabel.Caption := TR('Size:', '大小：');
+    if Assigned(FTextFontButton) then
+      FTextFontButton.Hint := TR('Choose font and style', '选择字体和样式');
+    if Assigned(FOpacityLabel) then
+      FOpacityLabel.Caption := TR('Opacity:', '不透明度：');
+    if Assigned(FOpacitySpin) then
+      FOpacitySpin.Hint := TR('Brush opacity (1-100)', '画笔不透明度 (1-100)');
+    if Assigned(FHardnessLabel) then
+      FHardnessLabel.Caption := TR('Hardness:', '硬度：');
+    if Assigned(FHardnessSpin) then
+      FHardnessSpin.Hint := TR('Brush hardness (1=soft, 100=hard)', '画笔硬度 (1=柔和, 100=硬边)');
+    if Assigned(FEraserShapeLabel) then
+      FEraserShapeLabel.Caption := TR('Shape:', '形状：');
+    ResetComboItems(FEraserShapeCombo, [TR('Round', '圆形'), TR('Square', '方形')],
+      Ord(FEraserSquareShape));
+    if Assigned(FEraserShapeCombo) then
+      FEraserShapeCombo.Hint := TR('Eraser tip shape', '橡皮擦笔头形状');
+    if Assigned(FSelModeLabel) then
+      FSelModeLabel.Caption := TR('Mode:', '模式：');
+    ResetComboItems(
+      FSelModeCombo,
+      [TR('Replace', '替换'), TR('Add', '添加'), TR('Subtract', '减去'), TR('Intersect', '相交')],
+      Ord(FPendingSelectionMode)
+    );
+    if Assigned(FSelModeCombo) then
+      FSelModeCombo.Hint := TR('Selection combination mode', '选区组合模式');
+    if Assigned(FShapeStyleLabel) then
+      FShapeStyleLabel.Caption := TR('Draw:', '绘制：');
+    ResetComboItems(FShapeStyleCombo,
+      [TR('Outline', '描边'), TR('Fill', '填充'), TR('Outline + Fill', '描边 + 填充')],
+      FShapeStyle);
+    if Assigned(FShapeStyleCombo) then
+      FShapeStyleCombo.Hint := TR('Shape draw style', '形状绘制样式');
+    if Assigned(FShapeLineStyleLabel) then
+      FShapeLineStyleLabel.Caption := TR('Line:', '线条：');
+    ResetComboItems(FShapeLineStyleCombo,
+      [TR('Solid', '实线'), TR('Dashed', '虚线')],
+      FShapeLineStyle);
+    if Assigned(FShapeLineStyleCombo) then
+      FShapeLineStyleCombo.Hint := TR('Outline line style for line/shape tools', '线条/形状工具的描边样式');
+    if Assigned(FLineBezierCheck) then
+    begin
+      FLineBezierCheck.Caption := TR('Bezier', '贝塞尔');
+      FLineBezierCheck.Hint := TR('Enable staged Bezier editing for the Line tool', '为直线工具启用分阶段贝塞尔编辑');
+    end;
+    if Assigned(FBucketModeLabel) then
+      FBucketModeLabel.Caption := TR('Fill:', '填充：');
+    ResetComboItems(FBucketModeCombo,
+      [TR('Contiguous', '连续'), TR('Global', '全局')],
+      FBucketFloodMode);
+    if Assigned(FBucketModeCombo) then
+      FBucketModeCombo.Hint := TR('Fill mode', '填充模式');
+    if Assigned(FFillSampleLabel) then
+      FFillSampleLabel.Caption := TR('Sample:', '采样：');
+    ResetComboItems(FFillSampleCombo,
+      [TR('Current Layer', '当前图层'), TR('All Layers', '所有图层')],
+      FFillSampleSource);
+    if Assigned(FFillSampleCombo) then
+      FFillSampleCombo.Hint := TR('Fill sample source', '填充采样来源');
+    if Assigned(FWandSampleLabel) then
+      FWandSampleLabel.Caption := TR('Sample:', '采样：');
+    ResetComboItems(FWandSampleCombo,
+      [TR('Current Layer', '当前图层'), TR('All Layers', '所有图层')],
+      FWandSampleSource);
+    if Assigned(FWandSampleCombo) then
+      FWandSampleCombo.Hint := TR('Wand sample source', '魔棒采样来源');
+    if Assigned(FWandContiguousCheck) then
+    begin
+      FWandContiguousCheck.Caption := TR('Contiguous', '连续');
+      FWandContiguousCheck.Hint := TR('Contiguous: select only connected pixels', '连续：只选择相连像素');
+    end;
+    if Assigned(FFillTolLabel) then
+      FFillTolLabel.Caption := TR('Tolerance:', '容差：');
+    if Assigned(FGradientTypeLabel) then
+      FGradientTypeLabel.Caption := TR('Type:', '类型：');
+    ResetComboItems(FGradientTypeCombo,
+      [TR('Linear', '线性'), TR('Radial', '径向')],
+      FGradientType);
+    if Assigned(FGradientTypeCombo) then
+      FGradientTypeCombo.Hint := TR('Gradient type', '渐变类型');
+    if Assigned(FGradientReverseCheck) then
+    begin
+      FGradientReverseCheck.Caption := TR('Reverse', '反向');
+      FGradientReverseCheck.Hint := TR('Reverse gradient direction', '反转渐变方向');
+    end;
+    if Assigned(FCloneAlignedCheck) then
+    begin
+      FCloneAlignedCheck.Caption := TR('Aligned', '对齐');
+      FCloneAlignedCheck.Hint := TR('Keep the clone source aligned across multiple strokes', '在多次笔划中保持仿制源对齐');
+    end;
+    if Assigned(FRecolorPreserveValueCheck) then
+    begin
+      FRecolorPreserveValueCheck.Caption := TR('Preserve Value', '保持明度');
+      FRecolorPreserveValueCheck.Hint := TR('Keep original brightness while shifting the color', '改变颜色时保持原始亮度');
+    end;
+    if Assigned(FRecolorContiguousCheck) then
+    begin
+      FRecolorContiguousCheck.Caption := TR('Contiguous', '连续');
+      FRecolorContiguousCheck.Hint := TR('Only recolor connected pixels in the sampled family', '仅重着色采样族中连通的像素');
+    end;
+    if Assigned(FRecolorSamplingLabel) then
+      FRecolorSamplingLabel.Caption := TR('Sampling:', '采样：');
+    ResetComboItems(
+      FRecolorSamplingCombo,
+      [TR('Once', '一次'), TR('Continuous', '连续'), TR('Swatch (Compat)', '色板（兼容）')],
+      Ord(FRecolorSamplingMode)
+    );
+    if Assigned(FRecolorSamplingCombo) then
+      FRecolorSamplingCombo.Hint := TR('Source sampling behavior for recolor strokes', '重着色笔划的源采样方式');
+    if Assigned(FRecolorModeLabel) then
+      FRecolorModeLabel.Caption := TR('Mode:', '模式：');
+    RecolorModeIndex := 4;
+    case FRecolorBlendMode of
+      rbmColor: RecolorModeIndex := 0;
+      rbmHue: RecolorModeIndex := 1;
+      rbmSaturation: RecolorModeIndex := 2;
+      rbmLuminosity: RecolorModeIndex := 3;
+    end;
+    ResetComboItems(
+      FRecolorModeCombo,
+      [
+        TR('Color', '颜色'),
+        TR('Hue', '色相'),
+        TR('Saturation', '饱和度'),
+        TR('Luminosity', '明度'),
+        TR('Replace (Compat)', '替换（兼容）')
+      ],
+      RecolorModeIndex
+    );
+    if Assigned(FRecolorModeCombo) then
+      FRecolorModeCombo.Hint := TR('How recolor mixes target color into matching pixels', '重着色将目标色混入匹配像素的方式');
+    if Assigned(FMosaicBlockLabel) then
+      FMosaicBlockLabel.Caption := TR('Block:', '块大小：');
+    if Assigned(FPickerSampleLabel) then
+      FPickerSampleLabel.Caption := TR('Sample:', '采样：');
+    ResetComboItems(FPickerSampleCombo,
+      [TR('Current Layer', '当前图层'), TR('All Layers', '所有图层')],
+      FPickerSampleSource);
+    if Assigned(FPickerSampleCombo) then
+      FPickerSampleCombo.Hint := TR('Pick color from layer or composite image', '从当前图层或合成图像取色');
+    if Assigned(FSelAntiAliasCheck) then
+    begin
+      FSelAntiAliasCheck.Caption := TR('Anti-alias', '抗锯齿');
+      FSelAntiAliasCheck.Hint := TR('Smooth selection edges', '平滑选区边缘');
+    end;
+    if Assigned(FSelFeatherLabel) then
+      FSelFeatherLabel.Caption := TR('Feather:', '羽化：');
+    ResetComboItems(FColorTargetCombo,
+      [TR('Primary', '前景色'), TR('Secondary', '背景色')],
+      FColorEditTarget);
+    if Assigned(FColorExpandButton) then
+      FColorExpandButton.Caption := TR('Normal >>', #$E5#$B8#$B8#$E8#$A7#$84 + ' >>');
+    if Assigned(FLayerOpacityLabel) then
+      FLayerOpacityLabel.Caption := TR('Opacity:', '不透明度：');
+    LayerUpdating := FUpdatingLayerControls;
+    FUpdatingLayerControls := True;
+    try
+      LayerBlendIndex := -1;
+      if Assigned(FDocument) and (FDocument.LayerCount > 0) then
+        LayerBlendIndex := Ord(FDocument.ActiveLayer.BlendMode)
+      else if Assigned(FLayerBlendCombo) then
+        LayerBlendIndex := FLayerBlendCombo.ItemIndex;
+      ResetComboItems(
+        FLayerBlendCombo,
+        [
+          TR('Normal', '正常'),
+          TR('Multiply', '正片叠底'),
+          TR('Screen', '滤色'),
+          TR('Overlay', '叠加'),
+          TR('Darken', '变暗'),
+          TR('Lighten', '变亮'),
+          TR('Difference', '差值'),
+          TR('Soft Light', '柔光')
+        ],
+        LayerBlendIndex
+      );
+    finally
+      FUpdatingLayerControls := LayerUpdating;
+    end;
+  finally
+    FUpdatingToolOption := OptionUpdating;
+  end;
+
+  { 6. Refresh palette panel headers }
   for PaletteKind := Low(TPaletteKind) to High(TPaletteKind) do
   begin
     PalettePanel := PaletteControl(PaletteKind);
@@ -10447,8 +10802,19 @@ begin
     end;
   end;
 
-  { 4. Refresh status bar tool text }
+  { 7. Refresh status/tool text and dependent dynamic labels }
+  if Assigned(FStatusZoomLabel) then
+    FStatusZoomLabel.Hint := TR('Click to toggle between Fit and Actual Size', '点击切换“适合窗口”和“实际大小”');
+  if Assigned(FLastEffectProc) and Assigned(FRepeatLastEffectItem) then
+  begin
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
+    FRepeatLastEffectItem.Enabled := True;
+  end;
+  LayoutColorsPanel;
+  RefreshColorsPanel;
   UpdateToolOptionControl;
+  RefreshPaletteMenuChecks;
+  SyncUtilityButtonStates;
   UpdateStatusForTool;
   UpdateCaption;
 end;
@@ -10523,7 +10889,8 @@ begin
   if (not FMagnifyInstalled) and FCanvasHost.HandleAllocated then
   begin
     FPInstallMagnifyHandler(Pointer(FCanvasHost.Handle),
-      @FPMagnifyCallbackProc);
+      @FPMagnifyCallbackProc,
+      Self);
     FMagnifyInstalled := True;
   end;
 
@@ -10700,6 +11067,9 @@ end;
 procedure TMainForm.ToolButtonClick(Sender: TObject);
 var
   NewTool: TToolKind;
+  ResolvedSize: Integer;
+  ResolvedOpacity: Integer;
+  ResolvedHardness: Integer;
 begin
   SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
@@ -10708,15 +11078,23 @@ begin
   FTempToolActive := False;
   NewTool := TToolKind(TControl(Sender).Tag);
   MaybeAutoDeselectOnToolSwitch(FCurrentTool, NewTool);
-  { Save current tool's options before switching }
-  FToolSize[FCurrentTool] := FBrushSize;
-  FToolOpacity[FCurrentTool] := FBrushOpacity;
-  FToolHardness[FCurrentTool] := FBrushHardness;
+  ApplyToolOptionSwitch(
+    FCurrentTool,
+    NewTool,
+    FBrushSize,
+    FBrushOpacity,
+    FBrushHardness,
+    FToolSize,
+    FToolOpacity,
+    FToolHardness,
+    ResolvedSize,
+    ResolvedOpacity,
+    ResolvedHardness
+  );
   FCurrentTool := NewTool;
-  { Restore new tool's remembered options }
-  FBrushSize := FToolSize[FCurrentTool];
-  FBrushOpacity := FToolOpacity[FCurrentTool];
-  FBrushHardness := FToolHardness[FCurrentTool];
+  FBrushSize := ResolvedSize;
+  FBrushOpacity := ResolvedOpacity;
+  FBrushHardness := ResolvedHardness;
   SyncToolComboSelection;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -10726,6 +11104,9 @@ end;
 procedure TMainForm.ToolComboChange(Sender: TObject);
 var
   NewTool: TToolKind;
+  ResolvedSize: Integer;
+  ResolvedOpacity: Integer;
+  ResolvedHardness: Integer;
 begin
   SealPendingStrokeHistory;
   CommitInlineTextEdit(True);
@@ -10736,11 +11117,23 @@ begin
   begin
     NewTool := TToolKind(PtrInt(FToolCombo.Items.Objects[FToolCombo.ItemIndex]));
     MaybeAutoDeselectOnToolSwitch(FCurrentTool, NewTool);
+    ApplyToolOptionSwitch(
+      FCurrentTool,
+      NewTool,
+      FBrushSize,
+      FBrushOpacity,
+      FBrushHardness,
+      FToolSize,
+      FToolOpacity,
+      FToolHardness,
+      ResolvedSize,
+      ResolvedOpacity,
+      ResolvedHardness
+    );
     FCurrentTool := NewTool;
-    { Restore new tool's remembered options }
-    FBrushSize := FToolSize[FCurrentTool];
-    FBrushOpacity := FToolOpacity[FCurrentTool];
-    FBrushHardness := FToolHardness[FCurrentTool];
+    FBrushSize := ResolvedSize;
+    FBrushOpacity := ResolvedOpacity;
+    FBrushHardness := ResolvedHardness;
   end;
   UpdateToolOptionControl;
   RefreshCanvas;
@@ -11206,6 +11599,8 @@ begin
 end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  TargetTabIndex: Integer;
 begin
   { spacebar pan begins }
   if Key = VK_SPACE then
@@ -11218,18 +11613,13 @@ begin
   { Ctrl+Tab / Ctrl+Shift+Tab — cycle document tabs }
   if (ssCtrl in Shift) and (Key = VK_TAB) then
   begin
-    if ssShift in Shift then
-    begin
-      { Previous tab }
-      if Length(FTabDocuments) > 1 then
-        SwitchToTab((FActiveTabIndex - 1 + Length(FTabDocuments)) mod Length(FTabDocuments));
-    end
-    else
-    begin
-      { Next tab }
-      if Length(FTabDocuments) > 1 then
-        SwitchToTab((FActiveTabIndex + 1) mod Length(FTabDocuments));
-    end;
+    TargetTabIndex := NextCycledTabIndex(
+      FActiveTabIndex,
+      Length(FTabDocuments),
+      ssShift in Shift
+    );
+    if TargetTabIndex <> FActiveTabIndex then
+      SwitchToTab(TargetTabIndex);
     Key := 0;
     Exit;
   end;

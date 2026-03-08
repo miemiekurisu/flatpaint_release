@@ -7,7 +7,7 @@
 
 ## Evidence snapshot (2026-03-08)
 - Build status: `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
-- Test status: `bash ./scripts/run_tests_ci.sh` => 351 tests, 0 failures.
+- Test status: `bash ./scripts/run_tests_ci.sh` => 363 tests, 0 failures.
 - Consequence: P0 anti-aliasing module remains complete; premultiplied boundary correctness fixes, system-clipboard bridge behavior, ruler-aware palette bounds, recolor contiguous mode, About-content embedding (now build-time regenerated from `assets/about/*.txt`), and crop-offset rebasing regressions are all regression-backed.
 
 ## Status legend
@@ -19,7 +19,7 @@
 | --- | --- | --- | --- | --- |
 | Workspace shell | Single-window editing workspace with top chrome, canvas, palettes, status bar | Partial | High | Implemented with floating palettes and status strip; visual convergence to Figma baseline still incomplete. |
 | Document tabs | Multi-document tab strip with create/switch/close flow | Implemented | High | `AddDocumentTab` / `SwitchToTab` / `CloseDocumentTab` routes are live. |
-| File surface | New/Open/Recent/Acquire/Save/Save As/Save All/Print/Exit | Implemented | High | Commands are present in menu and handlers are wired; Save All currently maps to active-shell behavior. |
+| File surface | New/Open/Recent/Acquire/Save/Save As/Save All/Print/Exit | Implemented | High | Commands are present in menu and handlers are wired; `Save All Images` now iterates every dirty tab, prompts only where a path is missing, and returns focus to the original active tab. |
 | Edit surface | Selection + clipboard + undo/redo command set | Implemented | High | Core commands are routed and test-covered; edit clipboard now bridges with macOS system clipboard while retaining app-local fallback metadata semantics. |
 | View surface | Zoom/grid/rulers/units + tab navigation + pan behavior | Partial | High | Major routes are live and quick-size/status toggle semantics are deterministic + test-backed; ruler visibility now constrains floating palette bounds, and zoom interaction remains global-canvas zoom semantics aligned to Photoshop/GIMP baseline. Remaining gaps are parity polish depth, not baseline behavior absence. |
 | Image geometry | Crop/resize/canvas size/rotate/flip/flatten | Implemented | High | Core operations are wired and broadly covered by tests. |
@@ -36,7 +36,7 @@
 | Iconography | Cohesive icon surface across command/tool/utility controls | Implemented | High | Runtime icon pipeline now ships complete rendered icon assets in bundle (`1x` + `@2x`), loader prefers `@2x` with safe `1x` fallback, and previously fallback-only mapped tools (`Move Pixels`/`Mosaic`) now resolve asset-backed `pointer`/`grid-2x2` icons. Remaining work is visual polish, not missing asset-chain coverage. |
 | Rendering quality | Premultiplied alpha, SDF edge AA, CG bridge, Retina DPI | Implemented | High | Premultiplied alpha pipeline (GIMP/Krita-aligned), SDF 1px smooth edge AA on ellipse/rounded rect/polygon shapes and selections, Core Graphics offscreen AA bridge for stroked curves, Retina-aware document sizing + CG high-quality interpolation. 16 dedicated tests. |
 | Status bar | Tool/context/readout/progress/zoom controls | Partial | High | Progress and zoom controls are live; some parity behaviors are still under-implemented. |
-| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 351 tests, 0 failures. |
+| Regression health | Stable zero-failure CI-level suite | Implemented | High | Current CI-level run is green at 363 tests, 0 failures. |
 
 ## Current insufficient items (post-P0, still important before release)
 1. Residual route-level coverage opportunities:

@@ -1004,3 +1004,10 @@
 - Result: passed with `N:351 E:0 F:0`.
 - Build rerun after the same PNM option update: `bash ./scripts/build.sh`
 - Result: completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (save-all multi-tab semantics + bundle metadata cleanup)
+- Full CI verification after rewiring `Save All Images` to iterate dirty tabs and after parameterizing `Info.plist` metadata generation: `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:363 E:0 F:0`.
+- Additional verification notes:
+- `SaveAllDocumentsClick` now restores original active-tab focus after processing save attempts.
+- Gate-C manual validation checklist is now codified in `docs/RELEASE_SMOKE_CHECKLIST.md`.

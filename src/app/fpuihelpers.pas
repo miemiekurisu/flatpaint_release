@@ -8,6 +8,9 @@ interface
 uses
   Classes, Controls, Types, FPColor, FPDocument;
 
+type
+  TToolOptionMap = array[TToolKind] of Integer;
+
 function PaintToolName(ATool: TToolKind): string;
 function PaintToolHint(ATool: TToolKind): string;
 function PaintToolGlyph(ATool: TToolKind): string;
@@ -28,6 +31,31 @@ function DragButtonIsStillPressed(AButton: TMouseButton; const AShift: TShiftSta
 function ShouldCommitPendingStrokeOnMouseDown(AHasPendingStroke: Boolean): Boolean;
 function LineReleaseStartsBezier(ABezierEnabled: Boolean; const AStartPoint, AEndPoint: TPoint): Boolean;
 function IsSelectionTool(ATool: TToolKind): Boolean;
+function ShouldPreserveSelectionAcrossToolSwitch(ANewTool: TToolKind): Boolean;
+function ShouldAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind): Boolean;
+procedure ApplyToolOptionSwitch(
+  AOldTool, ANewTool: TToolKind;
+  ACurrentSize, ACurrentOpacity, ACurrentHardness: Integer;
+  var AToolSize, AToolOpacity, AToolHardness: TToolOptionMap;
+  out AResolvedSize, AResolvedOpacity, AResolvedHardness: Integer
+);
+function TryActivateTemporaryPan(
+  var ACurrentTool, APreviousTool: TToolKind;
+  var ATempToolActive: Boolean
+): Boolean;
+function TryDeactivateTemporaryPan(
+  var ACurrentTool, APreviousTool: TToolKind;
+  var ATempToolActive: Boolean
+): Boolean;
+function NextCycledTabIndex(AActiveIndex, ATabCount: Integer; AReverse: Boolean): Integer;
+function ShouldAutoDeselectFromBlankClick(
+  ACurrentTool: TToolKind;
+  AHasDocument: Boolean;
+  AHasSelection: Boolean;
+  APointInsideSelection: Boolean;
+  AButton: TMouseButton;
+  const AShift: TShiftState
+): Boolean;
 
 { Given a key and a reverse-flag (Shift held), compute the new tool.  }
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;
@@ -397,6 +425,100 @@ function IsSelectionTool(ATool: TToolKind): Boolean;
 begin
   Result := ATool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand,
                       tkMoveSelection, tkMovePixels];
+end;
+
+function ShouldPreserveSelectionAcrossToolSwitch(ANewTool: TToolKind): Boolean;
+begin
+  { Selection tools always keep the current selection.
+    Paint/draw/shape tools also keep it so edits are clipped to selection.
+    Only utility/navigation tools clear the selection on switch. }
+  Result := not (ANewTool in [tkZoom, tkPan, tkColorPicker, tkCrop]);
+end;
+
+function ShouldAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind): Boolean;
+begin
+  if AOldTool = ANewTool then
+    Exit(False);
+  if not IsSelectionTool(AOldTool) then
+    Exit(False);
+  Result := not ShouldPreserveSelectionAcrossToolSwitch(ANewTool);
+end;
+
+procedure ApplyToolOptionSwitch(
+  AOldTool, ANewTool: TToolKind;
+  ACurrentSize, ACurrentOpacity, ACurrentHardness: Integer;
+  var AToolSize, AToolOpacity, AToolHardness: TToolOptionMap;
+  out AResolvedSize, AResolvedOpacity, AResolvedHardness: Integer
+);
+begin
+  AToolSize[AOldTool] := ACurrentSize;
+  AToolOpacity[AOldTool] := ACurrentOpacity;
+  AToolHardness[AOldTool] := ACurrentHardness;
+  AResolvedSize := AToolSize[ANewTool];
+  AResolvedOpacity := AToolOpacity[ANewTool];
+  AResolvedHardness := AToolHardness[ANewTool];
+end;
+
+function TryActivateTemporaryPan(
+  var ACurrentTool, APreviousTool: TToolKind;
+  var ATempToolActive: Boolean
+): Boolean;
+begin
+  if ATempToolActive then
+    Exit(False);
+  ATempToolActive := True;
+  APreviousTool := ACurrentTool;
+  ACurrentTool := tkPan;
+  Result := True;
+end;
+
+function TryDeactivateTemporaryPan(
+  var ACurrentTool, APreviousTool: TToolKind;
+  var ATempToolActive: Boolean
+): Boolean;
+begin
+  if not ATempToolActive then
+    Exit(False);
+  ATempToolActive := False;
+  ACurrentTool := APreviousTool;
+  Result := True;
+end;
+
+function NextCycledTabIndex(AActiveIndex, ATabCount: Integer; AReverse: Boolean): Integer;
+begin
+  if ATabCount <= 1 then
+    Exit(AActiveIndex);
+  if (AActiveIndex < 0) or (AActiveIndex >= ATabCount) then
+    if AReverse then
+      Exit(ATabCount - 1)
+    else
+      Exit(0);
+  if AReverse then
+    Result := (AActiveIndex - 1 + ATabCount) mod ATabCount
+  else
+    Result := (AActiveIndex + 1) mod ATabCount;
+end;
+
+function ShouldAutoDeselectFromBlankClick(
+  ACurrentTool: TToolKind;
+  AHasDocument: Boolean;
+  AHasSelection: Boolean;
+  APointInsideSelection: Boolean;
+  AButton: TMouseButton;
+  const AShift: TShiftState
+): Boolean;
+begin
+  if not IsSelectionTool(ACurrentTool) then
+    Exit(False);
+  if not AHasDocument or not AHasSelection then
+    Exit(False);
+  if AButton <> mbLeft then
+    Exit(False);
+  if (ssShift in AShift) or (ssAlt in AShift) or (ssCtrl in AShift) or (ssMeta in AShift) then
+    Exit(False);
+  if APointInsideSelection then
+    Exit(False);
+  Result := True;
 end;
 
 function NextToolForKey(AKey: Char; AReverse: Boolean; ACurrent: TToolKind): TToolKind;

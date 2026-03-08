@@ -4,6 +4,99 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (A6 decomposition-tail pass 3: native magnify callback de-globalization)
+
+### Changes
+
+1. **Removed process-global pinch callback coupling (`GMainForm`) from `mainform`**:
+   - native magnify callback now receives an explicit context pointer (`TMainForm` instance) instead of resolving a process-global form.
+   - constructor/destructor assignments to `GMainForm` were removed.
+   - obsolete unused `AppMainForm` global state stub was removed.
+
+2. **Upgraded bridge contract to context-based install/uninstall**:
+   - `src/app/fpmagnifybridge.pas` now exposes:
+     - `FPInstallMagnifyHandler(ANSViewHandle, ACallback, AContext)`
+     - `FPUninstallMagnifyHandler(ANSViewHandle)`
+   - test-mode bridge stubs were updated to match the same API shape.
+
+3. **Hardened native Objective-C pinch bridge against class re-swizzle churn**:
+   - `src/native/fp_magnify.m` now:
+     - stores callback context per NSView via associated object;
+     - marks swizzled classes to avoid repeated exchange toggles;
+     - supports explicit context detach via `FPUninstallMagnifyHandler`.
+
+4. **Lifecycle safety alignment in app idle/teardown paths**:
+   - install path now passes `Self` as callback context;
+   - teardown path detaches the view context before destruction when magnify hook was installed.
+
+5. **A6 risk posture update**:
+   - reduced global-state callback coupling and lowered cross-form/callback routing risk in app-shell orchestration.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `363` tests, `0` errors, `0` failures.
+
+## 2026-03-08 (A6 decomposition-tail pass 2: tool-switch path convergence)
+
+### Changes
+
+1. **Converged tool-switch option-memory behavior across button and combo routes**:
+   - Introduced `ApplyToolOptionSwitch(...)` in `src/app/fpuihelpers.pas`.
+   - Both `ToolButtonClick` and `ToolComboChange` now route through the same option-memory transfer logic, eliminating route drift where combo-switch previously skipped persisting outgoing tool options.
+
+2. **Extracted blank-click auto-deselect policy to helper layer**:
+   - Added `ShouldAutoDeselectFromBlankClick(...)` in `src/app/fpuihelpers.pas`.
+   - `mainform` now delegates blank-click deselect decision to the shared helper policy rather than carrying inline conditional logic.
+
+3. **Expanded helper-level regression coverage**:
+   - `src/tests/fpuihelpers_tests.pas` adds:
+     - `ToolOptionSwitchPersistsOldAndRestoresNew`
+     - `BlankClickAutoDeselectPolicyMatchesSelectionRules`
+
+4. **A6 risk posture update**:
+   - non-render orchestration decisions are further centralized in helper units, reducing behavioral divergence risk across parallel UI entry routes.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `363` tests, `0` errors, `0` failures.
+
+## 2026-03-08 (A6 decomposition-tail + A2 wand-coverage hardening pass)
+
+### Changes
+
+1. **A6 tail: extracted additional non-render orchestration policy from `mainform` into `FPUIHelpers`**:
+   - Added shared helper contracts:
+     - `ShouldPreserveSelectionAcrossToolSwitch(...)`
+     - `ShouldAutoDeselectOnToolSwitch(...)`
+     - `TryActivateTemporaryPan(...)`
+     - `TryDeactivateTemporaryPan(...)`
+     - `NextCycledTabIndex(...)`
+   - `mainform` now routes tool-switch auto-deselect, temporary-pan state transitions, and Ctrl+Tab tab-cycle target computation through these helpers instead of duplicated local logic.
+
+2. **A2 hardening: magic-wand combine path now preserves byte-coverage semantics on add/subtract**:
+   - `TImageDocument.SelectMagicWand(...)` add/subtract merge now uses per-pixel coverage math (`max` for add, bounded subtraction for subtract) instead of boolean assign/clear.
+
+3. **Regression coverage expanded for these policies**:
+   - `src/tests/fpuihelpers_tests.pas`:
+     - `ToolSwitchSelectionPolicyMatchesEditorRules`
+     - `ToolSwitchAutoDeselectPolicyMatchesSelectionRules`
+     - `TempPanStateTransitionsAreIdempotent`
+     - `TabCycleIndexFollowsShortcutPolicy`
+   - `src/tests/fpdocument_tests.pas`:
+     - `MagicWandAddSubtractUsesCoverageCombineSemantics`
+
+4. **Architecture docs synchronized for traceability**:
+   - `docs/ARCHITECTURE_DEFECT_ASSESSMENT.md`
+   - `docs/ARCHITECTURE_MOD_PLAN_EVALUATION.md`
+   - `docs/ARCHITECTURE_RENOVATION_PLAN.md`
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `361` tests, `0` errors, `0` failures.
+
 ## 2026-03-08 (public-pack staging for partial GitHub open-source + release payload prep)
 
 ### Changes
@@ -1828,3 +1921,10 @@ Six bugs were identified through systematic trace of the three reported failure 
   - Updated `Save As` filter aliases to expose supported extension families directly (`*.jpeg`, `*.tiff`, `*.pbm`, `*.pgm`, `*.ppm`) so format support and selectable UI entries stay aligned.
   - Regression updates: default-options coverage now includes PNG compressed-text default, and BMP header tests now assert true-color configurability plus non-RLE safety clamp behavior.
   - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:351 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-08 — Release hardening follow-up (Save-All semantics + plist metadata + Gate-C checklist).**
+  - `Save All Images` in `mainform` no longer saves only the active document; it now iterates all tabs, saves only dirty tabs, prompts `Save As` only where no file path exists, and restores the originally active tab after completion or cancel.
+  - macOS bundle metadata generation in `scripts/common.sh` is now parameterized via `FLATPAINT_BUNDLE_ID`, `FLATPAINT_VERSION`, and `FLATPAINT_BUILD` instead of shipping placeholder values.
+  - `Info.plist` document type declaration is now constrained to FlatPaint-native `.fpd` (`Editor` role, owner rank) instead of wildcard file associations.
+  - Added explicit Gate-C manual validation file: `docs/RELEASE_SMOKE_CHECKLIST.md`, and linked it from `docs/ARCHITECTURE_RENOVATION_PLAN.md`.
+  - Synced stale docs to current regression baseline (`363` tests), including `docs/PRD.md`, `docs/FEATURE_MATRIX.md`, and `docs/SHORTCUT_POLICY.md`.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:363 E:0 F:0`).

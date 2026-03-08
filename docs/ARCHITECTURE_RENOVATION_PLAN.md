@@ -169,7 +169,7 @@ Exit criteria:
 - Phase 4.5: complete (layer offset metadata model + native persistence + XCF metadata preservation, with clone/full-snapshot/native-roundtrip/XCF regression coverage).
 - Phase 4.6: complete (offset-aware compositor/tool semantic activation landed, including local-space selection mapping in mutation routes and dedicated offset regression coverage in document/pipeline tests).
 - Phase 5: complete (stroke-start full-layer clone path replaced by incremental region capture, move-pixels history switched to dirty-rect + selection-aware snapshots, and both stroke/move-pixels routes now converge on the core `TRegionHistoryTransaction` service with regression coverage).
-- Phase 6: complete (top-risk tool flows split into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with independent controller-suite coverage).
+- Phase 6: complete for top-risk tool/session routes (split into `TMovePixelsController`, `TStrokeHistoryController`, and `TSelectionToolController`, with independent controller-suite coverage); decomposition-tail hardening continues via low-risk extraction of shared non-render orchestration policy into helper units with focused tests (tool-switch deselect/option-memory policy, blank-click deselect policy, temporary-pan transitions, tab-cycle policy), plus removal of process-global native pinch callback coupling (`GMainForm`) in favor of per-view callback context install/uninstall.
 - A7 follow-up: complete (stored-selection lifecycle moved into core selection-copy routes with regression coverage, removing app-route underwiring).
 
 ## 6. Test renovation plan (to prevent repeat render breakage)
@@ -209,7 +209,7 @@ Exit criteria:
 ### 6.3 Test execution gates
 - Gate A (local commit): core unit + touched integration tests.
 - Gate B (PR): full `scripts/run_tests_ci.sh`.
-- Gate C (release candidate): full tests + render regression subset + manual smoke checklist.
+- Gate C (release candidate): full tests + render regression subset + manual smoke checklist (`docs/RELEASE_SMOKE_CHECKLIST.md`).
 
 ## 7. Regression-risk controls
 - Strangler approach: old and new path co-exist behind explicit switch during migration.

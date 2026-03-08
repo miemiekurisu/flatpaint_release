@@ -14,11 +14,11 @@
 - This document keeps the pre-renovation defect baseline as historical input.
 - Since that baseline review, seven items have moved:
   - **A1 (move-pixels transaction model):** materially mitigated by the transactional move-pixels session now covered by `tool_transaction_tests` (including drag-preview no-mutation, escape-cancel restore, and tool-switch cancel restore guards).
-  - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths (including gradient and radial-gradient masked blend routes), and native byte-mask persistence (`FPDOC04` legacy-compatible load path) plus regression tests.
+  - **A2 (selection coverage pipeline):** materially mitigated by byte-coverage propagation across selection transform paths, weighted selection-aware surface apply paths (including gradient and radial-gradient masked blend routes), native byte-mask persistence (`FPDOC04` legacy-compatible load path), and coverage-preserving magic-wand add/subtract merge semantics plus regression tests.
   - **A3 (lock/editability invariants):** materially mitigated by core `FPMutationGuard` adoption, expansion of guarded core mutation APIs for previously UI-direct routes (`PasteSurfaceToActiveLayer`, `PixelateRect`, active-layer rotate wrappers), guard-aware history entry APIs (`BeginActiveLayerMutation` / `BeginDocumentMutation`) now used by lock-sensitive menu/effect and interactive shape/fill/crop commit routes to prevent no-op undo noise, guard-coupled move-pixels controller commit/begin-session flow, and guard-coupled writable-surface acquisition (`MutableActiveLayerSurface`) now used by high-frequency brush/recolor/clone/eraser apply loops; route-level UI-edge locked-layer blocking regression checks are additionally covered in `pipeline_integration_tests`.
   - **A4 (layer geometry semantics):** materially mitigated; metadata foundation plus runtime semantic activation are complete (offset-aware compositor + tool/local-selection mapping + offset-preserving XCF/native routes) with regression coverage.
   - **A5 (history capture cost):** materially mitigated by replacing stroke-start full-layer clone with incremental pre-stroke region capture, switching move-pixels commit to dirty-rect + selection-aware region snapshots, and converging stroke/move transaction routes on core `TRegionHistoryTransaction`.
-  - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests.
+  - **A6 (mainform decomposition):** partially mitigated by extracting high-risk tool routes (`move`, `selection`, `paint history`) into dedicated app-layer controllers with independent regression tests, plus ongoing extraction of shared non-render UI policy logic into helper units (`tool-switch deselect policy`, `tool-option switch memory policy`, `blank-click auto-deselect policy`, `temporary-pan state transitions`, `tab-cycle index policy`) with focused helper tests; native magnify callback routing has also moved from process-global `GMainForm` coupling to per-view context installation/uninstallation, reducing global callback/state coupling in the app shell.
   - **A7 (stored-selection route closure):** materially mitigated by moving `StoreSelectionForPaste` into core selection-copy routes (`CopySelectionToSurface`/`CopyMergedToSurface`), eliminating app-route dependency.
 - Defects still treated as open architecture work in the active plan: **A6 (mainform orchestration coupling)**.
 
@@ -100,10 +100,11 @@ Current status for each item is defined by the **Implementation delta** section 
 ### A6. Main form is a high-coupling orchestration monolith (partially mitigated, P2)
 - Evidence:
   - `src/app/mainform.pas` remains a very large shell (~12k lines in current workspace audit).
-  - Global callback coupling through `GMainForm`: `src/app/mainform.pas:682`, `src/app/mainform.pas:694`
+  - Former global native magnify callback coupling through `GMainForm` has been removed; callback dispatch now uses per-view context passed through `FPMagnifyBridge` install/uninstall APIs.
   - High-risk tool session logic is now split into dedicated controllers:
     - `src/app/fptoolcontrollers.pas` (`TMovePixelsController`, `TStrokeHistoryController`, `TSelectionToolController`)
     - `src/tests/tool_controller_tests.pas` (independent controller regression coverage)
+  - Additional non-render policy extraction now lives in `src/app/fpuihelpers.pas` and is covered in `src/tests/fpuihelpers_tests.pas` (tool-switch selection retention/deselect, tool-option switch memory persistence, blank-click auto-deselect policy, temporary pan state transitions, and tab-cycle index policy).
 - Architectural problem:
   - Tool-state coupling was reduced for top-risk flows, but rendering/IO/panel choreography and many command routes still live in one form class.
 - User-visible risk:

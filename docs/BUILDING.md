@@ -31,6 +31,13 @@
 - Refreshed repository bundle: `dist/FlatPaint.app`
 - Release binary: `dist/release/flatpaint`
 
+## Bundle metadata overrides
+- `FLATPAINT_BUNDLE_ID` overrides `CFBundleIdentifier` (default: `com.flatpaint.app`).
+- `FLATPAINT_VERSION` overrides `CFBundleShortVersionString` (default: `0.1.0`).
+- `FLATPAINT_BUILD` overrides `CFBundleVersion` (default: `1`).
+- Example:
+  - `FLATPAINT_BUNDLE_ID=com.flatpaint.stable FLATPAINT_VERSION=1.0.0 FLATPAINT_BUILD=100 bash ./scripts/build-release.sh`
+
 ## Notes
 - The scripts intentionally favor reliable local replacement over preserving a running editor instance.
 - If `lazbuild` is missing, set `LAZBUILD` explicitly and rerun.

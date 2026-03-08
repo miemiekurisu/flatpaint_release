@@ -18,6 +18,7 @@ type
     procedure HistoryTimeline_NavigateViaRowClickSimulation;
     procedure HistoryTimeline_ClickInitialStateUndoesAll;
     procedure MagicWandIntersectKeepsOnlySharedRegion;
+    procedure MagicWandAddSubtractUsesCoverageCombineSemantics;
     procedure LayerBlendModeDefaultsToNormal;
     procedure LayerBlendModePreservedInClone;
     procedure LayerOffsetMetadataPreservedInClone;
@@ -272,6 +273,32 @@ begin
     AssertFalse('different color clears', Document.Selection[2, 0]);
     AssertTrue('shared black region remains', Document.Selection[1, 0]);
     AssertFalse('row outside original selection stays clear', Document.Selection[1, 1]);
+  finally
+    Document.Free;
+  end;
+end;
+
+procedure TFPDocumentTests.MagicWandAddSubtractUsesCoverageCombineSemantics;
+var
+  Document: TImageDocument;
+begin
+  Document := TImageDocument.Create(2, 1);
+  try
+    Document.ActiveLayer.Surface[0, 0] := RGBA(0, 0, 0, 255);
+    Document.ActiveLayer.Surface[1, 0] := RGBA(255, 255, 255, 255);
+
+    Document.Selection.Clear;
+    Document.Selection.SetCoverage(0, 0, 96);
+    Document.SelectMagicWand(0, 0, 0, scAdd);
+    AssertEquals('add should promote to max coverage for matched region', 255, Document.Selection.Coverage(0, 0));
+    AssertEquals('add should not affect unmatched region', 0, Document.Selection.Coverage(1, 0));
+
+    Document.Selection.Clear;
+    Document.Selection.SetCoverage(0, 0, 120);
+    Document.Selection.SetCoverage(1, 0, 140);
+    Document.SelectMagicWand(0, 0, 0, scSubtract);
+    AssertEquals('subtract should clear matched coverage', 0, Document.Selection.Coverage(0, 0));
+    AssertEquals('subtract should preserve unmatched coverage', 140, Document.Selection.Coverage(1, 0));
   finally
     Document.Free;
   end;

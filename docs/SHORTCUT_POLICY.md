@@ -50,7 +50,7 @@ These map the Windows/Photoshop `Shift/Alt` model into the macOS modifier set (O
 | Close | `Command+W` | Native close document |
 | Save | `Command+S` | Saves to the bound native document path when available |
 | Save As | `Command+Shift+S` | Prompts for the output path and format |
-| Save All Images | `Command+Option+S` | Current single-document shell saves the active document through the same path policy |
+| Save All Images | `Command+Option+S` | Iterates all dirty tabs, saves named documents directly, and prompts only for untitled tabs |
 | Print | `Command+P` | Routes to native print panel |
 | Exit | `Command+Q` | Quit application |
 | Cut | `Command+X` | Selection-aware when a selection exists |

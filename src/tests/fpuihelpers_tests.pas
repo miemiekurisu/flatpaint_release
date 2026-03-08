@@ -27,6 +27,12 @@ type
     procedure ShortcutCyclesMoveTools;
     procedure ShortcutCyclesShapeTools;
     procedure ShortcutSingleKeyMaps;
+    procedure ToolSwitchSelectionPolicyMatchesEditorRules;
+    procedure ToolSwitchAutoDeselectPolicyMatchesSelectionRules;
+    procedure ToolOptionSwitchPersistsOldAndRestoresNew;
+    procedure TempPanStateTransitionsAreIdempotent;
+    procedure TabCycleIndexFollowsShortcutPolicy;
+    procedure BlankClickAutoDeselectPolicyMatchesSelectionRules;
     procedure AdvancedToolsAdvertiseCanvasHoverFeedback;
     procedure BrushOverlayClassificationStaysFocused;
     procedure LineToolHintMentionsStraightByDefault;
@@ -144,12 +150,11 @@ end;
 
 procedure TMainFormShim.StopTempPan;
 begin
-  if FTempToolActive then
-  begin
-    FTempToolActive := False;
-    if Assigned(ToolCombo) then
-      ToolCombo.ItemIndex := FPreviousIndex;
-  end;
+  if not FTempToolActive then
+    Exit;
+  FTempToolActive := False;
+  if Assigned(ToolCombo) then
+    ToolCombo.ItemIndex := FPreviousIndex;
 end;
 
 procedure TFPUIHelpersTests.ToolDisplayOrderStartsWithSelectionTools;
@@ -367,6 +372,201 @@ begin
   { unrelated key leaves unchanged }
   t := NextToolForKey('Q', False, t);
   AssertEquals(Ord(tkColorPicker), Ord(t));
+end;
+
+procedure TFPUIHelpersTests.ToolSwitchSelectionPolicyMatchesEditorRules;
+begin
+  AssertTrue('brush should preserve existing selection', ShouldPreserveSelectionAcrossToolSwitch(tkBrush));
+  AssertTrue('fill should preserve existing selection', ShouldPreserveSelectionAcrossToolSwitch(tkFill));
+  AssertTrue('move pixels should preserve existing selection', ShouldPreserveSelectionAcrossToolSwitch(tkMovePixels));
+  AssertFalse('zoom should clear selection when switching from selection tools', ShouldPreserveSelectionAcrossToolSwitch(tkZoom));
+  AssertFalse('pan should clear selection when switching from selection tools', ShouldPreserveSelectionAcrossToolSwitch(tkPan));
+  AssertFalse('crop should clear selection when switching from selection tools', ShouldPreserveSelectionAcrossToolSwitch(tkCrop));
+end;
+
+procedure TFPUIHelpersTests.ToolSwitchAutoDeselectPolicyMatchesSelectionRules;
+begin
+  AssertFalse(
+    'staying on the same tool should never auto-deselect',
+    ShouldAutoDeselectOnToolSwitch(tkSelectRect, tkSelectRect)
+  );
+  AssertFalse(
+    'switching among selection tools should preserve selection',
+    ShouldAutoDeselectOnToolSwitch(tkSelectRect, tkSelectEllipse)
+  );
+  AssertFalse(
+    'switching from selection to brush should preserve selection for clipping',
+    ShouldAutoDeselectOnToolSwitch(tkSelectRect, tkBrush)
+  );
+  AssertTrue(
+    'switching from selection to pan should auto-deselect',
+    ShouldAutoDeselectOnToolSwitch(tkSelectRect, tkPan)
+  );
+  AssertTrue(
+    'switching from selection to zoom should auto-deselect',
+    ShouldAutoDeselectOnToolSwitch(tkMovePixels, tkZoom)
+  );
+  AssertFalse(
+    'non-selection to non-selection switch should not trigger deselect policy',
+    ShouldAutoDeselectOnToolSwitch(tkBrush, tkPan)
+  );
+end;
+
+procedure TFPUIHelpersTests.ToolOptionSwitchPersistsOldAndRestoresNew;
+var
+  ToolSize: TToolOptionMap;
+  ToolOpacity: TToolOptionMap;
+  ToolHardness: TToolOptionMap;
+  ToolKind: TToolKind;
+  ResolvedSize: Integer;
+  ResolvedOpacity: Integer;
+  ResolvedHardness: Integer;
+begin
+  for ToolKind := Low(TToolKind) to High(TToolKind) do
+  begin
+    ToolSize[ToolKind] := 8;
+    ToolOpacity[ToolKind] := 100;
+    ToolHardness[ToolKind] := 80;
+  end;
+  ToolSize[tkEraser] := 17;
+  ToolOpacity[tkEraser] := 63;
+  ToolHardness[tkEraser] := 42;
+
+  ApplyToolOptionSwitch(
+    tkBrush,
+    tkEraser,
+    13,
+    77,
+    91,
+    ToolSize,
+    ToolOpacity,
+    ToolHardness,
+    ResolvedSize,
+    ResolvedOpacity,
+    ResolvedHardness
+  );
+
+  AssertEquals('old tool size should be persisted before switch', 13, ToolSize[tkBrush]);
+  AssertEquals('old tool opacity should be persisted before switch', 77, ToolOpacity[tkBrush]);
+  AssertEquals('old tool hardness should be persisted before switch', 91, ToolHardness[tkBrush]);
+  AssertEquals('new tool size should be restored', 17, ResolvedSize);
+  AssertEquals('new tool opacity should be restored', 63, ResolvedOpacity);
+  AssertEquals('new tool hardness should be restored', 42, ResolvedHardness);
+end;
+
+procedure TFPUIHelpersTests.TempPanStateTransitionsAreIdempotent;
+var
+  CurrentTool: TToolKind;
+  PreviousTool: TToolKind;
+  TempActive: Boolean;
+begin
+  CurrentTool := tkBrush;
+  PreviousTool := tkSelectRect;
+  TempActive := False;
+  AssertTrue(
+    'first temp-pan activation should switch tool state',
+    TryActivateTemporaryPan(CurrentTool, PreviousTool, TempActive)
+  );
+  AssertTrue('activation should mark temporary mode active', TempActive);
+  AssertEquals('activation should switch to pan tool', Ord(tkPan), Ord(CurrentTool));
+  AssertEquals('activation should preserve previous tool', Ord(tkBrush), Ord(PreviousTool));
+
+  AssertFalse(
+    'second activation should be a no-op while already active',
+    TryActivateTemporaryPan(CurrentTool, PreviousTool, TempActive)
+  );
+  AssertTrue('state should remain active after duplicate activation', TempActive);
+  AssertEquals('tool should remain pan after duplicate activation', Ord(tkPan), Ord(CurrentTool));
+
+  AssertTrue(
+    'deactivation should restore previous tool',
+    TryDeactivateTemporaryPan(CurrentTool, PreviousTool, TempActive)
+  );
+  AssertFalse('deactivation should clear temporary mode', TempActive);
+  AssertEquals('deactivation should restore captured tool', Ord(tkBrush), Ord(CurrentTool));
+
+  AssertFalse(
+    'duplicate deactivation should be a no-op',
+    TryDeactivateTemporaryPan(CurrentTool, PreviousTool, TempActive)
+  );
+  AssertFalse('state should remain inactive after duplicate deactivation', TempActive);
+end;
+
+procedure TFPUIHelpersTests.TabCycleIndexFollowsShortcutPolicy;
+begin
+  AssertEquals(
+    'forward cycle should move to next tab',
+    2,
+    NextCycledTabIndex(1, 5, False)
+  );
+  AssertEquals(
+    'forward cycle should wrap to first tab',
+    0,
+    NextCycledTabIndex(4, 5, False)
+  );
+  AssertEquals(
+    'reverse cycle should move to previous tab',
+    3,
+    NextCycledTabIndex(4, 5, True)
+  );
+  AssertEquals(
+    'reverse cycle should wrap to last tab',
+    4,
+    NextCycledTabIndex(0, 5, True)
+  );
+  AssertEquals(
+    'single-tab document should not switch index',
+    0,
+    NextCycledTabIndex(0, 1, False)
+  );
+end;
+
+procedure TFPUIHelpersTests.BlankClickAutoDeselectPolicyMatchesSelectionRules;
+begin
+  AssertTrue(
+    'selection tool click outside selection without modifiers should auto-deselect',
+    ShouldAutoDeselectFromBlankClick(
+      tkSelectRect,
+      True,
+      True,
+      False,
+      mbLeft,
+      []
+    )
+  );
+  AssertFalse(
+    'click inside current selection should not auto-deselect',
+    ShouldAutoDeselectFromBlankClick(
+      tkSelectRect,
+      True,
+      True,
+      True,
+      mbLeft,
+      []
+    )
+  );
+  AssertFalse(
+    'modifier-assisted click should not auto-deselect',
+    ShouldAutoDeselectFromBlankClick(
+      tkSelectRect,
+      True,
+      True,
+      False,
+      mbLeft,
+      [ssShift]
+    )
+  );
+  AssertFalse(
+    'paint tools should not trigger selection auto-deselect logic',
+    ShouldAutoDeselectFromBlankClick(
+      tkBrush,
+      True,
+      True,
+      False,
+      mbLeft,
+      []
+    )
+  );
 end;
 
 procedure TFPUIHelpersTests.AdvancedToolsAdvertiseCanvasHoverFeedback;
