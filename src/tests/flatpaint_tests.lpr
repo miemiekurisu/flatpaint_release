@@ -25,7 +25,7 @@ uses
   fpstatushelpers_tests, fpfilemenuhelpers_tests, fpmagnifierhelpers_tests,
   pipeline_integration_tests,
   fpcolor_premul_tests, fpclipboardhelpers_tests, fpaboutcontent_tests,
-  fpcolorwheelhelpers_tests;
+  fpcolorwheelhelpers_tests, fpmenuhelpers_tests;
 
 var
   Runner: TTestRunner;

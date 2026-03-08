@@ -5,7 +5,7 @@ unit FPClipboardHelpers;
 interface
 
 uses
-  Classes, Types;
+  Classes, Types, Clipbrd, Graphics, LCLType;
 
 procedure WriteClipboardSurfaceMeta(
   AStream: TStream;
@@ -16,6 +16,13 @@ function TryReadClipboardSurfaceMeta(
   AStream: TStream;
   out AOffset: TPoint;
   AExpectedWidth, AExpectedHeight: Integer
+): Boolean;
+function PublishBitmapToClipboardWithMeta(
+  AClipboard: TClipboard;
+  ABitmap: TBitmap;
+  AMetaFormatID: TClipboardFormat;
+  const AOffset: TPoint;
+  AWidth, AHeight: Integer
 ): Boolean;
 
 implementation
@@ -80,6 +87,42 @@ begin
     Exit;
   AOffset := Point(Meta.OffsetX, Meta.OffsetY);
   Result := True;
+end;
+
+function PublishBitmapToClipboardWithMeta(
+  AClipboard: TClipboard;
+  ABitmap: TBitmap;
+  AMetaFormatID: TClipboardFormat;
+  const AOffset: TPoint;
+  AWidth, AHeight: Integer
+): Boolean;
+var
+  MetaStream: TMemoryStream;
+begin
+  Result := False;
+  if (AClipboard = nil) or (ABitmap = nil) then
+    Exit;
+  if (AWidth <= 0) or (AHeight <= 0) then
+    Exit;
+
+  MetaStream := TMemoryStream.Create;
+  try
+    WriteClipboardSurfaceMeta(MetaStream, AOffset, AWidth, AHeight);
+    AClipboard.Open;
+    try
+      AClipboard.Assign(ABitmap);
+      Result := AClipboard.HasPictureFormat;
+      if AMetaFormatID <> 0 then
+      begin
+        MetaStream.Position := 0;
+        AClipboard.AddFormat(AMetaFormatID, MetaStream);
+      end;
+    finally
+      AClipboard.Close;
+    end;
+  finally
+    MetaStream.Free;
+  end;
 end;
 
 end.

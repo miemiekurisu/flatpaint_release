@@ -752,7 +752,7 @@ uses
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
   FPBlurDialog, FPNoiseDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
   FPTextRenderer, FPLayerPropertiesDialog, FPShortcutHelpers, FPClipboardHelpers,
-  FPAboutDialog,
+  FPAboutDialog, FPMenuHelpers, FPAppMenuBridge,
   FPMagnifyBridge, FPAlphaBridge, FPScrollViewBridge,
   FPListBgBridge, FPAppearanceBridge;
 
@@ -2630,6 +2630,8 @@ end;
 procedure TMainForm.BuildMenus;
 var
   AppMenu: TMenuItem;
+  AppAboutMenuItem: TMenuItem;
+  AppPreferencesMenuItem: TMenuItem;
   FileMenu: TMenuItem;
   EditMenu: TMenuItem;
   LayerMenu: TMenuItem;
@@ -2642,13 +2644,18 @@ var
   SubMenu: TMenuItem;
 begin
   FMainMenu := TMainMenu.Create(Self);
+  AppAboutMenuItem := nil;
+  AppPreferencesMenuItem := nil;
 
-  AppMenu := TMenuItem.Create(FMainMenu);
-  AppMenu.Caption := TR('FlatPaint', 'FlatPaint');
-  FMainMenu.Items.Add(AppMenu);
-  CreateMenuItem(AppMenu, TR('About FlatPaint', #$E5#$85#$B3#$E4#$BA#$8E' FlatPaint'), @AboutClick);
-  CreateMenuItem(AppMenu, '-', nil);
-  CreateMenuItem(AppMenu, TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...'), @SettingsClick);
+  if ShouldCreateExplicitApplicationMenu then
+  begin
+    AppMenu := TMenuItem.Create(FMainMenu);
+    AppMenu.Caption := TR('FlatPaint', 'FlatPaint');
+    FMainMenu.Items.Add(AppMenu);
+    CreateMenuItem(AppMenu, TR('About FlatPaint', #$E5#$85#$B3#$E4#$BA#$8E' FlatPaint'), @AboutClick);
+    CreateMenuItem(AppMenu, '-', nil);
+    CreateMenuItem(AppMenu, TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...'), @SettingsClick);
+  end;
 
   FileMenu := TMenuItem.Create(FMainMenu);
   FileMenu.Caption := TR('&File', '&' + #$E6#$96#$87#$E4#$BB#$B6);
@@ -2719,7 +2726,11 @@ begin
     CoreShortcut(cscCropToSelection)
   );
   EditMenu.AddSeparator;
-  CreateMenuItem(EditMenu, TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...'), @SettingsClick, ShortCut($BC, [ssMeta]));
+  AppPreferencesMenuItem := TMenuItem.Create(EditMenu);
+  AppPreferencesMenuItem.Caption := TR('Preferences...', #$E5#$81#$8F#$E5#$A5#$BD#$E8#$AE#$BE#$E7#$BD#$AE + '...');
+  AppPreferencesMenuItem.OnClick := @SettingsClick;
+  AppPreferencesMenuItem.ShortCut := ShortCut($BC, [ssMeta]);
+  EditMenu.Add(AppPreferencesMenuItem);
 
   LayerMenu := TMenuItem.Create(FMainMenu);
   LayerMenu.Caption := TR('&Layers', '&' + #$E5#$9B#$BE#$E5#$B1#$82);
@@ -2884,6 +2895,14 @@ begin
   CreateMenuItem(SubMenu, TR('&Ink Sketch...', '&' + #$E5#$A2#$A8#$E6#$B0#$B4#$E7#$B4#$A0#$E6#$8F#$8F + '...'), @InkSketchClick);
   CreateMenuItem(SubMenu, TR('&Relief...', '&' + #$E6#$B5#$AE#$E9#$9B#$95#$E6#$95#$88#$E6#$9E#$9C + '...'), @ReliefClick);
   CreateMenuItem(SubMenu, TR('Outline Effe&ct...', #$E8#$BD#$AE#$E5#$BB#$93#$E6#$95#$88#$E6#$9E#$9C + '(&C)...'), @OutlineEffectClick);
+
+  if not ShouldCreateExplicitApplicationMenu then
+  begin
+    AppAboutMenuItem := TMenuItem.Create(FMainMenu);
+    AppAboutMenuItem.Caption := TR('About FlatPaint', #$E5#$85#$B3#$E4#$BA#$8E' FlatPaint');
+    AppAboutMenuItem.OnClick := @AboutClick;
+    ConfigureSystemAppMenu(AppAboutMenuItem, AppPreferencesMenuItem);
+  end;
 
   Menu := FMainMenu;
 end;
@@ -7793,29 +7812,23 @@ end;
 procedure TMainForm.PublishSurfaceToSystemClipboard(ASurface: TRasterSurface; const AOffset: TPoint);
 var
   Bitmap: TBitmap;
-  Picture: TPicture;
-  MetaStream: TMemoryStream;
 begin
   if ASurface = nil then
     Exit;
   Bitmap := nil;
-  Picture := nil;
-  MetaStream := nil;
   try
     Bitmap := SurfaceToBitmap(ASurface);
-    Picture := TPicture.Create;
-    Picture.Assign(Bitmap);
-    Clipboard.Assign(Picture);
-
-    MetaStream := TMemoryStream.Create;
-    WriteClipboardSurfaceMeta(MetaStream, AOffset, ASurface.Width, ASurface.Height);
-    MetaStream.Position := 0;
-    Clipboard.SetFormat(FlatPaintClipboardMetaFormatID, MetaStream);
+    PublishBitmapToClipboardWithMeta(
+      Clipboard,
+      Bitmap,
+      FlatPaintClipboardMetaFormatID,
+      AOffset,
+      ASurface.Width,
+      ASurface.Height
+    );
   except
     { Keep in-app clipboard routes usable even if system clipboard access fails. }
   end;
-  MetaStream.Free;
-  Picture.Free;
   Bitmap.Free;
 end;
 

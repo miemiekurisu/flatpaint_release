@@ -13,6 +13,7 @@ type
     procedure ClipboardSurfaceMetaRoundTripsOffset;
     procedure ClipboardSurfaceMetaRejectsDimensionMismatch;
     procedure ClipboardSurfaceMetaRejectsInvalidSignature;
+    procedure PublishBitmapToClipboardWithMetaRejectsInvalidInputs;
   end;
 
 implementation
@@ -73,6 +74,32 @@ begin
   finally
     Stream.Free;
   end;
+end;
+
+procedure TFPClipboardHelpersTests.PublishBitmapToClipboardWithMetaRejectsInvalidInputs;
+begin
+  AssertFalse(
+    'nil clipboard should be rejected safely',
+    PublishBitmapToClipboardWithMeta(
+      nil,
+      nil,
+      1,
+      Point(0, 0),
+      1,
+      1
+    )
+  );
+  AssertFalse(
+    'non-positive dimensions should still be rejected when clipboard/bitmap are nil',
+    PublishBitmapToClipboardWithMeta(
+      nil,
+      nil,
+      1,
+      Point(0, 0),
+      0,
+      1
+    )
+  );
 end;
 
 initialization

@@ -2,7 +2,7 @@ THIRD-PARTY LICENSES
 
 FlatPaint includes or links against the following open-source software.
 Their licenses require the following notices to be distributed with
-the application.
+the application. Deeply thanks to these awesome software.
 
 ========================================================================
 FREE PASCAL COMPILER RUNTIME LIBRARY (RTL) AND FREE COMPONENT LIBRARY (FCL)

@@ -1,5 +1,5 @@
 FlatPaint
-Version 1.0
+Version 0.8 beta
 
 A lightweight raster image editor for macOS.
 
