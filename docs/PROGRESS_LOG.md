@@ -4,6 +4,146 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-08 (public-pack staging for partial GitHub open-source + release payload prep)
+
+### Changes
+
+1. **Added a dedicated `git/` staging tree for partial-open publication**:
+   - root docs:
+     - `git/README.md`
+     - `git/LICENSE_OPTIONS.md`
+     - `git/LICENSE`
+     - `git/package_release.sh`
+     - `git/verify_libs.sh`
+   - bundled license texts:
+     - `git/licenses/COPYING.LGPL.txt`
+     - `git/licenses/COPYING.modifiedLGPL.txt`
+   - release payload:
+     - `git/release/FlatPaint.app` (copied from `dist/FlatPaint.app`)
+     - `git/release/APP_FEATURES.md`
+     - `git/release/packages/*.zip` + `SHA256SUMS.txt`
+
+2. **Extracted 5 reusable libraries into standalone folders (one folder per lib)**:
+   - `git/libs/fp-raster-core` (pure FPC raster core)
+   - `git/libs/fp-viewport-kit` (pure FPC viewport/zoom/ruler math helpers)
+   - `git/libs/fp-lcl-raster-bridge` (LCL bridge for `TRasterSurface <-> TBitmap`)
+   - `git/libs/fp-lcl-clipboard-meta` (LCL clipboard metadata helper)
+   - `git/libs/fp-macos-lcl-bridge` (macOS Cocoa bridge units + native `.m` modules)
+   - each lib ships with:
+     - `README.md`
+     - `LICENSE`
+     - `COPYING.LGPL.txt`
+     - `COPYING.modifiedLGPL.txt`
+     - `build.sh`
+     - `examples/smoke_test.lpr`
+
+3. **Finalized open-source license model for extracted libs**:
+   - selected license: **LGPL v2.1+ with Lazarus modified linking exception**.
+   - license texts are bundled both at `git/licenses/` and within each lib directory so per-lib zip artifacts are self-contained.
+
+4. **Kept license-risk posture explicit and conservative**:
+   - no FPC/Lazarus source code was copied into these lib folders.
+   - only FlatPaint-owned units/native bridge files were extracted.
+   - no private/proprietary third-party source was introduced.
+
+5. **Feature-matrix mapping**:
+   - `Regression health` / `Buildability` (release artifact reproducibility and deterministic packaging flow).
+   - no end-user editing behavior changed in this pass.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `351` tests, `0` errors, `0` failures.
+- `bash ./scripts/build-release.sh`
+  - Result: **passed**, refreshed `dist/release/flatpaint` and `dist/FlatPaint.app`.
+- Extracted-lib smoke builds:
+  - `bash ./git/libs/fp-raster-core/build.sh` => passed
+  - `bash ./git/libs/fp-viewport-kit/build.sh` => passed
+  - `bash ./git/libs/fp-lcl-raster-bridge/build.sh` => passed
+  - `bash ./git/libs/fp-lcl-clipboard-meta/build.sh` => passed
+  - `bash ./git/libs/fp-macos-lcl-bridge/build.sh` => passed
+- Packaging:
+  - `bash ./git/package_release.sh` => passed
+- Combined one-command library verification:
+  - `bash ./git/verify_libs.sh` => passed (all 5 libraries)
+- Standalone build-script robustness:
+  - LCL/macOS lib scripts now auto-detect common Lazarus source locations and still allow explicit `LAZARUS_DIR`.
+- Final regression gate:
+  - `bash ./scripts/run_tests_ci.sh` => passed (`351` tests, `0` failures)
+
+## 2026-03-08 (i18n dialog completion pass: shortcut-safe and regression-clean)
+
+### Changes
+
+1. **Completed language-switch coverage for previously untranslated dialog surfaces**:
+   - localized and wired `TR(...)` for:
+     - `src/app/fpaboutdialog.pas`
+     - `src/app/fpblurdialog.pas`
+     - `src/app/fpcurvesdialog.pas`
+     - `src/app/fpeffectdialog.pas`
+     - `src/app/fpexportdialog.pas`
+     - `src/app/fplayerpropertiesdialog.pas`
+     - `src/app/fpnewimagedialog.pas`
+     - `src/app/fpnoisedialog.pas`
+     - `src/app/fpposterizedialog.pas`
+     - `src/app/fpresizedialog.pas`
+     - `src/app/fptextdialog.pas`
+   - `ResampleModeCaption(...)` in `src/app/fpresizehelpers.pas` now also follows `TR(...)` so resize dialog mode labels switch with language.
+
+2. **Localized generic effect-parameter dialog entry points and repeat caption chain**:
+   - converted `RunEffectDialog1/2` call-site titles and labels in `src/app/mainform.pas` to `TR(...)`.
+   - localized effect-repeat prefix (`Repeat:`) and effect caption storage used by `Repeat Last Effect`.
+
+3. **Kept behavior risk low by limiting this pass to UI strings only**:
+   - no algorithm/path/selection/history semantics changed.
+   - compile-time failures from mixed escaped-string syntax were resolved by normalizing affected export-dialog translations to stable UTF-8 string literals.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `351` tests, `0` errors, `0` failures.
+
+## 2026-03-08 (export-dialog depth upgrade + JPEG stream regression + compatibility/licensing baseline refresh)
+
+### Changes
+
+1. **Reworked PNG/JPEG save flow into a unified export-options dialog with live preview**:
+   - new unit: `src/app/fpexportdialog.pas`.
+   - `SaveToPath(...)` now opens format-specific options for `.jpg/.jpeg` and `.png` instead of ad-hoc prompts.
+   - dialog previews encoded output on a bounded thumbnail and shows sample encoded size.
+
+2. **Extended persisted export options and writer coverage**:
+   - session state now persists `JPEG quality`, `JPEG progressive`, `JPEG grayscale`, `PNG compression`, and `PNG alpha`.
+   - save path keeps using `TSaveSurfaceOptions` and `SaveSurfaceToFileWithOpts(...)`; options are applied before each save.
+   - JPEG subsampling control is shown as intentionally unavailable because current FPC `TFPWriterJPEG` does not expose a subsampling selector.
+
+3. **Added stream-level JPEG regression coverage for the new save backend contract**:
+   - `TFPIOTests.JpegStreamSaveSupportsExtensionNormalizationAndGrayscaleOutput` verifies:
+     - stream-save accepts extension without dot (`jpg`);
+     - stream payload is properly reset/truncated (valid JPEG SOI marker);
+     - grayscale option produces near-equal RGB channels after decode.
+
+4. **Export/reference baseline update recorded per development rules**:
+   - paint.net save behavior reference: format-specific save-configuration + live preview model.
+   - GIMP/Photoshop references used for option-surface parity targets (JPEG quality/progressive/subsampling-family controls, PNG compression/metadata surface expectations).
+   - compatibility/licensing baseline clarified for partial formats:
+     - `.xcf` and `.kra` remain open/ecosystem formats for compatibility import paths.
+     - `.pdn` remains partial fallback-only (flattened import route), with no full round-trip commitment until public/stable format documentation is available.
+
+5. **Low-risk AA/zoom rendering polish merged in the same window**:
+   - straight solid line commit path now prefers Core Graphics stroked rendering with guarded fallback to prior raster path.
+   - deep-zoom interpolation policy now switches to nearest-neighbor starting at `800%` (`8.0x`) for sharper pixel inspection.
+
+6. **Top-toolbar readability alignment adjustments kept**:
+   - zoom combo geometry and large-command typography were nudged for clearer visual centering/readability without changing command behavior.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `349` tests, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-08 (Toolbar zoom-control centering and hover-style consistency)
 
 ### Changes
@@ -1679,3 +1819,12 @@ Six bugs were identified through systematic trace of the three reported failure 
   - Root cause: floating-point drift could make `Phase` nearly equal to `DashLength` (or `Period`), producing `RemainingInChunk ≈ 0` (e.g., 1e-15). The inner `while CursorPos < SegLength` loop then advanced by sub-picometer increments, effectively infinite.
   - Fix: added guard in `DrawDashedPolyline` — when `RemainingInChunk < 0.5`, snap `Phase` to the exact dash/gap boundary and re-evaluate. This guarantees the next iteration gets a full chunk (≥ 1 px) and the loop terminates in bounded time.
   - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:348 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-08 — Multi-format export options expansion + BMP safety alignment.**
+  - Feature row mapping: `Export/options` in `docs/FEATURE_MATRIX.md`.
+  - Extended save-option routing from JPEG/PNG-only behavior to writer-backed controls across `JPEG/PNG/BMP/TIFF/PCX/PNM/XPM`, including dialog-side live preview and session-persisted option state.
+  - Added missing PNG writer control (`CompressedText`) to both `TSaveSurfaceOptions` and export dialog UI.
+  - Using local FPC source (`/Users/chrischan/Documents/workspace.nosync/lazarus/fpc/3.2.4/sources`) for writer contract audit, added the previously omitted `TFPWriterPNM.FullWidth` route (`PNM` 16-bit output) to options, UI, and tests.
+  - Aligned BMP UI/options to the current stable RGBA save path: expose `24/32 bpp` + `X/Y pixels per meter`, and explicitly disable paletted/RLE paths that require indexed conversion not currently wired in this pipeline.
+  - Updated `Save As` filter aliases to expose supported extension families directly (`*.jpeg`, `*.tiff`, `*.pbm`, `*.pgm`, `*.ppm`) so format support and selectable UI entries stay aligned.
+  - Regression updates: default-options coverage now includes PNG compressed-text default, and BMP header tests now assert true-color configurability plus non-RLE safety clamp behavior.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:351 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.

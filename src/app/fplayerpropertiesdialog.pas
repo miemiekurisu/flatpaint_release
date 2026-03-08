@@ -21,19 +21,29 @@ function RunLayerPropertiesDialog(AOwner: TComponent;
 implementation
 
 uses
-  SysUtils, Math, Controls, StdCtrls, ComCtrls;
+  SysUtils, Math, Controls, StdCtrls, ComCtrls, FPi18n;
 
-const
-  BlendModeNames: array[TBlendMode] of string = (
-    'Normal',
-    'Multiply',
-    'Screen',
-    'Overlay',
-    'Darken',
-    'Lighten',
-    'Difference',
-    'Soft Light'
-  );
+function BlendModeDisplayName(AMode: TBlendMode): string;
+begin
+  case AMode of
+    bmMultiply:
+      Result := TR('Multiply', #$E6#$AD#$A3#$E7#$89#$87#$E5#$8F#$A0#$E5#$BA#$95);
+    bmScreen:
+      Result := TR('Screen', #$E6#$BB#$A4#$E8#$89#$B2);
+    bmOverlay:
+      Result := TR('Overlay', #$E5#$8F#$A0#$E5#$8A#$A0);
+    bmDarken:
+      Result := TR('Darken', #$E5#$8F#$98#$E6#$9A#$97);
+    bmLighten:
+      Result := TR('Lighten', #$E5#$8F#$98#$E4#$BA#$AE);
+    bmDifference:
+      Result := TR('Difference', #$E5#$B7#$AE#$E5#$80#$BC);
+    bmSoftLight:
+      Result := TR('Soft Light', #$E6#$9F#$94#$E5#$85#$89);
+  else
+    Result := TR('Normal', #$E6#$AD#$A3#$E5#$B8#$B8);
+  end;
+end;
 
 type
   TLayerPropertiesForm = class(TForm)
@@ -64,7 +74,7 @@ begin
   inherited CreateNew(AOwner, 0);
   BorderStyle := bsDialog;
   BorderIcons := [biSystemMenu];
-  Caption := 'Layer Properties';
+  Caption := TR('Layer Properties', #$E5#$9B#$BE#$E5#$B1#$82#$E5#$B1#$9E#$E6#$80#$A7);
   Position := poScreenCenter;
   Width := 320;
   Height := 248;
@@ -75,7 +85,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := 'Name:';
+  LabelCtrl.Caption := TR('Name:', #$E5#$90#$8D#$E7#$A7#$B0#$EF#$BC#$9A);
 
   FNameEdit := TEdit.Create(Self);
   FNameEdit.Parent := Self;
@@ -88,7 +98,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 52;
-  LabelCtrl.Caption := 'Blend:';
+  LabelCtrl.Caption := TR('Blend:', #$E6#$B7#$B7#$E5#$90#$88#$EF#$BC#$9A);
 
   FBlendCombo := TComboBox.Create(Self);
   FBlendCombo.Parent := Self;
@@ -97,7 +107,7 @@ begin
   FBlendCombo.Width := 220;
   FBlendCombo.Style := csDropDownList;
   for BM := Low(TBlendMode) to High(TBlendMode) do
-    FBlendCombo.Items.Add(BlendModeNames[BM]);
+    FBlendCombo.Items.Add(BlendModeDisplayName(BM));
   FBlendCombo.ItemIndex := Ord(AResult.BlendMode);
 
   FVisibleCheck := TCheckBox.Create(Self);
@@ -105,14 +115,14 @@ begin
   FVisibleCheck.Left := 80;
   FVisibleCheck.Top := 82;
   FVisibleCheck.Width := 220;
-  FVisibleCheck.Caption := 'Visible';
+  FVisibleCheck.Caption := TR('Visible', #$E5#$8F#$AF#$E8#$A7#$81);
   FVisibleCheck.Checked := AResult.Visible;
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 116;
-  LabelCtrl.Caption := 'Opacity:';
+  LabelCtrl.Caption := TR('Opacity:', #$E4#$B8#$8D#$E9#$80#$8F#$E6#$98#$8E#$E5#$BA#$A6#$EF#$BC#$9A);
 
   FOpacityEdit := TEdit.Create(Self);
   FOpacityEdit.Parent := Self;
@@ -137,7 +147,7 @@ begin
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 170;
   OkButton.Top := 210;
   OkButton.Width := 64;
@@ -147,7 +157,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 242;
   CancelButton.Top := 210;
   CancelButton.Width := 64;

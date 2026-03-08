@@ -4,6 +4,40 @@
 - This is a cumulative historical log and includes legacy test records from earlier prototype phases.
 - The active test/build toolchain for current work is FPC + Lazarus.
 
+## 2026-03-08 (public-pack staging verification: release + extracted library smoke builds)
+- Release build verification before packaging: `bash ./scripts/build-release.sh`
+- Result: passed; refreshed `dist/release/flatpaint` and `dist/FlatPaint.app`.
+- Full regression verification after packaging scripts and standalone lib build-script adjustments: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `351` tests, `0` errors, `0` failures.
+- Final standalone-library verification after license + README completion:
+  - `bash ./git/verify_libs.sh`
+  - Result: passed; all 5 extracted libraries compiled via standalone scripts.
+- Follow-up verification after auto-detection fix for Lazarus source path depth:
+  - `bash ./git/verify_libs.sh`
+  - Result: passed; all 5 extracted libraries compiled successfully.
+- Final repository regression gate after public-pack/license updates:
+  - `bash ./scripts/run_tests_ci.sh`
+  - Result: passed; `351` tests, `0` errors, `0` failures.
+- Extracted-library smoke builds:
+  - `bash ./git/libs/fp-raster-core/build.sh` => passed
+  - `bash ./git/libs/fp-viewport-kit/build.sh` => passed
+  - `bash ./git/libs/fp-lcl-raster-bridge/build.sh` => passed
+  - `bash ./git/libs/fp-lcl-clipboard-meta/build.sh` => passed
+  - `bash ./git/libs/fp-macos-lcl-bridge/build.sh` => passed
+- Packaging verification:
+  - `bash ./git/package_release.sh`
+  - Result: passed; refreshed `git/release/FlatPaint.app` and `git/release/packages/*.zip`.
+
+## 2026-03-08 (dialog i18n completion + effect-dialog caption localization)
+- Full CI verification after localizing untranslated dialog surfaces (`about/blur/curves/effect/export/layer-properties/new-image/noise/posterize/resize/text`), localizing resize resample captions, and wiring `mainform` effect-dialog title/label + repeat-caption strings to `TR(...)`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `351` tests, `0` errors, `0` failures.
+
+## 2026-03-08 (export options dialog + JPEG stream-save regression coverage)
+- Full CI verification after introducing `fpexportdialog`-based PNG/JPEG save options + preview flow, wiring new persisted JPEG/PNG option fields into `mainform`, and adding `TFPIOTests.JpegStreamSaveSupportsExtensionNormalizationAndGrayscaleOutput`: `bash ./scripts/run_tests_ci.sh`
+- Result: passed; `349` tests, `0` errors, `0` failures.
+- Build verification in the same change window: `bash ./scripts/build.sh`
+- Result: passed; `dist/FlatPaint.app` refreshed.
+
 ## 2026-03-08 (About content build-time regeneration + source-sync regression coverage)
 - Full CI verification after adding `scripts/generate_about_content.sh`, wiring it into build/test scripts, regenerating `FPAboutContent`, and adding `TFPAboutContentTests.AboutSectionsMatchAssetSourceFiles`: `bash ./scripts/run_tests_ci.sh`
 - Result: passed; `350` tests, `0` errors, `0` failures.
@@ -953,4 +987,20 @@
 - Full CI verification after splitting SV rendered-hue cache from hue-memory fallback and adding `fpcolorwheelhelpers_tests` (`2` tests): `bash ./scripts/run_tests_ci.sh`
 - Result: passed with `N:347 E:0 F:0`.
 - Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+
+## 2026-03-08 (multi-format export options expansion + BMP behavior alignment)
+- Initial CI run after broad export-option refactor: `bash ./scripts/run_tests_ci.sh`
+- Result: failed with `N:351 E:0 F:1` (`TFPIOTests.BmpSaveHonorsBitsPerPixelAndRLEOptions` expected paletted/RLE BMP output that is intentionally clamped in the current true-color RGBA path).
+- Follow-up CI run after test + UI alignment (`BMP` true-color-only assertions, PNG compressed-text option coverage): `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:351 E:0 F:0`.
+- Build verification after the same change window: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+- Final CI rerun after extending `Save As` extension aliases (`*.jpeg/*.tiff/*.pbm/*.pgm/*.ppm`) to match supported writer routes: `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:351 E:0 F:0`.
+- Final build rerun after the same dialog-filter update: `bash ./scripts/build.sh`
+- Result: completed successfully and refreshed `dist/FlatPaint.app`.
+- CI rerun after adding `PNM FullWidth` (16-bit P5/P6) option routing + regression assertion (`65535` max header): `bash ./scripts/run_tests_ci.sh`
+- Result: passed with `N:351 E:0 F:0`.
+- Build rerun after the same PNM option update: `bash ./scripts/build.sh`
 - Result: completed successfully and refreshed `dist/FlatPaint.app`.

@@ -1,3 +1,3 @@
-Chris Chan
-https://github.com/flatpaint
-Another simple Paint App on MacOS
+Miemiekurisu
+https://github.com/flatpaint_release
+A Simple Paint App on MacOS, free for personal usage.

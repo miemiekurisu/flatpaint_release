@@ -13,13 +13,29 @@ type
     JpegProgressive: whether JPEG should use progressive encoding.
     JpegGrayscale: whether JPEG should encode grayscale output.
     PngCompressionLevel: 0..9 user-facing scale mapped onto zlib levels.
-    PngUseAlpha: whether PNG should preserve alpha data. }
+    PngUseAlpha: whether PNG should preserve alpha data.
+    PnmColorDepthMode: 0=Auto, 1=BlackWhite, 2=Grayscale, 3=RGB. }
   TSaveSurfaceOptions = record
     JpegQuality: Integer;
     JpegProgressive: Boolean;
     JpegGrayscale: Boolean;
     PngCompressionLevel: Integer;
     PngUseAlpha: Boolean;
+    PngGrayscale: Boolean;
+    PngIndexed: Boolean;
+    PngWordSized: Boolean;
+    PngCompressedText: Boolean;
+    BmpBitsPerPixel: Integer;
+    BmpRLECompress: Boolean;
+    BmpXPelsPerMeter: Integer;
+    BmpYPelsPerMeter: Integer;
+    TiffSaveCMYKAsRGB: Boolean;
+    PcxCompressed: Boolean;
+    PnmBinaryFormat: Boolean;
+    PnmColorDepthMode: Integer;
+    PnmFullWidth: Boolean;
+    XpmColorCharSize: Integer;
+    XpmPalChars: string;
   end;
 
 function DefaultSaveSurfaceOptions: TSaveSurfaceOptions;
@@ -40,6 +56,7 @@ function SupportedImportDialogFilter: string;
 implementation
 
 uses
+  Math,
   FPKRAIO,
   FPXCFIO,
   FPPDNIO,
@@ -280,6 +297,7 @@ var
   JpegQuality: Integer;
   PngLevel: Integer;
   PngCompression: TCompressionLevel;
+  BmpBits: Integer;
 begin
   if AStream = nil then
     raise Exception.Create('SaveSurfaceToStreamWithOpts requires a valid output stream.');
@@ -310,7 +328,52 @@ begin
       else
         PngCompression := clDefault;
       TFPWriterPNG(Writer).UseAlpha := AOpts.PngUseAlpha;
+      TFPWriterPNG(Writer).GrayScale := AOpts.PngGrayscale;
+      TFPWriterPNG(Writer).Indexed := AOpts.PngIndexed;
+      TFPWriterPNG(Writer).WordSized := AOpts.PngWordSized;
+      TFPWriterPNG(Writer).CompressedText := AOpts.PngCompressedText;
       TFPWriterPNG(Writer).CompressionLevel := PngCompression;
+    end
+    else if Writer is TFPWriterBMP then
+    begin
+      BmpBits := AOpts.BmpBitsPerPixel;
+      if not (BmpBits in [24, 32]) then
+        BmpBits := 24;
+      TFPWriterBMP(Writer).BitsPerPixel := BmpBits;
+      { Current RGBA pipeline exports true-color BMP only. Paletted 1/4/8 bpp
+        and RLE variants require indexed-color conversion, which is not wired
+        into this save path yet. Keep output deterministic and safe. }
+      TFPWriterBMP(Writer).RLECompress := False;
+      if AOpts.BmpXPelsPerMeter > 0 then
+        TFPWriterBMP(Writer).XPelsPerMeter := AOpts.BmpXPelsPerMeter;
+      if AOpts.BmpYPelsPerMeter > 0 then
+        TFPWriterBMP(Writer).YPelsPerMeter := AOpts.BmpYPelsPerMeter;
+    end
+    else if Writer is TFPWriterTiff then
+    begin
+      TFPWriterTiff(Writer).SaveCMYKAsRGB := AOpts.TiffSaveCMYKAsRGB;
+    end
+    else if Writer is TFPWriterPCX then
+    begin
+      TFPWriterPCX(Writer).Compressed := AOpts.PcxCompressed;
+    end
+    else if Writer is TFPWriterPNM then
+    begin
+      TFPWriterPNM(Writer).BinaryFormat := AOpts.PnmBinaryFormat;
+      case AOpts.PnmColorDepthMode of
+        1: TFPWriterPNM(Writer).ColorDepth := pcdBlackWhite;
+        2: TFPWriterPNM(Writer).ColorDepth := pcdGrayscale;
+        3: TFPWriterPNM(Writer).ColorDepth := pcdRGB;
+      else
+        TFPWriterPNM(Writer).ColorDepth := pcdAuto;
+      end;
+      TFPWriterPNM(Writer).FullWidth := AOpts.PnmFullWidth;
+    end
+    else if Writer is TFPWriterXPM then
+    begin
+      TFPWriterXPM(Writer).ColorCharSize := Max(1, AOpts.XpmColorCharSize);
+      if AOpts.XpmPalChars <> '' then
+        TFPWriterXPM(Writer).PalChars := AOpts.XpmPalChars;
     end;
 
     for Y := 0 to ASurface.Height - 1 do
@@ -335,6 +398,21 @@ begin
   Result.JpegGrayscale := False;
   Result.PngCompressionLevel := 6;
   Result.PngUseAlpha := True;
+  Result.PngGrayscale := False;
+  Result.PngIndexed := False;
+  Result.PngWordSized := False;
+  Result.PngCompressedText := True;
+  Result.BmpBitsPerPixel := 24;
+  Result.BmpRLECompress := False;
+  Result.BmpXPelsPerMeter := 3780;
+  Result.BmpYPelsPerMeter := 3780;
+  Result.TiffSaveCMYKAsRGB := True;
+  Result.PcxCompressed := True;
+  Result.PnmBinaryFormat := True;
+  Result.PnmColorDepthMode := 0;
+  Result.PnmFullWidth := False;
+  Result.XpmColorCharSize := 1;
+  Result.XpmPalChars := '';
 end;
 
 end.

@@ -60,9 +60,9 @@ const
   ToolbarZoomButtonInsetLeft = 4;
   ToolbarZoomButtonTop = 2;
   ToolbarZoomButtonWidth = 26;
-  ToolbarZoomComboLeft = 36;
+  ToolbarZoomComboLeft = 44;
   ToolbarZoomComboTop = 3;        { Nudged 1 px up from geometric centre (4) to match macOS NSPopUpButton visual baseline }
-  ToolbarZoomComboWidth = 84;
+  ToolbarZoomComboWidth = 80;
   ToolbarZoomComboHeight = 24;
   ToolbarZoomInButtonLeft = 126;
 

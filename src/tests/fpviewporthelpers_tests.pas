@@ -71,7 +71,7 @@ begin
   AssertEquals('1x keeps high quality', 3, DisplayInterpolationQualityForZoom(1.0));
   AssertEquals('modest zoom uses medium quality', 2, DisplayInterpolationQualityForZoom(1.5));
   AssertEquals('larger zoom uses low quality', 1, DisplayInterpolationQualityForZoom(3.0));
-  AssertEquals('8x still keeps low smoothing for AA visibility', 1, DisplayInterpolationQualityForZoom(8.0));
+  AssertEquals('800% switches to nearest for crisp pixel inspection', 0, DisplayInterpolationQualityForZoom(8.0));
   AssertEquals('very deep zoom falls back to nearest', 0, DisplayInterpolationQualityForZoom(12.0));
 end;
 

@@ -12,7 +12,7 @@ procedure ShowAboutDialog(AOwner: TComponent);
 implementation
 
 uses
-  Forms, Controls, StdCtrls, ExtCtrls, Math, FPAboutContent;
+  Forms, Controls, StdCtrls, ExtCtrls, Math, FPAboutContent, FPi18n;
 
 type
   TAboutDialogBinder = class
@@ -21,6 +21,22 @@ type
     ContentMemo: TMemo;
     procedure SectionChanged(Sender: TObject);
   end;
+
+function LocalizedAboutSectionTitle(ASection: TAboutSection): string;
+begin
+  case ASection of
+    absAppInfo:
+      Result := TR('App Info', #$E5#$BA#$94#$E7#$94#$A8#$E4#$BF#$A1#$E6#$81#$AF);
+    absAuthor:
+      Result := TR('Author', #$E4#$BD#$9C#$E8#$80#$85);
+    absAcknowledgments:
+      Result := TR('Acknowledgments', #$E8#$87#$B4#$E8#$B0#$A2);
+    absThirdPartyLicenses:
+      Result := TR('Third-Party Licenses', #$E7#$AC#$AC#$E4#$B8#$89#$E6#$96#$B9#$E8#$AE#$B8#$E5#$8F#$AF);
+  else
+    Result := TR('About', #$E5#$85#$B3#$E4#$BA#$8E);
+  end;
+end;
 
 procedure TAboutDialogBinder.SectionChanged(Sender: TObject);
 var
@@ -49,7 +65,7 @@ begin
   Dialog := TForm.CreateNew(AOwner);
   Binder := TAboutDialogBinder.Create;
   try
-    Dialog.Caption := 'About FlatPaint';
+    Dialog.Caption := TR('About FlatPaint', #$E5#$85#$B3#$E4#$BA#$8E' FlatPaint');
     Dialog.Width := 760;
     Dialog.Height := 540;
     Dialog.Position := poMainFormCenter;
@@ -57,7 +73,7 @@ begin
 
     SectionLabel := TLabel.Create(Dialog);
     SectionLabel.Parent := Dialog;
-    SectionLabel.Caption := 'Section:';
+    SectionLabel.Caption := TR('Section:', #$E5#$88#$86#$E8#$8A#$82#$EF#$BC#$9A);
     SectionLabel.Left := 12;
     SectionLabel.Top := 14;
 
@@ -68,7 +84,7 @@ begin
     SectionCombo.Width := 260;
     SectionCombo.Style := csDropDownList;
     for Section := Low(TAboutSection) to High(TAboutSection) do
-      SectionCombo.Items.Add(AboutSectionTitle(Section));
+      SectionCombo.Items.Add(LocalizedAboutSectionTitle(Section));
     SectionCombo.ItemIndex := 0;
 
     ContentMemo := TMemo.Create(Dialog);
@@ -84,7 +100,7 @@ begin
 
     CloseButton := TButton.Create(Dialog);
     CloseButton.Parent := Dialog;
-    CloseButton.Caption := 'Close';
+    CloseButton.Caption := TR('Close', #$E5#$85#$B3#$E9#$97#$AD);
     CloseButton.Width := 92;
     CloseButton.Height := 30;
     CloseButton.Left := Dialog.ClientWidth - CloseButton.Width - 12;

@@ -16,6 +16,68 @@ Use the same compact structure every time.
 - Reuse note: what to watch next time
 - Repeat count: `This issue has occurred N time(s)`
 
+## 2026-03-08 (standalone LCL/macOS bridge packaging fails without Lazarus include and linker parity flags)
+- Problem: extracted standalone libraries did not build cleanly at first (`lcl_defines.inc` not found, missing Cocoa/UserNotifications symbols, and ObjC linker errors).
+- Core error: standalone build scripts initially omitted key compile/link flags that the main project already depends on.
+- Investigation: sequential smoke-build runs for each extracted lib exposed failures in this order:
+  1. missing include path for `lcl_defines.inc`
+  2. missing object resolution for `{$LINK fp_*.o}` bridges
+  3. missing weak framework link for `UserNotifications`
+  4. Cocoa linker stability issue without `-ld_classic`
+- Root cause: packaging scripts were created from minimal assumptions instead of mirroring proven Lazarus/FPC macOS flags used by the main app build.
+- Fix:
+  - added `-Fi .../lcl/include` and `-Fi .../lcl/interfaces/cocoa`,
+  - added framework flags and `-k-ld_classic`,
+  - normalized object discovery for native bridge `.o` files,
+  - validated all extracted libs with `build.sh` smoke builds.
+- Reuse note: when extracting Lazarus/macOS modules as standalone libs, start from production build flags first, then reduce only after smoke-build evidence; never derive Cocoa/LCL flags from scratch.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (library zip licensing can break if license references only external files)
+- Problem: initial per-lib `LICENSE` files referenced `../../licenses/...`; once distributed as individual zip packages, those external paths were no longer guaranteed to exist.
+- Core error: per-lib artifacts were not self-contained from a compliance perspective.
+- Investigation: inspected generated zip contents and saw only short LICENSE pointer text without bundled full license texts.
+- Root cause: packaging model distributes each library independently, but license material was only centralized.
+- Fix: bundled `COPYING.LGPL.txt` and `COPYING.modifiedLGPL.txt` inside each library folder and updated each `LICENSE` to reference local copies.
+- Reuse note: if libraries are shipped as independent archives, each archive must contain complete local license texts and not rely on repository-relative paths outside the archive.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (auto-detecting Lazarus path for standalone lib builds can miss real workspace depth)
+- Problem: after introducing auto-detection in extracted library build scripts, `verify_libs.sh` failed on this machine with `Unable to find Lazarus source tree`.
+- Core error: candidate search paths did not include the actual depth (`.../workspace.nosync/lazarus`) relative to `git/libs/...` script location.
+- Investigation: traced path expansion from `SCRIPT_DIR` and found `../../../../lazarus` still resolved one level above the real Lazarus checkout.
+- Root cause: underestimated relative-depth assumptions while refactoring from project-specific path logic to portable auto-detection.
+- Fix: added an extra fallback candidate (`../../../../../lazarus`) in all LCL/macOS extracted-lib build scripts and re-ran full `git/verify_libs.sh` successfully.
+- Reuse note: when replacing hardcoded workspace paths with auto-detection, always test at least one real checkout layout and verify relative-depth assumptions with actual absolute path expansion.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (Pascal `#$..` escaped i18n strings can break parse when mixed with unquoted ASCII tokens)
+- Problem: export-dialog i18n pass initially failed to compile with fatal syntax errors (`String exceeds line`, `") expected but identifier ... found`).
+- Core error: mixed-string expressions used `#$..` escapes with bare ASCII words (for example, `FPC`, `Alpha`, `BMP`) outside quoted literals.
+- Investigation: compiler line numbers pointed to translated format/help strings; raw line inspection confirmed escaped segments were interrupted by unquoted identifiers.
+- Root cause: Pascal string concatenation rules require ASCII segments to be inside quoted literals; `#$..` fragments cannot be interrupted by bare tokens.
+- Fix: normalized affected translations to plain UTF-8 string literals (and shorter wrapped lines), removing mixed `#$..` + bare-token patterns.
+- Reuse note: for high-volume i18n in Lazarus/FPC, prefer direct UTF-8 literals for readability and parser safety; only use `#$..` escapes when absolutely necessary and keep each segment strictly quoted/concatenated.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (FPC JPEG backend lacks runtime chroma-subsampling control even when UI parity expects it)
+- Problem: export-options parity target required JPEG subsampling control similar to paint.net/GIMP/Photoshop save dialogs, but initial implementation had no safe backend knob to wire.
+- Core error: current `TFPWriterJPEG` surface in the local FPC toolchain exposes quality/progressive/grayscale controls but no public chroma-subsampling selector.
+- Investigation: inspected save pipeline (`fpio`) and validated available writer properties through compiled unit metadata and compile-time API surface.
+- Root cause: backend capability gap, not UI wiring omission.
+- Fix: shipped subsampling control as explicitly disabled with in-dialog explanation, kept functional controls fully wired (quality/progressive/grayscale), and recorded the gap as backend-dependent partial parity.
+- Reuse note: when format-option parity is requested, verify encoder API capability first; avoid fake controls that imply unsupported behavior.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-08 (running build and test scripts in parallel can corrupt evidence because both own shared clean/output paths)
+- Problem: one verification attempt failed non-deterministically (`dist/flatpaint_cli` missing, `lib` directory cleanup conflicts) despite healthy code.
+- Core error: `scripts/build.sh` and `scripts/run_tests_ci.sh` both mutate shared output directories (`dist/`, `lib/`) and cannot be treated as parallel-safe jobs.
+- Investigation: reproduced failure by launching both scripts concurrently; reran serially and both passed.
+- Root cause: script-level resource contention, not functional regression.
+- Fix: standardize verification evidence on serial execution order for this repository (`run_tests_ci.sh` then `build.sh`).
+- Reuse note: for this project, treat build/test scripts as exclusive operations unless script-level locking and separate output roots are added.
+- Repeat count: `This issue has occurred 2 time(s)`
+
 ## 2026-03-08 (zoom control group appeared off-centre and New/Open/Save hover used rectangular bezel)
 - Problem: zoom `-` / `100%` / `+` cluster appeared left-biased; combo visually closer to minus than plus. New/Open/Save hover showed rectangular system bezel while all other buttons showed rounded native Cocoa hover.
 - Core error: unequal outer padding in zoom group (6 px left vs 2 px right); `ToolbarBtnMouseEnter`/Leave toggled `Flat` property, forcing a non-flat NSButton bezel that differs from the system hover appearance.
@@ -2704,3 +2766,15 @@ Based on all findings, the strategy is revised from the previous entry's generic
 - Root cause: continuous-phase accumulator in `DrawDashedPolyline` uses Double arithmetic. After many segments, `Phase` can drift to be infinitesimally close to `DashLength` (e.g., 7.999999999999998 vs 8). This gives `RemainingInChunk = DashLength - Phase ≈ 2e-15`. The inner `while CursorPos < SegLength` loop advances by this near-zero amount each iteration, requiring ~1e17 iterations to traverse even one pixel.
 - Fix: guard `RemainingInChunk < 0.5` → snap `Phase` to the exact boundary (`DashLength` or `0.0`) and `Continue`. After snap, `InDash` flips and `RemainingInChunk` becomes at least `GapLength` or `DashLength` (both ≥ 1), so the guard fires at most once consecutively.
 - Reuse note: any loop driven by floating-point phase/cursor accumulation needs a minimum-advance guard to prevent drift-induced stalls. 0.5 px is a safe threshold — sub-pixel and invisible, but prevents infinite iteration.
+
+## 2026-03-08 — Export option surface drifted from actual BMP writer contract
+- Symptom: export dialog exposed `BMP 1/4/8 bpp + RLE` as if supported, but CI failed after refactor because output remained true-color (`24bpp`, `BI_RGB`) in real saves.
+- Root cause: current save pipeline writes BMP from RGBA surfaces without indexed palette conversion; paletted/RLE modes were UI-visible and test-asserted, but backend safely clamps to true-color to avoid invalid palette paths.
+- Fix: align surface layers to one contract: (1) keep backend safety clamp (`24/32 bpp`, non-RLE), (2) update export dialog BMP controls/help text to true-color-only options, (3) replace outdated test expectation with true-color configurability + non-RLE clamp assertions.
+- Reuse note: for format-option UIs, only expose controls that are truly honored by the active encoding pipeline; if a backend mode is unavailable, encode that as explicit UI policy and regression assertions instead of optimistic placeholders.
+
+## 2026-03-08 — Writer capability audit cannot rely on RTTI alone
+- Symptom: earlier writer-introspection pass based on runtime `GetPropList` reported no properties for image writers, leading to a false sense of full parameter coverage.
+- Root cause: many FPC writer options are public properties without published RTTI exposure; `GetPropList` does not enumerate them.
+- Fix: switched capability audit to source-level inspection against local FPC tree (`/Users/chrischan/Documents/workspace.nosync/lazarus/fpc/3.2.4/sources`) and found a missed parameter (`TFPWriterPNM.FullWidth`), then wired it through save options/UI/tests.
+- Reuse note: for FPC/Lazarus encoder feature audits, use source/API inspection as primary evidence; RTTI is insufficient for completeness checks.

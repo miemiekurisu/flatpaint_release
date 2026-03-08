@@ -12,7 +12,7 @@ function RunNoiseDialog(AOwner: TComponent; var AAmount: Integer): Boolean;
 implementation
 
 uses
-  SysUtils, Controls, StdCtrls, ComCtrls, FPNoiseHelpers;
+  SysUtils, Controls, StdCtrls, ComCtrls, FPNoiseHelpers, FPi18n;
 
 type
   TNoiseDialogForm = class(TForm)
@@ -39,7 +39,7 @@ begin
   inherited CreateNew(AOwner, 0);
   BorderStyle := bsDialog;
   BorderIcons := [biSystemMenu];
-  Caption := 'Add Noise';
+  Caption := TR('Add Noise', #$E6#$B7#$BB#$E5#$8A#$A0#$E5#$99#$AA#$E7#$82#$B9);
   Position := poScreenCenter;
   Width := 340;
   Height := 186;
@@ -52,7 +52,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := 'Amount:';
+  LabelCtrl.Caption := TR('Amount:', #$E6#$95#$B0#$E9#$87#$8F#$EF#$BC#$9A);
 
   FAmountEdit := TEdit.Create(Self);
   FAmountEdit.Parent := Self;
@@ -65,7 +65,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 140;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := '0 to 255';
+  LabelCtrl.Caption := TR('0 to 255', '0 '#$E5#$88#$B0' 255');
 
   FAmountTrack := TTrackBar.Create(Self);
   FAmountTrack.Parent := Self;
@@ -90,11 +90,11 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 128;
-  LabelCtrl.Caption := 'Higher values add stronger grain.';
+  LabelCtrl.Caption := TR('Higher values add stronger grain.', #$E6#$95#$B0#$E5#$80#$BC#$E8#$B6#$8A#$E9#$AB#$98#$EF#$BC#$8C#$E9#$A2#$97#$E7#$B2#$92#$E6#$84#$9F#$E8#$B6#$8A#$E5#$BC#$BA#$E3#$80#$82);
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 186;
   OkButton.Top := 148;
   OkButton.Width := 64;
@@ -103,7 +103,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 260;
   CancelButton.Top := 148;
   CancelButton.Width := 64;
@@ -120,7 +120,7 @@ begin
     FAmount := ClampNoiseAmount(FAmount);
     FAmountEdit.Text := IntToStr(FAmount);
     FAmountTrack.Position := NoiseAmountToSliderPosition(FAmount);
-    FPreviewLabel.Caption := 'Current noise amount: ' + IntToStr(FAmount);
+    FPreviewLabel.Caption := TR('Current noise amount: ', #$E5#$BD#$93#$E5#$89#$8D#$E5#$99#$AA#$E7#$82#$B9#$E5#$BC#$BA#$E5#$BA#$A6#$EF#$BC#$9A) + IntToStr(FAmount);
   finally
     FUpdating := False;
   end;

@@ -41,7 +41,7 @@ function RunEffectDialog2(
 implementation
 
 uses
-  SysUtils, Controls, StdCtrls, ComCtrls, Math;
+  SysUtils, Controls, StdCtrls, ComCtrls, Math, FPi18n;
 
 { ====== Single-parameter dialog ====== }
 
@@ -104,7 +104,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := FEdit.Left + FEdit.Width + 10;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := IntToStr(AMin) + ' to ' + IntToStr(AMax);
+  LabelCtrl.Caption := Format(TR('%d to %d', '%d '#$E5#$88#$B0' %d'), [AMin, AMax]);
 
   FTrack := TTrackBar.Create(Self);
   FTrack.Parent := Self;
@@ -127,7 +127,7 @@ begin
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 206;
   OkButton.Top := 150;
   OkButton.Width := 64;
@@ -136,7 +136,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 280;
   CancelButton.Top := 150;
   CancelButton.Width := 64;
@@ -153,7 +153,7 @@ begin
     FValue := EnsureRange(FValue, FMin, FMax);
     FEdit.Text := IntToStr(FValue);
     FTrack.Position := FValue;
-    FPreviewLabel.Caption := 'Current value: ' + IntToStr(FValue);
+    FPreviewLabel.Caption := TR('Current value: ', #$E5#$BD#$93#$E5#$89#$8D#$E5#$80#$BC#$EF#$BC#$9A) + IntToStr(FValue);
   finally
     FUpdating := False;
   end;
@@ -265,7 +265,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := FEdit1.Left + FEdit1.Width + 10;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := IntToStr(AMin1) + ' to ' + IntToStr(AMax1);
+  LabelCtrl.Caption := Format(TR('%d to %d', '%d '#$E5#$88#$B0' %d'), [AMin1, AMax1]);
 
   FTrack1 := TTrackBar.Create(Self);
   FTrack1.Parent := Self;
@@ -298,7 +298,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := FEdit2.Left + FEdit2.Width + 10;
   LabelCtrl.Top := 110;
-  LabelCtrl.Caption := IntToStr(AMin2) + ' to ' + IntToStr(AMax2);
+  LabelCtrl.Caption := Format(TR('%d to %d', '%d '#$E5#$88#$B0' %d'), [AMin2, AMax2]);
 
   FTrack2 := TTrackBar.Create(Self);
   FTrack2.Parent := Self;
@@ -321,7 +321,7 @@ begin
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 206;
   OkButton.Top := 256;
   OkButton.Width := 64;
@@ -330,7 +330,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 280;
   CancelButton.Top := 256;
   CancelButton.Width := 64;
@@ -350,7 +350,7 @@ begin
     FEdit2.Text := IntToStr(FValue2);
     FTrack1.Position := FValue1;
     FTrack2.Position := FValue2;
-    FPreviewLabel.Caption := 'Values: ' + IntToStr(FValue1) + ', ' + IntToStr(FValue2);
+    FPreviewLabel.Caption := TR('Values: ', #$E5#$8F#$82#$E6#$95#$B0#$EF#$BC#$9A) + IntToStr(FValue1) + ', ' + IntToStr(FValue2);
   finally
     FUpdating := False;
   end;

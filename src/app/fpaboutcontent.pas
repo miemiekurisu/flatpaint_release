@@ -29,12 +29,12 @@ const
     '' + LineEnding +
     'A lightweight raster image editor for macOS.' + LineEnding +
     '' + LineEnding +
-    'Copyright (c) 2026 FlatPaint Contributors. All rights reserved.';
+    'Copyright (c) 2026 Miemiekurisu. All rights reserved.';
 
   AboutAuthorText =
-    'Chris Chan' + LineEnding +
-    'https://github.com/flatpaint' + LineEnding +
-    'Another simple Paint App on MacOS';
+    'Miemiekurisu' + LineEnding +
+    'https://github.com/flatpaint_release' + LineEnding +
+    'A Simple Paint App on MacOS, free for personal usage.';
 
   AboutAcknowledgmentsText =
     'ACKNOWLEDGMENTS' + LineEnding +

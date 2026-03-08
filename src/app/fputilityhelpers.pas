@@ -24,7 +24,7 @@ function UtilityCommandShortcutLabel(ACommand: TUtilityCommandKind): string;
 implementation
 
 uses
-  FPPaletteHelpers;
+  FPPaletteHelpers, FPI18n;
 
 const
   UtilityDisplayOrder: array[0..5] of TUtilityCommandKind = (
@@ -74,19 +74,19 @@ function UtilityCommandHint(ACommand: TUtilityCommandKind): string;
 begin
   case ACommand of
     ucTools:
-      Result := 'Show or hide the Tools window';
+      Result := TR('Show or hide the Tools window', '显示或隐藏工具面板');
     ucHistory:
-      Result := 'Show or hide the History window';
+      Result := TR('Show or hide the History window', '显示或隐藏历史面板');
     ucLayers:
-      Result := 'Show or hide the Layers window';
+      Result := TR('Show or hide the Layers window', '显示或隐藏图层面板');
     ucColors:
-      Result := 'Show or hide the Colors window';
+      Result := TR('Show or hide the Colors window', '显示或隐藏颜色面板');
     ucSettings:
-      Result := 'Open workspace settings';
+      Result := TR('Open workspace settings', '打开工作区设置');
     ucHelp:
-      Result := 'Show quick help and supported formats';
+      Result := TR('Show quick help and supported formats', '显示快捷帮助和支持格式');
   else
-    Result := 'Command';
+    Result := TR('Command', '命令');
   end;
 end;
 

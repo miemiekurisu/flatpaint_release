@@ -14,7 +14,7 @@ function ResampleModeCaption(AMode: TResampleMode): string;
 implementation
 
 uses
-  Math;
+  Math, FPi18n;
 
 function ClampResizePixels(AValue: Integer): Integer;
 begin
@@ -33,9 +33,9 @@ function ResampleModeCaption(AMode: TResampleMode): string;
 begin
   case AMode of
     rmBilinear:
-      Result := 'Bilinear';
+      Result := TR('Bilinear', #$E5#$8F#$8C#$E7#$BA#$BF#$E6#$80#$A7);
   else
-    Result := 'Nearest Neighbor';
+    Result := TR('Nearest Neighbor', #$E9#$82#$BB#$E8#$BF#$91#$E9#$87#$87#$E6#$A0#$B7);
   end;
 end;
 

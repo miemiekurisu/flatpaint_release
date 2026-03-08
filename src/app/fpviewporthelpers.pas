@@ -104,9 +104,9 @@ begin
     Exit(3); { high quality for downscale / 1:1 }
   if AScale <= 2.0 then
     Exit(2); { medium to keep AA edge smoothness visible at modest zoom-in }
-  if AScale <= 8.0 then
+  if AScale < 8.0 then
     Exit(1); { keep a smoothing band longer so AA edges survive common zoom inspection }
-  Result := 0; { nearest for very deep pixel-inspection zoom levels }
+  Result := 0; { nearest for 800%+ pixel-inspection zoom levels }
 end;
 
 function ViewportImageCoordinate(

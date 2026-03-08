@@ -12,7 +12,7 @@ function RunNewImageDialog(AOwner: TComponent; var AWidth, AHeight: Integer; var
 implementation
 
 uses
-  Controls, StdCtrls, ExtCtrls, Math, FPNewImageHelpers;
+  Controls, StdCtrls, ExtCtrls, Math, FPNewImageHelpers, FPi18n;
 
 type
   TNewImageDialogForm = class(TForm)
@@ -55,7 +55,7 @@ begin
   inherited CreateNew(AOwner, 0);
   BorderStyle := bsDialog;
   BorderIcons := [biSystemMenu];
-  Caption := 'New';
+  Caption := TR('New', #$E6#$96#$B0#$E5#$BB#$BA);
   Position := poScreenCenter;
   Width := 244;
   Height := 290;
@@ -84,7 +84,7 @@ begin
   FMaintainAspectBox.Parent := Self;
   FMaintainAspectBox.Left := 10;
   FMaintainAspectBox.Top := 38;
-  FMaintainAspectBox.Caption := 'Maintain aspect ratio';
+  FMaintainAspectBox.Caption := TR('Maintain aspect ratio', #$E4#$BF#$9D#$E6#$8C#$81#$E9#$95#$BF#$E5#$AE#$BD#$E6#$AF#$94);
   FMaintainAspectBox.Checked := True;
 
   SectionBevel := TBevel.Create(Self);
@@ -99,13 +99,13 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 10;
   LabelCtrl.Top := 68;
-  LabelCtrl.Caption := 'Pixel Size';
+  LabelCtrl.Caption := TR('Pixel Size', #$E5#$83#$8F#$E7#$B4#$A0#$E5#$A4#$A7#$E5#$B0#$8F);
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 24;
   LabelCtrl.Top := 92;
-  LabelCtrl.Caption := 'Width:';
+  LabelCtrl.Caption := TR('Width:', #$E5#$AE#$BD#$E5#$BA#$A6#$EF#$BC#$9A);
 
   FPixelWidthEdit := TEdit.Create(Self);
   FPixelWidthEdit.Parent := Self;
@@ -118,13 +118,13 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 142;
   LabelCtrl.Top := 92;
-  LabelCtrl.Caption := 'pixels';
+  LabelCtrl.Caption := TR('pixels', #$E5#$83#$8F#$E7#$B4#$A0);
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 24;
   LabelCtrl.Top := 118;
-  LabelCtrl.Caption := 'Height:';
+  LabelCtrl.Caption := TR('Height:', #$E9#$AB#$98#$E5#$BA#$A6#$EF#$BC#$9A);
 
   FPixelHeightEdit := TEdit.Create(Self);
   FPixelHeightEdit.Parent := Self;
@@ -137,13 +137,13 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 142;
   LabelCtrl.Top := 118;
-  LabelCtrl.Caption := 'pixels';
+  LabelCtrl.Caption := TR('pixels', #$E5#$83#$8F#$E7#$B4#$A0);
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 10;
   LabelCtrl.Top := 146;
-  LabelCtrl.Caption := 'Resolution:';
+  LabelCtrl.Caption := TR('Resolution:', #$E5#$88#$86#$E8#$BE#$A8#$E7#$8E#$87#$EF#$BC#$9A);
 
   FResolutionEdit := TEdit.Create(Self);
   FResolutionEdit.Parent := Self;
@@ -156,7 +156,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 142;
   LabelCtrl.Top := 146;
-  LabelCtrl.Caption := 'pixels/inch';
+  LabelCtrl.Caption := TR('pixels/inch', #$E5#$83#$8F#$E7#$B4#$A0'/'#$E8#$8B#$B1#$E5#$AF#$B8);
 
   SectionBevel := TBevel.Create(Self);
   SectionBevel.Parent := Self;
@@ -170,13 +170,13 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 10;
   LabelCtrl.Top := 176;
-  LabelCtrl.Caption := 'Print Size';
+  LabelCtrl.Caption := TR('Print Size', #$E6#$89#$93#$E5#$8D#$B0#$E5#$A4#$A7#$E5#$B0#$8F);
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 24;
   LabelCtrl.Top := 200;
-  LabelCtrl.Caption := 'Width:';
+  LabelCtrl.Caption := TR('Width:', #$E5#$AE#$BD#$E5#$BA#$A6#$EF#$BC#$9A);
 
   FPrintWidthEdit := TEdit.Create(Self);
   FPrintWidthEdit.Parent := Self;
@@ -189,7 +189,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 24;
   LabelCtrl.Top := 226;
-  LabelCtrl.Caption := 'Height:';
+  LabelCtrl.Caption := TR('Height:', #$E9#$AB#$98#$E5#$BA#$A6#$EF#$BC#$9A);
 
   FPrintHeightEdit := TEdit.Create(Self);
   FPrintHeightEdit.Parent := Self;
@@ -204,14 +204,14 @@ begin
   FPrintUnitCombo.Top := 209;
   FPrintUnitCombo.Width := 82;
   FPrintUnitCombo.Style := csDropDownList;
-  FPrintUnitCombo.Items.Add('Inches');
-  FPrintUnitCombo.Items.Add('Centimeters');
+  FPrintUnitCombo.Items.Add(TR('Inches', #$E8#$8B#$B1#$E5#$AF#$B8));
+  FPrintUnitCombo.Items.Add(TR('Centimeters', #$E5#$8E#$98#$E7#$B1#$B3));
   FPrintUnitCombo.ItemIndex := 0;
   FPrintUnitCombo.OnChange := @PrintUnitChanged;
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 74;
   OkButton.Top := 255;
   OkButton.Width := 70;
@@ -220,7 +220,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 150;
   CancelButton.Top := 255;
   CancelButton.Width := 70;
@@ -276,7 +276,7 @@ begin
       '0.00',
       PixelsToPrintValue(FPixelHeight, FResolutionDPI, CurrentPrintUnit)
     );
-    FSizeLabel.Caption := 'New Size: ' + FormatEstimatedImageSize(FPixelWidth, FPixelHeight);
+    FSizeLabel.Caption := TR('New Size: ', #$E6#$96#$B0#$E5#$A4#$A7#$E5#$B0#$8F#$EF#$BC#$9A) + FormatEstimatedImageSize(FPixelWidth, FPixelHeight);
   finally
     FUpdating := False;
   end;

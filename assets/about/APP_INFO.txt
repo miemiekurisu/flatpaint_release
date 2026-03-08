@@ -3,4 +3,4 @@ Version 0.8 beta
 
 A lightweight raster image editor for macOS.
 
-Copyright (c) 2026 FlatPaint Contributors. All rights reserved.
+Copyright (c) 2026 Miemiekurisu. All rights reserved.

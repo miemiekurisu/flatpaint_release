@@ -12,7 +12,7 @@ function RunBlurDialog(AOwner: TComponent; var ARadius: Integer): Boolean;
 implementation
 
 uses
-  SysUtils, Controls, StdCtrls, ComCtrls, FPBlurHelpers;
+  SysUtils, Controls, StdCtrls, ComCtrls, FPBlurHelpers, FPi18n;
 
 type
   TBlurDialogForm = class(TForm)
@@ -39,7 +39,7 @@ begin
   inherited CreateNew(AOwner, 0);
   BorderStyle := bsDialog;
   BorderIcons := [biSystemMenu];
-  Caption := 'Blur';
+  Caption := TR('Blur', #$E6#$A8#$A1#$E7#$B3#$8A);
   Position := poScreenCenter;
   Width := 332;
   Height := 186;
@@ -52,7 +52,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := 'Radius:';
+  LabelCtrl.Caption := TR('Radius:', #$E5#$8D#$8A#$E5#$BE#$84#$EF#$BC#$9A);
 
   FRadiusEdit := TEdit.Create(Self);
   FRadiusEdit.Parent := Self;
@@ -65,7 +65,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 136;
   LabelCtrl.Top := 18;
-  LabelCtrl.Caption := '1 to 64';
+  LabelCtrl.Caption := TR('1 to 64', '1 '#$E5#$88#$B0' 64');
 
   FRadiusTrack := TTrackBar.Create(Self);
   FRadiusTrack.Parent := Self;
@@ -90,11 +90,11 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 128;
-  LabelCtrl.Caption := 'Higher values soften edges more strongly.';
+  LabelCtrl.Caption := TR('Higher values soften edges more strongly.', #$E6#$95#$B0#$E5#$80#$BC#$E8#$B6#$8A#$E9#$AB#$98#$EF#$BC#$8C#$E8#$BE#$B9#$E7#$BC#$98#$E8#$B6#$8A#$E6#$9F#$94#$E5#$92#$8C#$E3#$80#$82);
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 178;
   OkButton.Top := 148;
   OkButton.Width := 64;
@@ -103,7 +103,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 252;
   CancelButton.Top := 148;
   CancelButton.Width := 64;
@@ -120,7 +120,7 @@ begin
     FRadius := ClampBlurRadius(FRadius);
     FRadiusEdit.Text := IntToStr(FRadius);
     FRadiusTrack.Position := BlurRadiusToSliderPosition(FRadius);
-    FPreviewLabel.Caption := 'Current blur radius: ' + IntToStr(FRadius);
+    FPreviewLabel.Caption := TR('Current blur radius: ', #$E5#$BD#$93#$E5#$89#$8D#$E6#$A8#$A1#$E7#$B3#$8A#$E5#$8D#$8A#$E5#$BE#$84#$EF#$BC#$9A) + IntToStr(FRadius);
   finally
     FUpdating := False;
   end;

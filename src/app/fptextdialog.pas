@@ -21,7 +21,7 @@ function RunTextDialog(AOwner: TComponent; var AResult: TTextDialogResult): Bool
 implementation
 
 uses
-  SysUtils, Math, Controls, StdCtrls, ComCtrls, ExtCtrls;
+  SysUtils, Math, Controls, StdCtrls, ComCtrls, ExtCtrls, FPi18n;
 
 type
   TTextDialogForm = class(TForm)
@@ -52,7 +52,7 @@ begin
   inherited CreateNew(AOwner, 0);
   BorderStyle := bsDialog;
   BorderIcons := [biSystemMenu];
-  Caption := 'Add Text';
+  Caption := TR('Add Text', #$E6#$B7#$BB#$E5#$8A#$A0#$E6#$96#$87#$E6#$9C#$AC);
   Position := poScreenCenter;
   Width := 380;
   Height := 280;
@@ -63,7 +63,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 16;
-  LabelCtrl.Caption := 'Text:';
+  LabelCtrl.Caption := TR('Text:', #$E6#$96#$87#$E6#$9C#$AC#$EF#$BC#$9A);
 
   FTextEdit := TEdit.Create(Self);
   FTextEdit.Parent := Self;
@@ -77,7 +77,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 50;
-  LabelCtrl.Caption := 'Font:';
+  LabelCtrl.Caption := TR('Font:', #$E5#$AD#$97#$E4#$BD#$93#$EF#$BC#$9A);
 
   FFontCombo := TComboBox.Create(Self);
   FFontCombo.Parent := Self;
@@ -95,7 +95,7 @@ begin
   LabelCtrl.Parent := Self;
   LabelCtrl.Left := 14;
   LabelCtrl.Top := 84;
-  LabelCtrl.Caption := 'Size:';
+  LabelCtrl.Caption := TR('Size:', #$E5#$A4#$A7#$E5#$B0#$8F#$EF#$BC#$9A);
 
   FSizeEdit := TEdit.Create(Self);
   FSizeEdit.Parent := Self;
@@ -122,14 +122,14 @@ begin
   FBoldCheck.Parent := Self;
   FBoldCheck.Left := 14;
   FBoldCheck.Top := 154;
-  FBoldCheck.Caption := 'Bold';
+  FBoldCheck.Caption := TR('Bold', #$E7#$B2#$97#$E4#$BD#$93);
   FBoldCheck.Checked := AResult.Bold;
 
   FItalicCheck := TCheckBox.Create(Self);
   FItalicCheck.Parent := Self;
   FItalicCheck.Left := 90;
   FItalicCheck.Top := 154;
-  FItalicCheck.Caption := 'Italic';
+  FItalicCheck.Caption := TR('Italic', #$E6#$96#$9C#$E4#$BD#$93);
   FItalicCheck.Checked := AResult.Italic;
 
   FPreviewLabel := TLabel.Create(Self);
@@ -141,7 +141,7 @@ begin
 
   OkButton := TButton.Create(Self);
   OkButton.Parent := Self;
-  OkButton.Caption := 'OK';
+  OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 230;
   OkButton.Top := 242;
   OkButton.Width := 64;
@@ -151,7 +151,7 @@ begin
 
   CancelButton := TButton.Create(Self);
   CancelButton.Parent := Self;
-  CancelButton.Caption := 'Cancel';
+  CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 302;
   CancelButton.Top := 242;
   CancelButton.Width := 64;

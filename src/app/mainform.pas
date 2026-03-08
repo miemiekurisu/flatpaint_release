@@ -9,6 +9,7 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Buttons, Grids,
   ComCtrls, Menus, Spin, Types, Clipbrd, FPColor, FPSurface, FPDocument, FPSelection,
+  FPIO,
   FPToolControllers,
   FPPaletteHelpers, FPRulerHelpers, FPTextDialog, FPColorWheelHelpers, FPIconHelpers,
   FPUtilityHelpers, FPToolbarHelpers, FPI18n;
@@ -72,11 +73,8 @@ type
     FBucketFloodMode: Integer;
     { 0=Current Layer, 1=All Layers }
     FWandSampleSource: Integer;
-    { JPEG export quality 1-100; persisted per session }
-    FJpegQuality: Integer;
-    FJpegProgressive: Boolean;
-    { PNG export compression 0-9; persisted per session }
-    FPngCompressionLevel: Integer;
+    { Persisted export options (all formats with backend-adjustable parameters). }
+    FSaveSurfaceOptions: TSaveSurfaceOptions;
     FPrimaryColor: TRGBA32;
     FSecondaryColor: TRGBA32;
     FStrokeColor: TRGBA32;
@@ -143,6 +141,7 @@ type
     FActiveColorHexLabel: TLabel;
     FColorsValueLabel: TLabel;
     FBrushSpin: TSpinEdit;
+    FTextFontButton: TButton;
     FToolCombo: TComboBox;
     FZoomCombo: TComboBox;
     FOptionLabel: TLabel;
@@ -312,14 +311,16 @@ type
     function ColorForActiveTarget(AAlternate: Boolean = False): TRGBA32;
     function DisplayFileName: string;
     function CanvasToImage(X, Y: Integer): TPoint;
+    function PointerViewportPointFromEvent(X, Y: Integer): TPoint;
     function BuildDisplaySurface: TRasterSurface;
     function ToolHintText: string;
     function ImageOriginInViewport: TPoint;
     function ActiveLayerLocalPoint(const APoint: TPoint): TPoint;
     function RecolorSourceAtPoint(const ACanvasPoint: TPoint; out AColor: TRGBA32): Boolean;
     function DisplayUnitSuffix: string;
+    function LocalizedAction(const AAction: string): string;
+    function ApplyingActionText(const AAction: string): string;
     function PixelsToDisplayValue(APixels: Integer): Double;
-    function DisplayValueToPixels(AValue: Double): Double;
     function FormatMeasurement(APixels: Integer): string;
     procedure ColorsBoxPaint(Sender: TObject);
     procedure ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -342,13 +343,12 @@ type
     procedure ApplyColorDetailBarAt(X, Y: Integer);
     procedure SwatchBoxPaint(Sender: TObject);
     procedure SwatchBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
-    function ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
-    function PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
     procedure AppendLassoPoint(const APoint: TPoint);
     procedure ResetLineCurveSegmentState;
     procedure ResetLineCurveState;
     procedure CommitPendingLineSegment(AContinuePath: Boolean);
     procedure InitializeTextToolDefaults;
+    function RunSystemTextFontDialog: Boolean;
     procedure UpdateInlineTextEditStyle;
     procedure UpdateInlineTextEditBounds;
     procedure BeginInlineTextEdit(const APoint: TPoint);
@@ -660,6 +660,7 @@ type
     procedure HistoryListDrawItem(Control: TWinControl; Index: Integer; ARect: TRect; State: TOwnerDrawState);
     procedure CanvasHostResize(Sender: TObject);
     procedure BrushSizeChanged(Sender: TObject);
+    procedure TextFontButtonClick(Sender: TObject);
     procedure LayerListClick(Sender: TObject);
     procedure LayerListDblClick(Sender: TObject);
     procedure LayerListMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -744,13 +745,14 @@ var
 implementation
 
 uses
-  Math, LCLType, LCLIntf, Printers, FPIO, FPNativeIO, FPLCLBridge, FPUIHelpers, FPColorWheel,
+  Math, LCLType, LCLIntf, Printers, FPNativeIO, FPLCLBridge, FPUIHelpers, FPColorWheel,
   FPNewImageDialog, FPResizeDialog, FPSettingsDialog, FPZoomHelpers,
   FPViewHelpers, FPViewportHelpers, FPStatusHelpers, FPHueSaturationDialog,
   FPLevelsDialog, FPBrightnessContrastDialog, FPCurvesDialog, FPPosterizeDialog,
-  FPBlurDialog, FPNoiseDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
+  FPBlurDialog, FPNoiseDialog, FPExportDialog, FPEffectDialog, FPFileMenuHelpers, FPTabHelpers,
   FPTextRenderer, FPLayerPropertiesDialog, FPShortcutHelpers, FPClipboardHelpers,
   FPAboutDialog, FPMenuHelpers, FPAppMenuBridge,
+  FPCGRenderBridge,
   FPMagnifyBridge, FPAlphaBridge, FPScrollViewBridge,
   FPListBgBridge, FPAppearanceBridge;
 
@@ -1009,9 +1011,7 @@ begin
   FFillSampleSource := 0;
   FWandSampleSource := 0;
   FWandContiguous := True;
-  FJpegQuality := 90;
-  FJpegProgressive := False;
-  FPngCompressionLevel := 6;
+  FSaveSurfaceOptions := DefaultSaveSurfaceOptions;
   FFillTolerance := 8;
   FGradientType := 0;
   FGradientReverse := False;
@@ -1288,7 +1288,7 @@ begin
   FStatusZoomLabel.Cursor := crHandPoint;
   FStatusZoomLabel.Font.Size := 9;
   FStatusZoomLabel.Font.Color := clBlack;
-  FStatusZoomLabel.Hint := 'Click to toggle between Fit and Actual Size';
+  FStatusZoomLabel.Hint := TR('Click to toggle between Fit and Actual Size', '点击切换“适合窗口”和“实际大小”');
   FStatusZoomLabel.ShowHint := True;
   FStatusZoomLabel.OnClick := @StatusZoomToggleClick;
   LayoutStatusBarControls(nil);
@@ -1394,7 +1394,7 @@ end;
 function TMainForm.DisplayFileName: string;
 begin
   if FCurrentFileName = '' then
-    Result := 'Untitled'
+    Result := TR('Untitled', '未命名')
   else
     Result := ExtractFileName(FCurrentFileName);
 end;
@@ -1403,6 +1403,21 @@ function TMainForm.CanvasToImage(X, Y: Integer): TPoint;
 begin
   Result.X := EnsureRange(Trunc((X - FCanvasPadX) / FZoomScale), 0, FDocument.Width - 1);
   Result.Y := EnsureRange(Trunc((Y - FCanvasPadY) / FZoomScale), 0, FDocument.Height - 1);
+end;
+
+function TMainForm.PointerViewportPointFromEvent(X, Y: Integer): TPoint;
+var
+  ScreenPoint: TPoint;
+begin
+  if Assigned(FCanvasHost) and FCanvasHost.HandleAllocated then
+  begin
+    if Assigned(FPaintBox) and FPaintBox.HandleAllocated then
+      ScreenPoint := FPaintBox.ClientToScreen(Point(X, Y))
+    else
+      ScreenPoint := Mouse.CursorPos;
+    Exit(FCanvasHost.ScreenToClient(ScreenPoint));
+  end;
+  Result := Point(X, Y);
 end;
 
 function TMainForm.ActiveLayerLocalPoint(const APoint: TPoint): TPoint;
@@ -1727,6 +1742,171 @@ begin
   end;
 end;
 
+function TMainForm.LocalizedAction(const AAction: string): string;
+begin
+  if AAction = 'Add Layer' then
+    Exit(TR('Add Layer', '添加图层'))
+  else if AAction = 'Add Noise' then
+    Exit(TR('Add Noise', '添加噪点'))
+  else if AAction = 'Auto-Level' then
+    Exit(TR('Auto-Level', '自动色阶'))
+  else if AAction = 'Black and White' then
+    Exit(TR('Black and White', '黑白'))
+  else if AAction = 'Blur' then
+    Exit(TR('Blur', '模糊'))
+  else if AAction = 'Brightness / Contrast' then
+    Exit(TR('Brightness / Contrast', '亮度 / 对比度'))
+  else if AAction = 'Bulge' then
+    Exit(TR('Bulge', '膨胀'))
+  else if AAction = 'Crop' then
+    Exit(TR('Crop', '裁剪'))
+  else if AAction = 'Crop to Selection' then
+    Exit(TR('Crop to Selection', '裁剪到选区'))
+  else if AAction = 'Crystallize' then
+    Exit(TR('Crystallize', '晶格化'))
+  else if AAction = 'Curves' then
+    Exit(TR('Curves', '曲线'))
+  else if AAction = 'Cut' then
+    Exit(TR('Cut', '剪切'))
+  else if AAction = 'Delete Layer' then
+    Exit(TR('Delete Layer', '删除图层'))
+  else if AAction = 'Dents' then
+    Exit(TR('Dents', '凹陷'))
+  else if AAction = 'Deselect' then
+    Exit(TR('Deselect', '取消选择'))
+  else if AAction = 'Detect Edges' then
+    Exit(TR('Detect Edges', '边缘检测'))
+  else if AAction = 'Duplicate Layer' then
+    Exit(TR('Duplicate Layer', '复制图层'))
+  else if AAction = 'Emboss' then
+    Exit(TR('Emboss', '浮雕'))
+  else if AAction = 'Erase Selection' then
+    Exit(TR('Erase Selection', '擦除选区'))
+  else if AAction = 'Fill Selection' then
+    Exit(TR('Fill Selection', '填充选区'))
+  else if AAction = 'Flatten' then
+    Exit(TR('Flatten', '合并图像'))
+  else if AAction = 'Flip Horizontal' then
+    Exit(TR('Flip Horizontal', '水平翻转'))
+  else if AAction = 'Flip Vertical' then
+    Exit(TR('Flip Vertical', '垂直翻转'))
+  else if AAction = 'Fragment' then
+    Exit(TR('Fragment', '碎片'))
+  else if AAction = 'Frosted Glass' then
+    Exit(TR('Frosted Glass', '磨砂玻璃'))
+  else if AAction = 'Gaussian Blur' then
+    Exit(TR('Gaussian Blur', '高斯模糊'))
+  else if AAction = 'Glow Effect' then
+    Exit(TR('Glow Effect', '发光效果'))
+  else if AAction = 'Grayscale' then
+    Exit(TR('Grayscale', '灰度'))
+  else if AAction = 'Hue / Saturation' then
+    Exit(TR('Hue / Saturation', '色相 / 饱和度'))
+  else if AAction = 'Import Layer' then
+    Exit(TR('Import Layer', '导入图层'))
+  else if AAction = 'Ink Sketch' then
+    Exit(TR('Ink Sketch', '墨水素描'))
+  else if AAction = 'Invert Colors' then
+    Exit(TR('Invert Colors', '反相'))
+  else if AAction = 'Invert Selection' then
+    Exit(TR('Invert Selection', '反选'))
+  else if AAction = 'Julia Fractal' then
+    Exit(TR('Julia Fractal', 'Julia 分形'))
+  else if AAction = 'Layer Blend Mode' then
+    Exit(TR('Layer Blend Mode', '图层混合模式'))
+  else if AAction = 'Layer Opacity' then
+    Exit(TR('Layer Opacity', '图层不透明度'))
+  else if AAction = 'Layer Properties' then
+    Exit(TR('Layer Properties', '图层属性'))
+  else if AAction = 'Levels' then
+    Exit(TR('Levels', '色阶'))
+  else if AAction = 'Magic Wand' then
+    Exit(TR('Magic Wand', '魔棒'))
+  else if AAction = 'Mandelbrot Fractal' then
+    Exit(TR('Mandelbrot Fractal', 'Mandelbrot 分形'))
+  else if AAction = 'Median Filter' then
+    Exit(TR('Median Filter', '中值滤波'))
+  else if AAction = 'Merge Down' then
+    Exit(TR('Merge Down', '向下合并'))
+  else if AAction = 'Mosaic' then
+    Exit(TR('Mosaic', '马赛克'))
+  else if AAction = 'Motion Blur' then
+    Exit(TR('Motion Blur', '运动模糊'))
+  else if AAction = 'Move Layer Down' then
+    Exit(TR('Move Layer Down', '下移图层'))
+  else if AAction = 'Move Layer Up' then
+    Exit(TR('Move Layer Up', '上移图层'))
+  else if AAction = 'Move Layer to Bottom' then
+    Exit(TR('Move Layer to Bottom', '图层移到底部'))
+  else if AAction = 'Move Layer to Top' then
+    Exit(TR('Move Layer to Top', '图层移到顶部'))
+  else if AAction = 'Oil Paint' then
+    Exit(TR('Oil Paint', '油画'))
+  else if AAction = 'Outline Effect' then
+    Exit(TR('Outline Effect', '轮廓效果'))
+  else if AAction = 'Paste' then
+    Exit(TR('Paste', '粘贴'))
+  else if AAction = 'Paste into New Layer' then
+    Exit(TR('Paste into New Layer', '粘贴到新图层'))
+  else if AAction = 'Pixelate' then
+    Exit(TR('Pixelate', '像素化'))
+  else if AAction = 'Posterize' then
+    Exit(TR('Posterize', '色调分离'))
+  else if AAction = 'Radial Blur' then
+    Exit(TR('Radial Blur', '径向模糊'))
+  else if AAction = 'Red Eye' then
+    Exit(TR('Red Eye', '红眼'))
+  else if AAction = 'Relief' then
+    Exit(TR('Relief', '浮雕效果'))
+  else if AAction = 'Render Clouds' then
+    Exit(TR('Render Clouds', '云彩'))
+  else if AAction = 'Reorder Layer' then
+    Exit(TR('Reorder Layer', '重排图层'))
+  else if AAction = 'Resize Canvas' then
+    Exit(TR('Resize Canvas', '调整画布大小'))
+  else if AAction = 'Resize Image' then
+    Exit(TR('Resize Image', '调整图像大小'))
+  else if AAction = 'Rotate 180' then
+    Exit(TR('Rotate 180', '旋转 180°'))
+  else if AAction = 'Rotate 90 Left' then
+    Exit(TR('Rotate 90 Left', '向左旋转 90°'))
+  else if AAction = 'Rotate 90 Right' then
+    Exit(TR('Rotate 90 Right', '向右旋转 90°'))
+  else if AAction = 'Rotate Layer' then
+    Exit(TR('Rotate Layer', '旋转图层'))
+  else if AAction = 'Select All' then
+    Exit(TR('Select All', '全选'))
+  else if AAction = 'Sepia' then
+    Exit(TR('Sepia', '深褐色'))
+  else if AAction = 'Sharpen' then
+    Exit(TR('Sharpen', '锐化'))
+  else if AAction = 'Soften' then
+    Exit(TR('Soften', '柔化'))
+  else if AAction = 'Surface Blur' then
+    Exit(TR('Surface Blur', '表面模糊'))
+  else if AAction = 'Text' then
+    Exit(TR('Text', '文本'))
+  else if AAction = 'Tile Reflection' then
+    Exit(TR('Tile Reflection', '瓷砖反射'))
+  else if AAction = 'Toggle Layer Visibility' then
+    Exit(TR('Toggle Layer Visibility', '切换图层可见性'))
+  else if AAction = 'Twist' then
+    Exit(TR('Twist', '扭曲'))
+  else if AAction = 'Unfocus' then
+    Exit(TR('Unfocus', '失焦'))
+  else if AAction = 'Vignette' then
+    Exit(TR('Vignette', '暗角'))
+  else if AAction = 'Zoom Blur' then
+    Exit(TR('Zoom Blur', '缩放模糊'));
+
+  Result := AAction;
+end;
+
+function TMainForm.ApplyingActionText(const AAction: string): string;
+begin
+  Result := Format(TR('Applying %s...', '正在应用%s...'), [LocalizedAction(AAction)]);
+end;
+
 function TMainForm.PixelsToDisplayValue(APixels: Integer): Double;
 begin
   case FDisplayUnit of
@@ -1739,67 +1919,12 @@ begin
   end;
 end;
 
-function TMainForm.DisplayValueToPixels(AValue: Double): Double;
-begin
-  case FDisplayUnit of
-    duInches:
-      Result := AValue * DisplayDPI;
-    duCentimeters:
-      Result := (AValue / 2.54) * DisplayDPI;
-  else
-    Result := AValue;
-  end;
-end;
-
 function TMainForm.FormatMeasurement(APixels: Integer): string;
 begin
   if FDisplayUnit = duPixels then
     Result := IntToStr(APixels)
   else
     Result := FormatFloat('0.00', PixelsToDisplayValue(APixels));
-end;
-
-function TMainForm.ParseMeasurementText(const AText: string; AFallbackPixels: Integer): Integer;
-var
-  ParsedValue: Double;
-  FormatSettings: TFormatSettings;
-  NormalizedText: string;
-begin
-  if FDisplayUnit = duPixels then
-    Exit(Max(1, StrToIntDef(Trim(AText), AFallbackPixels)));
-
-  NormalizedText := Trim(AText);
-  if NormalizedText = '' then
-    Exit(Max(1, AFallbackPixels));
-
-  FormatSettings := DefaultFormatSettings;
-  if FormatSettings.DecimalSeparator = ',' then
-    NormalizedText := StringReplace(NormalizedText, '.', ',', [rfReplaceAll])
-  else
-    NormalizedText := StringReplace(NormalizedText, ',', '.', [rfReplaceAll]);
-
-  if not TryStrToFloat(NormalizedText, ParsedValue, FormatSettings) then
-    Exit(Max(1, AFallbackPixels));
-  Result := Max(1, Round(DisplayValueToPixels(ParsedValue)));
-end;
-
-function TMainForm.PromptForSize(const ATitle: string; out AWidth, AHeight: Integer): Boolean;
-var
-  WidthText: string;
-  HeightText: string;
-  PromptSuffix: string;
-begin
-  WidthText := FormatMeasurement(FDocument.Width);
-  HeightText := FormatMeasurement(FDocument.Height);
-  PromptSuffix := DisplayUnitSuffix;
-  Result := False;
-  if not InputQuery(ATitle, 'Width in ' + PromptSuffix, WidthText) then
-    Exit;
-  if not InputQuery(ATitle, 'Height in ' + PromptSuffix, HeightText) then
-    Exit;
-  AWidth := ParseMeasurementText(WidthText, FDocument.Width);
-  AHeight := ParseMeasurementText(HeightText, FDocument.Height);
-  Result := True;
 end;
 
 procedure TMainForm.AppendLassoPoint(const APoint: TPoint);
@@ -1858,6 +1983,39 @@ begin
     FTextLastResult.FontName := Font.Name;
   if FTextLastResult.FontSize <= 0 then
     FTextLastResult.FontSize := 24;
+end;
+
+function TMainForm.RunSystemTextFontDialog: Boolean;
+var
+  FontDialog: TFontDialog;
+  FontStyles: TFontStyles;
+begin
+  InitializeTextToolDefaults;
+  FontDialog := TFontDialog.Create(Self);
+  try
+    FontDialog.Font.Name := FTextLastResult.FontName;
+    FontDialog.Font.Size := EnsureRange(FTextLastResult.FontSize, 6, 256);
+    FontStyles := [];
+    if FTextLastResult.Bold then
+      Include(FontStyles, fsBold);
+    if FTextLastResult.Italic then
+      Include(FontStyles, fsItalic);
+    FontDialog.Font.Style := FontStyles;
+    Result := FontDialog.Execute;
+    if Result then
+    begin
+      FTextLastResult.FontName := FontDialog.Font.Name;
+      FTextLastResult.FontSize := EnsureRange(FontDialog.Font.Size, 6, 256);
+      FTextLastResult.Bold := fsBold in FontDialog.Font.Style;
+      FTextLastResult.Italic := fsItalic in FontDialog.Font.Style;
+      if Assigned(FBrushSpin) and (FCurrentTool = tkText) then
+        FBrushSpin.Value := FTextLastResult.FontSize;
+      if Assigned(FTextFontButton) then
+        FTextFontButton.Caption := Format(TR('Font: %s', '字体：%s'), [FTextLastResult.FontName]);
+    end;
+  finally
+    FontDialog.Free;
+  end;
 end;
 
 procedure TMainForm.UpdateInlineTextEditStyle;
@@ -1941,7 +2099,7 @@ begin
       TextResult := FTextLastResult;
       TextResult.Text := FInlineTextEdit.Text;
       FTextLastResult.Text := FInlineTextEdit.Text;
-      if FDocument.BeginActiveLayerMutation('Text') then
+      if FDocument.BeginActiveLayerMutation(LocalizedAction('Text')) then
       begin
         PlaceTextAtPoint(TextResult, FInlineTextAnchor, FInlineTextColor);
         SyncImageMutationUI(False, True);
@@ -2082,7 +2240,7 @@ begin
     Exit;
   if ShouldPreserveSelectionAcrossToolSwitch(ANewTool) then
     Exit;
-  AutoDeselectSelection('Deselect');
+  AutoDeselectSelection(LocalizedAction('Deselect'));
 end;
 
 function TMainForm.ShouldAutoDeselectFromBlankClick(
@@ -2216,6 +2374,7 @@ var
   IsBucketTool: Boolean;
   IsToleranceTool: Boolean;
   IsFeatherTool: Boolean;
+  IsTextTool: Boolean;
 begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
@@ -2240,6 +2399,7 @@ begin
     IsBucketTool := FCurrentTool = tkFill;
     IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
     IsFeatherTool := IsSelTool;
+    IsTextTool := FCurrentTool = tkText;
 
     if Assigned(FSelModeLabel) then FSelModeLabel.Visible := IsSelTool;
     if Assigned(FSelModeCombo) then FSelModeCombo.Visible := IsSelTool;
@@ -2287,9 +2447,9 @@ begin
         FFillTolSpin.Value := FFillTolerance;
       end;
       if FCurrentTool = tkRecolor then
-        FFillTolSpin.Hint := 'Recolor tolerance (0=exact, 255=replace broad color range)'
+        FFillTolSpin.Hint := TR('Recolor tolerance (0=exact, 255=replace broad color range)', '重着色容差 (0=精确, 255=替换更宽颜色范围)')
       else
-        FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
+        FFillTolSpin.Hint := TR('Fill tolerance (0=exact, 255=fill all)', '填充容差 (0=精确, 255=全部填充)');
     end;
     if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := FCurrentTool = tkGradient;
     if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := FCurrentTool = tkGradient;
@@ -2335,12 +2495,18 @@ begin
       FSelFeatherSpin.Enabled := FSelAntiAlias;
       FSelFeatherSpin.Value := EnsureRange(FSelFeather, FSelFeatherSpin.MinValue, FSelFeatherSpin.MaxValue);
     end;
+    if Assigned(FTextFontButton) then
+    begin
+      FTextFontButton.Visible := IsTextTool;
+      InitializeTextToolDefaults;
+      FTextFontButton.Caption := Format(TR('Font: %s', '字体：%s'), [FTextLastResult.FontName]);
+    end;
 
     case FCurrentTool of
       tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
       tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
         begin
-          FOptionLabel.Caption := 'Size:';
+          FOptionLabel.Caption := TR('Size:', '大小：');
           FOptionLabel.Visible := True;
           FBrushSpin.Visible := True;
           FBrushSpin.Enabled := True;
@@ -2350,13 +2516,24 @@ begin
         end;
       tkMagicWand:
         begin
-          FOptionLabel.Caption := 'Tolerance:';
+          FOptionLabel.Caption := TR('Tolerance:', '容差：');
           FOptionLabel.Visible := True;
           FBrushSpin.Visible := True;
           FBrushSpin.Enabled := True;
           FBrushSpin.MinValue := 0;
           FBrushSpin.MaxValue := 255;
           FBrushSpin.Value := FWandTolerance;
+        end;
+      tkText:
+        begin
+          InitializeTextToolDefaults;
+          FOptionLabel.Caption := TR('Size:', '大小：');
+          FOptionLabel.Visible := True;
+          FBrushSpin.Visible := True;
+          FBrushSpin.Enabled := True;
+          FBrushSpin.MinValue := 6;
+          FBrushSpin.MaxValue := 256;
+          FBrushSpin.Value := EnsureRange(FTextLastResult.FontSize, 6, 256);
         end;
       tkSelectRect, tkSelectEllipse, tkSelectLasso:
         begin
@@ -2426,6 +2603,7 @@ begin
   { Size / Tolerance }
   PlaceLabel(FOptionLabel);
   PlaceControl(FBrushSpin);
+  PlaceControl(FTextFontButton);
 
   { Opacity }
   PlaceLabel(FOpacityLabel);
@@ -2603,7 +2781,7 @@ begin
   FTabPopupMenu := TPopupMenu.Create(Self);
   
   Item := TMenuItem.Create(FTabPopupMenu);
-  Item.Caption := '&New Tab';
+  Item.Caption := TR('&New Tab', '新建标签(&N)');
   Item.OnClick := @TabMenuNewClick;
   FTabPopupMenu.Items.Add(Item);
 
@@ -2612,17 +2790,17 @@ begin
   FTabPopupMenu.Items.Add(Item);
   
   Item := TMenuItem.Create(FTabPopupMenu);
-  Item.Caption := '&Close';
+  Item.Caption := TR('&Close', '关闭(&C)');
   Item.OnClick := @TabMenuCloseClick;
   FTabPopupMenu.Items.Add(Item);
 
   Item := TMenuItem.Create(FTabPopupMenu);
-  Item.Caption := 'Close &Other Tabs';
+  Item.Caption := TR('Close &Other Tabs', '关闭其他标签(&O)');
   Item.OnClick := @TabMenuCloseOthersClick;
   FTabPopupMenu.Items.Add(Item);
 
   Item := TMenuItem.Create(FTabPopupMenu);
-  Item.Caption := 'Close Tabs to the &Right';
+  Item.Caption := TR('Close Tabs to the &Right', '关闭右侧标签(&R)');
   Item.OnClick := @TabMenuCloseRightClick;
   FTabPopupMenu.Items.Add(Item);
 end;
@@ -3126,7 +3304,7 @@ begin
   FUtilityButtons[ucLayers] := Btn;
 
   ZoomButtonRect := FPToolbarHelpers.ToolbarZoomOutButtonRect(ZoomGroupRect);
-  Btn := CreateButton('Zoom-',  ZoomButtonRect.Left - ZoomGroupRect.Left, ZoomButtonRect.Top - ZoomGroupRect.Top, ToolbarZoomButtonWidth, @ZoomOutClick, ZoomGroupPanel, 0, bicCommand); Btn.Hint := 'Zoom out (Cmd+-)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Zoom-',  ZoomButtonRect.Left - ZoomGroupRect.Left, ZoomButtonRect.Top - ZoomGroupRect.Top, ToolbarZoomButtonWidth, @ZoomOutClick, ZoomGroupPanel, 0, bicCommand); Btn.Hint := TR('Zoom out (Cmd+-)', '缩小 (Cmd+-)'); Btn.Height := ToolbarButtonHeight;
 
   FZoomCombo := TComboBox.Create(ZoomGroupPanel);
   FZoomCombo.Parent := ZoomGroupPanel;
@@ -3142,12 +3320,14 @@ begin
     FZoomCombo.Items.Add(ZoomPresetCaption(ZoomIndex));
   FZoomCombo.OnChange := @ZoomComboChange;
   FZoomCombo.Color := clWhite;
+  FZoomCombo.ParentFont := False;
+  FZoomCombo.Font.Size := 10;
   FZoomCombo.Font.Color := ChromeTextColor;
-  FZoomCombo.Hint := 'Zoom preset';
+  FZoomCombo.Hint := TR('Zoom preset', '缩放预设');
   FZoomCombo.ShowHint := True;
 
   ZoomButtonRect := FPToolbarHelpers.ToolbarZoomInButtonRect(ZoomGroupRect);
-  Btn := CreateButton('Zoom+', ZoomButtonRect.Left - ZoomGroupRect.Left, ZoomButtonRect.Top - ZoomGroupRect.Top, ToolbarZoomButtonWidth, @ZoomInClick, ZoomGroupPanel, 0, bicCommand); Btn.Hint := 'Zoom in (Cmd+=)'; Btn.Height := ToolbarButtonHeight;
+  Btn := CreateButton('Zoom+', ZoomButtonRect.Left - ZoomGroupRect.Left, ZoomButtonRect.Top - ZoomGroupRect.Top, ToolbarZoomButtonWidth, @ZoomInClick, ZoomGroupPanel, 0, bicCommand); Btn.Hint := TR('Zoom in (Cmd+=)', '放大 (Cmd+=)'); Btn.Height := ToolbarButtonHeight;
 
   UtilityPanel := TPanel.Create(FTopPanel);
   UtilityPanel.Parent := FTopPanel;
@@ -3327,7 +3507,7 @@ begin
   { --- Tool-specific option controls (all parented to FOptionsBarPanel) --- }
   FOptionLabel := TLabel.Create(FOptionsBarPanel);
   FOptionLabel.Parent := FOptionsBarPanel;
-  FOptionLabel.Caption := 'Size:';
+  FOptionLabel.Caption := TR('Size:', '大小：');
   FOptionLabel.Font.Color := ChromeTextColor;
   FOptionLabel.Font.Size := OptionsBarFontSize;
   FOptionLabel.Left := 220;
@@ -3346,9 +3526,23 @@ begin
   FBrushSpin.Font.Size := OptionsBarFontSize;
   FBrushSpin.Font.Color := ChromeTextColor;
 
+  FTextFontButton := TButton.Create(FOptionsBarPanel);
+  FTextFontButton.Parent := FOptionsBarPanel;
+  FTextFontButton.Left := 344;
+  FTextFontButton.Top := OptionsBarControlTop;
+  FTextFontButton.Height := OptionsBarControlHeight;
+  FTextFontButton.Width := 156;
+  FTextFontButton.Caption := TR('Font...', '字体...');
+  FTextFontButton.Visible := False;
+  FTextFontButton.OnClick := @TextFontButtonClick;
+  FTextFontButton.Hint := TR('Choose font and style', '选择字体和样式');
+  FTextFontButton.ShowHint := True;
+  FTextFontButton.Font.Size := OptionsBarFontSize;
+  FTextFontButton.Font.Color := ChromeTextColor;
+
   FOpacityLabel := TLabel.Create(FOptionsBarPanel);
   FOpacityLabel.Parent := FOptionsBarPanel;
-  FOpacityLabel.Caption := 'Opacity:';
+  FOpacityLabel.Caption := TR('Opacity:', '不透明度：');
   FOpacityLabel.Font.Size := OptionsBarFontSize;
   FOpacityLabel.Font.Color := ChromeTextColor;
   FOpacityLabel.Left := 348;
@@ -3368,12 +3562,12 @@ begin
   FOpacitySpin.OnChange := @OpacitySpinChanged;
   FOpacitySpin.Font.Size := OptionsBarFontSize;
   FOpacitySpin.Font.Color := ChromeTextColor;
-  FOpacitySpin.Hint := 'Brush opacity (1-100)';
+  FOpacitySpin.Hint := TR('Brush opacity (1-100)', '画笔不透明度 (1-100)');
   FOpacitySpin.ShowHint := True;
 
   FHardnessLabel := TLabel.Create(FOptionsBarPanel);
   FHardnessLabel.Parent := FOptionsBarPanel;
-  FHardnessLabel.Caption := 'Hardness:';
+  FHardnessLabel.Caption := TR('Hardness:', '硬度：');
   FHardnessLabel.Font.Size := OptionsBarFontSize;
   FHardnessLabel.Font.Color := ChromeTextColor;
   FHardnessLabel.Left := 480;
@@ -3393,12 +3587,12 @@ begin
   FHardnessSpin.OnChange := @HardnessSpinChanged;
   FHardnessSpin.Font.Size := OptionsBarFontSize;
   FHardnessSpin.Font.Color := ChromeTextColor;
-  FHardnessSpin.Hint := 'Brush hardness (1=soft, 100=hard)';
+  FHardnessSpin.Hint := TR('Brush hardness (1=soft, 100=hard)', '画笔硬度 (1=柔和, 100=硬边)');
   FHardnessSpin.ShowHint := True;
 
   FEraserShapeLabel := TLabel.Create(FOptionsBarPanel);
   FEraserShapeLabel.Parent := FOptionsBarPanel;
-  FEraserShapeLabel.Caption := 'Shape:';
+  FEraserShapeLabel.Caption := TR('Shape:', '形状：');
   FEraserShapeLabel.Font.Size := OptionsBarFontSize;
   FEraserShapeLabel.Font.Color := ChromeTextColor;
   FEraserShapeLabel.Left := 628;
@@ -3412,20 +3606,20 @@ begin
   FEraserShapeCombo.Height := OptionsBarControlHeight;
   FEraserShapeCombo.Width := 92;
   FEraserShapeCombo.Style := csDropDownList;
-  FEraserShapeCombo.Items.Add('Round');
-  FEraserShapeCombo.Items.Add('Square');
+  FEraserShapeCombo.Items.Add(TR('Round', '圆形'));
+  FEraserShapeCombo.Items.Add(TR('Square', '方形'));
   FEraserShapeCombo.ItemIndex := 0;
   FEraserShapeCombo.Visible := False;
   FEraserShapeCombo.OnChange := @EraserShapeComboChanged;
   FEraserShapeCombo.Color := clWhite;
   FEraserShapeCombo.Font.Size := OptionsBarFontSize;
   FEraserShapeCombo.Font.Color := ChromeTextColor;
-  FEraserShapeCombo.Hint := 'Eraser tip shape';
+  FEraserShapeCombo.Hint := TR('Eraser tip shape', '橡皮擦笔头形状');
   FEraserShapeCombo.ShowHint := True;
 
   FSelModeLabel := TLabel.Create(FOptionsBarPanel);
   FSelModeLabel.Parent := FOptionsBarPanel;
-  FSelModeLabel.Caption := 'Mode:';
+  FSelModeLabel.Caption := TR('Mode:', '模式：');
   FSelModeLabel.Font.Size := OptionsBarFontSize;
   FSelModeLabel.Font.Color := ChromeTextColor;
   FSelModeLabel.Left := 348;
@@ -3439,23 +3633,23 @@ begin
   FSelModeCombo.Height := OptionsBarControlHeight;
   FSelModeCombo.Width := 96;
   FSelModeCombo.Style := csDropDownList;
-  FSelModeCombo.Items.Add('Replace');
-  FSelModeCombo.Items.Add('Add');
-  FSelModeCombo.Items.Add('Subtract');
-  FSelModeCombo.Items.Add('Intersect');
+  FSelModeCombo.Items.Add(TR('Replace', '替换'));
+  FSelModeCombo.Items.Add(TR('Add', '添加'));
+  FSelModeCombo.Items.Add(TR('Subtract', '减去'));
+  FSelModeCombo.Items.Add(TR('Intersect', '相交'));
   FSelModeCombo.ItemIndex := 0;
   FSelModeCombo.Visible := False;
   FSelModeCombo.OnChange := @SelModeComboChanged;
   FSelModeCombo.Color := clWhite;
   FSelModeCombo.Font.Size := OptionsBarFontSize;
   FSelModeCombo.Font.Color := ChromeTextColor;
-  FSelModeCombo.Hint := 'Selection combination mode';
+  FSelModeCombo.Hint := TR('Selection combination mode', '选区组合模式');
   FSelModeCombo.ShowHint := True;
 
   { Shape style combo: Outline / Fill / Outline+Fill }
   FShapeStyleLabel := TLabel.Create(FOptionsBarPanel);
   FShapeStyleLabel.Parent := FOptionsBarPanel;
-  FShapeStyleLabel.Caption := 'Draw:';
+  FShapeStyleLabel.Caption := TR('Draw:', '绘制：');
   FShapeStyleLabel.Font.Size := OptionsBarFontSize;
   FShapeStyleLabel.Font.Color := ChromeTextColor;
   FShapeStyleLabel.Left := 348;
@@ -3469,21 +3663,21 @@ begin
   FShapeStyleCombo.Height := OptionsBarControlHeight;
   FShapeStyleCombo.Width := 116;
   FShapeStyleCombo.Style := csDropDownList;
-  FShapeStyleCombo.Items.Add('Outline');
-  FShapeStyleCombo.Items.Add('Fill');
-  FShapeStyleCombo.Items.Add('Outline + Fill');
+  FShapeStyleCombo.Items.Add(TR('Outline', '描边'));
+  FShapeStyleCombo.Items.Add(TR('Fill', '填充'));
+  FShapeStyleCombo.Items.Add(TR('Outline + Fill', '描边 + 填充'));
   FShapeStyleCombo.ItemIndex := 0;
   FShapeStyleCombo.Visible := False;
   FShapeStyleCombo.OnChange := @ShapeStyleComboChanged;
   FShapeStyleCombo.Color := clWhite;
   FShapeStyleCombo.Font.Size := OptionsBarFontSize;
   FShapeStyleCombo.Font.Color := ChromeTextColor;
-  FShapeStyleCombo.Hint := 'Shape draw style';
+  FShapeStyleCombo.Hint := TR('Shape draw style', '形状绘制样式');
   FShapeStyleCombo.ShowHint := True;
 
   FShapeLineStyleLabel := TLabel.Create(FOptionsBarPanel);
   FShapeLineStyleLabel.Parent := FOptionsBarPanel;
-  FShapeLineStyleLabel.Caption := 'Line:';
+  FShapeLineStyleLabel.Caption := TR('Line:', '线条：');
   FShapeLineStyleLabel.Font.Size := OptionsBarFontSize;
   FShapeLineStyleLabel.Font.Color := ChromeTextColor;
   FShapeLineStyleLabel.Left := 516;
@@ -3497,15 +3691,15 @@ begin
   FShapeLineStyleCombo.Height := OptionsBarControlHeight;
   FShapeLineStyleCombo.Width := 104;
   FShapeLineStyleCombo.Style := csDropDownList;
-  FShapeLineStyleCombo.Items.Add('Solid');
-  FShapeLineStyleCombo.Items.Add('Dashed');
+  FShapeLineStyleCombo.Items.Add(TR('Solid', '实线'));
+  FShapeLineStyleCombo.Items.Add(TR('Dashed', '虚线'));
   FShapeLineStyleCombo.ItemIndex := FShapeLineStyle;
   FShapeLineStyleCombo.Visible := False;
   FShapeLineStyleCombo.OnChange := @ShapeLineStyleComboChanged;
   FShapeLineStyleCombo.Color := clWhite;
   FShapeLineStyleCombo.Font.Size := OptionsBarFontSize;
   FShapeLineStyleCombo.Font.Color := ChromeTextColor;
-  FShapeLineStyleCombo.Hint := 'Outline line style for line/shape tools';
+  FShapeLineStyleCombo.Hint := TR('Outline line style for line/shape tools', '线条/形状工具的描边样式');
   FShapeLineStyleCombo.ShowHint := True;
 
   FLineBezierCheck := TCheckBox.Create(FOptionsBarPanel);
@@ -3514,17 +3708,17 @@ begin
   FLineBezierCheck.Top := OptionsBarCheckTop;
   FLineBezierCheck.Width := 100;
   FLineBezierCheck.Font.Size := OptionsBarFontSize;
-  FLineBezierCheck.Caption := 'Bezier';
+  FLineBezierCheck.Caption := TR('Bezier', '贝塞尔');
   FLineBezierCheck.Checked := FLineBezierMode;
   FLineBezierCheck.Visible := False;
   FLineBezierCheck.OnChange := @LineBezierChanged;
-  FLineBezierCheck.Hint := 'Enable staged Bezier editing for the Line tool';
+  FLineBezierCheck.Hint := TR('Enable staged Bezier editing for the Line tool', '为直线工具启用分阶段贝塞尔编辑');
   FLineBezierCheck.ShowHint := True;
 
   { Bucket fill mode combo: Contiguous / Global }
   FBucketModeLabel := TLabel.Create(FOptionsBarPanel);
   FBucketModeLabel.Parent := FOptionsBarPanel;
-  FBucketModeLabel.Caption := 'Fill:';
+  FBucketModeLabel.Caption := TR('Fill:', '填充：');
   FBucketModeLabel.Font.Size := OptionsBarFontSize;
   FBucketModeLabel.Font.Color := ChromeTextColor;
   FBucketModeLabel.Left := 348;
@@ -3538,21 +3732,21 @@ begin
   FBucketModeCombo.Height := OptionsBarControlHeight;
   FBucketModeCombo.Width := 110;
   FBucketModeCombo.Style := csDropDownList;
-  FBucketModeCombo.Items.Add('Contiguous');
-  FBucketModeCombo.Items.Add('Global');
+  FBucketModeCombo.Items.Add(TR('Contiguous', '连续'));
+  FBucketModeCombo.Items.Add(TR('Global', '全局'));
   FBucketModeCombo.ItemIndex := 0;
   FBucketModeCombo.Visible := False;
   FBucketModeCombo.OnChange := @BucketModeComboChanged;
   FBucketModeCombo.Color := clWhite;
   FBucketModeCombo.Font.Size := OptionsBarFontSize;
   FBucketModeCombo.Font.Color := ChromeTextColor;
-  FBucketModeCombo.Hint := 'Fill mode';
+  FBucketModeCombo.Hint := TR('Fill mode', '填充模式');
   FBucketModeCombo.ShowHint := True;
 
   { Fill sample source combo: Current Layer / All Layers }
   FFillSampleLabel := TLabel.Create(FOptionsBarPanel);
   FFillSampleLabel.Parent := FOptionsBarPanel;
-  FFillSampleLabel.Caption := 'Sample:';
+  FFillSampleLabel.Caption := TR('Sample:', '采样：');
   FFillSampleLabel.Font.Size := OptionsBarFontSize;
   FFillSampleLabel.Font.Color := ChromeTextColor;
   FFillSampleLabel.Left := 500;
@@ -3566,21 +3760,21 @@ begin
   FFillSampleCombo.Height := OptionsBarControlHeight;
   FFillSampleCombo.Width := 120;
   FFillSampleCombo.Style := csDropDownList;
-  FFillSampleCombo.Items.Add('Current Layer');
-  FFillSampleCombo.Items.Add('All Layers');
+  FFillSampleCombo.Items.Add(TR('Current Layer', '当前图层'));
+  FFillSampleCombo.Items.Add(TR('All Layers', '所有图层'));
   FFillSampleCombo.ItemIndex := 0;
   FFillSampleCombo.Visible := False;
   FFillSampleCombo.OnChange := @FillSampleComboChanged;
   FFillSampleCombo.Color := clWhite;
   FFillSampleCombo.Font.Size := OptionsBarFontSize;
   FFillSampleCombo.Font.Color := ChromeTextColor;
-  FFillSampleCombo.Hint := 'Fill sample source';
+  FFillSampleCombo.Hint := TR('Fill sample source', '填充采样来源');
   FFillSampleCombo.ShowHint := True;
 
   { Magic wand sample source combo: Current Layer / All Layers }
   FWandSampleLabel := TLabel.Create(FOptionsBarPanel);
   FWandSampleLabel.Parent := FOptionsBarPanel;
-  FWandSampleLabel.Caption := 'Sample:';
+  FWandSampleLabel.Caption := TR('Sample:', '采样：');
   FWandSampleLabel.Font.Size := OptionsBarFontSize;
   FWandSampleLabel.Font.Color := ChromeTextColor;
   FWandSampleLabel.Left := 730;
@@ -3594,15 +3788,15 @@ begin
   FWandSampleCombo.Height := OptionsBarControlHeight;
   FWandSampleCombo.Width := 120;
   FWandSampleCombo.Style := csDropDownList;
-  FWandSampleCombo.Items.Add('Current Layer');
-  FWandSampleCombo.Items.Add('All Layers');
+  FWandSampleCombo.Items.Add(TR('Current Layer', '当前图层'));
+  FWandSampleCombo.Items.Add(TR('All Layers', '所有图层'));
   FWandSampleCombo.ItemIndex := 0;
   FWandSampleCombo.Visible := False;
   FWandSampleCombo.OnChange := @WandSampleComboChanged;
   FWandSampleCombo.Color := clWhite;
   FWandSampleCombo.Font.Size := OptionsBarFontSize;
   FWandSampleCombo.Font.Color := ChromeTextColor;
-  FWandSampleCombo.Hint := 'Wand sample source';
+  FWandSampleCombo.Hint := TR('Wand sample source', '魔棒采样来源');
   FWandSampleCombo.ShowHint := True;
 
   { Wand contiguous checkbox }
@@ -3612,17 +3806,17 @@ begin
   FWandContiguousCheck.Top := OptionsBarCheckTop;
   FWandContiguousCheck.Width := 100;
   FWandContiguousCheck.Font.Size := OptionsBarFontSize;
-  FWandContiguousCheck.Caption := 'Contiguous';
+  FWandContiguousCheck.Caption := TR('Contiguous', '连续');
   FWandContiguousCheck.Checked := FWandContiguous;
   FWandContiguousCheck.Visible := False;
   FWandContiguousCheck.OnChange := @WandContiguousChanged;
-  FWandContiguousCheck.Hint := 'Contiguous: select only connected pixels';
+  FWandContiguousCheck.Hint := TR('Contiguous: select only connected pixels', '连续：只选择相连像素');
   FWandContiguousCheck.ShowHint := True;
 
   { Fill tolerance spin }
   FFillTolLabel := TLabel.Create(FOptionsBarPanel);
   FFillTolLabel.Parent := FOptionsBarPanel;
-  FFillTolLabel.Caption := 'Tolerance:';
+  FFillTolLabel.Caption := TR('Tolerance:', '容差：');
   FFillTolLabel.Font.Size := OptionsBarFontSize;
   FFillTolLabel.Font.Color := ChromeTextColor;
   FFillTolLabel.Left := 348;
@@ -3642,13 +3836,13 @@ begin
   FFillTolSpin.OnChange := @FillTolSpinChanged;
   FFillTolSpin.Font.Size := OptionsBarFontSize;
   FFillTolSpin.Font.Color := ChromeTextColor;
-  FFillTolSpin.Hint := 'Fill tolerance (0=exact, 255=fill all)';
+  FFillTolSpin.Hint := TR('Fill tolerance (0=exact, 255=fill all)', '填充容差 (0=精确, 255=全部)');
   FFillTolSpin.ShowHint := True;
 
   { Gradient type combo: Linear / Radial }
   FGradientTypeLabel := TLabel.Create(FOptionsBarPanel);
   FGradientTypeLabel.Parent := FOptionsBarPanel;
-  FGradientTypeLabel.Caption := 'Type:';
+  FGradientTypeLabel.Caption := TR('Type:', '类型：');
   FGradientTypeLabel.Font.Size := OptionsBarFontSize;
   FGradientTypeLabel.Font.Color := ChromeTextColor;
   FGradientTypeLabel.Left := 348;
@@ -3662,15 +3856,15 @@ begin
   FGradientTypeCombo.Height := OptionsBarControlHeight;
   FGradientTypeCombo.Width := 90;
   FGradientTypeCombo.Style := csDropDownList;
-  FGradientTypeCombo.Items.Add('Linear');
-  FGradientTypeCombo.Items.Add('Radial');
+  FGradientTypeCombo.Items.Add(TR('Linear', '线性'));
+  FGradientTypeCombo.Items.Add(TR('Radial', '径向'));
   FGradientTypeCombo.ItemIndex := 0;
   FGradientTypeCombo.Visible := False;
   FGradientTypeCombo.OnChange := @GradientTypeComboChanged;
   FGradientTypeCombo.Color := clWhite;
   FGradientTypeCombo.Font.Size := OptionsBarFontSize;
   FGradientTypeCombo.Font.Color := ChromeTextColor;
-  FGradientTypeCombo.Hint := 'Gradient type';
+  FGradientTypeCombo.Hint := TR('Gradient type', '渐变类型');
   FGradientTypeCombo.ShowHint := True;
 
   { Gradient reverse checkbox }
@@ -3680,11 +3874,11 @@ begin
   FGradientReverseCheck.Top := OptionsBarCheckTop;
   FGradientReverseCheck.Width := 80;
   FGradientReverseCheck.Font.Size := OptionsBarFontSize;
-  FGradientReverseCheck.Caption := 'Reverse';
+  FGradientReverseCheck.Caption := TR('Reverse', '反向');
   FGradientReverseCheck.Checked := FGradientReverse;
   FGradientReverseCheck.Visible := False;
   FGradientReverseCheck.OnChange := @GradientReverseChanged;
-  FGradientReverseCheck.Hint := 'Reverse gradient direction';
+  FGradientReverseCheck.Hint := TR('Reverse gradient direction', '反转渐变方向');
   FGradientReverseCheck.ShowHint := True;
 
   { Clone aligned checkbox }
@@ -3694,11 +3888,11 @@ begin
   FCloneAlignedCheck.Top := OptionsBarCheckTop;
   FCloneAlignedCheck.Width := 80;
   FCloneAlignedCheck.Font.Size := OptionsBarFontSize;
-  FCloneAlignedCheck.Caption := 'Aligned';
+  FCloneAlignedCheck.Caption := TR('Aligned', '对齐');
   FCloneAlignedCheck.Checked := FCloneAligned;
   FCloneAlignedCheck.Visible := False;
   FCloneAlignedCheck.OnChange := @CloneAlignedChanged;
-  FCloneAlignedCheck.Hint := 'Keep the clone source aligned across multiple strokes';
+  FCloneAlignedCheck.Hint := TR('Keep the clone source aligned across multiple strokes', '在多次笔划中保持仿制源对齐');
   FCloneAlignedCheck.ShowHint := True;
 
   { Recolor preserve-value checkbox }
@@ -3708,11 +3902,11 @@ begin
   FRecolorPreserveValueCheck.Top := OptionsBarCheckTop;
   FRecolorPreserveValueCheck.Width := 120;
   FRecolorPreserveValueCheck.Font.Size := OptionsBarFontSize;
-  FRecolorPreserveValueCheck.Caption := 'Preserve Value';
+  FRecolorPreserveValueCheck.Caption := TR('Preserve Value', '保持明度');
   FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
   FRecolorPreserveValueCheck.Visible := False;
   FRecolorPreserveValueCheck.OnChange := @RecolorPreserveValueChanged;
-  FRecolorPreserveValueCheck.Hint := 'Keep original brightness while shifting the color';
+  FRecolorPreserveValueCheck.Hint := TR('Keep original brightness while shifting the color', '改变颜色时保持原始亮度');
   FRecolorPreserveValueCheck.ShowHint := True;
 
   FRecolorContiguousCheck := TCheckBox.Create(FOptionsBarPanel);
@@ -3721,16 +3915,16 @@ begin
   FRecolorContiguousCheck.Top := OptionsBarCheckTop;
   FRecolorContiguousCheck.Width := 110;
   FRecolorContiguousCheck.Font.Size := OptionsBarFontSize;
-  FRecolorContiguousCheck.Caption := 'Contiguous';
+  FRecolorContiguousCheck.Caption := TR('Contiguous', '连续');
   FRecolorContiguousCheck.Checked := FRecolorContiguous;
   FRecolorContiguousCheck.Visible := False;
   FRecolorContiguousCheck.OnChange := @RecolorContiguousChanged;
-  FRecolorContiguousCheck.Hint := 'Only recolor connected pixels in the sampled family';
+  FRecolorContiguousCheck.Hint := TR('Only recolor connected pixels in the sampled family', '仅重着色采样族中连通的像素');
   FRecolorContiguousCheck.ShowHint := True;
 
   FRecolorSamplingLabel := TLabel.Create(FOptionsBarPanel);
   FRecolorSamplingLabel.Parent := FOptionsBarPanel;
-  FRecolorSamplingLabel.Caption := 'Sampling:';
+  FRecolorSamplingLabel.Caption := TR('Sampling:', '采样：');
   FRecolorSamplingLabel.Font.Size := OptionsBarFontSize;
   FRecolorSamplingLabel.Font.Color := ChromeTextColor;
   FRecolorSamplingLabel.Left := 756;
@@ -3744,21 +3938,21 @@ begin
   FRecolorSamplingCombo.Height := OptionsBarControlHeight;
   FRecolorSamplingCombo.Width := 126;
   FRecolorSamplingCombo.Style := csDropDownList;
-  FRecolorSamplingCombo.Items.Add('Once');
-  FRecolorSamplingCombo.Items.Add('Continuous');
-  FRecolorSamplingCombo.Items.Add('Swatch (Compat)');
+  FRecolorSamplingCombo.Items.Add(TR('Once', '一次'));
+  FRecolorSamplingCombo.Items.Add(TR('Continuous', '连续'));
+  FRecolorSamplingCombo.Items.Add(TR('Swatch (Compat)', '色板（兼容）'));
   FRecolorSamplingCombo.ItemIndex := Ord(FRecolorSamplingMode);
   FRecolorSamplingCombo.Visible := False;
   FRecolorSamplingCombo.OnChange := @RecolorSamplingModeChanged;
   FRecolorSamplingCombo.Color := clWhite;
   FRecolorSamplingCombo.Font.Size := OptionsBarFontSize;
   FRecolorSamplingCombo.Font.Color := ChromeTextColor;
-  FRecolorSamplingCombo.Hint := 'Source sampling behavior for recolor strokes';
+  FRecolorSamplingCombo.Hint := TR('Source sampling behavior for recolor strokes', '重着色笔划的源采样方式');
   FRecolorSamplingCombo.ShowHint := True;
 
   FRecolorModeLabel := TLabel.Create(FOptionsBarPanel);
   FRecolorModeLabel.Parent := FOptionsBarPanel;
-  FRecolorModeLabel.Caption := 'Mode:';
+  FRecolorModeLabel.Caption := TR('Mode:', '模式：');
   FRecolorModeLabel.Font.Size := OptionsBarFontSize;
   FRecolorModeLabel.Font.Color := ChromeTextColor;
   FRecolorModeLabel.Left := 958;
@@ -3772,18 +3966,18 @@ begin
   FRecolorModeCombo.Height := OptionsBarControlHeight;
   FRecolorModeCombo.Width := 112;
   FRecolorModeCombo.Style := csDropDownList;
-  FRecolorModeCombo.Items.Add('Color');
-  FRecolorModeCombo.Items.Add('Hue');
-  FRecolorModeCombo.Items.Add('Saturation');
-  FRecolorModeCombo.Items.Add('Luminosity');
-  FRecolorModeCombo.Items.Add('Replace (Compat)');
+  FRecolorModeCombo.Items.Add(TR('Color', '颜色'));
+  FRecolorModeCombo.Items.Add(TR('Hue', '色相'));
+  FRecolorModeCombo.Items.Add(TR('Saturation', '饱和度'));
+  FRecolorModeCombo.Items.Add(TR('Luminosity', '明度'));
+  FRecolorModeCombo.Items.Add(TR('Replace (Compat)', '替换（兼容）'));
   FRecolorModeCombo.ItemIndex := 0;
   FRecolorModeCombo.Visible := False;
   FRecolorModeCombo.OnChange := @RecolorModeChanged;
   FRecolorModeCombo.Color := clWhite;
   FRecolorModeCombo.Font.Size := OptionsBarFontSize;
   FRecolorModeCombo.Font.Color := ChromeTextColor;
-  FRecolorModeCombo.Hint := 'How recolor mixes target color into matching pixels';
+  FRecolorModeCombo.Hint := TR('How recolor mixes target color into matching pixels', '重着色将目标色混入匹配像素的方式');
   FRecolorModeCombo.ShowHint := True;
 
   { Mosaic tool block size }
@@ -3791,7 +3985,7 @@ begin
   FMosaicBlockLabel.Parent := FOptionsBarPanel;
   FMosaicBlockLabel.Left := 0;
   FMosaicBlockLabel.Top := OptionsBarLabelTop;
-  FMosaicBlockLabel.Caption := 'Block:';
+  FMosaicBlockLabel.Caption := TR('Block:', '块大小：');
   FMosaicBlockLabel.Font.Size := OptionsBarFontSize;
   FMosaicBlockLabel.Font.Color := ChromeTextColor;
   FMosaicBlockLabel.Visible := False;
@@ -3812,7 +4006,7 @@ begin
   { Color picker sample source combo }
   FPickerSampleLabel := TLabel.Create(FOptionsBarPanel);
   FPickerSampleLabel.Parent := FOptionsBarPanel;
-  FPickerSampleLabel.Caption := 'Sample:';
+  FPickerSampleLabel.Caption := TR('Sample:', '采样：');
   FPickerSampleLabel.Font.Size := OptionsBarFontSize;
   FPickerSampleLabel.Font.Color := ChromeTextColor;
   FPickerSampleLabel.Left := 348;
@@ -3826,15 +4020,15 @@ begin
   FPickerSampleCombo.Height := OptionsBarControlHeight;
   FPickerSampleCombo.Width := 120;
   FPickerSampleCombo.Style := csDropDownList;
-  FPickerSampleCombo.Items.Add('Current Layer');
-  FPickerSampleCombo.Items.Add('All Layers');
+  FPickerSampleCombo.Items.Add(TR('Current Layer', '当前图层'));
+  FPickerSampleCombo.Items.Add(TR('All Layers', '所有图层'));
   FPickerSampleCombo.ItemIndex := 0;
   FPickerSampleCombo.Visible := False;
   FPickerSampleCombo.OnChange := @PickerSampleComboChanged;
   FPickerSampleCombo.Color := clWhite;
   FPickerSampleCombo.Font.Size := OptionsBarFontSize;
   FPickerSampleCombo.Font.Color := ChromeTextColor;
-  FPickerSampleCombo.Hint := 'Pick color from layer or composite image';
+  FPickerSampleCombo.Hint := TR('Pick color from layer or composite image', '从当前图层或合成图像取色');
   FPickerSampleCombo.ShowHint := True;
 
   { Selection anti-alias checkbox }
@@ -3844,16 +4038,16 @@ begin
   FSelAntiAliasCheck.Top := OptionsBarCheckTop;
   FSelAntiAliasCheck.Width := 90;
   FSelAntiAliasCheck.Font.Size := OptionsBarFontSize;
-  FSelAntiAliasCheck.Caption := 'Anti-alias';
+  FSelAntiAliasCheck.Caption := TR('Anti-alias', '抗锯齿');
   FSelAntiAliasCheck.Checked := FSelAntiAlias;
   FSelAntiAliasCheck.Visible := False;
   FSelAntiAliasCheck.OnChange := @SelAntiAliasChanged;
-  FSelAntiAliasCheck.Hint := 'Smooth selection edges';
+  FSelAntiAliasCheck.Hint := TR('Smooth selection edges', '平滑选区边缘');
   FSelAntiAliasCheck.ShowHint := True;
 
   FSelFeatherLabel := TLabel.Create(FOptionsBarPanel);
   FSelFeatherLabel.Parent := FOptionsBarPanel;
-  FSelFeatherLabel.Caption := 'Feather:';
+  FSelFeatherLabel.Caption := TR('Feather:', '羽化：');
   FSelFeatherLabel.Left := 596;
   FSelFeatherLabel.Top := OptionsBarLabelTop;
   FSelFeatherLabel.Font.Size := OptionsBarFontSize;
@@ -3947,8 +4141,8 @@ begin
   FColorTargetCombo.Left := 0;
   FColorTargetCombo.Top := 0;
   FColorTargetCombo.Width := 0;
-  FColorTargetCombo.Items.Add('Primary');
-  FColorTargetCombo.Items.Add('Secondary');
+  FColorTargetCombo.Items.Add(TR('Primary', '前景色'));
+  FColorTargetCombo.Items.Add(TR('Secondary', '背景色'));
   FColorTargetCombo.ItemIndex := 0;
   FColorTargetCombo.Visible := False;
   FColorTargetCombo.OnChange := @ColorTargetComboChanged;
@@ -3961,9 +4155,9 @@ begin
 
   { Swap / Reset buttons beside the swatch pair }
   ToolButton := CreateButton('Swap', 78, ContentTop, 28, @SwapColorsClick, FColorsPanel, 0, bicCommand);
-  ToolButton.Hint := 'Swap primary and secondary colors (X)';
+  ToolButton.Hint := TR('Swap primary and secondary colors (X)', '交换前景色和背景色 (X)');
   ToolButton := CreateButton('Mono', 110, ContentTop, 28, @ResetColorsClick, FColorsPanel, 0, bicCommand);
-  ToolButton.Hint := 'Reset colors to black and white (D)';
+  ToolButton.Hint := TR('Reset colors to black and white (D)', '重置为黑白默认颜色 (D)');
 
   { ── Expand / Collapse toggle ──────────────────────────────────────── }
   FColorExpanded := False;
@@ -4109,18 +4303,18 @@ begin
   CreatePalette(FRightPanel, pkLayers);
 
   { Row 1: Add / Duplicate / Delete / Merge / Up / Down }
-  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel, 0, bicCommand).Hint := 'Add new layer';
-  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand).Hint := 'Duplicate layer';
-  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand).Hint := 'Delete layer';
-  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand).Hint := 'Merge down';
-  CreateButton('Up', 132, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := 'Move layer up in list';
-  CreateButton('Dn', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := 'Move layer down in list';
+  CreateButton('+', 12, ContentTop, 26, @AddLayerClick, FRightPanel, 0, bicCommand).Hint := TR('Add new layer', '添加新图层');
+  CreateButton('Dup', 42, ContentTop, 26, @DuplicateLayerClick, FRightPanel, 0, bicCommand).Hint := TR('Duplicate layer', '复制图层');
+  CreateButton('Del', 72, ContentTop, 26, @DeleteLayerClick, FRightPanel, 0, bicCommand).Hint := TR('Delete layer', '删除图层');
+  CreateButton('Mrg', 102, ContentTop, 26, @MergeDownClick, FRightPanel, 0, bicCommand).Hint := TR('Merge down', '向下合并');
+  CreateButton('Up', 132, ContentTop, 26, @MoveLayerDownClick, FRightPanel, 0, bicCommand).Hint := TR('Move layer up in list', '图层上移');
+  CreateButton('Dn', 162, ContentTop, 26, @MoveLayerUpClick, FRightPanel, 0, bicCommand).Hint := TR('Move layer down in list', '图层下移');
 
   { Row 2: Flatten / Rename / Properties }
-  CreateButton('Flat', 12, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := 'Flatten image';
-  CreateButton('Name', 42, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand).Hint := 'Rename layer';
+  CreateButton('Flat', 12, ContentTop + 28, 26, @FlattenClick, FRightPanel, 0, bicCommand).Hint := TR('Flatten image', '合并图像');
+  CreateButton('Name', 42, ContentTop + 28, 26, @RenameLayerClick, FRightPanel, 0, bicCommand).Hint := TR('Rename layer', '重命名图层');
   FLayerPropsButton := CreateButton('Props', 72, ContentTop + 28, 26, @LayerPropertiesClick, FRightPanel, 0, bicCommand);
-  FLayerPropsButton.Hint := 'Layer properties';
+  FLayerPropsButton.Hint := TR('Layer properties', '图层属性');
 
   FLayerBlendCombo := TComboBox.Create(FRightPanel);
   FLayerBlendCombo.Parent := FRightPanel;
@@ -4128,14 +4322,14 @@ begin
   FLayerBlendCombo.Top := ContentTop + 56;
   FLayerBlendCombo.Width := 220;
   FLayerBlendCombo.Style := csDropDownList;
-  FLayerBlendCombo.Items.Add('Normal');
-  FLayerBlendCombo.Items.Add('Multiply');
-  FLayerBlendCombo.Items.Add('Screen');
-  FLayerBlendCombo.Items.Add('Overlay');
-  FLayerBlendCombo.Items.Add('Darken');
-  FLayerBlendCombo.Items.Add('Lighten');
-  FLayerBlendCombo.Items.Add('Difference');
-  FLayerBlendCombo.Items.Add('Soft Light');
+  FLayerBlendCombo.Items.Add(TR('Normal', '正常'));
+  FLayerBlendCombo.Items.Add(TR('Multiply', '正片叠底'));
+  FLayerBlendCombo.Items.Add(TR('Screen', '滤色'));
+  FLayerBlendCombo.Items.Add(TR('Overlay', '叠加'));
+  FLayerBlendCombo.Items.Add(TR('Darken', '变暗'));
+  FLayerBlendCombo.Items.Add(TR('Lighten', '变亮'));
+  FLayerBlendCombo.Items.Add(TR('Difference', '差值'));
+  FLayerBlendCombo.Items.Add(TR('Soft Light', '柔光'));
   FLayerBlendCombo.ItemIndex := 0;
   FLayerBlendCombo.OnChange := @LayerBlendModeChanged;
   FLayerBlendCombo.Color := clWhite;
@@ -4143,7 +4337,7 @@ begin
 
   FLayerOpacityLabel := TLabel.Create(FRightPanel);
   FLayerOpacityLabel.Parent := FRightPanel;
-  FLayerOpacityLabel.Caption := 'Opacity:';
+  FLayerOpacityLabel.Caption := TR('Opacity:', '不透明度：');
   FLayerOpacityLabel.Font.Color := ChromeTextColor;
   FLayerOpacityLabel.Left := 12;
   FLayerOpacityLabel.Top := ContentTop + 85;
@@ -4458,8 +4652,8 @@ begin
     if (AIconContext = bicCommand) and (AWidth >= 54) then
     begin
       Result.Caption := ToolbarLargeCommandCaptionPrefix + ACaption;
-      Result.Font.Size := 9;
-      Result.Font.Style := [fsBold];
+      Result.Font.Size := 10;
+      Result.Font.Style := [];
       Result.Margin := 0;
       Result.Spacing := 0;
     end
@@ -4474,8 +4668,8 @@ begin
     if (AIconContext = bicCommand) and (AWidth >= 54) then
     begin
       Result.Caption := ACaption;
-      Result.Font.Size := 9;
-      Result.Font.Style := [fsBold];
+      Result.Font.Size := 10;
+      Result.Font.Style := [];
       Result.Margin := 0;
       Result.Spacing := 0;
     end
@@ -5691,7 +5885,8 @@ begin
   SyncStrokeColorToActiveTarget;
   if Assigned(FColorsValueLabel) then
     FColorsValueLabel.Caption := Format(
-      'FG #%2.2x%2.2x%2.2x%2.2x   BG #%2.2x%2.2x%2.2x%2.2x',
+      TR('FG #%2.2x%2.2x%2.2x%2.2x   BG #%2.2x%2.2x%2.2x%2.2x',
+         '前景 #%2.2x%2.2x%2.2x%2.2x   背景 #%2.2x%2.2x%2.2x%2.2x'),
       [
         FPrimaryColor.R,
         FPrimaryColor.G,
@@ -5707,7 +5902,8 @@ begin
   begin
     if FColorEditTarget = 0 then
       FActiveColorHexLabel.Caption := Format(
-        'Active: Foreground  #%2.2x%2.2x%2.2x%2.2x',
+        TR('Active: Foreground  #%2.2x%2.2x%2.2x%2.2x',
+           '当前：前景色  #%2.2x%2.2x%2.2x%2.2x'),
         [
           FPrimaryColor.R,
           FPrimaryColor.G,
@@ -5717,7 +5913,8 @@ begin
       )
     else
       FActiveColorHexLabel.Caption := Format(
-        'Active: Background  #%2.2x%2.2x%2.2x%2.2x',
+        TR('Active: Background  #%2.2x%2.2x%2.2x%2.2x',
+           '当前：背景色  #%2.2x%2.2x%2.2x%2.2x'),
         [
           FSecondaryColor.R,
           FSecondaryColor.G,
@@ -5729,9 +5926,9 @@ begin
   if Assigned(FColorPickButton) then
   begin
     if FColorEditTarget = 0 then
-      FColorPickButton.Hint := 'Open the system color palette for the foreground swatch'
+      FColorPickButton.Hint := TR('Open the system color palette for the foreground swatch', '打开系统调色板以编辑前景色样本')
     else
-      FColorPickButton.Hint := 'Open the system color palette for the background swatch';
+      FColorPickButton.Hint := TR('Open the system color palette for the background swatch', '打开系统调色板以编辑背景色样本');
   end;
   if Assigned(FColorTargetCombo) and (FColorTargetCombo.ItemIndex <> FColorEditTarget) then
     FColorTargetCombo.ItemIndex := FColorEditTarget;
@@ -5832,12 +6029,12 @@ begin
   TextLeft := FrontRect.Right + 18;
   C.Font.Color := ChromeTextColor;
   if FColorEditTarget = 0 then
-    C.TextOut(TextLeft, 18, 'Editing foreground')
+    C.TextOut(TextLeft, 18, TR('Editing foreground', '正在编辑前景色'))
   else
-    C.TextOut(TextLeft, 18, 'Editing background');
+    C.TextOut(TextLeft, 18, TR('Editing background', '正在编辑背景色'));
   C.Font.Color := ChromeMutedTextColor;
-  C.TextOut(TextLeft, 38, 'Click either swatch to switch');
-  C.TextOut(TextLeft, 56, 'System picker stays in sync');
+  C.TextOut(TextLeft, 38, TR('Click either swatch to switch', '点击任一色块即可切换'));
+  C.TextOut(TextLeft, 56, TR('System picker stays in sync', '系统取色器保持同步'));
 end;
 
 procedure TMainForm.ColorsBoxMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
@@ -6393,7 +6590,7 @@ begin
 
   { RGB section }
   Y := 0;
-  DrawHeader('RGB', Y);
+  DrawHeader(TR('RGB', 'RGB'), Y);
   Y := Y + HeaderHeight;
   DrawBarRow(TR('R', #$E7#$BA#$A2), gbkRed, EditColor.R / 255.0, Y);
   Y := Y + RowHeight;
@@ -6411,7 +6608,7 @@ begin
 
   { HSV section }
   Y := Y + HeaderGap;
-  DrawHeader('HSV', Y);
+  DrawHeader(TR('HSV', 'HSV'), Y);
   Y := Y + HeaderHeight;
   DrawBarRow('H', gbkHue, CurH, Y);
   Y := Y + RowHeight;
@@ -6595,7 +6792,7 @@ begin
       Row UndoCount+1..: redo (future) states, dimmed
     }
     { Row 0: initial state }
-    FHistoryList.Items.Add('0. (initial)');
+    FHistoryList.Items.Add(TR('0. (initial)', '0.（初始）'));
     { Rows 1..UndoCount: past operations, oldest first }
     for RowIndex := 1 to UndoCount do
     begin
@@ -6641,21 +6838,21 @@ begin
     );
   end
   else
-    SelectionText := 'none';
+    SelectionText := TR('none', '无');
 
   FStatusLabels[0].Caption := Format('%s — %s', [PaintToolName(FCurrentTool), ToolHintText]);
   FStatusLabels[1].Caption := Format(
-    'Image: %s × %s %s',
+    TR('Image: %s × %s %s', '图像：%s × %s %s'),
     [
       FormatMeasurement(FDocument.Width),
       FormatMeasurement(FDocument.Height),
       DisplayUnitSuffix
     ]
   );
-  FStatusLabels[2].Caption := 'Selection: ' + SelectionText;
+  FStatusLabels[2].Caption := TR('Selection: ', '选区：') + SelectionText;
   if (ACursorPoint.X >= 0) and (ACursorPoint.Y >= 0) then
     FStatusLabels[3].Caption := Format(
-      'Cursor: %s, %s %s',
+      TR('Cursor: %s, %s %s', '光标：%s，%s %s'),
       [
         FormatMeasurement(ACursorPoint.X),
         FormatMeasurement(ACursorPoint.Y),
@@ -6663,12 +6860,12 @@ begin
       ]
     )
   else
-    FStatusLabels[3].Caption := 'Cursor: —';
+    FStatusLabels[3].Caption := TR('Cursor: —', '光标：—');
   FStatusLabels[4].Caption := Format(
-    'Layer: %d/%d',
+    TR('Layer: %d/%d', '图层：%d/%d'),
     [FDocument.ActiveLayerIndex + 1, FDocument.LayerCount]
   );
-  FStatusLabels[5].Caption := 'Units: ' + DisplayUnitSuffix;
+  FStatusLabels[5].Caption := TR('Units: ', '单位：') + DisplayUnitSuffix;
   FStatusLabels[6].Caption := '';
   UpdateZoomControls;
   LayoutStatusBarControls(nil);
@@ -6851,8 +7048,8 @@ begin
     FColorTargetCombo.Style := csDropDownList;
     if FColorTargetCombo.Items.Count = 0 then
     begin
-      FColorTargetCombo.Items.Add('Primary');
-      FColorTargetCombo.Items.Add('Secondary');
+      FColorTargetCombo.Items.Add(TR('Primary', '前景色'));
+      FColorTargetCombo.Items.Add(TR('Secondary', '背景色'));
     end;
   end;
   { Remove idle handler if present to avoid callbacks into partially-initialized app }
@@ -6892,7 +7089,7 @@ begin
     if Assigned(FZoomCombo) then
     begin
       FZoomCombo.ItemIndex := NearestIndex;
-      FZoomCombo.Hint := 'Zoom: ' + ZoomCaptionForScale(FZoomScale);
+      FZoomCombo.Hint := TR('Zoom: ', '缩放：') + ZoomCaptionForScale(FZoomScale);
       FZoomCombo.ShowHint := True;
     end;
     if Assigned(FStatusZoomTrack) then
@@ -7026,7 +7223,7 @@ begin
   if FRecentFiles.Count = 0 then
   begin
     MenuItem := TMenuItem.Create(FRecentMenu);
-    MenuItem.Caption := '(Empty)';
+    MenuItem.Caption := TR('(Empty)', '（空）');
     MenuItem.Enabled := False;
     FRecentMenu.Add(MenuItem);
     Exit;
@@ -7331,7 +7528,7 @@ begin
     CloseButton.Height := 18;
     CloseButton.Anchors := [akTop, akRight];
     CloseButton.Hint := Format(
-      'Close %s palette (%s toggles it)',
+      TR('Close %s palette (%s toggles it)', '关闭%s面板（%s可切换）'),
       [PaletteTitle(AKind), PaletteShortcutLabel(AKind)]
     );
   end;
@@ -7610,9 +7807,10 @@ begin
     Exit(True);
 
   Choice := MessageDlg(
-    'Save Changes',
+    TR('Save Changes', '保存更改'),
     Format(
-      'The current document has unsaved changes. Save before %s?',
+      TR('The current document has unsaved changes. Save before %s?',
+         '当前文档有未保存的更改。是否在%s之前保存？'),
       [AAction]
     ),
     mtConfirmation,
@@ -7657,12 +7855,8 @@ var
   Surface: TRasterSurface;
   ResolvedFileName: string;
   SaveOpts: TSaveSurfaceOptions;
-  QualityStr: string;
-  PngLevelStr: string;
-  ParsedQuality: Integer;
-  ParsedPngLevel: Integer;
-  ProgressiveChoice: Integer;
   Ext: string;
+  ExportFormat: TExportFormat;
 begin
   ResolvedFileName := ExpandFileName(AFileName);
 
@@ -7677,56 +7871,19 @@ begin
     Exit;
   end;
 
-  SaveOpts := DefaultSaveSurfaceOptions;
+  SaveOpts := FSaveSurfaceOptions;
   Ext := LowerCase(ExtractFileExt(ResolvedFileName));
-  SaveOpts.JpegQuality := FJpegQuality;
-  SaveOpts.JpegProgressive := FJpegProgressive;
-  SaveOpts.PngCompressionLevel := FPngCompressionLevel;
-
-  { Show JPEG quality prompt }
-  if (Ext = '.jpg') or (Ext = '.jpeg') then
-  begin
-    QualityStr := IntToStr(FJpegQuality);
-    if not InputQuery('JPEG Quality', 'Quality (1–100, higher = better quality / larger file):', QualityStr) then
-      Exit;
-    ParsedQuality := StrToIntDef(Trim(QualityStr), FJpegQuality);
-    ParsedQuality := EnsureRange(ParsedQuality, 1, 100);
-    FJpegQuality := ParsedQuality;
-    SaveOpts.JpegQuality := FJpegQuality;
-    ProgressiveChoice := MessageDlg(
-      'JPEG Export',
-      'Use progressive encoding?',
-      mtConfirmation,
-      [mbYes, mbNo, mbCancel],
-      0
-    );
-    case ProgressiveChoice of
-      mrYes:
-        FJpegProgressive := True;
-      mrNo:
-        FJpegProgressive := False;
-    else
-      Exit;
-    end;
-    SaveOpts.JpegProgressive := FJpegProgressive;
-  end
-  else if Ext = '.png' then
-  begin
-    PngLevelStr := IntToStr(FPngCompressionLevel);
-    if not InputQuery(
-      'PNG Export',
-      'Compression level (0-9, higher = smaller file / slower save):',
-      PngLevelStr
-    ) then
-      Exit;
-    ParsedPngLevel := StrToIntDef(Trim(PngLevelStr), FPngCompressionLevel);
-    ParsedPngLevel := EnsureRange(ParsedPngLevel, 0, 9);
-    FPngCompressionLevel := ParsedPngLevel;
-    SaveOpts.PngCompressionLevel := FPngCompressionLevel;
-  end;
 
   Surface := FDocument.Composite;
   try
+    if TryExportFormatForExtension(Ext, ExportFormat) then
+    begin
+      if not RunExportOptionsDialog(Self, ExportFormat, Surface, SaveOpts) then
+        Exit;
+    end;
+
+    FSaveSurfaceOptions := SaveOpts;
+
     SaveSurfaceToFileWithOpts(ResolvedFileName, Surface, SaveOpts);
     FCurrentFileName := ResolvedFileName;
     if Length(FTabFileNames) > FActiveTabIndex then
@@ -8652,6 +8809,74 @@ var
         PaintSelection
       );
   end;
+  procedure DrawSolidLineWithNativeAA(
+    const AFromPoint, AToPoint: TPoint;
+    ARadius: Integer
+  );
+var
+  TempSurface: TRasterSurface;
+  PathPoints: array[0..3] of Double;
+  StrokeWidth: Double;
+begin
+{$IFDEF TESTING}
+  { Headless tests compile bridge calls to no-op stubs. Keep deterministic
+    raster output in tests by using the existing pure-Pascal path. }
+  MutableSurface.DrawLine(
+    AFromPoint.X,
+    AFromPoint.Y,
+    AToPoint.X,
+    AToPoint.Y,
+    ARadius,
+    ActivePaintColor,
+    255,
+    255,
+    PaintSelection
+  );
+{$ELSE}
+  try
+    if (MutableSurface.Width <= 0) or (MutableSurface.Height <= 0) then
+      raise Exception.Create('invalid target surface dimensions');
+    StrokeWidth := Max(1.0, (Max(1, ARadius) * 2.0) + 1.0);
+    TempSurface := TRasterSurface.Create(MutableSurface.Width, MutableSurface.Height);
+    try
+      TempSurface.Clear(TransparentColor);
+      PathPoints[0] := AFromPoint.X + 0.5;
+      PathPoints[1] := AFromPoint.Y + 0.5;
+      PathPoints[2] := AToPoint.X + 0.5;
+      PathPoints[3] := AToPoint.Y + 0.5;
+      FPCGRenderStrokedPath(
+        TempSurface.RawPixels,
+        TempSurface.Width,
+        TempSurface.Height,
+        @PathPoints[0],
+        2,
+        0,
+        StrokeWidth,
+        ActivePaintColor.R,
+        ActivePaintColor.G,
+        ActivePaintColor.B,
+        ActivePaintColor.A
+      );
+      MutableSurface.PasteSurface(TempSurface, 0, 0, 255, PaintSelection);
+    finally
+      TempSurface.Free;
+    end;
+  except
+    { Safety fallback keeps previous raster behavior if native AA path fails. }
+    MutableSurface.DrawLine(
+      AFromPoint.X,
+      AFromPoint.Y,
+      AToPoint.X,
+      AToPoint.Y,
+      ARadius,
+      ActivePaintColor,
+      255,
+      255,
+      PaintSelection
+    );
+  end;
+{$ENDIF}
+end;
 begin
   { FShapeStyle: 0=Outline, 1=Fill, 2=Outline+Fill }
   DoOutline := FShapeStyle in [0, 2];
@@ -8795,16 +9020,10 @@ begin
               PaintSelection
             )
           else
-            MutableSurface.DrawLine(
-              LocalStartPoint.X,
-              LocalStartPoint.Y,
-              LocalEndPoint.X,
-              LocalEndPoint.Y,
-              LineRadius,
-              ActivePaintColor,
-              255,
-              255,
-              PaintSelection
+            DrawSolidLineWithNativeAA(
+              LocalStartPoint,
+              LocalEndPoint,
+              LineRadius
             );
         end;
       tkGradient:
@@ -9029,8 +9248,8 @@ begin
     SaveRecentFiles;
     RebuildRecentFilesMenu;
     MessageDlg(
-      'Open Recent',
-      Format('The file "%s" is no longer available.', [FileName]),
+      TR('Open Recent', '打开最近文件'),
+      Format(TR('The file "%s" is no longer available.', '文件“%s”已不可用。'), [FileName]),
       mtWarning,
       [mbOK],
       0
@@ -9047,8 +9266,8 @@ var
 begin
   if FDirty then
   begin
-    Choice := MessageDlg('Save Changes',
-      Format('Do you want to save changes to "%s"?', [TabDocumentDisplayName(FActiveTabIndex)]),
+    Choice := MessageDlg(TR('Save Changes', '保存更改'),
+      Format(TR('Do you want to save changes to "%s"?', '是否保存对“%s”的更改？'), [TabDocumentDisplayName(FActiveTabIndex)]),
       mtConfirmation, [mbYes, mbNo, mbCancel], 0);
     case Choice of
       mrYes:
@@ -9087,8 +9306,8 @@ begin
   Dialog := TSaveDialog.Create(Self);
   try
     Dialog.Filter :=
-      'FlatPaint Project|*.fpd|PNG|*.png|JPEG|*.jpg|Bitmap|*.bmp|TIFF|*.tif|' +
-      'PCX|*.pcx|PNM|*.pnm|TGA|*.tga|XPM|*.xpm';
+      'FlatPaint Project|*.fpd|PNG|*.png|JPEG|*.jpg;*.jpeg|Bitmap|*.bmp|TIFF|*.tif;*.tiff|' +
+      'PCX|*.pcx|PNM/PBM/PGM/PPM|*.pnm;*.pbm;*.pgm;*.ppm|TGA|*.tga|XPM|*.xpm';
     Dialog.DefaultExt := 'fpd';
     if FCurrentFileName <> '' then
       Dialog.FileName := FCurrentFileName
@@ -9144,7 +9363,7 @@ begin
     end;
   except
     on E: Exception do
-      MessageDlg('Print', 'Printing failed: ' + E.Message, mtError, [mbOK], 0);
+      MessageDlg(TR('Print', '打印'), TR('Printing failed: ', '打印失败：') + E.Message, mtError, [mbOK], 0);
   end;
 end;
 
@@ -9157,7 +9376,7 @@ begin
   case ResolveAcquireMode(Clipboard.HasPictureFormat) of
     amClipboard:
       begin
-        if not ConfirmDocumentReplacement('replace the current document from the clipboard') then
+        if not ConfirmDocumentReplacement(TR('replace the current document from the clipboard', '使用剪贴板内容替换当前文档')) then
           Exit;
         SealPendingStrokeHistory;
         ClipboardPicture := TPicture.Create;
@@ -9170,7 +9389,7 @@ begin
             ClipboardBitmap.Assign(ClipboardPicture.Graphic);
             ImportedSurface := BitmapToSurface(ClipboardBitmap);
             try
-              FDocument.ReplaceWithSingleLayer(ImportedSurface, 'Acquired Image');
+              FDocument.ReplaceWithSingleLayer(ImportedSurface, TR('Acquired Image', '获取的图像'));
             finally
               ImportedSurface.Free;
             end;
@@ -9202,7 +9421,7 @@ begin
     try
       Surface := LoadSurfaceForImportPath(Dialog.FileName);
       try
-        FDocument.PushHistory('Import Layer');
+        FDocument.PushHistory(LocalizedAction('Import Layer'));
         FDocument.PasteAsNewLayer(Surface, 0, 0, ExtractFileName(Dialog.FileName));
         SyncImageMutationUI(True, True);
       finally
@@ -9210,7 +9429,7 @@ begin
       end;
     except
       on E: Exception do
-        MessageDlg('Import as Layer', 'Import failed: ' + E.Message, mtError, [mbOK], 0);
+        MessageDlg(TR('Import as Layer', '导入为图层'), TR('Import failed: ', '导入失败：') + E.Message, mtError, [mbOK], 0);
     end;
   finally
     Dialog.Free;
@@ -9236,7 +9455,7 @@ var
   Bounds: TRect;
 begin
   SealPendingStrokeHistory;
-  if not FDocument.BeginActiveLayerMutation('Cut') then
+  if not FDocument.BeginActiveLayerMutation(LocalizedAction('Cut')) then
     Exit;
   FreeAndNil(FClipboardSurface);
   if FDocument.HasSelection then
@@ -9310,7 +9529,7 @@ begin
   SealPendingStrokeHistory;
   if not TryResolvePasteSurface(PasteSurface, PasteOffset) then
     Exit;
-  if not FDocument.BeginActiveLayerMutation('Paste') then
+  if not FDocument.BeginActiveLayerMutation(LocalizedAction('Paste')) then
     Exit;
   { Paste onto the active layer through core guarded mutation route. }
   FDocument.PasteSurfaceToActiveLayer(
@@ -9329,7 +9548,7 @@ begin
   SealPendingStrokeHistory;
   if not TryResolvePasteSurface(PasteSurface, PasteOffset) then
     Exit;
-  FDocument.PushHistory('Paste into New Layer');
+  FDocument.PushHistory(LocalizedAction('Paste into New Layer'));
   FDocument.PasteAsNewLayer(PasteSurface, PasteOffset.X, PasteOffset.Y, 'Pasted Layer');
   SyncImageMutationUI(True, True);
 end;
@@ -9350,7 +9569,7 @@ end;
 procedure TMainForm.AddLayerClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Add Layer');
+  FDocument.PushHistory(LocalizedAction('Add Layer'));
   FDocument.AddLayer;
   SyncImageMutationUI(True, True);
 end;
@@ -9358,7 +9577,7 @@ end;
 procedure TMainForm.DuplicateLayerClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Duplicate Layer');
+  FDocument.PushHistory(LocalizedAction('Duplicate Layer'));
   FDocument.DuplicateActiveLayer;
   SyncImageMutationUI(True, True);
 end;
@@ -9366,7 +9585,7 @@ end;
 procedure TMainForm.DeleteLayerClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Delete Layer');
+  FDocument.PushHistory(LocalizedAction('Delete Layer'));
   FDocument.DeleteActiveLayer;
   SyncImageMutationUI(True, True);
 end;
@@ -9377,11 +9596,11 @@ var
 begin
   SealPendingStrokeHistory;
   ValueText := FDocument.ActiveLayer.Name;
-  if not InputQuery('Rename Layer', 'Layer name', ValueText) then
+  if not InputQuery(TR('Rename Layer', '重命名图层'), TR('Layer name', '图层名称'), ValueText) then
     Exit;
   if Trim(ValueText) = '' then
     Exit;
-  FDocument.PushHistory('Rename Layer');
+  FDocument.PushHistory(LocalizedAction('Rename Layer'));
   FDocument.RenameLayer(FDocument.ActiveLayerIndex, ValueText);
   SyncImageMutationUI(True, True);
 end;
@@ -9404,9 +9623,9 @@ begin
   if TargetIndex = FDocument.ActiveLayerIndex then
     Exit;
   if TargetIndex = FDocument.LayerCount - 1 then
-    FDocument.PushHistory('Move Layer to Top')
+    FDocument.PushHistory(LocalizedAction('Move Layer to Top'))
   else
-    FDocument.PushHistory('Move Layer Up');
+    FDocument.PushHistory(LocalizedAction('Move Layer Up'));
   FDocument.MoveLayer(FDocument.ActiveLayerIndex, TargetIndex);
   SyncImageMutationUI(True, True);
 end;
@@ -9431,9 +9650,9 @@ begin
   if TargetIndex = FDocument.ActiveLayerIndex then
     Exit;
   if TargetIndex = 0 then
-    FDocument.PushHistory('Move Layer to Bottom')
+    FDocument.PushHistory(LocalizedAction('Move Layer to Bottom'))
   else
-    FDocument.PushHistory('Move Layer Down');
+    FDocument.PushHistory(LocalizedAction('Move Layer Down'));
   FDocument.MoveLayer(FDocument.ActiveLayerIndex, TargetIndex);
   SyncImageMutationUI(True, True);
 end;
@@ -9443,7 +9662,7 @@ begin
   SealPendingStrokeHistory;
   if FDocument.ActiveLayerIndex = 0 then
     Exit;
-  FDocument.PushHistory('Merge Down');
+  FDocument.PushHistory(LocalizedAction('Merge Down'));
   FDocument.MergeDown;
   SyncImageMutationUI(True, True);
 end;
@@ -9451,7 +9670,7 @@ end;
 procedure TMainForm.FlattenClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Flatten');
+  FDocument.PushHistory(LocalizedAction('Flatten'));
   FDocument.Flatten;
   SyncImageMutationUI(True, True);
 end;
@@ -9459,7 +9678,7 @@ end;
 procedure TMainForm.ToggleLayerVisibilityClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Toggle Layer Visibility');
+  FDocument.PushHistory(LocalizedAction('Toggle Layer Visibility'));
   FDocument.SetLayerVisibility(
     FDocument.ActiveLayerIndex,
     not FDocument.Layers[FDocument.ActiveLayerIndex].Visible
@@ -9482,9 +9701,9 @@ var
 begin
   SealPendingStrokeHistory;
   ValueText := IntToStr(LayerOpacityPercentFromByte(FDocument.ActiveLayer.Opacity));
-  if not InputQuery('Layer Opacity', 'Opacity (0 to 100%)', ValueText) then
+  if not InputQuery(TR('Layer Opacity', '图层不透明度'), TR('Opacity (0 to 100%)', '不透明度（0 到 100%）'), ValueText) then
     Exit;
-  FDocument.PushHistory('Layer Opacity');
+  FDocument.PushHistory(LocalizedAction('Layer Opacity'));
   FDocument.SetLayerOpacity(
     FDocument.ActiveLayerIndex,
     LayerOpacityByteFromPercent(
@@ -9517,7 +9736,7 @@ begin
   NewOpacity := LayerOpacityByteFromPercent(FLayerOpacitySpin.Value);
   if FDocument.ActiveLayer.Opacity = NewOpacity then
     Exit;
-  FDocument.PushHistory('Layer Opacity');
+  FDocument.PushHistory(LocalizedAction('Layer Opacity'));
   FDocument.SetLayerOpacity(FDocument.ActiveLayerIndex, NewOpacity);
   SyncImageMutationUI(True, True);
 end;
@@ -9534,7 +9753,7 @@ begin
   ResampleMode := rmNearestNeighbor;
   if not RunResizeImageDialog(Self, TargetWidth, TargetHeight, ResampleMode) then
     Exit;
-  if not FDocument.BeginDocumentMutation('Resize Image') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Resize Image')) then
     Exit;
   FDocument.ResizeImage(TargetWidth, TargetHeight, ResampleMode);
   SyncImageMutationUI(False, True);
@@ -9546,9 +9765,11 @@ var
   TargetHeight: Integer;
 begin
   SealPendingStrokeHistory;
-  if not PromptForSize('Resize Canvas', TargetWidth, TargetHeight) then
+  TargetWidth := FDocument.Width;
+  TargetHeight := FDocument.Height;
+  if not RunResizeCanvasDialog(Self, TargetWidth, TargetHeight) then
     Exit;
-  if not FDocument.BeginDocumentMutation('Resize Canvas') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Resize Canvas')) then
     Exit;
   FDocument.ResizeCanvas(TargetWidth, TargetHeight);
   SyncImageMutationUI(False, True);
@@ -9557,7 +9778,7 @@ end;
 procedure TMainForm.RotateClockwiseClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  if not FDocument.BeginDocumentMutation('Rotate 90 Right') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Rotate 90 Right')) then
     Exit;
   FDocument.Rotate90Clockwise;
   SyncImageMutationUI(False, True);
@@ -9566,7 +9787,7 @@ end;
 procedure TMainForm.RotateCounterClockwiseClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  if not FDocument.BeginDocumentMutation('Rotate 90 Left') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Rotate 90 Left')) then
     Exit;
   FDocument.Rotate90CounterClockwise;
   SyncImageMutationUI(False, True);
@@ -9575,7 +9796,7 @@ end;
 procedure TMainForm.Rotate180Click(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  if not FDocument.BeginDocumentMutation('Rotate 180') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Rotate 180')) then
     Exit;
   FDocument.Rotate180;
   SyncImageMutationUI(False, True);
@@ -9584,7 +9805,7 @@ end;
 procedure TMainForm.FlipHorizontalClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  if not FDocument.BeginDocumentMutation('Flip Horizontal') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Flip Horizontal')) then
     Exit;
   FDocument.FlipHorizontal;
   SyncImageMutationUI(False, True);
@@ -9593,7 +9814,7 @@ end;
 procedure TMainForm.FlipVerticalClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  if not FDocument.BeginDocumentMutation('Flip Vertical') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Flip Vertical')) then
     Exit;
   FDocument.FlipVertical;
   SyncImageMutationUI(False, True);
@@ -9602,9 +9823,9 @@ end;
 procedure TMainForm.AutoLevelClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  BeginStatusProgress('Applying Auto-Level...');
+  BeginStatusProgress(ApplyingActionText('Auto-Level'));
   try
-    if not FDocument.BeginActiveLayerMutation('Auto-Level') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Auto-Level')) then
       Exit;
     FDocument.AutoLevel;
     SyncImageMutationUI;
@@ -9616,9 +9837,9 @@ end;
 procedure TMainForm.InvertColorsClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  BeginStatusProgress('Applying Invert Colors...');
+  BeginStatusProgress(ApplyingActionText('Invert Colors'));
   try
-    if not FDocument.BeginActiveLayerMutation('Invert Colors') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Invert Colors')) then
       Exit;
     FDocument.InvertColors;
     SyncImageMutationUI;
@@ -9630,9 +9851,9 @@ end;
 procedure TMainForm.GrayscaleClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  BeginStatusProgress('Applying Grayscale...');
+  BeginStatusProgress(ApplyingActionText('Grayscale'));
   try
-    if not FDocument.BeginActiveLayerMutation('Grayscale') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Grayscale')) then
       Exit;
     FDocument.Grayscale;
     SyncImageMutationUI;
@@ -9649,9 +9870,9 @@ begin
   GammaValue := 1.0;
   if not RunCurvesDialog(Self, GammaValue) then
     Exit;
-  BeginStatusProgress('Applying Curves...');
+  BeginStatusProgress(ApplyingActionText('Curves'));
   try
-    if not FDocument.BeginActiveLayerMutation('Curves') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Curves')) then
       Exit;
     FDocument.AdjustGammaCurve(GammaValue);
     SyncImageMutationUI;
@@ -9670,9 +9891,9 @@ begin
   SaturationDelta := 0;
   if not RunHueSaturationDialog(Self, HueDelta, SaturationDelta) then
     Exit;
-  BeginStatusProgress('Applying Hue / Saturation...');
+  BeginStatusProgress(ApplyingActionText('Hue / Saturation'));
   try
-    if not FDocument.BeginActiveLayerMutation('Hue / Saturation') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Hue / Saturation')) then
       Exit;
     FDocument.AdjustHueSaturation(HueDelta, SaturationDelta);
     SyncImageMutationUI;
@@ -9695,9 +9916,9 @@ begin
   OutputHigh := 255;
   if not RunLevelsDialog(Self, InputLow, InputHigh, OutputLow, OutputHigh) then
     Exit;
-  BeginStatusProgress('Applying Levels...');
+  BeginStatusProgress(ApplyingActionText('Levels'));
   try
-    if not FDocument.BeginActiveLayerMutation('Levels') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Levels')) then
       Exit;
     FDocument.AdjustLevels(
       InputLow,
@@ -9721,9 +9942,9 @@ begin
   Contrast := 0;
   if not RunBrightnessContrastDialog(Self, Brightness, Contrast) then
     Exit;
-  BeginStatusProgress('Applying Brightness / Contrast...');
+  BeginStatusProgress(ApplyingActionText('Brightness / Contrast'));
   try
-    if not FDocument.BeginActiveLayerMutation('Brightness / Contrast') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Brightness / Contrast')) then
       Exit;
     FDocument.AdjustBrightness(Brightness);
     FDocument.AdjustContrast(Contrast);
@@ -9736,9 +9957,9 @@ end;
 procedure TMainForm.SepiaClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  BeginStatusProgress('Applying Sepia...');
+  BeginStatusProgress(ApplyingActionText('Sepia'));
   try
-    if not FDocument.BeginActiveLayerMutation('Sepia') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Sepia')) then
       Exit;
     FDocument.Sepia;
     SyncImageMutationUI;
@@ -9753,11 +9974,14 @@ var
 begin
   SealPendingStrokeHistory;
   Val := 127;
-  if not RunEffectDialog1(Self, 'Black and White', 'Threshold', 0, 255, 127, Val) then
+  if not RunEffectDialog1(Self,
+    TR('Black and White', #$E9#$BB#$91#$E7#$99#$BD),
+    TR('Threshold', #$E9#$98#$88#$E5#$80#$BC),
+    0, 255, 127, Val) then
     Exit;
-  BeginStatusProgress('Applying Black and White...');
+  BeginStatusProgress(ApplyingActionText('Black and White'));
   try
-    if not FDocument.BeginActiveLayerMutation('Black and White') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Black and White')) then
       Exit;
     FDocument.BlackAndWhite(Val);
     SyncImageMutationUI;
@@ -9774,9 +9998,9 @@ begin
   Levels := 6;
   if not RunPosterizeDialog(Self, Levels) then
     Exit;
-  BeginStatusProgress('Applying Posterize...');
+  BeginStatusProgress(ApplyingActionText('Posterize'));
   try
-    if not FDocument.BeginActiveLayerMutation('Posterize') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Posterize')) then
       Exit;
     FDocument.Posterize(Levels);
     SyncImageMutationUI;
@@ -9794,20 +10018,20 @@ begin
   Radius := 2;
   if not RunBlurDialog(Self, Radius) then
     Exit;
-  BeginStatusProgress('Applying Blur...');
+  BeginStatusProgress(ApplyingActionText('Blur'));
   try
-    if not FDocument.BeginActiveLayerMutation('Blur') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Blur')) then
       Exit;
     FDocument.BoxBlur(Radius);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Blur';
+  FLastEffectCaption := TR('Blur', #$E6#$A8#$A1#$E7#$B3#$8A);
   FLastEffectProc := @BlurClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -9816,20 +10040,20 @@ procedure TMainForm.SharpenClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  BeginStatusProgress('Applying Sharpen...');
+  BeginStatusProgress(ApplyingActionText('Sharpen'));
   try
-    if not FDocument.BeginActiveLayerMutation('Sharpen') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Sharpen')) then
       Exit;
     FDocument.Sharpen;
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Sharpen';
+  FLastEffectCaption := TR('Sharpen', #$E9#$94#$90#$E5#$8C#$96);
   FLastEffectProc := @SharpenClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -9843,20 +10067,20 @@ begin
   Amount := 24;
   if not RunNoiseDialog(Self, Amount) then
     Exit;
-  BeginStatusProgress('Applying Add Noise...');
+  BeginStatusProgress(ApplyingActionText('Add Noise'));
   try
-    if not FDocument.BeginActiveLayerMutation('Add Noise') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Add Noise')) then
       Exit;
     FDocument.AddNoise(Amount);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Add Noise';
+  FLastEffectCaption := TR('Add Noise', #$E6#$B7#$BB#$E5#$8A#$A0#$E5#$99#$AA#$E7#$82#$B9);
   FLastEffectProc := @AddNoiseClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -9865,20 +10089,20 @@ procedure TMainForm.OutlineClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  BeginStatusProgress('Applying Detect Edges...');
+  BeginStatusProgress(ApplyingActionText('Detect Edges'));
   try
-    if not FDocument.BeginActiveLayerMutation('Detect Edges') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Detect Edges')) then
       Exit;
     FDocument.DetectEdges;
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Detect Edges';
+  FLastEffectCaption := TR('Detect Edges', #$E8#$BE#$B9#$E7#$BC#$98#$E6#$A3#$80#$E6#$B5#$8B);
   FLastEffectProc := @OutlineClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -9890,21 +10114,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   ThresholdVal := 10;
-  if not RunEffectDialog1(Self, 'Outline Effect', 'Alpha Threshold', 0, 255, 10, ThresholdVal) then Exit;
-  BeginStatusProgress('Applying Outline Effect...');
+  if not RunEffectDialog1(Self,
+    TR('Outline Effect', #$E8#$BD#$AE#$E5#$BB#$93#$E6#$95#$88#$E6#$9E#$9C),
+    TR('Alpha Threshold', 'Alpha '#$E9#$98#$88#$E5#$80#$BC),
+    0, 255, 10, ThresholdVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Outline Effect'));
   try
-    if not FDocument.BeginActiveLayerMutation('Outline Effect') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Outline Effect')) then
       Exit;
     FDocument.OutlineEffect(FPrimaryColor, ThresholdVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Outline Effect';
+  FLastEffectCaption := TR('Outline Effect', #$E8#$BD#$AE#$E5#$BB#$93#$E6#$95#$88#$E6#$9E#$9C);
   FLastEffectProc := @OutlineEffectClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -9912,7 +10139,7 @@ end;
 procedure TMainForm.DeselectClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Deselect');
+  FDocument.PushHistory(LocalizedAction('Deselect'));
   FDocument.Deselect;
   SyncSelectionOverlayUI(True);
 end;
@@ -9920,7 +10147,7 @@ end;
 procedure TMainForm.SelectAllClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Select All');
+  FDocument.PushHistory(LocalizedAction('Select All'));
   FDocument.SelectAll;
   SyncSelectionOverlayUI(True);
 end;
@@ -9928,7 +10155,7 @@ end;
 procedure TMainForm.InvertSelectionClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
-  FDocument.PushHistory('Invert Selection');
+  FDocument.PushHistory(LocalizedAction('Invert Selection'));
   FDocument.InvertSelection;
   SyncSelectionOverlayUI(True);
 end;
@@ -9938,7 +10165,7 @@ begin
   SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
-  if not FDocument.BeginActiveLayerMutation('Fill Selection') then
+  if not FDocument.BeginActiveLayerMutation(LocalizedAction('Fill Selection')) then
     Exit;
   FDocument.FillSelection(FPrimaryColor);
   SyncImageMutationUI;
@@ -9949,7 +10176,7 @@ begin
   SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
-  if not FDocument.BeginActiveLayerMutation('Erase Selection') then
+  if not FDocument.BeginActiveLayerMutation(LocalizedAction('Erase Selection')) then
     Exit;
   FDocument.EraseSelection(BackgroundToolColor);
   SyncImageMutationUI;
@@ -9960,7 +10187,7 @@ begin
   SealPendingStrokeHistory;
   if not FDocument.HasSelection then
     Exit;
-  if not FDocument.BeginDocumentMutation('Crop to Selection') then
+  if not FDocument.BeginDocumentMutation(LocalizedAction('Crop to Selection')) then
     Exit;
   FDocument.CropToSelection;
   SyncImageMutationUI(True, True);
@@ -10221,6 +10448,7 @@ begin
   end;
 
   { 4. Refresh status bar tool text }
+  UpdateToolOptionControl;
   UpdateStatusForTool;
   UpdateCaption;
 end;
@@ -10401,8 +10629,9 @@ begin
   else
   begin
     Choice := MessageDlg(
-      'Save Changes',
-      Format('You have %d document(s) with unsaved changes. Save before quitting?', [DirtyCount]),
+      TR('Save Changes', '保存更改'),
+      Format(TR('You have %d document(s) with unsaved changes. Save before quitting?',
+                '有 %d 个文档尚未保存。是否在退出前保存？'), [DirtyCount]),
       mtConfirmation,
       [mbYes, mbNo, mbCancel],
       0
@@ -10537,7 +10766,32 @@ begin
     tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
     tkEllipseShape, tkFreeformShape, tkCloneStamp, tkRecolor:
       FBrushSize := Max(1, FBrushSpin.Value);
+    tkText:
+      begin
+        InitializeTextToolDefaults;
+        FTextLastResult.FontSize := EnsureRange(FBrushSpin.Value, 6, 256);
+        if Assigned(FInlineTextEdit) and FInlineTextEdit.Visible then
+        begin
+          UpdateInlineTextEditStyle;
+          UpdateInlineTextEditBounds;
+        end;
+      end;
   end;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.TextFontButtonClick(Sender: TObject);
+begin
+  if FUpdatingToolOption then
+    Exit;
+  if not RunSystemTextFontDialog then
+    Exit;
+  if Assigned(FInlineTextEdit) and FInlineTextEdit.Visible then
+  begin
+    UpdateInlineTextEditStyle;
+    UpdateInlineTextEditBounds;
+  end;
+  UpdateToolOptionControl;
   RefreshCanvas;
 end;
 
@@ -10878,7 +11132,7 @@ begin
     DropIndex := 1;
   if (DropIndex <> FLayerDragIndex) and (DropIndex >= 0) then
   begin
-    FDocument.PushHistory('Reorder Layer');
+    FDocument.PushHistory(LocalizedAction('Reorder Layer'));
     FDocument.MoveLayer(FLayerDragIndex, DropIndex);
     SyncImageMutationUI(True, True);
   end;
@@ -11241,7 +11495,10 @@ begin
   end;
 
   ImagePoint := CanvasToImage(X, Y);
-  FLastPointerPoint := Point(X, Y);
+  if FCurrentTool = tkPan then
+    FLastPointerPoint := PointerViewportPointFromEvent(X, Y)
+  else
+    FLastPointerPoint := Point(X, Y);
   FLastImagePoint := ImagePoint;
   if (FCurrentTool = tkLine) and (Button = mbRight) and (FLineCurvePending or FLinePathOpen) then
   begin
@@ -11289,7 +11546,7 @@ begin
   end;
   FDragStart := ImagePoint;
   if ShouldAutoDeselectFromBlankClick(ImagePoint, Button, Shift) then
-    AutoDeselectSelection('Deselect');
+    AutoDeselectSelection(LocalizedAction('Deselect'));
   { Only override combo-selected mode when modifier keys are held }
   if (ssShift in Shift) or (ssAlt in Shift) then
     FPendingSelectionMode := TSelectionToolController.ModeFromModifiers(
@@ -11356,7 +11613,7 @@ begin
           )
         else
         begin
-          FDocument.PushHistory('Magic Wand');
+          FDocument.PushHistory(LocalizedAction('Magic Wand'));
           FDocument.SelectMagicWand(
             ImagePoint.X,
             ImagePoint.Y,
@@ -11373,8 +11630,7 @@ begin
       begin
         if (Button = mbRight) or (ssAlt in Shift) then
         begin
-          InitializeTextToolDefaults;
-          if RunTextDialog(Self, FTextLastResult) and
+          if RunSystemTextFontDialog and
              Assigned(FInlineTextEdit) and FInlineTextEdit.Visible then
           begin
             UpdateInlineTextEditStyle;
@@ -11505,6 +11761,7 @@ end;
 procedure TMainForm.PaintBoxMouseMove(Sender: TObject; Shift: TShiftState; X, Y: Integer);
 var
   ImagePoint: TPoint;
+  CurrentPointerPoint: TPoint;
   DeltaX: Integer;
   DeltaY: Integer;
   ButtonStillDown: Boolean;
@@ -11532,18 +11789,19 @@ begin
         end;
       tkPan:
         begin
+          CurrentPointerPoint := PointerViewportPointFromEvent(X, Y);
           if Assigned(FCanvasHost) then
           begin
             FIsPanning := True;
             try
               PannedHorizontal := PannedScrollPosition(
                 FCanvasHost.HorzScrollBar.Position,
-                X,
+                CurrentPointerPoint.X,
                 FLastPointerPoint.X
               );
               PannedVertical := PannedScrollPosition(
                 FCanvasHost.VertScrollBar.Position,
-                Y,
+                CurrentPointerPoint.Y,
                 FLastPointerPoint.Y
               );
               PannedHorizontal := ClampViewportScrollPosition(
@@ -11571,7 +11829,7 @@ begin
             );
             RefreshRulers;
           end;
-          FLastPointerPoint := Point(X, Y);
+          FLastPointerPoint := CurrentPointerPoint;
         end;
       tkMoveSelection:
         if Assigned(FSelectionController) and
@@ -11711,7 +11969,7 @@ begin
     { Commit crop if drag was meaningful }
     if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
     begin
-      if FDocument.BeginDocumentMutation('Crop') then
+      if FDocument.BeginDocumentMutation(LocalizedAction('Crop')) then
       begin
         FDocument.Crop(
           Min(FDragStart.X, ImagePoint.X),
@@ -11728,7 +11986,7 @@ begin
   begin
     { Commit mosaic if drag was meaningful }
     if (Abs(ImagePoint.X - FDragStart.X) > 2) and (Abs(ImagePoint.Y - FDragStart.Y) > 2) then
-      if FDocument.BeginActiveLayerMutation('Mosaic') then
+      if FDocument.BeginActiveLayerMutation(LocalizedAction('Mosaic')) then
       begin
       MosaicSelection := nil;
       if FDocument.HasSelection then
@@ -11892,20 +12150,20 @@ procedure TMainForm.EmbossClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  BeginStatusProgress('Applying Emboss...');
+  BeginStatusProgress(ApplyingActionText('Emboss'));
   try
-    if not FDocument.BeginActiveLayerMutation('Emboss') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Emboss')) then
       Exit;
     FDocument.Emboss;
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Emboss';
+  FLastEffectCaption := TR('Emboss', #$E6#$B5#$AE#$E9#$9B#$95);
   FLastEffectProc := @EmbossClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -11914,20 +12172,20 @@ procedure TMainForm.SoftenClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  BeginStatusProgress('Applying Soften...');
+  BeginStatusProgress(ApplyingActionText('Soften'));
   try
-    if not FDocument.BeginActiveLayerMutation('Soften') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Soften')) then
       Exit;
     FDocument.Soften;
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Soften';
+  FLastEffectCaption := TR('Soften', #$E6#$9F#$94#$E5#$8C#$96);
   FLastEffectProc := @SoftenClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -11936,20 +12194,20 @@ procedure TMainForm.RenderCloudsClick(Sender: TObject);
 begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
-  BeginStatusProgress('Applying Render Clouds...');
+  BeginStatusProgress(ApplyingActionText('Render Clouds'));
   try
-    if not FDocument.BeginActiveLayerMutation('Render Clouds') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Render Clouds')) then
       Exit;
     FDocument.RenderClouds(1);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Render Clouds';
+  FLastEffectCaption := TR('Render Clouds', #$E4#$BA#$91#$E5#$BD#$A9);
   FLastEffectProc := @RenderCloudsClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -11961,21 +12219,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   Val := 10;
-  if not RunEffectDialog1(Self, 'Pixelate', 'Block Size', 1, 100, 10, Val) then Exit;
-  BeginStatusProgress('Applying Pixelate...');
+  if not RunEffectDialog1(Self,
+    TR('Pixelate', #$E5#$83#$8F#$E7#$B4#$A0#$E5#$8C#$96),
+    TR('Block Size', #$E5#$9D#$97#$E5#$A4#$A7#$E5#$B0#$8F),
+    1, 100, 10, Val) then Exit;
+  BeginStatusProgress(ApplyingActionText('Pixelate'));
   try
-    if not FDocument.BeginActiveLayerMutation('Pixelate') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Pixelate')) then
       Exit;
     FDocument.Pixelate(Val);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Pixelate';
+  FLastEffectCaption := TR('Pixelate', #$E5#$83#$8F#$E7#$B4#$A0#$E5#$8C#$96);
   FLastEffectProc := @PixelateClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -11988,22 +12249,25 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   Val := 50;
-  if not RunEffectDialog1(Self, 'Vignette', 'Strength', 0, 100, 50, Val) then Exit;
+  if not RunEffectDialog1(Self,
+    TR('Vignette', #$E6#$9A#$97#$E8#$A7#$92),
+    TR('Strength', #$E5#$BC#$BA#$E5#$BA#$A6),
+    0, 100, 50, Val) then Exit;
   Strength := Val / 100.0;
-  BeginStatusProgress('Applying Vignette...');
+  BeginStatusProgress(ApplyingActionText('Vignette'));
   try
-    if not FDocument.BeginActiveLayerMutation('Vignette') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Vignette')) then
       Exit;
     FDocument.Vignette(Strength);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Vignette';
+  FLastEffectCaption := TR('Vignette', #$E6#$9A#$97#$E8#$A7#$92);
   FLastEffectProc := @VignetteClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12016,24 +12280,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   AngleVal := 0;
   DistVal := 10;
-  if not RunEffectDialog2(Self, 'Motion Blur',
-    'Angle (degrees)', 0, 359, 0,
-    'Distance (pixels)', 1, 100, 10,
+  if not RunEffectDialog2(Self, TR('Motion Blur', #$E8#$BF#$90#$E5#$8A#$A8#$E6#$A8#$A1#$E7#$B3#$8A),
+    TR('Angle (degrees)', #$E8#$A7#$92#$E5#$BA#$A6#$EF#$BC#$88#$E5#$BA#$A6#$EF#$BC#$89), 0, 359, 0,
+    TR('Distance (pixels)', #$E8#$B7#$9D#$E7#$A6#$BB#$EF#$BC#$88#$E5#$83#$8F#$E7#$B4#$A0#$EF#$BC#$89), 1, 100, 10,
     AngleVal, DistVal) then Exit;
-  BeginStatusProgress('Applying Motion Blur...');
+  BeginStatusProgress(ApplyingActionText('Motion Blur'));
   try
-    if not FDocument.BeginActiveLayerMutation('Motion Blur') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Motion Blur')) then
       Exit;
     FDocument.MotionBlur(AngleVal, DistVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Motion Blur';
+  FLastEffectCaption := TR('Motion Blur', #$E8#$BF#$90#$E5#$8A#$A8#$E6#$A8#$A1#$E7#$B3#$8A);
   FLastEffectProc := @MotionBlurClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12045,21 +12309,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadiusVal := 1;
-  if not RunEffectDialog1(Self, 'Median Filter (Denoise)', 'Radius', 1, 2, 1, RadiusVal) then Exit;
-  BeginStatusProgress('Applying Median Filter...');
+  if not RunEffectDialog1(Self,
+    TR('Median Filter (Denoise)', #$E4#$B8#$AD#$E5#$80#$BC#$E6#$BB#$A4#$E6#$B3#$A2#$EF#$BC#$88#$E9#$99#$8D#$E5#$99#$AA#$EF#$BC#$89),
+    TR('Radius', #$E5#$8D#$8A#$E5#$BE#$84),
+    1, 2, 1, RadiusVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Median Filter'));
   try
-    if not FDocument.BeginActiveLayerMutation('Median Filter') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Median Filter')) then
       Exit;
     FDocument.MedianFilter(RadiusVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Median Filter';
+  FLastEffectCaption := TR('Median Filter', #$E4#$B8#$AD#$E5#$80#$BC#$E6#$BB#$A4#$E6#$B3#$A2);
   FLastEffectProc := @MedianFilterClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12072,24 +12339,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   RadVal := 3;
   IntVal := 80;
-  if not RunEffectDialog2(Self, 'Glow Effect',
-    'Radius', 1, 10, 3,
-    'Intensity', 0, 200, 80,
+  if not RunEffectDialog2(Self, TR('Glow Effect', #$E5#$8F#$91#$E5#$85#$89#$E6#$95#$88#$E6#$9E#$9C),
+    TR('Radius', #$E5#$8D#$8A#$E5#$BE#$84), 1, 10, 3,
+    TR('Intensity', #$E5#$BC#$BA#$E5#$BA#$A6), 0, 200, 80,
     RadVal, IntVal) then Exit;
-  BeginStatusProgress('Applying Glow Effect...');
+  BeginStatusProgress(ApplyingActionText('Glow Effect'));
   try
-    if not FDocument.BeginActiveLayerMutation('Glow Effect') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Glow Effect')) then
       Exit;
     FDocument.GlowEffect(RadVal, IntVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Glow Effect';
+  FLastEffectCaption := TR('Glow Effect', #$E5#$8F#$91#$E5#$85#$89#$E6#$95#$88#$E6#$9E#$9C);
   FLastEffectProc := @GlowClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12101,21 +12368,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadVal := 4;
-  if not RunEffectDialog1(Self, 'Oil Paint', 'Brush Radius', 1, 8, 4, RadVal) then Exit;
-  BeginStatusProgress('Applying Oil Paint...');
+  if not RunEffectDialog1(Self,
+    TR('Oil Paint', #$E6#$B2#$B9#$E7#$94#$BB),
+    TR('Brush Radius', #$E7#$AC#$94#$E5#$88#$B7#$E5#$8D#$8A#$E5#$BE#$84),
+    1, 8, 4, RadVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Oil Paint'));
   try
-    if not FDocument.BeginActiveLayerMutation('Oil Paint') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Oil Paint')) then
       Exit;
     FDocument.OilPaint(RadVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Oil Paint';
+  FLastEffectCaption := TR('Oil Paint', #$E6#$B2#$B9#$E7#$94#$BB);
   FLastEffectProc := @OilPaintClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12127,21 +12397,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtVal := 4;
-  if not RunEffectDialog1(Self, 'Frosted Glass', 'Amount', 1, 20, 4, AmtVal) then Exit;
-  BeginStatusProgress('Applying Frosted Glass...');
+  if not RunEffectDialog1(Self,
+    TR('Frosted Glass', #$E7#$A3#$A8#$E7#$A0#$82#$E7#$8E#$BB#$E7#$92#$83),
+    TR('Amount', #$E6#$95#$B0#$E9#$87#$8F),
+    1, 20, 4, AmtVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Frosted Glass'));
   try
-    if not FDocument.BeginActiveLayerMutation('Frosted Glass') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Frosted Glass')) then
       Exit;
     FDocument.FrostedGlass(AmtVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Frosted Glass';
+  FLastEffectCaption := TR('Frosted Glass', #$E7#$A3#$A8#$E7#$A0#$82#$E7#$8E#$BB#$E7#$92#$83);
   FLastEffectProc := @FrostedGlassClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12153,21 +12426,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtVal := 8;
-  if not RunEffectDialog1(Self, 'Zoom Blur', 'Amount', 1, 30, 8, AmtVal) then Exit;
-  BeginStatusProgress('Applying Zoom Blur...');
+  if not RunEffectDialog1(Self,
+    TR('Zoom Blur', #$E7#$BC#$A9#$E6#$94#$BE#$E6#$A8#$A1#$E7#$B3#$8A),
+    TR('Amount', #$E6#$95#$B0#$E9#$87#$8F),
+    1, 30, 8, AmtVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Zoom Blur'));
   try
-    if not FDocument.BeginActiveLayerMutation('Zoom Blur') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Zoom Blur')) then
       Exit;
     FDocument.ZoomBlur(FDocument.Width div 2, FDocument.Height div 2, AmtVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Zoom Blur';
+  FLastEffectCaption := TR('Zoom Blur', #$E7#$BC#$A9#$E6#$94#$BE#$E6#$A8#$A1#$E7#$B3#$8A);
   FLastEffectProc := @ZoomBlurClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12179,21 +12455,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadVal := 3;
-  if not RunEffectDialog1(Self, 'Gaussian Blur', 'Radius', 1, 30, 3, RadVal) then Exit;
-  BeginStatusProgress('Applying Gaussian Blur...');
+  if not RunEffectDialog1(Self,
+    TR('Gaussian Blur', #$E9#$AB#$98#$E6#$96#$AF#$E6#$A8#$A1#$E7#$B3#$8A),
+    TR('Radius', #$E5#$8D#$8A#$E5#$BE#$84),
+    1, 30, 3, RadVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Gaussian Blur'));
   try
-    if not FDocument.BeginActiveLayerMutation('Gaussian Blur') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Gaussian Blur')) then
       Exit;
     FDocument.GaussianBlur(RadVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Gaussian Blur';
+  FLastEffectCaption := TR('Gaussian Blur', #$E9#$AB#$98#$E6#$96#$AF#$E6#$A8#$A1#$E7#$B3#$8A);
   FLastEffectProc := @GaussianBlurClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12205,21 +12484,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   RadiusValue := 4;
-  if not RunEffectDialog1(Self, 'Unfocus', 'Radius', 1, 24, 4, RadiusValue) then Exit;
-  BeginStatusProgress('Applying Unfocus...');
+  if not RunEffectDialog1(Self,
+    TR('Unfocus', #$E5#$A4#$B1#$E7#$84#$A6),
+    TR('Radius', #$E5#$8D#$8A#$E5#$BE#$84),
+    1, 24, 4, RadiusValue) then Exit;
+  BeginStatusProgress(ApplyingActionText('Unfocus'));
   try
-    if not FDocument.BeginActiveLayerMutation('Unfocus') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Unfocus')) then
       Exit;
     FDocument.Unfocus(RadiusValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Unfocus';
+  FLastEffectCaption := TR('Unfocus', #$E5#$A4#$B1#$E7#$84#$A6);
   FLastEffectProc := @UnfocusClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12233,24 +12515,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   RadiusValue := 3;
   ThresholdValue := 24;
-  if not RunEffectDialog2(Self, 'Surface Blur',
-    'Radius', 1, 24, 3,
-    'Edge Threshold', 0, 255, 24,
+  if not RunEffectDialog2(Self, TR('Surface Blur', #$E8#$A1#$A8#$E9#$9D#$A2#$E6#$A8#$A1#$E7#$B3#$8A),
+    TR('Radius', #$E5#$8D#$8A#$E5#$BE#$84), 1, 24, 3,
+    TR('Edge Threshold', #$E8#$BE#$B9#$E7#$BC#$98#$E9#$98#$88#$E5#$80#$BC), 0, 255, 24,
     RadiusValue, ThresholdValue) then Exit;
-  BeginStatusProgress('Applying Surface Blur...');
+  BeginStatusProgress(ApplyingActionText('Surface Blur'));
   try
-    if not FDocument.BeginActiveLayerMutation('Surface Blur') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Surface Blur')) then
       Exit;
     FDocument.SurfaceBlur(RadiusValue, ThresholdValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Surface Blur';
+  FLastEffectCaption := TR('Surface Blur', #$E8#$A1#$A8#$E9#$9D#$A2#$E6#$A8#$A1#$E7#$B3#$8A);
   FLastEffectProc := @SurfaceBlurClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12262,21 +12544,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtVal := 15;
-  if not RunEffectDialog1(Self, 'Radial Blur', 'Sweep Angle (degrees)', 1, 60, 15, AmtVal) then Exit;
-  BeginStatusProgress('Applying Radial Blur...');
+  if not RunEffectDialog1(Self,
+    TR('Radial Blur', #$E5#$BE#$84#$E5#$90#$91#$E6#$A8#$A1#$E7#$B3#$8A),
+    TR('Sweep Angle (degrees)', #$E6#$89#$AB#$E6#$8E#$A0#$E8#$A7#$92#$E5#$BA#$A6#$EF#$BC#$88#$E5#$BA#$A6#$EF#$BC#$89),
+    1, 60, 15, AmtVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Radial Blur'));
   try
-    if not FDocument.BeginActiveLayerMutation('Radial Blur') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Radial Blur')) then
       Exit;
     FDocument.RadialBlur(AmtVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Radial Blur';
+  FLastEffectCaption := TR('Radial Blur', #$E5#$BE#$84#$E5#$90#$91#$E6#$A8#$A1#$E7#$B3#$8A);
   FLastEffectProc := @RadialBlurClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12288,21 +12573,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmtVal := 90;
-  if not RunEffectDialog1(Self, 'Twist', 'Angle (degrees)', -360, 360, 90, AmtVal) then Exit;
-  BeginStatusProgress('Applying Twist...');
+  if not RunEffectDialog1(Self,
+    TR('Twist', #$E6#$89#$AD#$E6#$9B#$B2),
+    TR('Angle (degrees)', #$E8#$A7#$92#$E5#$BA#$A6#$EF#$BC#$88#$E5#$BA#$A6#$EF#$BC#$89),
+    -360, 360, 90, AmtVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Twist'));
   try
-    if not FDocument.BeginActiveLayerMutation('Twist') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Twist')) then
       Exit;
     FDocument.Twist(AmtVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Twist';
+  FLastEffectCaption := TR('Twist', #$E6#$89#$AD#$E6#$9B#$B2);
   FLastEffectProc := @TwistClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12314,21 +12602,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   OffVal := 8;
-  if not RunEffectDialog1(Self, 'Fragment', 'Offset (pixels)', 1, 40, 8, OffVal) then Exit;
-  BeginStatusProgress('Applying Fragment...');
+  if not RunEffectDialog1(Self,
+    TR('Fragment', #$E7#$A2#$8E#$E7#$89#$87),
+    TR('Offset (pixels)', #$E5#$81#$8F#$E7#$A7#$BB#$EF#$BC#$88#$E5#$83#$8F#$E7#$B4#$A0#$EF#$BC#$89),
+    1, 40, 8, OffVal) then Exit;
+  BeginStatusProgress(ApplyingActionText('Fragment'));
   try
-    if not FDocument.BeginActiveLayerMutation('Fragment') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Fragment')) then
       Exit;
     FDocument.Fragment(OffVal);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Fragment';
+  FLastEffectCaption := TR('Fragment', #$E7#$A2#$8E#$E7#$89#$87);
   FLastEffectProc := @FragmentClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12340,21 +12631,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmountValue := 50;
-  if not RunEffectDialog1(Self, 'Bulge', 'Strength', 1, 100, 50, AmountValue) then Exit;
-  BeginStatusProgress('Applying Bulge...');
+  if not RunEffectDialog1(Self,
+    TR('Bulge', #$E8#$86#$A8#$E8#$83#$80),
+    TR('Strength', #$E5#$BC#$BA#$E5#$BA#$A6),
+    1, 100, 50, AmountValue) then Exit;
+  BeginStatusProgress(ApplyingActionText('Bulge'));
   try
-    if not FDocument.BeginActiveLayerMutation('Bulge') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Bulge')) then
       Exit;
     FDocument.Bulge(AmountValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Bulge';
+  FLastEffectCaption := TR('Bulge', #$E8#$86#$A8#$E8#$83#$80);
   FLastEffectProc := @BulgeClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12366,21 +12660,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AmountValue := 50;
-  if not RunEffectDialog1(Self, 'Dents', 'Strength', 1, 100, 50, AmountValue) then Exit;
-  BeginStatusProgress('Applying Dents...');
+  if not RunEffectDialog1(Self,
+    TR('Dents', #$E5#$87#$B9#$E9#$99#$B7),
+    TR('Strength', #$E5#$BC#$BA#$E5#$BA#$A6),
+    1, 100, 50, AmountValue) then Exit;
+  BeginStatusProgress(ApplyingActionText('Dents'));
   try
-    if not FDocument.BeginActiveLayerMutation('Dents') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Dents')) then
       Exit;
     FDocument.Dents(AmountValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Dents';
+  FLastEffectCaption := TR('Dents', #$E5#$87#$B9#$E9#$99#$B7);
   FLastEffectProc := @DentsClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12392,21 +12689,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   AngleValue := 45;
-  if not RunEffectDialog1(Self, 'Relief', 'Light Angle (degrees)', 0, 359, 45, AngleValue) then Exit;
-  BeginStatusProgress('Applying Relief...');
+  if not RunEffectDialog1(Self,
+    TR('Relief', #$E6#$B5#$AE#$E9#$9B#$95#$E6#$95#$88#$E6#$9E#$9C),
+    TR('Light Angle (degrees)', #$E5#$85#$89#$E7#$85#$A7#$E8#$A7#$92#$E5#$BA#$A6#$EF#$BC#$88#$E5#$BA#$A6#$EF#$BC#$89),
+    0, 359, 45, AngleValue) then Exit;
+  BeginStatusProgress(ApplyingActionText('Relief'));
   try
-    if not FDocument.BeginActiveLayerMutation('Relief') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Relief')) then
       Exit;
     FDocument.Relief(AngleValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Relief';
+  FLastEffectCaption := TR('Relief', #$E6#$B5#$AE#$E9#$9B#$95#$E6#$95#$88#$E6#$9E#$9C);
   FLastEffectProc := @ReliefClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12420,24 +12720,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   ThresholdValue := 48;
   StrengthValue := 100;
-  if not RunEffectDialog2(Self, 'Red Eye',
-    'Red Threshold', 0, 255, 48,
-    'Reduction Strength', 0, 100, 100,
+  if not RunEffectDialog2(Self, TR('Red Eye', #$E7#$BA#$A2#$E7#$9C#$BC),
+    TR('Red Threshold', #$E7#$BA#$A2#$E8#$89#$B2#$E9#$98#$88#$E5#$80#$BC), 0, 255, 48,
+    TR('Reduction Strength', #$E4#$BF#$AE#$E6#$AD#$A3#$E5#$BC#$BA#$E5#$BA#$A6), 0, 100, 100,
     ThresholdValue, StrengthValue) then Exit;
-  BeginStatusProgress('Applying Red Eye...');
+  BeginStatusProgress(ApplyingActionText('Red Eye'));
   try
-    if not FDocument.BeginActiveLayerMutation('Red Eye') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Red Eye')) then
       Exit;
     FDocument.RedEye(ThresholdValue, StrengthValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Red Eye';
+  FLastEffectCaption := TR('Red Eye', #$E7#$BA#$A2#$E7#$9C#$BC);
   FLastEffectProc := @RedEyeClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12449,21 +12749,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   TileValue := 32;
-  if not RunEffectDialog1(Self, 'Tile Reflection', 'Tile Size (pixels)', 2, 256, 32, TileValue) then Exit;
-  BeginStatusProgress('Applying Tile Reflection...');
+  if not RunEffectDialog1(Self,
+    TR('Tile Reflection', #$E7#$93#$B7#$E7#$A0#$96#$E5#$8F#$8D#$E5#$B0#$84),
+    TR('Tile Size (pixels)', #$E7#$93#$B7#$E7#$A0#$96#$E5#$A4#$A7#$E5#$B0#$8F#$EF#$BC#$88#$E5#$83#$8F#$E7#$B4#$A0#$EF#$BC#$89),
+    2, 256, 32, TileValue) then Exit;
+  BeginStatusProgress(ApplyingActionText('Tile Reflection'));
   try
-    if not FDocument.BeginActiveLayerMutation('Tile Reflection') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Tile Reflection')) then
       Exit;
     FDocument.TileReflection(TileValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Tile Reflection';
+  FLastEffectCaption := TR('Tile Reflection', #$E7#$93#$B7#$E7#$A0#$96#$E5#$8F#$8D#$E5#$B0#$84);
   FLastEffectProc := @TileReflectionClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12475,21 +12778,24 @@ begin
   SealPendingStrokeHistory;
   if FDocument.LayerCount = 0 then Exit;
   CellValue := 24;
-  if not RunEffectDialog1(Self, 'Crystallize', 'Cell Size (pixels)', 2, 128, 24, CellValue) then Exit;
-  BeginStatusProgress('Applying Crystallize...');
+  if not RunEffectDialog1(Self,
+    TR('Crystallize', #$E6#$99#$B6#$E6#$A0#$BC#$E5#$8C#$96),
+    TR('Cell Size (pixels)', #$E6#$99#$B6#$E6#$A0#$BC#$E5#$A4#$A7#$E5#$B0#$8F#$EF#$BC#$88#$E5#$83#$8F#$E7#$B4#$A0#$EF#$BC#$89),
+    2, 128, 24, CellValue) then Exit;
+  BeginStatusProgress(ApplyingActionText('Crystallize'));
   try
-    if not FDocument.BeginActiveLayerMutation('Crystallize') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Crystallize')) then
       Exit;
     FDocument.Crystallize(CellValue, 1);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Crystallize';
+  FLastEffectCaption := TR('Crystallize', #$E6#$99#$B6#$E6#$A0#$BC#$E5#$8C#$96);
   FLastEffectProc := @CrystallizeClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12503,24 +12809,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   InkValue := 100;
   ColorValue := 45;
-  if not RunEffectDialog2(Self, 'Ink Sketch',
-    'Ink Strength', 0, 200, 100,
-    'Color Retention', 0, 100, 45,
+  if not RunEffectDialog2(Self, TR('Ink Sketch', #$E5#$A2#$A8#$E6#$B0#$B4#$E7#$B4#$A0#$E6#$8F#$8F),
+    TR('Ink Strength', #$E5#$A2#$A8#$E7#$BA#$BF#$E5#$BC#$BA#$E5#$BA#$A6), 0, 200, 100,
+    TR('Color Retention', #$E9#$A2#$9C#$E8#$89#$B2#$E4#$BF#$9D#$E7#$95#$99), 0, 100, 45,
     InkValue, ColorValue) then Exit;
-  BeginStatusProgress('Applying Ink Sketch...');
+  BeginStatusProgress(ApplyingActionText('Ink Sketch'));
   try
-    if not FDocument.BeginActiveLayerMutation('Ink Sketch') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Ink Sketch')) then
       Exit;
     FDocument.InkSketch(InkValue, ColorValue);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Ink Sketch';
+  FLastEffectCaption := TR('Ink Sketch', #$E5#$A2#$A8#$E6#$B0#$B4#$E7#$B4#$A0#$E6#$8F#$8F);
   FLastEffectProc := @InkSketchClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12534,24 +12840,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   IterationValue := 64;
   ZoomValue := 100;
-  if not RunEffectDialog2(Self, 'Mandelbrot Fractal',
-    'Iterations', 8, 512, 64,
-    'Zoom Percent', 25, 400, 100,
+  if not RunEffectDialog2(Self, TR('Mandelbrot Fractal', 'Mandelbrot '#$E5#$88#$86#$E5#$BD#$A2),
+    TR('Iterations', #$E8#$BF#$AD#$E4#$BB#$A3#$E6#$AC#$A1#$E6#$95#$B0), 8, 512, 64,
+    TR('Zoom Percent', #$E7#$BC#$A9#$E6#$94#$BE#$E7#$99#$BE#$E5#$88#$86#$E6#$AF#$94), 25, 400, 100,
     IterationValue, ZoomValue) then Exit;
-  BeginStatusProgress('Applying Mandelbrot Fractal...');
+  BeginStatusProgress(ApplyingActionText('Mandelbrot Fractal'));
   try
-    if not FDocument.BeginActiveLayerMutation('Mandelbrot Fractal') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Mandelbrot Fractal')) then
       Exit;
     FDocument.RenderMandelbrot(IterationValue, ZoomValue / 100.0);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Mandelbrot Fractal';
+  FLastEffectCaption := TR('Mandelbrot Fractal', 'Mandelbrot '#$E5#$88#$86#$E5#$BD#$A2);
   FLastEffectProc := @MandelbrotClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12565,24 +12871,24 @@ begin
   if FDocument.LayerCount = 0 then Exit;
   IterationValue := 64;
   ZoomValue := 100;
-  if not RunEffectDialog2(Self, 'Julia Fractal',
-    'Iterations', 8, 512, 64,
-    'Zoom Percent', 25, 400, 100,
+  if not RunEffectDialog2(Self, TR('Julia Fractal', 'Julia '#$E5#$88#$86#$E5#$BD#$A2),
+    TR('Iterations', #$E8#$BF#$AD#$E4#$BB#$A3#$E6#$AC#$A1#$E6#$95#$B0), 8, 512, 64,
+    TR('Zoom Percent', #$E7#$BC#$A9#$E6#$94#$BE#$E7#$99#$BE#$E5#$88#$86#$E6#$AF#$94), 25, 400, 100,
     IterationValue, ZoomValue) then Exit;
-  BeginStatusProgress('Applying Julia Fractal...');
+  BeginStatusProgress(ApplyingActionText('Julia Fractal'));
   try
-    if not FDocument.BeginActiveLayerMutation('Julia Fractal') then
+    if not FDocument.BeginActiveLayerMutation(LocalizedAction('Julia Fractal')) then
       Exit;
     FDocument.RenderJulia(IterationValue, ZoomValue / 100.0);
     SyncImageMutationUI;
   finally
     EndStatusProgress;
   end;
-  FLastEffectCaption := 'Julia Fractal';
+  FLastEffectCaption := TR('Julia Fractal', 'Julia '#$E5#$88#$86#$E5#$BD#$A2);
   FLastEffectProc := @JuliaClick;
   if Assigned(FRepeatLastEffectItem) then
   begin
-    FRepeatLastEffectItem.Caption := 'Repeat: ' + FLastEffectCaption;
+    FRepeatLastEffectItem.Caption := TR('Repeat: ', '重复：') + FLastEffectCaption;
     FRepeatLastEffectItem.Enabled := True;
   end;
 end;
@@ -12609,7 +12915,7 @@ begin
   DialogResult.BlendMode := Layer.BlendMode;
   if not RunLayerPropertiesDialog(Self, DialogResult) then
     Exit;
-  FDocument.PushHistory('Layer Properties');
+  FDocument.PushHistory(LocalizedAction('Layer Properties'));
   Layer.Name := DialogResult.Name;
   Layer.Visible := DialogResult.Visible;
   Layer.Opacity := DialogResult.Opacity;
@@ -12643,7 +12949,7 @@ begin
   NewMode := TBlendMode(FLayerBlendCombo.ItemIndex);
   if FDocument.ActiveLayer.BlendMode = NewMode then
     Exit;
-  FDocument.PushHistory('Layer Blend Mode');
+  FDocument.PushHistory(LocalizedAction('Layer Blend Mode'));
   FDocument.ActiveLayer.BlendMode := NewMode;
   SyncImageMutationUI;
 end;
@@ -12660,8 +12966,7 @@ begin
     Exit;
   if (Button <> mbRight) and not (ssAlt in Shift) then
     Exit;
-  InitializeTextToolDefaults;
-  if RunTextDialog(Self, FTextLastResult) then
+  if RunSystemTextFontDialog then
   begin
     UpdateInlineTextEditStyle;
     UpdateInlineTextEditBounds;
@@ -12705,9 +13010,9 @@ var
   N: string;
 begin
   if (AIndex < 0) or (AIndex >= Length(FTabFileNames)) then
-    Exit('Untitled');
+    Exit(TR('Untitled', '未命名'));
   if FTabFileNames[AIndex] = '' then
-    N := 'Untitled'
+    N := TR('Untitled', '未命名')
   else
     N := ExtractFileName(FTabFileNames[AIndex]);
   if Length(N) > 14 then
@@ -13170,7 +13475,7 @@ begin
       CloseBtn.Font.Size := 9;
       CloseBtn.Font.Color := ChromeTextColor;
       CloseBtn.OnClick := @TabCloseButtonClick;
-      CloseBtn.Hint := 'Close document';
+      CloseBtn.Hint := TR('Close document', '关闭文档');
       CloseBtn.ShowHint := True;
 
       CardLeftPos := CardLeftPos + TabCardWidth + TabCardSpacing;
@@ -13188,7 +13493,7 @@ begin
     AddBtn.ParentFont := False;
     AddBtn.Font.Size := 13;
     AddBtn.Font.Color := ChromeTextColor;
-    AddBtn.Hint := 'New document';
+    AddBtn.Hint := TR('New document', '新建文档');
     AddBtn.ShowHint := True;
     AddBtn.OnClick := @NewDocumentClick;
 
@@ -13361,7 +13666,9 @@ begin
       if FTabDocuments[I] = TargetDoc then Continue;
       if FTabDirtyFlags[I] then
       begin
-        if MessageDlg('Close Document', Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(I)]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Continue;
+        if MessageDlg(TR('Close Document', '关闭文档'),
+          Format(TR('Discard unsaved changes to "%s"?', '放弃对“%s”的未保存更改？'), [TabDocumentDisplayName(I)]),
+          mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Continue;
       end;
       CloseDocumentTab(I);
     end;
@@ -13385,7 +13692,9 @@ begin
     begin
       if FTabDirtyFlags[I] then
       begin
-        if MessageDlg('Close Document', Format('Discard unsaved changes to "%s"?', [TabDocumentDisplayName(I)]), mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Continue;
+        if MessageDlg(TR('Close Document', '关闭文档'),
+          Format(TR('Discard unsaved changes to "%s"?', '放弃对“%s”的未保存更改？'), [TabDocumentDisplayName(I)]),
+          mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Continue;
       end;
       CloseDocumentTab(I);
     end;
@@ -13430,7 +13739,7 @@ begin
     RefreshCanvas;
   except
     on E: Exception do
-      MessageDlg('Open', 'Open failed: ' + E.Message, mtError, [mbOK], 0);
+      MessageDlg(TR('Open', '打开'), TR('Open failed: ', '打开失败：') + E.Message, mtError, [mbOK], 0);
   end;
 end;
 
@@ -13800,7 +14109,7 @@ begin
   );
   if Choice = mrCancel then
     Exit;
-  if not FDocument.BeginActiveLayerMutation('Rotate Layer') then
+  if not FDocument.BeginActiveLayerMutation(LocalizedAction('Rotate Layer')) then
     Exit;
   case Choice of
     mrYes:

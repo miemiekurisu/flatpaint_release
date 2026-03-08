@@ -5,7 +5,8 @@ unit fpio_tests;
 interface
 
 uses
-  Classes, SysUtils, fpcunit, testregistry, FPColor, FPSurface, FPDocument, FPIO, FPKRAIO, FPPDNIO, Zipper;
+  Classes, SysUtils, fpcunit, testregistry, FPImage, FPReadJPEG,
+  FPColor, FPSurface, FPDocument, FPIO, FPKRAIO, FPPDNIO, Zipper;
 
 type
   TFPIOTests = class(TTestCase)
@@ -23,6 +24,9 @@ type
     );
   published
     procedure DefaultSaveOptionsExposeRealFormatControls;
+    procedure JpegStreamSaveSupportsExtensionNormalizationAndGrayscaleOutput;
+    procedure BmpSaveHonorsTrueColorBitsPerPixelAndDisablesRLE;
+    procedure PnmSaveHonorsBinaryAndColorDepthOptions;
     procedure LoaderCanSniffPngWithUnknownExtension;
     procedure PngRoundTripPreservesAlphaByDefault;
     procedure TargaRoundTripPreservesPixels;
@@ -45,8 +49,180 @@ begin
   Opts := DefaultSaveSurfaceOptions;
   AssertEquals('jpeg quality default', 90, Opts.JpegQuality);
   AssertFalse('jpeg progressive default', Opts.JpegProgressive);
+  AssertFalse('jpeg grayscale default', Opts.JpegGrayscale);
   AssertEquals('png compression default', 6, Opts.PngCompressionLevel);
   AssertTrue('png alpha enabled by default', Opts.PngUseAlpha);
+  AssertFalse('png grayscale default', Opts.PngGrayscale);
+  AssertFalse('png indexed default', Opts.PngIndexed);
+  AssertFalse('png 16-bit default', Opts.PngWordSized);
+  AssertTrue('png compressed-text default', Opts.PngCompressedText);
+  AssertEquals('bmp bits default', 24, Opts.BmpBitsPerPixel);
+  AssertFalse('bmp rle default', Opts.BmpRLECompress);
+  AssertTrue('bmp x ppm default positive', Opts.BmpXPelsPerMeter > 0);
+  AssertTrue('bmp y ppm default positive', Opts.BmpYPelsPerMeter > 0);
+  AssertTrue('tiff cmyk->rgb default', Opts.TiffSaveCMYKAsRGB);
+  AssertTrue('pcx compressed default', Opts.PcxCompressed);
+  AssertTrue('pnm binary default', Opts.PnmBinaryFormat);
+  AssertEquals('pnm color depth default', 0, Opts.PnmColorDepthMode);
+  AssertFalse('pnm fullwidth default', Opts.PnmFullWidth);
+  AssertEquals('xpm chars-per-pixel default', 1, Opts.XpmColorCharSize);
+  AssertEquals('xpm palette chars default', '', Opts.XpmPalChars);
+end;
+
+procedure TFPIOTests.JpegStreamSaveSupportsExtensionNormalizationAndGrayscaleOutput;
+var
+  SourceSurface: TRasterSurface;
+  Stream: TMemoryStream;
+  Opts: TSaveSurfaceOptions;
+  Image: TFPMemoryImage;
+  Reader: TFPReaderJPEG;
+  Marker: array[0..1] of Byte;
+  Pixel: TFPColor;
+  RedChannel: Integer;
+  GreenChannel: Integer;
+  BlueChannel: Integer;
+begin
+  SourceSurface := TRasterSurface.Create(2, 1);
+  Stream := TMemoryStream.Create;
+  Image := TFPMemoryImage.Create(0, 0);
+  Reader := TFPReaderJPEG.Create;
+  try
+    { Seed the stream to verify SaveSurfaceToStreamWithOpts resets/truncates it. }
+    Marker[0] := $AA;
+    Marker[1] := $55;
+    Stream.WriteBuffer(Marker, SizeOf(Marker));
+
+    SourceSurface[0, 0] := RGBA(255, 64, 0, 255);
+    SourceSurface[1, 0] := RGBA(0, 255, 128, 255);
+    Opts := DefaultSaveSurfaceOptions;
+    Opts.JpegQuality := 100;
+    Opts.JpegGrayscale := True;
+    SaveSurfaceToStreamWithOpts(Stream, 'jpg', SourceSurface, Opts);
+
+    AssertTrue('jpeg stream should contain payload', Stream.Size > 2);
+    Stream.Position := 0;
+    Stream.ReadBuffer(Marker, SizeOf(Marker));
+    AssertEquals('jpeg SOI marker byte 0', $FF, Marker[0]);
+    AssertEquals('jpeg SOI marker byte 1', $D8, Marker[1]);
+
+    Stream.Position := 0;
+    Image.LoadFromStream(Stream, Reader);
+    Pixel := Image.Colors[0, 0];
+    RedChannel := Pixel.Red shr 8;
+    GreenChannel := Pixel.Green shr 8;
+    BlueChannel := Pixel.Blue shr 8;
+    AssertTrue('grayscale output keeps RGB channels near-equal', Abs(RedChannel - GreenChannel) <= 3);
+    AssertTrue('grayscale output keeps RGB channels near-equal', Abs(GreenChannel - BlueChannel) <= 3);
+  finally
+    Reader.Free;
+    Image.Free;
+    Stream.Free;
+    SourceSurface.Free;
+  end;
+end;
+
+procedure TFPIOTests.BmpSaveHonorsTrueColorBitsPerPixelAndDisablesRLE;
+var
+  Surface: TRasterSurface;
+  Stream: TMemoryStream;
+  Opts: TSaveSurfaceOptions;
+  BitsPerPixel: Integer;
+  CompressionCode: Integer;
+  Header: array[0..33] of Byte;
+begin
+  Surface := TRasterSurface.Create(16, 1);
+  Stream := TMemoryStream.Create;
+  try
+    Surface.Clear(RGBA(80, 120, 160, 255));
+    Opts := DefaultSaveSurfaceOptions;
+
+    { Paletted + RLE request is clamped to stable true-color output. }
+    Opts.BmpBitsPerPixel := 8;
+    Opts.BmpRLECompress := True;
+    SaveSurfaceToStreamWithOpts(Stream, '.bmp', Surface, Opts);
+
+    AssertTrue('bmp header should exist', Stream.Size >= SizeOf(Header));
+    Stream.Position := 0;
+    Stream.ReadBuffer(Header, SizeOf(Header));
+    BitsPerPixel := Header[28] or (Header[29] shl 8);
+    CompressionCode := Header[30] or (Header[31] shl 8) or (Header[32] shl 16) or (Header[33] shl 24);
+    AssertEquals('bmp clamps unsupported bit depth to 24bpp', 24, BitsPerPixel);
+    AssertEquals('bmp keeps BI_RGB compression in true-color path', 0, CompressionCode);
+
+    { Supported true-color modes remain adjustable. }
+    Opts.BmpBitsPerPixel := 32;
+    Opts.BmpRLECompress := True;
+    SaveSurfaceToStreamWithOpts(Stream, '.bmp', Surface, Opts);
+    Stream.Position := 0;
+    Stream.ReadBuffer(Header, SizeOf(Header));
+    BitsPerPixel := Header[28] or (Header[29] shl 8);
+    CompressionCode := Header[30] or (Header[31] shl 8) or (Header[32] shl 16) or (Header[33] shl 24);
+    AssertEquals('bmp true-color bit depth stays configurable', 32, BitsPerPixel);
+    AssertEquals('bmp compression stays BI_RGB for 32bpp', 0, CompressionCode);
+  finally
+    Stream.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPIOTests.PnmSaveHonorsBinaryAndColorDepthOptions;
+var
+  Surface: TRasterSurface;
+  Stream: TMemoryStream;
+  Opts: TSaveSurfaceOptions;
+  Magic: array[0..1] of AnsiChar;
+  HeaderLine: string;
+
+  function ReadAsciiLine(AStream: TStream): string;
+  var
+    Ch: AnsiChar;
+  begin
+    Result := '';
+    while AStream.Position < AStream.Size do
+    begin
+      AStream.ReadBuffer(Ch, SizeOf(Ch));
+      if Ch = #10 then
+        Exit;
+      Result := Result + Ch;
+    end;
+  end;
+begin
+  Surface := TRasterSurface.Create(1, 1);
+  Stream := TMemoryStream.Create;
+  try
+    Surface[0, 0] := RGBA(20, 200, 80, 255);
+    Opts := DefaultSaveSurfaceOptions;
+
+    Opts.PnmBinaryFormat := False;
+    Opts.PnmColorDepthMode := 3; { RGB }
+    SaveSurfaceToStreamWithOpts(Stream, '.pnm', Surface, Opts);
+    Stream.Position := 0;
+    Stream.ReadBuffer(Magic, SizeOf(Magic));
+    AssertEquals('pnm ascii rgb magic', 'P3', string(Magic));
+
+    Opts.PnmBinaryFormat := True;
+    Opts.PnmColorDepthMode := 2; { grayscale }
+    Opts.PnmFullWidth := False;
+    SaveSurfaceToStreamWithOpts(Stream, '.pnm', Surface, Opts);
+    Stream.Position := 0;
+    Stream.ReadBuffer(Magic, SizeOf(Magic));
+    AssertEquals('pnm binary grayscale magic', 'P5', string(Magic));
+
+    Opts.PnmBinaryFormat := True;
+    Opts.PnmColorDepthMode := 2; { grayscale }
+    Opts.PnmFullWidth := True;
+    SaveSurfaceToStreamWithOpts(Stream, '.pnm', Surface, Opts);
+    Stream.Position := 0;
+    HeaderLine := ReadAsciiLine(Stream);
+    AssertEquals('pnm full-width keeps grayscale binary magic', 'P5', HeaderLine);
+    HeaderLine := ReadAsciiLine(Stream);
+    AssertEquals('pnm full-width dimensions line', '1 1', HeaderLine);
+    HeaderLine := ReadAsciiLine(Stream);
+    AssertEquals('pnm full-width uses 16-bit max value', '65535', HeaderLine);
+  finally
+    Stream.Free;
+    Surface.Free;
+  end;
 end;
 
 function TFPIOTests.UniqueTempFile(const AExtension: string): string;
