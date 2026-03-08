@@ -16,6 +16,7 @@ type
     procedure MovePixelsDragDoesNotMutateLayerBeforeMouseUp;
     procedure MovePixelsClickWithoutDeltaDoesNotPushHistory;
     procedure MovePixelsEscapeCancelsPreviewAndRestoresSelection;
+    procedure MovePixelsToolSwitchCancelsPreviewAndRestoresSelection;
   end;
 
 implementation
@@ -120,6 +121,37 @@ begin
     AssertTrue('escape cancel should restore source selection', F.TestDocument.Selection[10, 10]);
     AssertFalse('escape cancel should clear moved selection preview', F.TestDocument.Selection[12, 10]);
     AssertEquals('escape cancel should not push history', DepthBefore, F.TestDocument.UndoDepth);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TToolTransactionTests.MovePixelsToolSwitchCancelsPreviewAndRestoresSelection;
+var
+  F: TMainForm;
+  MoveColor: TRGBA32;
+  DepthBefore: Integer;
+begin
+  F := CreateMovePixelsForm;
+  try
+    MoveColor := RGBA(255, 0, 0, 255);
+    DepthBefore := F.TestDocument.UndoDepth;
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 10);
+    F.SimulateMouseMove([ssLeft], 12, 10);
+    F.SimulateToolButtonSwitch(tkBrush);
+
+    AssertTrue('tool switch should select destination tool', F.CurrentToolForTest = tkBrush);
+    AssertTrue('tool switch should cancel move preview and keep source pixel',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[10, 10], MoveColor));
+    AssertTrue('tool switch should not leave moved destination pixels behind',
+      RGBAEqual(F.TestDocument.ActiveLayer.Surface[12, 10], TransparentColor));
+    AssertTrue('selection should restore at source after cancel-by-tool-switch',
+      F.TestDocument.Selection[10, 10]);
+    AssertFalse('selection preview should not remain at dragged destination',
+      F.TestDocument.Selection[12, 10]);
+    AssertEquals('cancel-by-tool-switch should not push history',
+      DepthBefore, F.TestDocument.UndoDepth);
   finally
     F.Destroy;
   end;

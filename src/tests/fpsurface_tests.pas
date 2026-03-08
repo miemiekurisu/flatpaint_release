@@ -22,6 +22,8 @@ type
     procedure MaskedLineOnlyPaintsInsideSelection;
     procedure MaskedLineCoverageScalesAlpha;
     procedure MaskedGradientLeavesUnselectedPixelsUntouched;
+    procedure MaskedGradientCoverageBlendsPartiallySelectedPixels;
+    procedure MaskedRadialGradientCoverageBlendsPartiallySelectedPixels;
     procedure FillSelectionCoverageScalesOpacity;
     procedure CopySelectionCoverageScalesAlpha;
     procedure MoveSelectedPixelsCoverageUsesSoftCopyAndSoftErase;
@@ -329,6 +331,70 @@ begin
     AssertEquals('selected left-middle pixel is written', 255, Surface[1, 0].A);
     AssertEquals('selected right-middle pixel is written', 255, Surface[2, 0].A);
     AssertEquals('unselected right pixel stays clear', 0, Surface[3, 0].A);
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.MaskedGradientCoverageBlendsPartiallySelectedPixels;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(3, 1);
+  Selection := TSelectionMask.Create(3, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Selection.SetCoverage(1, 0, 128);
+
+    Surface.FillGradient(
+      0,
+      0,
+      2,
+      0,
+      RGBA(200, 40, 20, 255),
+      RGBA(200, 40, 20, 255),
+      Selection
+    );
+
+    AssertEquals('unselected left pixel stays clear', 0, Surface[0, 0].A);
+    AssertEquals('partially selected pixel alpha is coverage-weighted', 128, Surface[1, 0].A);
+    AssertEquals('partially selected pixel red is coverage-weighted', 100, Surface[1, 0].R);
+    AssertEquals('partially selected pixel green is coverage-weighted', 20, Surface[1, 0].G);
+    AssertEquals('partially selected pixel blue is coverage-weighted', 10, Surface[1, 0].B);
+    AssertEquals('unselected right pixel stays clear', 0, Surface[2, 0].A);
+  finally
+    Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.MaskedRadialGradientCoverageBlendsPartiallySelectedPixels;
+var
+  Surface: TRasterSurface;
+  Selection: TSelectionMask;
+begin
+  Surface := TRasterSurface.Create(3, 3);
+  Selection := TSelectionMask.Create(3, 3);
+  try
+    Surface.Clear(TransparentColor);
+    Selection.SetCoverage(1, 1, 64);
+
+    Surface.FillRadialGradient(
+      1,
+      1,
+      2,
+      RGBA(240, 120, 60, 255),
+      RGBA(240, 120, 60, 255),
+      Selection
+    );
+
+    AssertEquals('outside radial selection stays clear', 0, Surface[0, 0].A);
+    AssertEquals('center pixel alpha is coverage-weighted', 64, Surface[1, 1].A);
+    AssertEquals('center red is coverage-weighted', 60, Surface[1, 1].R);
+    AssertEquals('center green is coverage-weighted', 30, Surface[1, 1].G);
+    AssertEquals('center blue is coverage-weighted', 15, Surface[1, 1].B);
   finally
     Selection.Free;
     Surface.Free;

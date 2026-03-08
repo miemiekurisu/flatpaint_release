@@ -44,6 +44,8 @@ type
     procedure MouseUpAfterPencilStrokePushesHistory;
     procedure MouseUpAfterBrushStrokePushesHistory;
     procedure FillToolPushesHistoryOnMouseDown;
+    procedure LockedLayerBlocksPencilStrokeAtMainFormEdge;
+    procedure LockedLayerBlocksFillToolAtMainFormEdge;
     procedure ClickingOutsideSelectionAutoDeselects;
     procedure ToolbarSwitchFromSelectionToFillKeepsSelection;
     procedure SwitchingFromSelectionToBrushAutoDeselectsSelection;
@@ -564,6 +566,61 @@ begin
     AssertEquals('UndoDepth should increase by 1 after fill',
       DepthBefore + 1, F.TestDocument.UndoDepth);
     F.SimulateMouseUp(mbLeft, [], 20, 20);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.LockedLayerBlocksPencilStrokeAtMainFormEdge;
+var
+  F: TMainForm;
+  DepthBefore: Integer;
+  BeforePixel: TRGBA32;
+  AfterPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkPencil);
+  try
+    F.SetPrimaryColorForTest(RGBA(0, 0, 0, 255));
+    F.TestDocument.ActiveLayer.Locked := True;
+    DepthBefore := F.TestDocument.UndoDepth;
+    BeforePixel := F.TestDocument.ActiveLayer.Surface[24, 24];
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 24, 24);
+    F.SimulateMouseMove([ssLeft], 28, 24);
+    F.SimulateMouseUp(mbLeft, [], 28, 24);
+
+    AfterPixel := F.TestDocument.ActiveLayer.Surface[24, 24];
+    AssertTrue('locked active layer should reject pencil writes at UI edge',
+      RGBAEqual(BeforePixel, AfterPixel));
+    AssertEquals('blocked locked-layer pencil route must not push history',
+      DepthBefore, F.TestDocument.UndoDepth);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.LockedLayerBlocksFillToolAtMainFormEdge;
+var
+  F: TMainForm;
+  DepthBefore: Integer;
+  BeforePixel: TRGBA32;
+  AfterPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkFill);
+  try
+    F.SetPrimaryColorForTest(RGBA(0, 0, 0, 255));
+    F.TestDocument.ActiveLayer.Locked := True;
+    DepthBefore := F.TestDocument.UndoDepth;
+    BeforePixel := F.TestDocument.ActiveLayer.Surface[24, 24];
+
+    F.SimulateMouseDown(mbLeft, [ssLeft], 24, 24);
+    F.SimulateMouseUp(mbLeft, [], 24, 24);
+
+    AfterPixel := F.TestDocument.ActiveLayer.Surface[24, 24];
+    AssertTrue('locked active layer should reject fill writes at UI edge',
+      RGBAEqual(BeforePixel, AfterPixel));
+    AssertEquals('blocked locked-layer fill route must not push history',
+      DepthBefore, F.TestDocument.UndoDepth);
   finally
     F.Destroy;
   end;

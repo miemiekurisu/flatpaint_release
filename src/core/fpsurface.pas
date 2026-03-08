@@ -1664,6 +1664,7 @@ procedure TRasterSurface.FillGradient(X1, Y1, X2, Y2: Integer; const StartColor,
 var
   X: Integer;
   Y: Integer;
+  Coverage: Byte;
   DX: Double;
   DY: Double;
   LengthSquared: Double;
@@ -1689,17 +1690,25 @@ begin
 
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
-      if (ASelection = nil) or ASelection[X, Y] then
+    begin
+      Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
+      if ASelection = nil then
+        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, Projection)
+      else
       begin
-        Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
-        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, Projection);
+        Coverage := ASelection.Coverage(X, Y);
+        if Coverage = 0 then
+          Continue;
+        BlendPixelPremul(X, Y, LerpColor(PremulStart, PremulEnd, Projection), Coverage);
       end;
+    end;
 end;
 
 procedure TRasterSurface.FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
 var
   X: Integer;
   Y: Integer;
+  Coverage: Byte;
   Dist: Double;
   T: Double;
   PremulStart: TRGBA32;
@@ -1718,12 +1727,19 @@ begin
   end;
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
-      if (ASelection = nil) or ASelection[X, Y] then
+    begin
+      Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
+      T := Dist / Radius;
+      if ASelection = nil then
+        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, T)
+      else
       begin
-        Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
-        T := Dist / Radius;
-        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, T);
+        Coverage := ASelection.Coverage(X, Y);
+        if Coverage = 0 then
+          Continue;
+        BlendPixelPremul(X, Y, LerpColor(PremulStart, PremulEnd, T), Coverage);
       end;
+    end;
 end;
 
 procedure TRasterSurface.PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte; ASelection: TSelectionMask);
