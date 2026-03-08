@@ -1,0 +1,6 @@
+6029f7a4e6a81d56369e3e969aa91d36fb799bd6e9bce26766f272aff61cacb0  FlatPaint-macos-arm64.zip
+8dde5fd62a6e6abd1c66507fef8bc81239a4533bd982839d5723d18694f2ff1e  fp-lcl-clipboard-meta.zip
+5776afb8aa314ac41e0c2f4fc57e65af08eee1c7fec7e23a8b632309c2d9ec9c  fp-lcl-raster-bridge.zip
+fd9413ebcefce740589343b70c50d23a4bf305cc2b37d6c7fc8e8521fc7e3455  fp-macos-lcl-bridge.zip
+384b84b087e8c46b44cf145b41a13a9e214393208e8e16dd64e79b8546a68cf9  fp-raster-core.zip
+2da567ba2220a76a643af45152b16e5dfbf7fc2a4c311c00f01ab544c110a20d  fp-viewport-kit.zip

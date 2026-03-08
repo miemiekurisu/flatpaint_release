@@ -1,0 +1,10 @@
+FlatPaint public libraries in this `git/` tree are licensed under:
+
+- GNU Lesser General Public License (LGPL), version 2.1 or later
+- with the Lazarus modified linking exception
+
+See:
+- `licenses/COPYING.LGPL.txt`
+- `licenses/COPYING.modifiedLGPL.txt`
+
+This applies only to source files published inside this `git/` folder.
