@@ -14,6 +14,12 @@ APP_BUNDLE_IDENTIFIER="${FLATPAINT_BUNDLE_ID:-com.flatpaint.app}"
 APP_VERSION="${FLATPAINT_VERSION:-0.1.0}"
 APP_BUILD="${FLATPAINT_BUILD:-1}"
 APP_MIN_MACOS="${FLATPAINT_MIN_MACOS:-11.0}"
+APP_ICON_SOURCE="${FLATPAINT_APP_ICON_SOURCE:-$ROOT_DIR/assets/app_icon/source.png}"
+APP_ICON_BORDER_INSET="${FLATPAINT_APP_ICON_BORDER_INSET:-24}"
+APP_ICON_BUILD_DIR="$ROOT_DIR/tmp/app_icon"
+APP_ICON_TRIMMED_SOURCE="$APP_ICON_BUILD_DIR/AppIcon.source.trimmed.png"
+APP_ICONSET_DIR="$APP_ICON_BUILD_DIR/AppIcon.iconset"
+APP_ICON_ICNS="$APP_ICON_BUILD_DIR/AppIcon.icns"
 
 log() {
   printf '==> %s\n' "$*"
@@ -128,6 +134,8 @@ write_info_plist() {
   <string>${APP_VERSION}</string>
   <key>CFBundleVersion</key>
   <string>${APP_BUILD}</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>LSMinimumSystemVersion</key>
   <string>${APP_MIN_MACOS}</string>
   <key>CSResourcesFileMapped</key>
@@ -166,11 +174,104 @@ stage_app_bundle() {
   write_info_plist "$bundle_dir/Contents/Info.plist" "$executable_name" "$bundle_name"
   printf 'APPLflat' >"$bundle_dir/Contents/PkgInfo"
   copy_with_retry "$source_binary" "$bundle_dir/Contents/MacOS/$executable_name"
+  if [[ -f "$APP_ICON_ICNS" ]]; then
+    cp -f -- "$APP_ICON_ICNS" "$bundle_dir/Contents/Resources/AppIcon.icns"
+  fi
   if [[ -d "$icon_source_dir" ]]; then
     mkdir -p -- "$(dirname -- "$icon_dest_dir")"
     rm -rf -- "$icon_dest_dir"
     cp -R -- "$icon_source_dir" "$icon_dest_dir"
   fi
+}
+
+trim_app_icon_source() {
+  local source_image="$1"
+  local trimmed_image="$2"
+  local tool_source="$SCRIPT_DIR/icon_crop_rgba.m"
+  local tool_binary="$APP_ICON_BUILD_DIR/icon_crop_rgba"
+
+  if [[ ! -f "$tool_source" ]]; then
+    printf 'Missing icon crop tool source: %s\n' "$tool_source" >&2
+    return 1
+  fi
+
+  if [[ ! -x "$tool_binary" || "$tool_source" -nt "$tool_binary" ]]; then
+    clang -O2 -fobjc-arc \
+      -framework AppKit \
+      -framework Foundation \
+      -framework CoreGraphics \
+      -o "$tool_binary" \
+      "$tool_source"
+  fi
+
+  "$tool_binary" "$source_image" "$trimmed_image" "$APP_ICON_BORDER_INSET"
+}
+
+generate_app_icon_assets() {
+  local source_image="$APP_ICON_SOURCE"
+  local trimmed_image="$APP_ICON_TRIMMED_SOURCE"
+  local iconset_dir="$APP_ICONSET_DIR"
+  local icon_icns="$APP_ICON_ICNS"
+  local icon_tiff="$APP_ICON_BUILD_DIR/AppIcon.tiff"
+  local icon_spec
+  local icon_name
+  local icon_size
+
+  if [[ ! -f "$source_image" ]]; then
+    log "No app icon source found at $source_image; app bundle icon will not be generated"
+    return 0
+  fi
+
+  if ! command -v sips >/dev/null 2>&1; then
+    log "sips unavailable; app bundle icon will not be generated"
+    return 0
+  fi
+
+  rm -rf -- "$APP_ICON_BUILD_DIR"
+  mkdir -p -- "$iconset_dir"
+
+  trim_app_icon_source "$source_image" "$trimmed_image"
+
+  for icon_spec in \
+    "icon_16x16.png:16" \
+    "icon_16x16@2x.png:32" \
+    "icon_32x32.png:32" \
+    "icon_32x32@2x.png:64" \
+    "icon_128x128.png:128" \
+    "icon_128x128@2x.png:256" \
+    "icon_256x256.png:256" \
+    "icon_256x256@2x.png:512" \
+    "icon_512x512.png:512" \
+    "icon_512x512@2x.png:1024"
+  do
+    IFS=':' read -r icon_name icon_size <<<"$icon_spec"
+    sips -s format png -z "$icon_size" "$icon_size" "$trimmed_image" --out "$iconset_dir/$icon_name" >/dev/null
+  done
+
+  if command -v tiffutil >/dev/null 2>&1 && command -v tiff2icns >/dev/null 2>&1; then
+    tiffutil -catnosizecheck \
+      "$iconset_dir/icon_16x16.png" \
+      "$iconset_dir/icon_16x16@2x.png" \
+      "$iconset_dir/icon_32x32.png" \
+      "$iconset_dir/icon_32x32@2x.png" \
+      "$iconset_dir/icon_128x128.png" \
+      "$iconset_dir/icon_128x128@2x.png" \
+      "$iconset_dir/icon_256x256.png" \
+      "$iconset_dir/icon_256x256@2x.png" \
+      "$iconset_dir/icon_512x512.png" \
+      "$iconset_dir/icon_512x512@2x.png" \
+      -out "$icon_tiff" >/dev/null 2>&1
+    tiff2icns "$icon_tiff" "$icon_icns" >/dev/null 2>&1
+    return 0
+  fi
+
+  if command -v iconutil >/dev/null 2>&1; then
+    iconutil -c icns "$iconset_dir" -o "$icon_icns"
+    return 0
+  fi
+
+  log "No icon compiler available (tiff2icns/iconutil); app bundle icon will not be generated"
+  return 0
 }
 
 run_lazbuild() {
@@ -289,6 +390,7 @@ clean_generated_artifacts() {
   rm -rf -- \
     "$ROOT_DIR/dist" \
     "$ROOT_DIR/lib" \
+    "$ROOT_DIR/tmp/app_icon" \
     "$ROOT_DIR/flatpaint" \
     "$ROOT_DIR/flatpaint.app" \
     "$ROOT_DIR/src/cli/flatpaint_cli"
@@ -329,6 +431,7 @@ build_default_artifacts() {
   kill_running_flatpaint
   compile_native_modules
   prepare_icon_assets
+  generate_app_icon_assets
   refresh_about_content
   run_lazbuild -B "$PROJECT_FILE"
 
@@ -345,6 +448,7 @@ build_release_artifacts() {
   kill_running_flatpaint
   compile_native_modules
   prepare_icon_assets
+  generate_app_icon_assets
   refresh_about_content
   # -CX: smartlink each compiled unit (FPC guide: dead-code removal at unit level)
   # -XX: smartlink the final linked program

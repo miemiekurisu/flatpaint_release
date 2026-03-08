@@ -15,6 +15,7 @@ DerivedData/
 /flatpaint
 /flatpaint.app
 /src/cli/flatpaint_cli
+/tmp/app_icon
 
 # Free Pascal / Lazarus build artifacts
 *.ppu
