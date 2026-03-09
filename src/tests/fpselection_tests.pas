@@ -15,6 +15,9 @@ type
     procedure HasSelectionAndBoundsRectTrackCoverageChanges;
     procedure BoundsRectCacheInvalidatesAcrossTransformMutations;
     procedure TranslateToClipsAndOffsetsCoverage;
+    procedure EllipseAliasedModeUsesBinaryCoverage;
+    procedure EllipseAntialiasModeProducesFractionalCoverage;
+    procedure PolygonAliasedModeUsesBinaryCoverage;
     procedure FeatherSoftensEdges;
     procedure InvertPreservesByteCoverage;
     procedure TransformPathsPreserveCoverageValues;
@@ -143,6 +146,87 @@ begin
   finally
     Dest.Free;
     Source.Free;
+  end;
+end;
+
+procedure TFPSelectionTests.EllipseAliasedModeUsesBinaryCoverage;
+var
+  Selection: TSelectionMask;
+  X: Integer;
+  Y: Integer;
+  CoverageValue: Byte;
+begin
+  Selection := TSelectionMask.Create(33, 33);
+  try
+    Selection.SelectEllipse(4, 4, 28, 28, scReplace, False);
+    for Y := 0 to Selection.Height - 1 do
+      for X := 0 to Selection.Width - 1 do
+      begin
+        CoverageValue := Selection.Coverage(X, Y);
+        AssertTrue(
+          'aliased ellipse should only contain 0/255 coverage',
+          (CoverageValue = 0) or (CoverageValue = 255)
+        );
+      end;
+  finally
+    Selection.Free;
+  end;
+end;
+
+procedure TFPSelectionTests.EllipseAntialiasModeProducesFractionalCoverage;
+var
+  Selection: TSelectionMask;
+  X: Integer;
+  Y: Integer;
+  HasFractional: Boolean;
+  CoverageValue: Byte;
+begin
+  Selection := TSelectionMask.Create(33, 33);
+  try
+    Selection.SelectEllipse(4, 4, 28, 28, scReplace, True);
+    HasFractional := False;
+    for Y := 0 to Selection.Height - 1 do
+      for X := 0 to Selection.Width - 1 do
+      begin
+        CoverageValue := Selection.Coverage(X, Y);
+        if (CoverageValue > 0) and (CoverageValue < 255) then
+        begin
+          HasFractional := True;
+          Break;
+        end;
+      end;
+    AssertTrue('anti-aliased ellipse should produce fractional edge coverage', HasFractional);
+  finally
+    Selection.Free;
+  end;
+end;
+
+procedure TFPSelectionTests.PolygonAliasedModeUsesBinaryCoverage;
+var
+  Selection: TSelectionMask;
+  Points: array[0..3] of TPoint;
+  X: Integer;
+  Y: Integer;
+  CoverageValue: Byte;
+begin
+  Selection := TSelectionMask.Create(32, 32);
+  try
+    Points[0] := Point(5, 5);
+    Points[1] := Point(26, 9);
+    Points[2] := Point(22, 26);
+    Points[3] := Point(8, 23);
+    Selection.SelectPolygon(Points, scReplace, False);
+    for Y := 0 to Selection.Height - 1 do
+      for X := 0 to Selection.Width - 1 do
+      begin
+        CoverageValue := Selection.Coverage(X, Y);
+        AssertTrue(
+          'aliased polygon should only contain 0/255 coverage',
+          (CoverageValue = 0) or (CoverageValue = 255)
+        );
+      end;
+  finally
+    Selection.Free;
   end;
 end;
 

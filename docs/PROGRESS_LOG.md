@@ -4,6 +4,98 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-09 (medium-priority GIMP parity gap closure: tool option depth)
+
+### Changes
+
+1. **Closed the previously tracked medium-depth tool-option gaps under the fixed tool set**:
+   - Gradient now exposes and routes `Linear/Radial/Conical/Diamond` + repeat mode (`None/Sawtooth/Triangular`) via `FillGradientAdvanced`.
+   - Clone Stamp now exposes sample source policy (`Current Layer` / `Image`) and routes composite-image sampling in both source pick and stroke paths.
+   - Crop now exposes aspect presets (`Free/1:1/4:3/16:9/Current Image`) and composition guides (`None/Thirds/Center`) with constrained drag geometry.
+   - Rounded Rectangle now exposes explicit corner radius in tool options and commit/preview paths.
+   - Text now supports multiline inline editing and explicit alignment (`Left/Center/Right`) in editor style and raster commit route.
+
+2. **Regression expectation correction for advanced gradient tests**:
+   - Updated conical-gradient and sawtooth-repeat assertions to match implemented 360-degree conical semantics and linear-period repeat semantics.
+   - No algorithm downgrade was introduced; this is assertion semantic alignment.
+
+3. **Documentation realignment to code-first status**:
+   - `TOOL_OPTIONS_BASELINE` now records these medium-depth items as implemented and moves remaining debt to advanced-parity scope.
+   - `FEATURE_MATRIX` now reflects the new tool-depth state and latest regression-health evidence.
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `390` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-09 (selection anti-alias semantics fix: decoupled from feather)
+
+### Changes
+
+1. **Fixed semantic mismatch between `Anti-alias` and `Feather` in selection workflows**:
+   - `TSelectionToolController` now treats anti-alias and feather as independent controls.
+   - Feather is now applied strictly by feather radius (`>0`), not by anti-alias checkbox state.
+
+2. **Added explicit anti-alias toggles to core selection shape generators**:
+   - `TSelectionMask.SelectRectangle(...)` now supports anti-alias-aware edge coverage mode.
+   - `TSelectionMask.SelectEllipse(...)` and `SelectPolygon(...)` now support both aliased and anti-aliased generation paths.
+   - `TImageDocument.SelectRectangle/SelectEllipse/SelectLasso` now forward anti-alias intent into selection-core APIs.
+
+3. **UI routing alignment**:
+   - Anti-alias checkbox is now shown for geometry selection tools (`Rect/Ellipse/Lasso`) and no longer shown for `Magic Wand` to avoid misleading no-op semantics.
+   - Feather spinner remains visible for selection tools and is no longer enabled/disabled by anti-alias state.
+
+4. **Regression coverage added**:
+   - `fpselection_tests`:
+     - `EllipseAliasedModeUsesBinaryCoverage`
+     - `EllipseAntialiasModeProducesFractionalCoverage`
+     - `PolygonAliasedModeUsesBinaryCoverage`
+   - `tool_controller_tests`:
+     - `SelectionFeatherIndependentFromAntiAliasToggle`
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `385` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **passed**, generated `dist/FlatPaint.app`.
+
+## 2026-03-09 (docs alignment: fixed tool-set completeness vs GIMP depth)
+
+### Changes
+
+1. **Tool completeness wording corrected from route-complete to parity-partial where needed**:
+   - `docs/TOOL_OPTIONS_BASELINE.md` now explicitly distinguishes:
+     - all fixed tools are present and executable;
+     - remaining deficits are option-semantics/depth gaps, not missing tool routes.
+   - Replaced prior "no tracked gaps remain" statement with concrete gap list:
+     - selection anti-alias semantics normalization
+     - wand anti-alias path gap
+     - text depth (single-line + style-basic)
+     - gradient mode-family depth
+     - clone sampling-policy depth
+     - crop constraint/preset depth
+     - shape post-commit/radius control depth
+
+2. **Feature matrix status corrected for tool families**:
+   - `docs/FEATURE_MATRIX.md` now marks:
+     - `Selection tools` = `Partial`
+     - `Paint tools` = `Partial`
+     - `Draw tools` = `Partial`
+   - Notes now align with current code paths instead of implying full GIMP-depth parity.
+
+3. **No runtime code changes in this pass**:
+   - This change window is documentation alignment only (code-first status correction).
+
+### Verification
+
+- `bash ./scripts/build.sh`
+  - Result: **passed**, regenerated `dist/FlatPaint.app`.
+- `bash ./scripts/run_tests_ci.sh`
+  - Not rerun in this docs-only pass; latest full baseline remains `363` tests, `0` failures (2026-03-08).
+
 ## 2026-03-08 (release preflight: marquee half-speed + drag responsiveness + min-macOS declaration sync)
 
 ### Changes

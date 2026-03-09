@@ -38,9 +38,21 @@ type
     procedure IntersectWith(AMask: TSelectionMask);
     function InBounds(X, Y: Integer): Boolean; inline;
     function HasSelection: Boolean;
-    procedure SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectPolygon(const APoints: array of TPoint; AMode: TSelectionCombineMode = scReplace);
+    procedure SelectRectangle(
+      X1, Y1, X2, Y2: Integer;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = False
+    );
+    procedure SelectEllipse(
+      X1, Y1, X2, Y2: Integer;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = True
+    );
+    procedure SelectPolygon(
+      const APoints: array of TPoint;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = True
+    );
     procedure MoveBy(DeltaX, DeltaY: Integer);
     procedure TranslateTo(ADest: TSelectionMask; DeltaX, DeltaY: Integer);
     procedure FlipHorizontal;
@@ -105,6 +117,21 @@ begin
   ProjX := AX + T * DX;
   ProjY := AY + T * DY;
   Result := Sqrt(Sqr(PX - ProjX) + Sqr(PY - ProjY));
+end;
+
+function RectSDF(PX, PY, CX, CY, HalfW, HalfH: Double): Double; inline;
+var
+  DX, DY: Double;
+  OutsideX, OutsideY: Double;
+  OutsideDist: Double;
+begin
+  DX := Abs(PX - CX) - HalfW;
+  DY := Abs(PY - CY) - HalfH;
+  OutsideX := Max(DX, 0.0);
+  OutsideY := Max(DY, 0.0);
+  OutsideDist := Sqrt(Sqr(OutsideX) + Sqr(OutsideY));
+  { IQ sdBox is negative inside; invert so positive means inside for SDFCoverage. }
+  Result := -(OutsideDist + Min(Max(DX, DY), 0.0));
 end;
 
 { --- End SDF Helpers --- }
@@ -431,13 +458,24 @@ begin
   RebuildSelectionCache;
 end;
 
-procedure TSelectionMask.SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
+procedure TSelectionMask.SelectRectangle(
+  X1, Y1, X2, Y2: Integer;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 var
   IntersectMask: TSelectionMask;
   LeftX: Integer;
   RightX: Integer;
   TopY: Integer;
   BottomY: Integer;
+  CenterX: Double;
+  CenterY: Double;
+  HalfW: Double;
+  HalfH: Double;
+  Dist: Double;
+  Cov: Byte;
+  Existing: Byte;
   X: Integer;
   Y: Integer;
 begin
@@ -445,7 +483,7 @@ begin
   begin
     IntersectMask := TSelectionMask.Create(FWidth, FHeight);
     try
-      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace);
+      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace, AAntiAlias);
       IntersectWith(IntersectMask);
     finally
       IntersectMask.Free;
@@ -461,15 +499,56 @@ begin
   if AMode = scReplace then
     Clear;
 
-  for Y := TopY to BottomY do
-    for X := LeftX to RightX do
+  if not AAntiAlias then
+  begin
+    for Y := TopY to BottomY do
+      for X := LeftX to RightX do
+        case AMode of
+          scReplace, scAdd: Selected[X, Y] := True;
+          scSubtract: Selected[X, Y] := False;
+        end;
+    Exit;
+  end;
+
+  CenterX := (LeftX + RightX + 1) / 2.0;
+  CenterY := (TopY + BottomY + 1) / 2.0;
+  HalfW := Max(0.5, (RightX - LeftX + 1) / 2.0);
+  HalfH := Max(0.5, (BottomY - TopY + 1) / 2.0);
+
+  for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
+    for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
+    begin
+      Dist := RectSDF(X + 0.5, Y + 0.5, CenterX, CenterY, HalfW, HalfH);
+      Cov := SDFCoverage(Dist);
+      if Cov = 0 then
+        Continue;
       case AMode of
-        scReplace, scAdd: Selected[X, Y] := True;
-        scSubtract: Selected[X, Y] := False;
+        scReplace, scAdd:
+        begin
+          Existing := Coverage(X, Y);
+          if Cov > Existing then
+            SetCoverage(X, Y, Cov);
+        end;
+        scSubtract:
+        begin
+          Existing := Coverage(X, Y);
+          if Existing > 0 then
+          begin
+            if Cov >= Existing then
+              SetCoverage(X, Y, 0)
+            else
+              SetCoverage(X, Y, Existing - Cov);
+          end;
+        end;
       end;
+    end;
 end;
 
-procedure TSelectionMask.SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
+procedure TSelectionMask.SelectEllipse(
+  X1, Y1, X2, Y2: Integer;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 var
   IntersectMask: TSelectionMask;
   LeftX: Integer;
@@ -483,6 +562,8 @@ var
   X: Integer;
   Y: Integer;
   Dist: Double;
+  NX: Double;
+  NY: Double;
   Cov: Byte;
   Existing: Byte;
 begin
@@ -490,7 +571,7 @@ begin
   begin
     IntersectMask := TSelectionMask.Create(FWidth, FHeight);
     try
-      IntersectMask.SelectEllipse(X1, Y1, X2, Y2, scReplace);
+      IntersectMask.SelectEllipse(X1, Y1, X2, Y2, scReplace, AAntiAlias);
       IntersectWith(IntersectMask);
     finally
       IntersectMask.Free;
@@ -510,6 +591,25 @@ begin
   CenterY := (TopY + BottomY + 1) / 2.0;
   RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
   RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
+
+  if not AAntiAlias then
+  begin
+    for Y := TopY to BottomY do
+      for X := LeftX to RightX do
+      begin
+        NX := (X + 0.5 - CenterX) / RadiusX;
+        NY := (Y + 0.5 - CenterY) / RadiusY;
+        if ((NX * NX) + (NY * NY)) > 1.0 then
+          Continue;
+        case AMode of
+          scReplace, scAdd:
+            SetCoverage(X, Y, 255);
+          scSubtract:
+            SetCoverage(X, Y, 0);
+        end;
+      end;
+    Exit;
+  end;
 
   for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
     for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
@@ -540,7 +640,11 @@ begin
     end;
 end;
 
-procedure TSelectionMask.SelectPolygon(const APoints: array of TPoint; AMode: TSelectionCombineMode);
+procedure TSelectionMask.SelectPolygon(
+  const APoints: array of TPoint;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 var
   IntersectMask: TSelectionMask;
   LeftX: Integer;
@@ -590,7 +694,7 @@ begin
   begin
     IntersectMask := TSelectionMask.Create(FWidth, FHeight);
     try
-      IntersectMask.SelectPolygon(APoints, scReplace);
+      IntersectMask.SelectPolygon(APoints, scReplace, AAntiAlias);
       IntersectWith(IntersectMask);
     finally
       IntersectMask.Free;
@@ -622,6 +726,18 @@ begin
   BottomY := Min(FHeight - 1, BottomY + 1);
   if (LeftX > RightX) or (TopY > BottomY) then
     Exit;
+
+  if not AAntiAlias then
+  begin
+    for Y := TopY to BottomY do
+      for X := LeftX to RightX do
+      begin
+        if not PointInsidePolygon(APoints, X + 0.5, Y + 0.5) then
+          Continue;
+        ApplyCoverage(X, Y, 255);
+      end;
+    Exit;
+  end;
 
   for Y := TopY to BottomY do
     for X := LeftX to RightX do

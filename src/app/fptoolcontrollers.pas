@@ -31,7 +31,6 @@ type
   private
     procedure ApplyFeatherIfNeeded(
       ADocument: TImageDocument;
-      AEnableFeather: Boolean;
       AFeatherRadius: Integer
     );
   public
@@ -51,7 +50,7 @@ type
       ADocument: TImageDocument;
       const AStartPoint, AEndPoint: TPoint;
       AMode: TSelectionCombineMode;
-      AEnableFeather: Boolean;
+      AAntiAlias: Boolean;
       AFeatherRadius: Integer;
       const AHistoryLabel: string
     ): Boolean;
@@ -59,7 +58,7 @@ type
       ADocument: TImageDocument;
       const AStartPoint, AEndPoint: TPoint;
       AMode: TSelectionCombineMode;
-      AEnableFeather: Boolean;
+      AAntiAlias: Boolean;
       AFeatherRadius: Integer;
       const AHistoryLabel: string
     ): Boolean;
@@ -67,7 +66,7 @@ type
       ADocument: TImageDocument;
       const APoints: array of TPoint;
       AMode: TSelectionCombineMode;
-      AEnableFeather: Boolean;
+      AAntiAlias: Boolean;
       AFeatherRadius: Integer;
       const AHistoryLabel: string
     ): Boolean;
@@ -78,7 +77,6 @@ type
       AMode: TSelectionCombineMode;
       ASampleAllLayers: Boolean;
       AContiguous: Boolean;
-      AEnableFeather: Boolean;
       AFeatherRadius: Integer;
       const AHistoryLabel: string
     ): Boolean;
@@ -182,11 +180,10 @@ end;
 
 procedure TSelectionToolController.ApplyFeatherIfNeeded(
   ADocument: TImageDocument;
-  AEnableFeather: Boolean;
   AFeatherRadius: Integer
 );
 begin
-  if (ADocument = nil) or not AEnableFeather or (AFeatherRadius <= 0) or
+  if (ADocument = nil) or (AFeatherRadius <= 0) or
      (not ADocument.HasSelection) then
     Exit;
   ADocument.Selection.Feather(AFeatherRadius);
@@ -235,7 +232,7 @@ function TSelectionToolController.CommitRectangleSelection(
   ADocument: TImageDocument;
   const AStartPoint, AEndPoint: TPoint;
   AMode: TSelectionCombineMode;
-  AEnableFeather: Boolean;
+  AAntiAlias: Boolean;
   AFeatherRadius: Integer;
   const AHistoryLabel: string
 ): Boolean;
@@ -249,16 +246,17 @@ begin
     AStartPoint.Y,
     AEndPoint.X,
     AEndPoint.Y,
-    AMode
+    AMode,
+    AAntiAlias
   );
-  ApplyFeatherIfNeeded(ADocument, AEnableFeather, AFeatherRadius);
+  ApplyFeatherIfNeeded(ADocument, AFeatherRadius);
 end;
 
 function TSelectionToolController.CommitEllipseSelection(
   ADocument: TImageDocument;
   const AStartPoint, AEndPoint: TPoint;
   AMode: TSelectionCombineMode;
-  AEnableFeather: Boolean;
+  AAntiAlias: Boolean;
   AFeatherRadius: Integer;
   const AHistoryLabel: string
 ): Boolean;
@@ -272,16 +270,17 @@ begin
     AStartPoint.Y,
     AEndPoint.X,
     AEndPoint.Y,
-    AMode
+    AMode,
+    AAntiAlias
   );
-  ApplyFeatherIfNeeded(ADocument, AEnableFeather, AFeatherRadius);
+  ApplyFeatherIfNeeded(ADocument, AFeatherRadius);
 end;
 
 function TSelectionToolController.CommitLassoSelection(
   ADocument: TImageDocument;
   const APoints: array of TPoint;
   AMode: TSelectionCombineMode;
-  AEnableFeather: Boolean;
+  AAntiAlias: Boolean;
   AFeatherRadius: Integer;
   const AHistoryLabel: string
 ): Boolean;
@@ -290,8 +289,8 @@ begin
   if not Result then
     Exit;
   ADocument.PushHistory(AHistoryLabel);
-  ADocument.SelectLasso(APoints, AMode);
-  ApplyFeatherIfNeeded(ADocument, AEnableFeather, AFeatherRadius);
+  ADocument.SelectLasso(APoints, AMode, AAntiAlias);
+  ApplyFeatherIfNeeded(ADocument, AFeatherRadius);
 end;
 
 function TSelectionToolController.CommitMagicWandSelection(
@@ -301,7 +300,6 @@ function TSelectionToolController.CommitMagicWandSelection(
   AMode: TSelectionCombineMode;
   ASampleAllLayers: Boolean;
   AContiguous: Boolean;
-  AEnableFeather: Boolean;
   AFeatherRadius: Integer;
   const AHistoryLabel: string
 ): Boolean;
@@ -318,7 +316,7 @@ begin
     ASampleAllLayers,
     AContiguous
   );
-  ApplyFeatherIfNeeded(ADocument, AEnableFeather, AFeatherRadius);
+  ApplyFeatherIfNeeded(ADocument, AFeatherRadius);
 end;
 
 { TMovePixelsController }

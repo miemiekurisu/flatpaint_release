@@ -14,6 +14,7 @@ type
     FontSize: Integer;
     Bold: Boolean;
     Italic: Boolean;
+    Alignment: Integer; { 0=Left, 1=Center, 2=Right }
   end;
 
 function RunTextDialog(AOwner: TComponent; var AResult: TTextDialogResult): Boolean;
@@ -32,6 +33,7 @@ type
     FSizeTrack: TTrackBar;
     FBoldCheck: TCheckBox;
     FItalicCheck: TCheckBox;
+    FAlignCombo: TComboBox;
     FPreviewLabel: TLabel;
     FUpdating: Boolean;
     procedure SyncSizeFields;
@@ -57,7 +59,7 @@ begin
   Width := 380;
   Height := 280;
   ClientWidth := 380;
-  ClientHeight := 280;
+  ClientHeight := 312;
 
   LabelCtrl := TLabel.Create(Self);
   LabelCtrl.Parent := Self;
@@ -132,10 +134,27 @@ begin
   FItalicCheck.Caption := TR('Italic', #$E6#$96#$9C#$E4#$BD#$93);
   FItalicCheck.Checked := AResult.Italic;
 
+  LabelCtrl := TLabel.Create(Self);
+  LabelCtrl.Parent := Self;
+  LabelCtrl.Left := 170;
+  LabelCtrl.Top := 156;
+  LabelCtrl.Caption := TR('Align:', '对齐：');
+
+  FAlignCombo := TComboBox.Create(Self);
+  FAlignCombo.Parent := Self;
+  FAlignCombo.Left := 214;
+  FAlignCombo.Top := 152;
+  FAlignCombo.Width := 116;
+  FAlignCombo.Style := csDropDownList;
+  FAlignCombo.Items.Add(TR('Left', '左对齐'));
+  FAlignCombo.Items.Add(TR('Center', '居中'));
+  FAlignCombo.Items.Add(TR('Right', '右对齐'));
+  FAlignCombo.ItemIndex := EnsureRange(AResult.Alignment, 0, 2);
+
   FPreviewLabel := TLabel.Create(Self);
   FPreviewLabel.Parent := Self;
   FPreviewLabel.Left := 14;
-  FPreviewLabel.Top := 182;
+  FPreviewLabel.Top := 188;
   FPreviewLabel.Width := 350;
   FPreviewLabel.AutoSize := False;
 
@@ -143,7 +162,7 @@ begin
   OkButton.Parent := Self;
   OkButton.Caption := TR('OK', #$E7#$A1#$AE#$E5#$AE#$9A);
   OkButton.Left := 230;
-  OkButton.Top := 242;
+  OkButton.Top := 274;
   OkButton.Width := 64;
   OkButton.Height := 28;
   OkButton.Default := True;
@@ -153,7 +172,7 @@ begin
   CancelButton.Parent := Self;
   CancelButton.Caption := TR('Cancel', #$E5#$8F#$96#$E6#$B6#$88);
   CancelButton.Left := 302;
-  CancelButton.Top := 242;
+  CancelButton.Top := 274;
   CancelButton.Width := 64;
   CancelButton.Height := 28;
   CancelButton.ModalResult := mrCancel;
@@ -207,6 +226,10 @@ begin
   Result.FontSize := FSizeTrack.Position;
   Result.Bold := FBoldCheck.Checked;
   Result.Italic := FItalicCheck.Checked;
+  if Assigned(FAlignCombo) then
+    Result.Alignment := EnsureRange(FAlignCombo.ItemIndex, 0, 2)
+  else
+    Result.Alignment := 0;
 end;
 
 function RunTextDialog(AOwner: TComponent; var AResult: TTextDialogResult): Boolean;

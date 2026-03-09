@@ -42,6 +42,11 @@ type
     procedure RecolorOnceSamplingKeepsInitialSourceAcrossDrag;
     procedure RecolorContinuousSamplingResamplesAcrossDrag;
     procedure RecolorContiguousDragKeepsApplyingAcrossLargeFlatRegion;
+    procedure CloneStampSampleSourceCanUseCompositeImage;
+    procedure CloneStampAlignedModePreservesOffsetAcrossStrokes;
+    procedure CropToolAspectConstraintProducesSquareOutput;
+    procedure CropToolFourByThreeAspectConstraintProducesCorrectRatio;
+    procedure CropToolSixteenByNineAspectConstraintProducesCorrectRatio;
 
     { History pipeline }
     procedure MouseUpAfterPencilStrokePushesHistory;
@@ -613,6 +618,143 @@ begin
 
     AssertTrue('contiguous recolor drag should still recolor far pixels in same flat region',
       RGBAEqual(F.TestDocument.ActiveLayer.Surface[45, 20], TargetColor));
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.CloneStampSampleSourceCanUseCompositeImage;
+var
+  F: TMainForm;
+  SnapshotPixel: TRGBA32;
+begin
+  F := CreateTestForm(tkCloneStamp);
+  try
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    F.TestDocument.ActiveLayer.Surface[10, 10] := RGBA(255, 30, 30, 255);
+    F.TestDocument.AddLayer('Top');
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+
+    F.SetCloneOptionsForTest(True, 0);
+    F.SimulateMouseDown(mbRight, [ssRight], 10, 10);
+    AssertTrue(
+      'current-layer sampling should snapshot the active layer surface',
+      F.CloneSnapshotPixelForTest(10, 10, SnapshotPixel)
+    );
+    SnapshotPixel := Unpremultiply(SnapshotPixel);
+    AssertEquals('current-layer sampling on empty top layer should remain transparent', 0, SnapshotPixel.A);
+
+    F.SetCloneOptionsForTest(True, 1);
+    F.SimulateMouseDown(mbRight, [ssRight], 10, 10);
+    AssertTrue(
+      'image sampling should snapshot composite surface',
+      F.CloneSnapshotPixelForTest(10, 10, SnapshotPixel)
+    );
+    SnapshotPixel := Unpremultiply(SnapshotPixel);
+    AssertTrue('composite sample should include lower-layer red payload', SnapshotPixel.R > 200);
+    AssertEquals('composite sample should stay opaque', 255, SnapshotPixel.A);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.CropToolAspectConstraintProducesSquareOutput;
+var
+  F: TMainForm;
+begin
+  F := CreateTestForm(tkCrop);
+  try
+    F.SetCropOptionsForTest(1, 0); { 1:1 }
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 10);
+    F.SimulateMouseMove([ssLeft], 70, 40);
+    F.SimulateMouseUp(mbLeft, [], 70, 40);
+    AssertEquals('1:1 crop should produce square canvas width', F.TestDocument.Width, F.TestDocument.Height);
+    AssertEquals('square crop width should match constrained drag size', 60, F.TestDocument.Width);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.CloneStampAlignedModePreservesOffsetAcrossStrokes;
+{ In aligned mode the offset between source and destination must remain
+  constant across multiple strokes. Verify by doing two separate strokes
+  at different canvas positions and checking the painted pixels match
+  the expected source offsets. }
+var
+  F: TMainForm;
+  Pixel1: TRGBA32;
+  Pixel2: TRGBA32;
+begin
+  F := CreateTestForm(tkCloneStamp);
+  try
+    { Paint a recognizable pattern on the single layer }
+    F.TestDocument.ActiveLayer.Surface.Clear(TransparentColor);
+    F.TestDocument.ActiveLayer.Surface[10, 10] := RGBA(255, 0, 0, 255);
+    F.TestDocument.ActiveLayer.Surface[20, 10] := RGBA(0, 255, 0, 255);
+
+    F.SetCloneOptionsForTest(True, 0); { aligned, current layer }
+    F.SetBrushSizeForTest(1);
+
+    { Set clone source at (10, 10) — right-click }
+    F.SimulateMouseDown(mbRight, [ssRight], 10, 10);
+
+    { First stroke: paint at (30, 10) — offset is (10-30, 10-10) = (-20, 0) }
+    F.SimulateMouseDown(mbLeft, [ssLeft], 30, 10);
+    F.SimulateMouseUp(mbLeft, [], 30, 10);
+
+    { Second stroke: paint at (40, 10) — aligned offset should still be (-20, 0),
+      so it reads from (20, 10) which is green }
+    F.SimulateMouseDown(mbLeft, [ssLeft], 40, 10);
+    F.SimulateMouseUp(mbLeft, [], 40, 10);
+
+    Pixel1 := Unpremultiply(F.TestDocument.ActiveLayer.Surface[30, 10]);
+    Pixel2 := Unpremultiply(F.TestDocument.ActiveLayer.Surface[40, 10]);
+    AssertTrue('first stroke should clone red pixel', Pixel1.R > 200);
+    AssertTrue('second stroke should clone green pixel (aligned offset preserved)', Pixel2.G > 200);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.CropToolFourByThreeAspectConstraintProducesCorrectRatio;
+var
+  F: TMainForm;
+  W, H: Integer;
+begin
+  F := CreateTestForm(tkCrop);
+  try
+    F.SetCropOptionsForTest(2, 0); { 4:3, no guide }
+    F.SimulateMouseDown(mbLeft, [ssLeft], 10, 10);
+    F.SimulateMouseMove([ssLeft], 90, 90);
+    F.SimulateMouseUp(mbLeft, [], 90, 90);
+    W := F.TestDocument.Width;
+    H := F.TestDocument.Height;
+    AssertTrue('4:3 crop should produce width > height', W > H);
+    { Check ratio: W/H should equal 4/3. Allow 1 pixel rounding tolerance. }
+    AssertTrue('4:3 crop ratio should be approximately 4/3',
+      Abs(W * 3 - H * 4) <= 4);
+  finally
+    F.Destroy;
+  end;
+end;
+
+procedure TPipelineIntegrationTests.CropToolSixteenByNineAspectConstraintProducesCorrectRatio;
+var
+  F: TMainForm;
+  W, H: Integer;
+begin
+  F := CreateTestForm(tkCrop);
+  try
+    F.SetCropOptionsForTest(3, 0); { 16:9, no guide }
+    F.SimulateMouseDown(mbLeft, [ssLeft], 5, 5);
+    F.SimulateMouseMove([ssLeft], 85, 60);
+    F.SimulateMouseUp(mbLeft, [], 85, 60);
+    W := F.TestDocument.Width;
+    H := F.TestDocument.Height;
+    AssertTrue('16:9 crop should produce width > height', W > H);
+    { Check ratio: W/H should equal 16/9. Allow 1 pixel rounding tolerance. }
+    AssertTrue('16:9 crop ratio should be approximately 16/9',
+      Abs(W * 9 - H * 16) <= 16);
   finally
     F.Destroy;
   end;

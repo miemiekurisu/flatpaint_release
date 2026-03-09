@@ -20,6 +20,7 @@ type
     procedure MovePixelsControllerCancelRestoresSelectionWithoutHistory;
     procedure SelectionModeMappingFollowsModifierContract;
     procedure SelectionRectangleCommitPushesHistoryAndSelection;
+    procedure SelectionFeatherIndependentFromAntiAliasToggle;
     procedure SelectionMoveControllerPushesHistoryAndMovesMask;
     procedure SelectionMagicWandCommitPushesHistoryAndSelectsSample;
   end;
@@ -350,6 +351,38 @@ begin
   end;
 end;
 
+procedure TToolControllerTests.SelectionFeatherIndependentFromAntiAliasToggle;
+var
+  Doc: TImageDocument;
+  Controller: TSelectionToolController;
+begin
+  Doc := TImageDocument.Create(24, 24);
+  Controller := TSelectionToolController.Create;
+  try
+    AssertTrue(
+      'rectangle commit with anti-alias disabled should still succeed',
+      Controller.CommitRectangleSelection(
+        Doc,
+        Point(6, 6),
+        Point(15, 15),
+        scReplace,
+        False,
+        2,
+        'Rect Select'
+      )
+    );
+    AssertEquals('history should include selection commit', 1, Doc.UndoDepth);
+    AssertEquals('center remains selected', 255, Doc.Selection.Coverage(10, 10));
+    AssertTrue(
+      'feather should still soften outside edge even with anti-alias disabled',
+      Doc.Selection.Coverage(5, 10) > 0
+    );
+  finally
+    Controller.Free;
+    Doc.Free;
+  end;
+end;
+
 procedure TToolControllerTests.SelectionMoveControllerPushesHistoryAndMovesMask;
 var
   Doc: TImageDocument;
@@ -402,7 +435,6 @@ begin
         scReplace,
         False,
         True,
-        False,
         0,
         'Magic Wand'
       )

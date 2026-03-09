@@ -25,6 +25,14 @@ procedure FPSetInterpolationQuality(AQuality: LongInt); cdecl;
 procedure FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
   ADashLength: Double; ADashPhase: Double; AClosed: LongInt); cdecl;
 
+{ Draw multiple marching-ants contours in a single batched CGPath.
+  All contours are combined into one CGPath with multiple subpaths
+  and stroked in exactly 2 passes (white + black dash). }
+procedure FPDrawMarchingAntsMultiContour(APointsXY: PDouble;
+  AContourOffsets, AContourLengths, AClosedFlags: PLongInt;
+  AContourCount: LongInt;
+  ADashLength: Double; ADashPhase: Double); cdecl;
+
 implementation
 
 {$IFDEF TESTING}
@@ -48,12 +56,24 @@ procedure FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
 begin
   { no-op in headless test builds }
 end;
+
+procedure FPDrawMarchingAntsMultiContour(APointsXY: PDouble;
+  AContourOffsets, AContourLengths, AClosedFlags: PLongInt;
+  AContourCount: LongInt;
+  ADashLength: Double; ADashPhase: Double); cdecl;
+begin
+  { no-op in headless test builds }
+end;
 {$ELSE}
 procedure FPForceAquaAppearance(ANSViewHandle: Pointer); cdecl; external;
 function FPGetScreenBackingScale: Double; cdecl; external;
 procedure FPSetInterpolationQuality(AQuality: LongInt); cdecl; external;
 procedure FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
   ADashLength: Double; ADashPhase: Double; AClosed: LongInt); cdecl; external;
+procedure FPDrawMarchingAntsMultiContour(APointsXY: PDouble;
+  AContourOffsets, AContourLengths, AClosedFlags: PLongInt;
+  AContourCount: LongInt;
+  ADashLength: Double; ADashPhase: Double); cdecl; external;
 
 {$LINK fp_appearance.o}
 {$ENDIF}

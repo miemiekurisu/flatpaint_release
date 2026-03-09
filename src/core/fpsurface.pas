@@ -13,6 +13,19 @@ type
     rmBilinear
   );
 
+  TGradientKind = (
+    gkLinear,
+    gkRadial,
+    gkConical,
+    gkDiamond
+  );
+
+  TGradientRepeatMode = (
+    grmNone,
+    grmSawtooth,
+    grmTriangular
+  );
+
   TRecolorBlendMode = (
     rbmReplaceRGBCompat,
     rbmColor,
@@ -74,11 +87,25 @@ type
     procedure DrawQuadraticBezier(X1, Y1, ControlX, ControlY, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawCubicBezier(X1, Y1, Control1X, Control1Y, Control2X, Control2Y, X2, Y2, Radius: Integer; const AColor: TRGBA32; Opacity: Byte = 255; Hardness: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
-    procedure DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
+    procedure DrawRoundedRectangle(
+      X1, Y1, X2, Y2, StrokeWidth: Integer;
+      const AColor: TRGBA32;
+      Filled: Boolean;
+      Opacity: Byte = 255;
+      ASelection: TSelectionMask = nil;
+      ACornerRadius: Integer = 0
+    );
     procedure DrawEllipse(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure DrawPolygon(const APoints: array of TPoint; StrokeWidth: Integer; const AColor: TRGBA32; Closed: Boolean = True; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure FillPolygon(const APoints: array of TPoint; const AColor: TRGBA32; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
     procedure FloodFill(X, Y: Integer; const AColor: TRGBA32; Tolerance: Byte = 0);
+    procedure FillGradientAdvanced(
+      X1, Y1, X2, Y2: Integer;
+      const StartColor, EndColor: TRGBA32;
+      AKind: TGradientKind = gkLinear;
+      ARepeatMode: TGradientRepeatMode = grmNone;
+      ASelection: TSelectionMask = nil
+    );
     procedure FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask = nil);
     procedure FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask = nil);
     procedure PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte = 255; ASelection: TSelectionMask = nil);
@@ -1370,7 +1397,14 @@ end;
 
 { --- End SDF Helpers --- }
 
-procedure TRasterSurface.DrawRoundedRectangle(X1, Y1, X2, Y2, StrokeWidth: Integer; const AColor: TRGBA32; Filled: Boolean; Opacity: Byte; ASelection: TSelectionMask);
+procedure TRasterSurface.DrawRoundedRectangle(
+  X1, Y1, X2, Y2, StrokeWidth: Integer;
+  const AColor: TRGBA32;
+  Filled: Boolean;
+  Opacity: Byte;
+  ASelection: TSelectionMask;
+  ACornerRadius: Integer
+);
 var
   LeftX: Integer;
   RightX: Integer;
@@ -1398,7 +1432,15 @@ begin
   TopY := Min(Y1, Y2);
   BottomY := Max(Y1, Y2);
   StrokeWidth := Max(1, StrokeWidth);
-  CornerRadius := Max(2, Min((RightX - LeftX + 1) div 4, (BottomY - TopY + 1) div 4));
+  if ACornerRadius > 0 then
+    CornerRadius := ACornerRadius
+  else
+    CornerRadius := Max(2, Min((RightX - LeftX + 1) div 4, (BottomY - TopY + 1) div 4));
+  CornerRadius := EnsureRange(
+    CornerRadius,
+    1,
+    Max(1, Min((RightX - LeftX + 1) div 2, (BottomY - TopY + 1) div 2))
+  );
   CornerRadius := Max(CornerRadius, StrokeWidth);
 
   InnerLeft := LeftX + StrokeWidth;
@@ -1731,64 +1773,68 @@ begin
   end;
 end;
 
-procedure TRasterSurface.FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
+function ApplyGradientRepeat(T: Double; AMode: TGradientRepeatMode): Double; inline;
 var
-  X: Integer;
-  Y: Integer;
-  Coverage: Byte;
-  DX: Double;
-  DY: Double;
-  LengthSquared: Double;
-  Projection: Double;
-  PremulStart: TRGBA32;
-  PremulEnd: TRGBA32;
+  Phase: Double;
 begin
-  { Premultiply the gradient endpoints so LerpColor interpolates in premul space. }
-  PremulStart := Premultiply(StartColor);
-  PremulEnd := Premultiply(EndColor);
-  DX := X2 - X1;
-  DY := Y2 - Y1;
-  LengthSquared := (DX * DX) + (DY * DY);
-
-  if LengthSquared <= 0.0 then
-  begin
-    if ASelection = nil then
-      Clear(StartColor)
-    else
-      FillSelection(ASelection, StartColor, 255);
-    Exit;
-  end;
-
-  for Y := 0 to FHeight - 1 do
-    for X := 0 to FWidth - 1 do
-    begin
-      Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
-      if ASelection = nil then
-        Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, Projection)
-      else
+  case AMode of
+    grmSawtooth:
       begin
-        Coverage := ASelection.Coverage(X, Y);
-        if Coverage = 0 then
-          Continue;
-        BlendPixelPremul(X, Y, LerpColor(PremulStart, PremulEnd, Projection), Coverage);
+        Phase := Frac(T);
+        if Phase < 0.0 then
+          Phase := Phase + 1.0;
+        Result := Phase;
       end;
-    end;
+    grmTriangular:
+      begin
+        Phase := T - Floor(T);
+        if Phase < 0.0 then
+          Phase := Phase + 1.0;
+        if Phase <= 0.5 then
+          Result := Phase * 2.0
+        else
+          Result := (1.0 - Phase) * 2.0;
+      end;
+  else
+    Result := EnsureRange(T, 0.0, 1.0);
+  end;
 end;
 
-procedure TRasterSurface.FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
+procedure TRasterSurface.FillGradientAdvanced(
+  X1, Y1, X2, Y2: Integer;
+  const StartColor, EndColor: TRGBA32;
+  AKind: TGradientKind;
+  ARepeatMode: TGradientRepeatMode;
+  ASelection: TSelectionMask
+);
 var
   X: Integer;
   Y: Integer;
   Coverage: Byte;
+  TX: Double;
+  TY: Double;
+  DX: Double;
+  DY: Double;
+  Len: Double;
+  LengthSquared: Double;
+  Projection: Double;
+  PixelAngle: Double;
+  BaseAngle: Double;
+  Denominator: Double;
   Dist: Double;
   T: Double;
   PremulStart: TRGBA32;
   PremulEnd: TRGBA32;
 begin
-  { Premultiply the gradient endpoints so LerpColor interpolates in premul space. }
   PremulStart := Premultiply(StartColor);
   PremulEnd := Premultiply(EndColor);
-  if Radius <= 0 then
+  DX := X2 - X1;
+  DY := Y2 - Y1;
+  LengthSquared := (DX * DX) + (DY * DY);
+  Len := Sqrt(LengthSquared);
+  BaseAngle := ArcTan2(DY, DX);
+
+  if (AKind in [gkLinear, gkRadial, gkConical]) and (Len <= 0.0) then
   begin
     if ASelection = nil then
       Clear(StartColor)
@@ -1796,11 +1842,41 @@ begin
       FillSelection(ASelection, StartColor, 255);
     Exit;
   end;
+
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
     begin
-      Dist := Sqrt(((X - CenterX) * (X - CenterX)) + ((Y - CenterY) * (Y - CenterY)));
-      T := Dist / Radius;
+      case AKind of
+        gkRadial:
+          begin
+            Dist := Sqrt(((X - X1) * (X - X1)) + ((Y - Y1) * (Y - Y1)));
+            T := Dist / Len;
+          end;
+        gkConical:
+          begin
+            PixelAngle := ArcTan2(Y - Y1, X - X1);
+            T := (PixelAngle - BaseAngle) / (2.0 * Pi);
+            while T < 0.0 do
+              T := T + 1.0;
+            while T >= 1.0 do
+              T := T - 1.0;
+          end;
+        gkDiamond:
+          begin
+            TX := Abs(X - X1);
+            TY := Abs(Y - Y1);
+            Denominator := Abs(DX) + Abs(DY);
+            if Denominator <= 0.0 then
+              Denominator := 1.0;
+            T := (TX + TY) / Denominator;
+          end;
+      else
+        begin
+          Projection := (((X - X1) * DX) + ((Y - Y1) * DY)) / LengthSquared;
+          T := Projection;
+        end;
+      end;
+      T := ApplyGradientRepeat(T, ARepeatMode);
       if ASelection = nil then
         Pixels[X, Y] := LerpColor(PremulStart, PremulEnd, T)
       else
@@ -1811,6 +1887,26 @@ begin
         BlendPixelPremul(X, Y, LerpColor(PremulStart, PremulEnd, T), Coverage);
       end;
     end;
+end;
+
+procedure TRasterSurface.FillGradient(X1, Y1, X2, Y2: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
+begin
+  FillGradientAdvanced(X1, Y1, X2, Y2, StartColor, EndColor, gkLinear, grmNone, ASelection);
+end;
+
+procedure TRasterSurface.FillRadialGradient(CenterX, CenterY, Radius: Integer; const StartColor, EndColor: TRGBA32; ASelection: TSelectionMask);
+begin
+  FillGradientAdvanced(
+    CenterX,
+    CenterY,
+    CenterX + Radius,
+    CenterY,
+    StartColor,
+    EndColor,
+    gkRadial,
+    grmNone,
+    ASelection
+  );
 end;
 
 procedure TRasterSurface.PasteSurface(ASource: TRasterSurface; OffsetX, OffsetY: Integer; Opacity: Byte; ASelection: TSelectionMask);

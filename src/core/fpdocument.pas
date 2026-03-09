@@ -199,9 +199,21 @@ type
     procedure Deselect;
     procedure SelectAll;
     procedure InvertSelection;
-    procedure SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectLasso(const APoints: array of TPoint; AMode: TSelectionCombineMode = scReplace);
+    procedure SelectRectangle(
+      X1, Y1, X2, Y2: Integer;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = False
+    );
+    procedure SelectEllipse(
+      X1, Y1, X2, Y2: Integer;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = True
+    );
+    procedure SelectLasso(
+      const APoints: array of TPoint;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = True
+    );
     procedure SelectMagicWand(X, Y: Integer; Tolerance: Byte = 0; AMode: TSelectionCombineMode = scReplace; UseAllLayers: Boolean = False; Contiguous: Boolean = True);
     function CopySelectionToSurface(ACropToBounds: Boolean = False): TRasterSurface;
     function CopyMergedToSurface(ACropToBounds: Boolean = False): TRasterSurface;
@@ -1123,19 +1135,31 @@ begin
   FSelection.Invert;
 end;
 
-procedure TImageDocument.SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
+procedure TImageDocument.SelectRectangle(
+  X1, Y1, X2, Y2: Integer;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 begin
-  FSelection.SelectRectangle(X1, Y1, X2, Y2, AMode);
+  FSelection.SelectRectangle(X1, Y1, X2, Y2, AMode, AAntiAlias);
 end;
 
-procedure TImageDocument.SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
+procedure TImageDocument.SelectEllipse(
+  X1, Y1, X2, Y2: Integer;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 begin
-  FSelection.SelectEllipse(X1, Y1, X2, Y2, AMode);
+  FSelection.SelectEllipse(X1, Y1, X2, Y2, AMode, AAntiAlias);
 end;
 
-procedure TImageDocument.SelectLasso(const APoints: array of TPoint; AMode: TSelectionCombineMode);
+procedure TImageDocument.SelectLasso(
+  const APoints: array of TPoint;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 begin
-  FSelection.SelectPolygon(APoints, AMode);
+  FSelection.SelectPolygon(APoints, AMode, AAntiAlias);
 end;
 
 procedure TImageDocument.SelectMagicWand(X, Y: Integer; Tolerance: Byte; AMode: TSelectionCombineMode; UseAllLayers: Boolean; Contiguous: Boolean);

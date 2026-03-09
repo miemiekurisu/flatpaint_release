@@ -24,6 +24,10 @@ type
     procedure MaskedGradientLeavesUnselectedPixelsUntouched;
     procedure MaskedGradientCoverageBlendsPartiallySelectedPixels;
     procedure MaskedRadialGradientCoverageBlendsPartiallySelectedPixels;
+    procedure ConicalGradientVariesByAngle;
+    procedure LinearGradientSawtoothRepeatWrapsRamp;
+    procedure DiamondGradientUsesL1Distance;
+    procedure LinearGradientTriangularRepeatMirrors;
     procedure FillSelectionCoverageScalesOpacity;
     procedure CopySelectionCoverageScalesAlpha;
     procedure MoveSelectedPixelsCoverageUsesSoftCopyAndSoftErase;
@@ -48,6 +52,7 @@ type
     procedure EraserLineReducesAlphaChannel;
     procedure DrawLineSoftHardnessProducesGradientEdge;
     procedure SquareLineBrushCoversCornerPixels;
+    procedure RoundedRectangleHonorsExplicitCornerRadius;
     procedure QuadraticBezierBendsTowardControlPoint;
     procedure CubicBezierUsesBothControlHandles;
     procedure MotionBlurChangesPixels;
@@ -401,6 +406,130 @@ begin
     AssertEquals('center blue is coverage-weighted', 15, Surface[1, 1].B);
   finally
     Selection.Free;
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.ConicalGradientVariesByAngle;
+var
+  Surface: TRasterSurface;
+  EastPixel: TRGBA32;
+  WestPixel: TRGBA32;
+  NorthPixel: TRGBA32;
+  SouthPixel: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(9, 9);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.FillGradientAdvanced(
+      4, 4, 8, 4,
+      RGBA(255, 0, 0, 255),
+      RGBA(0, 0, 255, 255),
+      gkConical,
+      grmNone
+    );
+    EastPixel := Surface[8, 4];
+    WestPixel := Surface[0, 4];
+    NorthPixel := Surface[4, 0];
+    SouthPixel := Surface[4, 8];
+    AssertTrue('east pixel should stay closer to start color', EastPixel.R > EastPixel.B);
+    AssertTrue('west pixel should be near midpoint blend', Abs(WestPixel.R - WestPixel.B) <= 8);
+    AssertTrue('north pixel should move toward end color', NorthPixel.B > NorthPixel.R);
+    AssertTrue('south pixel should stay closer to start color', SouthPixel.R > SouthPixel.B);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.LinearGradientSawtoothRepeatWrapsRamp;
+var
+  Surface: TRasterSurface;
+  SampleA: TRGBA32;
+  SampleB: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(8, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.FillGradientAdvanced(
+      0, 0, 3, 0,
+      RGBA(255, 0, 0, 255),
+      RGBA(0, 0, 255, 255),
+      gkLinear,
+      grmSawtooth
+    );
+    SampleA := Surface[1, 0];
+    SampleB := Surface[4, 0];
+    AssertTrue('wrapped sawtooth repeat should produce similar repeated samples',
+      Abs(SampleA.R - SampleB.R) <= 8);
+    AssertTrue('wrapped sawtooth repeat should produce similar repeated samples (blue)',
+      Abs(SampleA.B - SampleB.B) <= 8);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.DiamondGradientUsesL1Distance;
+{ Diamond gradient should use Manhattan (L1) distance from center.
+  Pixels at the same Manhattan distance should get the same T value. }
+var
+  Surface: TRasterSurface;
+  CornerPixel: TRGBA32;
+  EdgeMidPixel: TRGBA32;
+  CenterPixel: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(11, 11);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.FillGradientAdvanced(
+      5, 5, 10, 5,
+      RGBA(255, 0, 0, 255),
+      RGBA(0, 0, 255, 255),
+      gkDiamond,
+      grmNone
+    );
+    CenterPixel := Surface[5, 5];
+    EdgeMidPixel := Surface[10, 5];
+    CornerPixel := Surface[8, 8];
+    AssertTrue('center should be start color (red)', CenterPixel.R > 200);
+    AssertTrue('east edge mid should be near end color', EdgeMidPixel.B > EdgeMidPixel.R);
+    { (8,8) has Manhattan dist 6 from (5,5), same as (10,1). Both should be > 1.0 → clamped to end. }
+    AssertTrue('diagonal pixel beyond L1 radius should be end color', CornerPixel.B > CornerPixel.R);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.LinearGradientTriangularRepeatMirrors;
+{ Triangular repeat should mirror the ramp: T=0→1→0 over two gradient lengths.
+  With gradient length=4, at pixel 2 T=0.5→mapped to 1.0 (end), at pixel 4
+  T=1.0→mapped to 0.0 (back to start), at pixel 6 T=1.5→mapped to 1.0 (end). }
+var
+  Surface: TRasterSurface;
+  SampleAtHalf: TRGBA32;
+  SampleAtOne: TRGBA32;
+  SampleAtOneAndHalf: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(16, 1);
+  try
+    Surface.Clear(TransparentColor);
+    Surface.FillGradientAdvanced(
+      0, 0, 4, 0,
+      RGBA(255, 0, 0, 255),
+      RGBA(0, 0, 255, 255),
+      gkLinear,
+      grmTriangular
+    );
+    SampleAtHalf := Surface[2, 0];
+    SampleAtOne := Surface[4, 0];
+    SampleAtOneAndHalf := Surface[6, 0];
+    { At T=0.5 (pixel 2): triangular maps to 1.0 → end color (blue) }
+    AssertTrue('T=0.5 should reach end color via triangular peak',
+      SampleAtHalf.B > SampleAtHalf.R);
+    { At T=1.0 (pixel 4): triangular maps to 0.0 → start color (red) }
+    AssertTrue('T=1.0 should mirror back to start color', SampleAtOne.R > SampleAtOne.B);
+    { At T=1.5 (pixel 6): triangular maps to 1.0 → end color (blue) }
+    AssertTrue('T=1.5 should reach end color again', SampleAtOneAndHalf.B > SampleAtOneAndHalf.R);
+  finally
     Surface.Free;
   end;
 end;
@@ -924,6 +1053,43 @@ begin
     AssertEquals('outside stays clear', 0, Surface[0, 0].A);
   finally
     Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RoundedRectangleHonorsExplicitCornerRadius;
+var
+  SmallRadiusSurface: TRasterSurface;
+  LargeRadiusSurface: TRasterSurface;
+begin
+  SmallRadiusSurface := TRasterSurface.Create(24, 24);
+  LargeRadiusSurface := TRasterSurface.Create(24, 24);
+  try
+    SmallRadiusSurface.Clear(TransparentColor);
+    LargeRadiusSurface.Clear(TransparentColor);
+    SmallRadiusSurface.DrawRoundedRectangle(
+      2, 2, 21, 21, 1,
+      RGBA(255, 0, 0, 255),
+      True,
+      255,
+      nil,
+      2
+    );
+    LargeRadiusSurface.DrawRoundedRectangle(
+      2, 2, 21, 21, 1,
+      RGBA(255, 0, 0, 255),
+      True,
+      255,
+      nil,
+      8
+    );
+
+    AssertTrue(
+      'smaller corner radius should preserve more corner coverage',
+      SmallRadiusSurface[3, 3].A > LargeRadiusSurface[3, 3].A
+    );
+  finally
+    SmallRadiusSurface.Free;
+    LargeRadiusSurface.Free;
   end;
 end;
 

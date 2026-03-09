@@ -7,6 +7,24 @@ Use the same compact structure every time.
 - This is a cumulative historical issue log and includes legacy entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## 2026-03-09 (selection option coupling made anti-alias behave like a feather enable switch)
+- Problem: `Anti-alias` checkbox in selection tools did not represent true edge-generation semantics and mainly worked as a feather enable gate.
+- Core error: anti-alias and feather responsibilities were coupled in controller/UI routing (`Anti-alias` -> `ApplyFeatherIfNeeded` enable flag).
+- Investigation: traced selection commit path (`mainform` -> `TSelectionToolController` -> `TSelectionMask`) and compared option wiring with resulting mask coverage behavior.
+- Root cause: no explicit anti-alias parameter existed in core selection constructors; feather application boolean was reused as a proxy.
+- Fix: introduced explicit anti-alias parameters for rectangle/ellipse/polygon selection generation, decoupled controller feather application from anti-alias state, and aligned UI visibility so anti-alias is only shown where behavior exists.
+- Reuse note: for editor options with similar names (`anti-alias`, `feather`, `hardness`, `smooth`), never multiplex them through one boolean gate; each option needs a direct algorithmic control path and dedicated regression tests.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-09 (tool documentation drifted from implemented depth and overstated parity completion)
+- Problem: tool capability docs claimed that no meaningful tool-surface gaps remained, while code still had several parity-depth gaps under a fixed tool set.
+- Core error: `TOOL_OPTIONS_BASELINE` and `FEATURE_MATRIX` status wording had become more optimistic than current implementation depth.
+- Investigation: re-audited `TToolKind` routes, option controls, and pixel-operation paths in `mainform`, `fpselection`, `fptoolcontrollers`, `fpsurface`, and text pipeline units.
+- Root cause: docs tracked route existence correctly but failed to keep parity-depth qualifiers current after multiple incremental fixes.
+- Fix: corrected docs to code-first reality: kept route completeness explicit, marked `Selection/Paint/Draw` as `Partial` in matrix, and enumerated concrete parity gaps (selection AA semantics, text depth, gradient/clone/crop option breadth, shape depth).
+- Reuse note: when a tool reaches "runnable" status, keep a separate parity-depth check; never let route completeness wording stand in for backend/option semantic completeness.
+- Repeat count: `This issue has occurred 1 time(s)`
+
 ## Template
 - Problem: what failed
 - Core error: main error or direct symptom
@@ -2804,4 +2822,13 @@ Based on all findings, the strategy is revised from the previous entry's generic
 - Root cause: incorrect assumption that LCL's `SetWindowOrgEx` was a software-level offset; on Cocoa it translates the actual CG context.
 - Fix: removed offset parameters from `FPDrawMarchingAntsPolyline()` entirely. The CGContext already has the correct translation from `SetWindowOrgEx`, so LCL logical coordinates are directly correct.
 - Reuse note: when drawing natively on `[NSGraphicsContext currentContext].CGContext` within an LCL paint handler, the CG context already carries the LCL window-origin translation. Do NOT add additional CTM offsets for `SetWindowOrgEx`-based padding.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-09 — Marquee overlay second hang: O(N) per-contour CGContextStrokePath calls cause GPU pipeline stall on complex lasso
+- Problem: complex self-intersecting lasso selections (3-10 overlapping layers) caused 3-5 second hangs during overlay paint. macOS hung-report showed 17/17 main-thread samples blocked in `CA::CG::stroke_path` → `CA::CG::Queue::flush_queue()` → `semaphore_wait_trap` waiting for Metal GPU.
+- Core error: `DrawSelectionMarqueeOverlay` iterated over all contours and called `FPDrawMarchingAntsPolyline` once per contour. Each call issued 2 `CGContextStrokePath` calls (white base + black dash). For N contours → 2N separate GPU draw-call submissions. Complex lasso selections with overlapping regions easily produced hundreds of contours, overwhelming the Metal command queue.
+- Investigation: analyzed macOS hung log; main thread blocked in `CA::CG::Queue::flush_queue() → semaphore_wait_trap` (GPU pipeline full). Render thread `CA::CG::Queue` was 17/17 samples in `CA::CG::fill_path` / `CA::OGL::PathStroker::flush_points`. Root cause: O(N) separate GPU stroke submissions instead of single batched path.
+- Root cause: `FPDrawMarchingAntsPolyline` was designed for single-contour use; `DrawSelectionMarqueeOverlay` called it in a loop per contour. Each call created a separate CGPath and flushed through the GPU pipeline individually.
+- Fix: added `FPDrawMarchingAntsMultiContour()` in `fp_appearance.m` that accepts ALL contours at once, builds a single CGPath with multiple subpaths (one `CGContextMoveToPoint` per contour), and strokes the entire path in exactly 2 `CGContextStrokePath` calls total regardless of contour count. Rewrote `DrawSelectionMarqueeOverlay` to pre-build flat coordinate arrays and call the batch function once.
+- Reuse note: when rendering multiple independent contours/subpaths as marching ants, ALWAYS batch them into a single CGPath with multiple subpaths. Never loop calling `CGContextStrokePath` per contour — each call triggers a GPU command buffer flush. The CGPath multi-subpath pattern (`CGContextMoveToPoint` for each new subpath) is the correct batching approach.
 - Repeat count: `This issue has occurred 1 time(s)`

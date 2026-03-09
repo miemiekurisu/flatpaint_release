@@ -153,6 +153,8 @@ type
     FColorsValueLabel: TLabel;
     FBrushSpin: TSpinEdit;
     FTextFontButton: TButton;
+    FTextAlignLabel: TLabel;
+    FTextAlignCombo: TComboBox;
     FToolCombo: TComboBox;
     FZoomCombo: TComboBox;
     FOptionLabel: TLabel;
@@ -182,7 +184,7 @@ type
     FCloneStampSource: TPoint;
     FCloneStampSampled: Boolean;
     FTextLastResult: TTextDialogResult;
-    FInlineTextEdit: TEdit;
+    FInlineTextEdit: TMemo;
     FInlineTextAnchor: TPoint;
     FInlineTextColor: TRGBA32;
     FInlineTextCommitting: Boolean;
@@ -264,15 +266,23 @@ type
     FFillTolerance: Integer;
     FFillTolSpin: TSpinEdit;
     FFillTolLabel: TLabel;
-    { Gradient type and reverse }
-    { 0=Linear, 1=Radial }
+    { Gradient options }
+    { 0=Linear, 1=Radial, 2=Conical, 3=Diamond }
     FGradientType: Integer;
+    { 0=None, 1=Sawtooth, 2=Triangular }
+    FGradientRepeatMode: Integer;
     FGradientReverse: Boolean;
     FGradientTypeCombo: TComboBox;
     FGradientTypeLabel: TLabel;
+    FGradientRepeatCombo: TComboBox;
+    FGradientRepeatLabel: TLabel;
     FGradientReverseCheck: TCheckBox;
     FCloneAligned: Boolean;
     FCloneAlignedCheck: TCheckBox;
+    { Clone sample source: 0=Current Layer, 1=Image }
+    FCloneSampleSource: Integer;
+    FCloneSampleLabel: TLabel;
+    FCloneSampleCombo: TComboBox;
     FRecolorPreserveValue: Boolean;
     FRecolorPreserveValueCheck: TCheckBox;
     FRecolorContiguous: Boolean;
@@ -306,6 +316,19 @@ type
     FSelFeather: Integer;
     FSelFeatherLabel: TLabel;
     FSelFeatherSpin: TSpinEdit;
+    { Crop tool options }
+    { 0=Free, 1=1:1, 2=4:3, 3=16:9, 4=Current Image }
+    FCropAspectMode: Integer;
+    { 0=None, 1=Rule of Thirds, 2=Center Cross }
+    FCropGuideMode: Integer;
+    FCropAspectLabel: TLabel;
+    FCropAspectCombo: TComboBox;
+    FCropGuideLabel: TLabel;
+    FCropGuideCombo: TComboBox;
+    { Rounded rectangle corner radius }
+    FRoundedCornerRadius: Integer;
+    FRoundedRadiusLabel: TLabel;
+    FRoundedRadiusSpin: TSpinEdit;
     FLayerDragIndex: Integer;
     FLayerDragTargetIndex: Integer;
     FLayerLockClosedIcon: TPicture;
@@ -329,6 +352,7 @@ type
     function ImageOriginInViewport: TPoint;
     function ActiveLayerLocalPoint(const APoint: TPoint): TPoint;
     function RecolorSourceAtPoint(const ACanvasPoint: TPoint; out AColor: TRGBA32): Boolean;
+    function ConstrainCropPoint(const AOrigin, ACurrent: TPoint): TPoint;
     function DisplayUnitSuffix: string;
     function LocalizedAction(const AAction: string): string;
     function ApplyingActionText(const AAction: string): string;
@@ -634,8 +658,10 @@ type
     procedure WandContiguousChanged(Sender: TObject);
     procedure FillTolSpinChanged(Sender: TObject);
     procedure GradientTypeComboChanged(Sender: TObject);
+    procedure GradientRepeatComboChanged(Sender: TObject);
     procedure GradientReverseChanged(Sender: TObject);
     procedure CloneAlignedChanged(Sender: TObject);
+    procedure CloneSampleComboChanged(Sender: TObject);
     procedure RecolorPreserveValueChanged(Sender: TObject);
     procedure RecolorContiguousChanged(Sender: TObject);
     procedure RecolorSamplingModeChanged(Sender: TObject);
@@ -644,6 +670,10 @@ type
     procedure PickerSampleComboChanged(Sender: TObject);
     procedure SelAntiAliasChanged(Sender: TObject);
     procedure SelFeatherSpinChanged(Sender: TObject);
+    procedure CropAspectComboChanged(Sender: TObject);
+    procedure CropGuideComboChanged(Sender: TObject);
+    procedure RoundedRadiusSpinChanged(Sender: TObject);
+    procedure TextAlignComboChanged(Sender: TObject);
     { Layer operations }
     procedure LayerRotateZoomClick(Sender: TObject);
     procedure DeselectClick(Sender: TObject);
@@ -752,6 +782,9 @@ type
       APreserveValue: Boolean;
       AContiguous: Boolean = False
     );
+    procedure SetCloneOptionsForTest(AAligned: Boolean; ASampleSource: Integer);
+    procedure SetCropOptionsForTest(AAspectMode, AGuideMode: Integer);
+    function CloneSnapshotPixelForTest(X, Y: Integer; out APixel: TRGBA32): Boolean;
     procedure SetBrushSizeForTest(ASize: Integer);
     procedure SetShapeLineStyleForTest(AStyleIndex: Integer);
     property CurrentToolForTest: TToolKind read FCurrentTool write FCurrentTool;
@@ -930,7 +963,29 @@ begin
   FBrushHardness := FToolHardness[FCurrentTool];
   FStrokeTool := FCurrentTool;
   FEraserSquareShape := False;
+  FShapeStyle := 0;
   FShapeLineStyle := 0;
+  FGradientType := 0;
+  FGradientRepeatMode := 0;
+  FGradientReverse := False;
+  FCloneAligned := True;
+  FCloneSampleSource := 0;
+  FFillSampleSource := 0;
+  FWandSampleSource := 0;
+  FWandContiguous := True;
+  FFillTolerance := 8;
+  FPickerSampleSource := 0;
+  FSelAntiAlias := True;
+  FSelFeather := 0;
+  FCropAspectMode := 0;
+  FCropGuideMode := 1;
+  FRoundedCornerRadius := 16;
+  FTextLastResult.Text := '';
+  FTextLastResult.FontName := '';
+  FTextLastResult.FontSize := 24;
+  FTextLastResult.Bold := False;
+  FTextLastResult.Italic := False;
+  FTextLastResult.Alignment := 0;
   FRenderRevision := 1;
   FPreparedRevision := 0;
   FMarqueeDashPhase := 0;
@@ -1051,8 +1106,10 @@ begin
   FSaveSurfaceOptions := DefaultSaveSurfaceOptions;
   FFillTolerance := 8;
   FGradientType := 0;
+  FGradientRepeatMode := 0;
   FGradientReverse := False;
   FCloneAligned := True;
+  FCloneSampleSource := 0;
   FRecolorPreserveValue := True;
   FRecolorContiguous := False;
   FRecolorSamplingMode := rsmOnce;
@@ -1066,11 +1123,15 @@ begin
   FPickerSampleSource := 0;
   FSelAntiAlias := True;
   FSelFeather := 0;
+  FCropAspectMode := 0;
+  FCropGuideMode := 1;
+  FRoundedCornerRadius := 16;
   FTextLastResult.Text := '';
   FTextLastResult.FontName := '';
   FTextLastResult.FontSize := 24;
   FTextLastResult.Bold := False;
   FTextLastResult.Italic := False;
+  FTextLastResult.Alignment := 0;
   FInlineTextEdit := nil;
   FInlineTextAnchor := Point(0, 0);
   FInlineTextColor := FPrimaryColor;
@@ -1264,14 +1325,18 @@ begin
   FMarqueeTimer.Interval := 18;
   FMarqueeTimer.OnTimer := @MarqueeTimerTick;
 
-  FInlineTextEdit := TEdit.Create(FCanvasHost);
+  FInlineTextEdit := TMemo.Create(FCanvasHost);
   FInlineTextEdit.Parent := FCanvasHost;
   FInlineTextEdit.Visible := False;
+  FInlineTextEdit.ScrollBars := ssNone;
+  FInlineTextEdit.WordWrap := False;
+  FInlineTextEdit.WantReturns := True;
+  FInlineTextEdit.WantTabs := False;
   FInlineTextEdit.AutoSize := False;
   FInlineTextEdit.Left := FPaintBox.Left;
   FInlineTextEdit.Top := FPaintBox.Top;
   FInlineTextEdit.Width := 128;
-  FInlineTextEdit.Height := 30;
+  FInlineTextEdit.Height := 56;
   FInlineTextEdit.OnChange := @InlineTextEditChange;
   FInlineTextEdit.OnMouseDown := @InlineTextEditMouseDown;
   FInlineTextEdit.OnKeyDown := @InlineTextEditKeyDown;
@@ -1496,6 +1561,78 @@ begin
     Exit;
   AColor := Unpremultiply(FDocument.ActiveLayer.Surface[LocalPoint.X, LocalPoint.Y]);
   Result := True;
+end;
+
+function TMainForm.ConstrainCropPoint(const AOrigin, ACurrent: TPoint): TPoint;
+var
+  DeltaX: Integer;
+  DeltaY: Integer;
+  SignX: Integer;
+  SignY: Integer;
+  RatioW: Integer;
+  RatioH: Integer;
+  AbsDX: Integer;
+  AbsDY: Integer;
+  TargetDX: Integer;
+  TargetDY: Integer;
+begin
+  Result := ACurrent;
+  if FCropAspectMode <= 0 then
+    Exit;
+
+  case FCropAspectMode of
+    1:
+      begin
+        RatioW := 1;
+        RatioH := 1;
+      end;
+    2:
+      begin
+        RatioW := 4;
+        RatioH := 3;
+      end;
+    3:
+      begin
+        RatioW := 16;
+        RatioH := 9;
+      end;
+  else
+    begin
+      if (FDocument = nil) or (FDocument.Width <= 0) or (FDocument.Height <= 0) then
+        Exit;
+      RatioW := FDocument.Width;
+      RatioH := FDocument.Height;
+    end;
+  end;
+
+  if (RatioW <= 0) or (RatioH <= 0) then
+    Exit;
+
+  DeltaX := ACurrent.X - AOrigin.X;
+  DeltaY := ACurrent.Y - AOrigin.Y;
+  if (DeltaX = 0) and (DeltaY = 0) then
+    Exit;
+
+  if DeltaX < 0 then SignX := -1 else SignX := 1;
+  if DeltaY < 0 then SignY := -1 else SignY := 1;
+  AbsDX := Abs(DeltaX);
+  AbsDY := Abs(DeltaY);
+
+  if (AbsDX * RatioH) >= (AbsDY * RatioW) then
+  begin
+    TargetDX := Max(1, AbsDX);
+    TargetDY := Max(1, Round(TargetDX * RatioH / RatioW));
+  end
+  else
+  begin
+    TargetDY := Max(1, AbsDY);
+    TargetDX := Max(1, Round(TargetDY * RatioW / RatioH));
+  end;
+
+  Result := Point(
+    AOrigin.X + (SignX * TargetDX),
+    AOrigin.Y + (SignY * TargetDY)
+  );
 end;
 
 function TMainForm.BuildDisplaySurface: TRasterSurface;
@@ -2033,6 +2170,7 @@ begin
     FTextLastResult.FontName := Font.Name;
   if FTextLastResult.FontSize <= 0 then
     FTextLastResult.FontSize := 24;
+  FTextLastResult.Alignment := EnsureRange(FTextLastResult.Alignment, 0, 2);
 end;
 
 function TMainForm.RunSystemTextFontDialog: Boolean;
@@ -2090,26 +2228,42 @@ begin
     FInlineTextColor.G,
     FInlineTextColor.B
   );
+  case EnsureRange(FTextLastResult.Alignment, 0, 2) of
+    1: FInlineTextEdit.Alignment := taCenter;
+    2: FInlineTextEdit.Alignment := taRightJustify;
+  else
+    FInlineTextEdit.Alignment := taLeftJustify;
+  end;
 end;
 
 procedure TMainForm.UpdateInlineTextEditBounds;
 var
   DisplayFontSize: Integer;
-  VisibleText: string;
+  LineIndex: Integer;
+  LongestLineChars: Integer;
+  VisibleLineChars: Integer;
+  LineCount: Integer;
 begin
   if not Assigned(FInlineTextEdit) or not FInlineTextEdit.Visible then
     Exit;
   DisplayFontSize := Max(6, Round(FTextLastResult.FontSize * FZoomScale));
-  VisibleText := FInlineTextEdit.Text;
-  if VisibleText = '' then
-    VisibleText := 'W';
+  LongestLineChars := 1;
+  LineCount := Max(1, FInlineTextEdit.Lines.Count);
+  for LineIndex := 0 to FInlineTextEdit.Lines.Count - 1 do
+  begin
+    VisibleLineChars := Length(FInlineTextEdit.Lines[LineIndex]);
+    if VisibleLineChars <= 0 then
+      VisibleLineChars := 1;
+    if VisibleLineChars > LongestLineChars then
+      LongestLineChars := VisibleLineChars;
+  end;
   FInlineTextEdit.Left := FPaintBox.Left + FCanvasPadX + Round(FInlineTextAnchor.X * FZoomScale);
   FInlineTextEdit.Top := FPaintBox.Top + FCanvasPadY + Round(FInlineTextAnchor.Y * FZoomScale);
   FInlineTextEdit.Width := Max(
-    120,
-    Round((Length(VisibleText) + 3) * DisplayFontSize * 0.7)
+    140,
+    Round((LongestLineChars + 2) * DisplayFontSize * 0.68)
   );
-  FInlineTextEdit.Height := Max(28, Round(DisplayFontSize * 1.9));
+  FInlineTextEdit.Height := Max(56, Round((LineCount + 1) * DisplayFontSize * 1.45));
 end;
 
 procedure TMainForm.BeginInlineTextEdit(const APoint: TPoint);
@@ -2665,6 +2819,7 @@ end;
 procedure TMainForm.UpdateToolOptionControl;
 var
   IsSelTool: Boolean;
+  IsAntiAliasTool: Boolean;
   IsOpacityTool: Boolean;
   IsHardnessTool: Boolean;
   IsEraserShapeTool: Boolean;
@@ -2674,6 +2829,10 @@ var
   IsToleranceTool: Boolean;
   IsFeatherTool: Boolean;
   IsTextTool: Boolean;
+  IsGradientTool: Boolean;
+  IsCloneTool: Boolean;
+  IsCropTool: Boolean;
+  IsRoundedRectTool: Boolean;
 begin
   if not Assigned(FBrushSpin) or not Assigned(FOptionLabel) then
     Exit;
@@ -2690,6 +2849,7 @@ begin
     end;
 
     IsSelTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso, tkMagicWand];
+    IsAntiAliasTool := FCurrentTool in [tkSelectRect, tkSelectEllipse, tkSelectLasso];
     IsOpacityTool := FCurrentTool in [tkPencil, tkBrush, tkEraser, tkCloneStamp, tkRecolor];
     IsHardnessTool := FCurrentTool in [tkBrush, tkEraser];
     IsEraserShapeTool := FCurrentTool = tkEraser;
@@ -2699,6 +2859,10 @@ begin
     IsToleranceTool := FCurrentTool in [tkFill, tkRecolor];
     IsFeatherTool := IsSelTool;
     IsTextTool := FCurrentTool = tkText;
+    IsGradientTool := FCurrentTool = tkGradient;
+    IsCloneTool := FCurrentTool = tkCloneStamp;
+    IsCropTool := FCurrentTool = tkCrop;
+    IsRoundedRectTool := FCurrentTool = tkRoundedRectangle;
 
     if Assigned(FSelModeLabel) then FSelModeLabel.Visible := IsSelTool;
     if Assigned(FSelModeCombo) then FSelModeCombo.Visible := IsSelTool;
@@ -2750,13 +2914,19 @@ begin
       else
         FFillTolSpin.Hint := TR('Fill tolerance (0=exact, 255=fill all)', '填充容差 (0=精确, 255=全部填充)');
     end;
-    if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := FCurrentTool = tkGradient;
-    if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := FCurrentTool = tkGradient;
-    if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := FGradientType;
-    if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Visible := FCurrentTool = tkGradient;
+    if Assigned(FGradientTypeLabel) then FGradientTypeLabel.Visible := IsGradientTool;
+    if Assigned(FGradientTypeCombo) then FGradientTypeCombo.Visible := IsGradientTool;
+    if Assigned(FGradientTypeCombo) then FGradientTypeCombo.ItemIndex := EnsureRange(FGradientType, 0, 3);
+    if Assigned(FGradientRepeatLabel) then FGradientRepeatLabel.Visible := IsGradientTool;
+    if Assigned(FGradientRepeatCombo) then FGradientRepeatCombo.Visible := IsGradientTool;
+    if Assigned(FGradientRepeatCombo) then FGradientRepeatCombo.ItemIndex := EnsureRange(FGradientRepeatMode, 0, 2);
+    if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Visible := IsGradientTool;
     if Assigned(FGradientReverseCheck) then FGradientReverseCheck.Checked := FGradientReverse;
-    if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Visible := FCurrentTool = tkCloneStamp;
+    if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Visible := IsCloneTool;
     if Assigned(FCloneAlignedCheck) then FCloneAlignedCheck.Checked := FCloneAligned;
+    if Assigned(FCloneSampleLabel) then FCloneSampleLabel.Visible := IsCloneTool;
+    if Assigned(FCloneSampleCombo) then FCloneSampleCombo.Visible := IsCloneTool;
+    if Assigned(FCloneSampleCombo) then FCloneSampleCombo.ItemIndex := EnsureRange(FCloneSampleSource, 0, 1);
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Visible := FCurrentTool = tkRecolor;
     if Assigned(FRecolorPreserveValueCheck) then FRecolorPreserveValueCheck.Checked := FRecolorPreserveValue;
     if Assigned(FRecolorContiguousCheck) then FRecolorContiguousCheck.Visible := FCurrentTool = tkRecolor;
@@ -2778,12 +2948,22 @@ begin
     if Assigned(FMosaicBlockLabel) then FMosaicBlockLabel.Visible := FCurrentTool = tkMosaic;
     if Assigned(FMosaicBlockSpin) then FMosaicBlockSpin.Visible := FCurrentTool = tkMosaic;
     if Assigned(FMosaicBlockSpin) then FMosaicBlockSpin.Value := FMosaicBlockSize;
+    if Assigned(FCropAspectLabel) then FCropAspectLabel.Visible := IsCropTool;
+    if Assigned(FCropAspectCombo) then FCropAspectCombo.Visible := IsCropTool;
+    if Assigned(FCropAspectCombo) then FCropAspectCombo.ItemIndex := EnsureRange(FCropAspectMode, 0, 4);
+    if Assigned(FCropGuideLabel) then FCropGuideLabel.Visible := IsCropTool;
+    if Assigned(FCropGuideCombo) then FCropGuideCombo.Visible := IsCropTool;
+    if Assigned(FCropGuideCombo) then FCropGuideCombo.ItemIndex := EnsureRange(FCropGuideMode, 0, 2);
+    if Assigned(FRoundedRadiusLabel) then FRoundedRadiusLabel.Visible := IsRoundedRectTool;
+    if Assigned(FRoundedRadiusSpin) then FRoundedRadiusSpin.Visible := IsRoundedRectTool;
+    if Assigned(FRoundedRadiusSpin) then
+      FRoundedRadiusSpin.Value := EnsureRange(FRoundedCornerRadius, FRoundedRadiusSpin.MinValue, FRoundedRadiusSpin.MaxValue);
     if Assigned(FPickerSampleLabel) then FPickerSampleLabel.Visible := FCurrentTool = tkColorPicker;
     if Assigned(FPickerSampleCombo) then FPickerSampleCombo.Visible := FCurrentTool = tkColorPicker;
     if Assigned(FPickerSampleCombo) then FPickerSampleCombo.ItemIndex := FPickerSampleSource;
     if Assigned(FSelAntiAliasCheck) then
     begin
-      FSelAntiAliasCheck.Visible := IsSelTool;
+      FSelAntiAliasCheck.Visible := IsAntiAliasTool;
       FSelAntiAliasCheck.Checked := FSelAntiAlias;
     end;
     if Assigned(FSelFeatherLabel) then
@@ -2791,7 +2971,7 @@ begin
     if Assigned(FSelFeatherSpin) then
     begin
       FSelFeatherSpin.Visible := IsFeatherTool;
-      FSelFeatherSpin.Enabled := FSelAntiAlias;
+      FSelFeatherSpin.Enabled := True;
       FSelFeatherSpin.Value := EnsureRange(FSelFeather, FSelFeatherSpin.MinValue, FSelFeatherSpin.MaxValue);
     end;
     if Assigned(FTextFontButton) then
@@ -2800,6 +2980,9 @@ begin
       InitializeTextToolDefaults;
       FTextFontButton.Caption := Format(TR('Font: %s', '字体：%s'), [FTextLastResult.FontName]);
     end;
+    if Assigned(FTextAlignLabel) then FTextAlignLabel.Visible := IsTextTool;
+    if Assigned(FTextAlignCombo) then FTextAlignCombo.Visible := IsTextTool;
+    if Assigned(FTextAlignCombo) then FTextAlignCombo.ItemIndex := EnsureRange(FTextLastResult.Alignment, 0, 2);
 
     case FCurrentTool of
       tkPencil, tkBrush, tkEraser, tkLine, tkRectangle, tkRoundedRectangle,
@@ -2903,6 +3086,8 @@ begin
   PlaceLabel(FOptionLabel);
   PlaceControl(FBrushSpin);
   PlaceControl(FTextFontButton);
+  PlaceLabel(FTextAlignLabel);
+  PlaceControl(FTextAlignCombo);
 
   { Opacity }
   PlaceLabel(FOpacityLabel);
@@ -2930,6 +3115,8 @@ begin
   { Gradient Type }
   PlaceLabel(FGradientTypeLabel);
   PlaceControl(FGradientTypeCombo);
+  PlaceLabel(FGradientRepeatLabel);
+  PlaceControl(FGradientRepeatCombo);
 
   { Color Picker Sample }
   PlaceLabel(FPickerSampleLabel);
@@ -2957,6 +3144,8 @@ begin
 
   { Clone Aligned }
   PlaceControl(FCloneAlignedCheck);
+  PlaceLabel(FCloneSampleLabel);
+  PlaceControl(FCloneSampleCombo);
 
   { Recolor Preserve Value }
   PlaceControl(FRecolorPreserveValueCheck);
@@ -2975,6 +3164,16 @@ begin
   { Mosaic Block Size }
   PlaceLabel(FMosaicBlockLabel);
   PlaceControl(FMosaicBlockSpin);
+
+  { Crop options }
+  PlaceLabel(FCropAspectLabel);
+  PlaceControl(FCropAspectCombo);
+  PlaceLabel(FCropGuideLabel);
+  PlaceControl(FCropGuideCombo);
+
+  { Rounded rectangle radius }
+  PlaceLabel(FRoundedRadiusLabel);
+  PlaceControl(FRoundedRadiusSpin);
 
   { Gradient Reverse }
   PlaceControl(FGradientReverseCheck);
@@ -3841,6 +4040,34 @@ begin
   FTextFontButton.Font.Size := OptionsBarFontSize;
   FTextFontButton.Font.Color := ChromeTextColor;
 
+  FTextAlignLabel := TLabel.Create(FOptionsBarPanel);
+  FTextAlignLabel.Parent := FOptionsBarPanel;
+  FTextAlignLabel.Caption := TR('Align:', '对齐：');
+  FTextAlignLabel.Font.Color := ChromeTextColor;
+  FTextAlignLabel.Font.Size := OptionsBarFontSize;
+  FTextAlignLabel.Left := 504;
+  FTextAlignLabel.Top := OptionsBarLabelTop;
+  FTextAlignLabel.Visible := False;
+
+  FTextAlignCombo := TComboBox.Create(FOptionsBarPanel);
+  FTextAlignCombo.Parent := FOptionsBarPanel;
+  FTextAlignCombo.Left := 548;
+  FTextAlignCombo.Top := OptionsBarControlTop;
+  FTextAlignCombo.Height := OptionsBarControlHeight;
+  FTextAlignCombo.Width := 108;
+  FTextAlignCombo.Style := csDropDownList;
+  FTextAlignCombo.Items.Add(TR('Left', '左对齐'));
+  FTextAlignCombo.Items.Add(TR('Center', '居中'));
+  FTextAlignCombo.Items.Add(TR('Right', '右对齐'));
+  FTextAlignCombo.ItemIndex := EnsureRange(FTextLastResult.Alignment, 0, 2);
+  FTextAlignCombo.Visible := False;
+  FTextAlignCombo.OnChange := @TextAlignComboChanged;
+  FTextAlignCombo.Color := clWhite;
+  FTextAlignCombo.Font.Size := OptionsBarFontSize;
+  FTextAlignCombo.Font.Color := ChromeTextColor;
+  FTextAlignCombo.Hint := TR('Text alignment', '文本对齐方式');
+  FTextAlignCombo.ShowHint := True;
+
   FOpacityLabel := TLabel.Create(FOptionsBarPanel);
   FOpacityLabel.Parent := FOptionsBarPanel;
   FOpacityLabel.Caption := TR('Opacity:', '不透明度：');
@@ -4140,7 +4367,7 @@ begin
   FFillTolSpin.Hint := TR('Fill tolerance (0=exact, 255=fill all)', '填充容差 (0=精确, 255=全部)');
   FFillTolSpin.ShowHint := True;
 
-  { Gradient type combo: Linear / Radial }
+  { Gradient type combo }
   FGradientTypeLabel := TLabel.Create(FOptionsBarPanel);
   FGradientTypeLabel.Parent := FOptionsBarPanel;
   FGradientTypeLabel.Caption := TR('Type:', '类型：');
@@ -4155,11 +4382,13 @@ begin
   FGradientTypeCombo.Left := 384;
   FGradientTypeCombo.Top := OptionsBarControlTop;
   FGradientTypeCombo.Height := OptionsBarControlHeight;
-  FGradientTypeCombo.Width := 90;
+  FGradientTypeCombo.Width := 110;
   FGradientTypeCombo.Style := csDropDownList;
   FGradientTypeCombo.Items.Add(TR('Linear', '线性'));
   FGradientTypeCombo.Items.Add(TR('Radial', '径向'));
-  FGradientTypeCombo.ItemIndex := 0;
+  FGradientTypeCombo.Items.Add(TR('Conical', '圆锥'));
+  FGradientTypeCombo.Items.Add(TR('Diamond', '菱形'));
+  FGradientTypeCombo.ItemIndex := EnsureRange(FGradientType, 0, 3);
   FGradientTypeCombo.Visible := False;
   FGradientTypeCombo.OnChange := @GradientTypeComboChanged;
   FGradientTypeCombo.Color := clWhite;
@@ -4168,10 +4397,39 @@ begin
   FGradientTypeCombo.Hint := TR('Gradient type', '渐变类型');
   FGradientTypeCombo.ShowHint := True;
 
+  { Gradient repeat combo }
+  FGradientRepeatLabel := TLabel.Create(FOptionsBarPanel);
+  FGradientRepeatLabel.Parent := FOptionsBarPanel;
+  FGradientRepeatLabel.Caption := TR('Repeat:', '重复：');
+  FGradientRepeatLabel.Font.Size := OptionsBarFontSize;
+  FGradientRepeatLabel.Font.Color := ChromeTextColor;
+  FGradientRepeatLabel.Left := 500;
+  FGradientRepeatLabel.Top := OptionsBarLabelTop;
+  FGradientRepeatLabel.Visible := False;
+
+  FGradientRepeatCombo := TComboBox.Create(FOptionsBarPanel);
+  FGradientRepeatCombo.Parent := FOptionsBarPanel;
+  FGradientRepeatCombo.Left := 558;
+  FGradientRepeatCombo.Top := OptionsBarControlTop;
+  FGradientRepeatCombo.Height := OptionsBarControlHeight;
+  FGradientRepeatCombo.Width := 122;
+  FGradientRepeatCombo.Style := csDropDownList;
+  FGradientRepeatCombo.Items.Add(TR('None', '无'));
+  FGradientRepeatCombo.Items.Add(TR('Sawtooth', '锯齿'));
+  FGradientRepeatCombo.Items.Add(TR('Triangular', '三角波'));
+  FGradientRepeatCombo.ItemIndex := EnsureRange(FGradientRepeatMode, 0, 2);
+  FGradientRepeatCombo.Visible := False;
+  FGradientRepeatCombo.OnChange := @GradientRepeatComboChanged;
+  FGradientRepeatCombo.Color := clWhite;
+  FGradientRepeatCombo.Font.Size := OptionsBarFontSize;
+  FGradientRepeatCombo.Font.Color := ChromeTextColor;
+  FGradientRepeatCombo.Hint := TR('Gradient repeat mode', '渐变重复模式');
+  FGradientRepeatCombo.ShowHint := True;
+
   { Gradient reverse checkbox }
   FGradientReverseCheck := TCheckBox.Create(FOptionsBarPanel);
   FGradientReverseCheck.Parent := FOptionsBarPanel;
-  FGradientReverseCheck.Left := 480;
+  FGradientReverseCheck.Left := 686;
   FGradientReverseCheck.Top := OptionsBarCheckTop;
   FGradientReverseCheck.Width := 80;
   FGradientReverseCheck.Font.Size := OptionsBarFontSize;
@@ -4195,6 +4453,33 @@ begin
   FCloneAlignedCheck.OnChange := @CloneAlignedChanged;
   FCloneAlignedCheck.Hint := TR('Keep the clone source aligned across multiple strokes', '在多次笔划中保持仿制源对齐');
   FCloneAlignedCheck.ShowHint := True;
+
+  FCloneSampleLabel := TLabel.Create(FOptionsBarPanel);
+  FCloneSampleLabel.Parent := FOptionsBarPanel;
+  FCloneSampleLabel.Caption := TR('Sample:', '采样：');
+  FCloneSampleLabel.Font.Size := OptionsBarFontSize;
+  FCloneSampleLabel.Font.Color := ChromeTextColor;
+  FCloneSampleLabel.Left := 566;
+  FCloneSampleLabel.Top := OptionsBarLabelTop;
+  FCloneSampleLabel.Visible := False;
+
+  FCloneSampleCombo := TComboBox.Create(FOptionsBarPanel);
+  FCloneSampleCombo.Parent := FOptionsBarPanel;
+  FCloneSampleCombo.Left := 618;
+  FCloneSampleCombo.Top := OptionsBarControlTop;
+  FCloneSampleCombo.Height := OptionsBarControlHeight;
+  FCloneSampleCombo.Width := 126;
+  FCloneSampleCombo.Style := csDropDownList;
+  FCloneSampleCombo.Items.Add(TR('Current Layer', '当前图层'));
+  FCloneSampleCombo.Items.Add(TR('Image', '图像合成'));
+  FCloneSampleCombo.ItemIndex := EnsureRange(FCloneSampleSource, 0, 1);
+  FCloneSampleCombo.Visible := False;
+  FCloneSampleCombo.OnChange := @CloneSampleComboChanged;
+  FCloneSampleCombo.Color := clWhite;
+  FCloneSampleCombo.Font.Size := OptionsBarFontSize;
+  FCloneSampleCombo.Font.Color := ChromeTextColor;
+  FCloneSampleCombo.Hint := TR('Clone sample source', '仿制采样来源');
+  FCloneSampleCombo.ShowHint := True;
 
   { Recolor preserve-value checkbox }
   FRecolorPreserveValueCheck := TCheckBox.Create(FOptionsBarPanel);
@@ -4331,6 +4616,91 @@ begin
   FPickerSampleCombo.Font.Color := ChromeTextColor;
   FPickerSampleCombo.Hint := TR('Pick color from layer or composite image', '从当前图层或合成图像取色');
   FPickerSampleCombo.ShowHint := True;
+
+  { Crop tool aspect combo }
+  FCropAspectLabel := TLabel.Create(FOptionsBarPanel);
+  FCropAspectLabel.Parent := FOptionsBarPanel;
+  FCropAspectLabel.Caption := TR('Aspect:', '比例：');
+  FCropAspectLabel.Font.Size := OptionsBarFontSize;
+  FCropAspectLabel.Font.Color := ChromeTextColor;
+  FCropAspectLabel.Left := 348;
+  FCropAspectLabel.Top := OptionsBarLabelTop;
+  FCropAspectLabel.Visible := False;
+
+  FCropAspectCombo := TComboBox.Create(FOptionsBarPanel);
+  FCropAspectCombo.Parent := FOptionsBarPanel;
+  FCropAspectCombo.Left := 404;
+  FCropAspectCombo.Top := OptionsBarControlTop;
+  FCropAspectCombo.Height := OptionsBarControlHeight;
+  FCropAspectCombo.Width := 132;
+  FCropAspectCombo.Style := csDropDownList;
+  FCropAspectCombo.Items.Add(TR('Free', '自由'));
+  FCropAspectCombo.Items.Add('1:1');
+  FCropAspectCombo.Items.Add('4:3');
+  FCropAspectCombo.Items.Add('16:9');
+  FCropAspectCombo.Items.Add(TR('Current Image', '当前图像'));
+  FCropAspectCombo.ItemIndex := EnsureRange(FCropAspectMode, 0, 4);
+  FCropAspectCombo.Visible := False;
+  FCropAspectCombo.OnChange := @CropAspectComboChanged;
+  FCropAspectCombo.Color := clWhite;
+  FCropAspectCombo.Font.Size := OptionsBarFontSize;
+  FCropAspectCombo.Font.Color := ChromeTextColor;
+  FCropAspectCombo.Hint := TR('Crop aspect constraint', '裁剪宽高比例约束');
+  FCropAspectCombo.ShowHint := True;
+
+  FCropGuideLabel := TLabel.Create(FOptionsBarPanel);
+  FCropGuideLabel.Parent := FOptionsBarPanel;
+  FCropGuideLabel.Caption := TR('Guide:', '参考线：');
+  FCropGuideLabel.Font.Size := OptionsBarFontSize;
+  FCropGuideLabel.Font.Color := ChromeTextColor;
+  FCropGuideLabel.Left := 542;
+  FCropGuideLabel.Top := OptionsBarLabelTop;
+  FCropGuideLabel.Visible := False;
+
+  FCropGuideCombo := TComboBox.Create(FOptionsBarPanel);
+  FCropGuideCombo.Parent := FOptionsBarPanel;
+  FCropGuideCombo.Left := 596;
+  FCropGuideCombo.Top := OptionsBarControlTop;
+  FCropGuideCombo.Height := OptionsBarControlHeight;
+  FCropGuideCombo.Width := 132;
+  FCropGuideCombo.Style := csDropDownList;
+  FCropGuideCombo.Items.Add(TR('None', '无'));
+  FCropGuideCombo.Items.Add(TR('Thirds', '三分线'));
+  FCropGuideCombo.Items.Add(TR('Center', '中心线'));
+  FCropGuideCombo.ItemIndex := EnsureRange(FCropGuideMode, 0, 2);
+  FCropGuideCombo.Visible := False;
+  FCropGuideCombo.OnChange := @CropGuideComboChanged;
+  FCropGuideCombo.Color := clWhite;
+  FCropGuideCombo.Font.Size := OptionsBarFontSize;
+  FCropGuideCombo.Font.Color := ChromeTextColor;
+  FCropGuideCombo.Hint := TR('Crop composition guide overlay', '裁剪构图辅助线');
+  FCropGuideCombo.ShowHint := True;
+
+  { Rounded rectangle corner radius }
+  FRoundedRadiusLabel := TLabel.Create(FOptionsBarPanel);
+  FRoundedRadiusLabel.Parent := FOptionsBarPanel;
+  FRoundedRadiusLabel.Caption := TR('Corner:', '圆角：');
+  FRoundedRadiusLabel.Font.Size := OptionsBarFontSize;
+  FRoundedRadiusLabel.Font.Color := ChromeTextColor;
+  FRoundedRadiusLabel.Left := 734;
+  FRoundedRadiusLabel.Top := OptionsBarLabelTop;
+  FRoundedRadiusLabel.Visible := False;
+
+  FRoundedRadiusSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FRoundedRadiusSpin.Parent := FOptionsBarPanel;
+  FRoundedRadiusSpin.Left := 790;
+  FRoundedRadiusSpin.Top := OptionsBarControlTop;
+  FRoundedRadiusSpin.Height := OptionsBarControlHeight;
+  FRoundedRadiusSpin.Width := 72;
+  FRoundedRadiusSpin.MinValue := 1;
+  FRoundedRadiusSpin.MaxValue := 1024;
+  FRoundedRadiusSpin.Value := FRoundedCornerRadius;
+  FRoundedRadiusSpin.Visible := False;
+  FRoundedRadiusSpin.OnChange := @RoundedRadiusSpinChanged;
+  FRoundedRadiusSpin.Font.Size := OptionsBarFontSize;
+  FRoundedRadiusSpin.Font.Color := ChromeTextColor;
+  FRoundedRadiusSpin.Hint := TR('Rounded rectangle corner radius (px)', '圆角矩形角半径（像素）');
+  FRoundedRadiusSpin.ShowHint := True;
 
   { Selection anti-alias checkbox }
   FSelAntiAliasCheck := TCheckBox.Create(FOptionsBarPanel);
@@ -5272,48 +5642,88 @@ end;
 
 procedure TMainForm.DrawSelectionMarqueeOverlay(ACanvas: TCanvas);
 var
+  TotalContours: Integer;
+  TotalPoints: Integer;
   ContourIndex: Integer;
   Offset: Integer;
   SegmentCount: Integer;
   I: Integer;
   P: TPoint;
   PointsXY: array of Double;
+  BatchOffsets: array of LongInt;
+  BatchLengths: array of LongInt;
+  BatchClosed: array of LongInt;
+  DestOffset: Integer;
 begin
   if not Assigned(FDocument) or not FDocument.HasSelection then
     Exit;
 
   EnsureSelectionMarqueeCache;
-  if Length(FSelectionMarqueeContourOffsets) = 0 then
+  TotalContours := Length(FSelectionMarqueeContourOffsets);
+  if TotalContours = 0 then
     Exit;
 
-  for ContourIndex := 0 to High(FSelectionMarqueeContourOffsets) do
+  { Calculate total point count across all contours }
+  TotalPoints := 0;
+  for ContourIndex := 0 to TotalContours - 1 do
   begin
-    Offset := FSelectionMarqueeContourOffsets[ContourIndex];
     SegmentCount := FSelectionMarqueeContourLengths[ContourIndex];
     if SegmentCount <= 0 then
       Continue;
     if SegmentCount = 1 then
+      Inc(TotalPoints, 2)  { single-pixel contour: emit 2-point micro-segment }
+    else
+      Inc(TotalPoints, SegmentCount);
+  end;
+  if TotalPoints = 0 then
+    Exit;
+
+  { Build flat coordinate array and per-contour metadata }
+  SetLength(PointsXY, TotalPoints * 2);
+  SetLength(BatchOffsets, TotalContours);
+  SetLength(BatchLengths, TotalContours);
+  SetLength(BatchClosed, TotalContours);
+
+  DestOffset := 0;
+  for ContourIndex := 0 to TotalContours - 1 do
+  begin
+    Offset := FSelectionMarqueeContourOffsets[ContourIndex];
+    SegmentCount := FSelectionMarqueeContourLengths[ContourIndex];
+    BatchOffsets[ContourIndex] := DestOffset;
+    if SegmentCount <= 0 then
     begin
-      P := FSelectionMarqueePoints[Offset];
-      SetLength(PointsXY, 4);
-      PointsXY[0] := (P.X + 0.5) * FZoomScale;
-      PointsXY[1] := (P.Y + 0.5) * FZoomScale;
-      PointsXY[2] := (P.X + 0.5) * FZoomScale + 1;
-      PointsXY[3] := (P.Y + 0.5) * FZoomScale;
-      FPDrawMarchingAntsPolyline(@PointsXY[0], 2,
-        MarqueeSegmentLength, FMarqueeDashPhase, 0);
+      BatchLengths[ContourIndex] := 0;
+      BatchClosed[ContourIndex] := 0;
       Continue;
     end;
-    SetLength(PointsXY, SegmentCount * 2);
-    for I := 0 to SegmentCount - 1 do
+    if SegmentCount = 1 then
     begin
-      P := FSelectionMarqueePoints[Offset + I];
-      PointsXY[I * 2] := (P.X + 0.5) * FZoomScale;
-      PointsXY[I * 2 + 1] := (P.Y + 0.5) * FZoomScale;
+      P := FSelectionMarqueePoints[Offset];
+      PointsXY[DestOffset * 2] := (P.X + 0.5) * FZoomScale;
+      PointsXY[DestOffset * 2 + 1] := (P.Y + 0.5) * FZoomScale;
+      PointsXY[(DestOffset + 1) * 2] := (P.X + 0.5) * FZoomScale + 1;
+      PointsXY[(DestOffset + 1) * 2 + 1] := (P.Y + 0.5) * FZoomScale;
+      BatchLengths[ContourIndex] := 2;
+      BatchClosed[ContourIndex] := 0;
+      Inc(DestOffset, 2);
+    end
+    else
+    begin
+      for I := 0 to SegmentCount - 1 do
+      begin
+        P := FSelectionMarqueePoints[Offset + I];
+        PointsXY[(DestOffset + I) * 2] := (P.X + 0.5) * FZoomScale;
+        PointsXY[(DestOffset + I) * 2 + 1] := (P.Y + 0.5) * FZoomScale;
+      end;
+      BatchLengths[ContourIndex] := SegmentCount;
+      BatchClosed[ContourIndex] := 1;
+      Inc(DestOffset, SegmentCount);
     end;
-    FPDrawMarchingAntsPolyline(@PointsXY[0], SegmentCount,
-      MarqueeSegmentLength, FMarqueeDashPhase, 1);
   end;
+
+  FPDrawMarchingAntsMultiContour(@PointsXY[0],
+    @BatchOffsets[0], @BatchLengths[0], @BatchClosed[0],
+    TotalContours, MarqueeSegmentLength, FMarqueeDashPhase);
 end;
 
 procedure TMainForm.DrawMarqueeRectangleOverlay(
@@ -5811,6 +6221,30 @@ begin
             BottomY := Round((FDragStart.Y + PreviewRadius + 1) * FZoomScale);
             ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
           end;
+          if FGradientType = 2 then
+          begin
+            PreviewRadius := Round(Sqrt(
+              Sqr(FLastImagePoint.X - FDragStart.X) +
+              Sqr(FLastImagePoint.Y - FDragStart.Y)
+            ));
+            LeftX := Round((FDragStart.X - PreviewRadius) * FZoomScale);
+            TopY := Round((FDragStart.Y - PreviewRadius) * FZoomScale);
+            RightX := Round((FDragStart.X + PreviewRadius + 1) * FZoomScale);
+            BottomY := Round((FDragStart.Y + PreviewRadius + 1) * FZoomScale);
+            ACanvas.Ellipse(LeftX, TopY, RightX, BottomY);
+          end;
+          if FGradientType = 3 then
+          begin
+            LeftX := Round(FDragStart.X * FZoomScale);
+            TopY := Round(FDragStart.Y * FZoomScale);
+            RightX := Round(FLastImagePoint.X * FZoomScale);
+            BottomY := Round(FLastImagePoint.Y * FZoomScale);
+            ACanvas.MoveTo(LeftX, Min(TopY, BottomY));
+            ACanvas.LineTo(Max(LeftX, RightX), TopY);
+            ACanvas.LineTo(LeftX, Max(TopY, BottomY));
+            ACanvas.LineTo(Min(LeftX, RightX), TopY);
+            ACanvas.LineTo(LeftX, Min(TopY, BottomY));
+          end;
           ACanvas.MoveTo(
             Round((FDragStart.X + 0.5) * FZoomScale),
             Round((FDragStart.Y + 0.5) * FZoomScale)
@@ -5882,6 +6316,31 @@ begin
           ACanvas.Pen.Style := psDash;
           ACanvas.Pen.Color := clWhite;
           ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+          if FCropGuideMode > 0 then
+          begin
+            ACanvas.Pen.Style := psDot;
+            ACanvas.Pen.Color := clWhite;
+            if FCropGuideMode = 1 then
+            begin
+              { Rule of thirds guides }
+              ACanvas.MoveTo(LeftX + (RightX - LeftX) div 3, TopY);
+              ACanvas.LineTo(LeftX + (RightX - LeftX) div 3, BottomY);
+              ACanvas.MoveTo(LeftX + ((RightX - LeftX) * 2) div 3, TopY);
+              ACanvas.LineTo(LeftX + ((RightX - LeftX) * 2) div 3, BottomY);
+              ACanvas.MoveTo(LeftX, TopY + (BottomY - TopY) div 3);
+              ACanvas.LineTo(RightX, TopY + (BottomY - TopY) div 3);
+              ACanvas.MoveTo(LeftX, TopY + ((BottomY - TopY) * 2) div 3);
+              ACanvas.LineTo(RightX, TopY + ((BottomY - TopY) * 2) div 3);
+            end
+            else
+            begin
+              { Center cross guide }
+              ACanvas.MoveTo((LeftX + RightX) div 2, TopY);
+              ACanvas.LineTo((LeftX + RightX) div 2, BottomY);
+              ACanvas.MoveTo(LeftX, (TopY + BottomY) div 2);
+              ACanvas.LineTo(RightX, (TopY + BottomY) div 2);
+            end;
+          end;
         end;
       tkRoundedRectangle:
         begin
@@ -5909,8 +6368,16 @@ begin
             TopY,
             RightX,
             BottomY,
-            Max(6, (RightX - LeftX) div 4),
-            Max(6, (BottomY - TopY) div 4)
+            EnsureRange(
+              Round(FRoundedCornerRadius * FZoomScale),
+              2,
+              Max(2, Min((RightX - LeftX) div 2, (BottomY - TopY) div 2))
+            ),
+            EnsureRange(
+              Round(FRoundedCornerRadius * FZoomScale),
+              2,
+              Max(2, Min((RightX - LeftX) div 2, (BottomY - TopY) div 2))
+            )
           );
         end;
       tkEllipseShape, tkSelectEllipse:
@@ -8615,6 +9082,8 @@ var
   Radius: Integer;
   DestX: Integer;
   DestY: Integer;
+  DestCanvasX: Integer;
+  DestCanvasY: Integer;
   SourceX: Integer;
   SourceY: Integer;
   PickedColor: TRGBA32;
@@ -8971,7 +9440,22 @@ begin
                 begin
                   if Round(Sqrt(Sqr(DestX - StepLocalPoint.X) + Sqr(DestY - StepLocalPoint.Y))) > Radius then
                     Continue;
-                  if FCloneAligned and FCloneAlignedOffsetValid then
+                  if FCloneSampleSource = 1 then
+                  begin
+                    DestCanvasX := DestX + FDocument.ActiveLayer.OffsetX;
+                    DestCanvasY := DestY + FDocument.ActiveLayer.OffsetY;
+                    if FCloneAligned and FCloneAlignedOffsetValid then
+                    begin
+                      SourceX := DestCanvasX + FCloneAlignedOffset.X;
+                      SourceY := DestCanvasY + FCloneAlignedOffset.Y;
+                    end
+                    else
+                    begin
+                      SourceX := FCloneStampSource.X + (DestCanvasX - FDragStart.X);
+                      SourceY := FCloneStampSource.Y + (DestCanvasY - FDragStart.Y);
+                    end;
+                  end
+                  else if FCloneAligned and FCloneAlignedOffsetValid then
                   begin
                     SourceX := DestX + FCloneAlignedOffset.X;
                     SourceY := DestY + FCloneAlignedOffset.Y;
@@ -9160,7 +9644,8 @@ var
   end;
   procedure DrawDashedRoundedRectangleOutline(
     const AFromPoint, AToPoint: TPoint;
-    AStrokeWidth: Integer
+    AStrokeWidth: Integer;
+    ACornerRadius: Integer
   );
   var
     ArcSteps: Integer;
@@ -9178,7 +9663,15 @@ var
     RightX := Max(AFromPoint.X, AToPoint.X);
     TopY := Min(AFromPoint.Y, AToPoint.Y);
     BottomY := Max(AFromPoint.Y, AToPoint.Y);
-    CornerRadius := Max(2, Min((RightX - LeftX + 1) div 4, (BottomY - TopY + 1) div 4));
+    if ACornerRadius > 0 then
+      CornerRadius := ACornerRadius
+    else
+      CornerRadius := Max(2, Min((RightX - LeftX + 1) div 4, (BottomY - TopY + 1) div 4));
+    CornerRadius := EnsureRange(
+      CornerRadius,
+      1,
+      Max(1, Min((RightX - LeftX + 1) div 2, (BottomY - TopY + 1) div 2))
+    );
     CornerRadius := Max(CornerRadius, AStrokeWidth);
     ArcSteps := Max(4, Round(CornerRadius * Pi / 4.0));
     PointCount := 0;
@@ -9458,59 +9951,29 @@ begin
       tkGradient:
         begin
           if FGradientReverse then
-          begin
-            if FGradientType = 1 then
-            begin
-              { Radial reversed: secondary in center, primary at edge }
-              MutableSurface.FillRadialGradient(
-                LocalStartPoint.X,
-                LocalStartPoint.Y,
-                Round(Sqrt(Sqr(LocalEndPoint.X - LocalStartPoint.X) + Sqr(LocalEndPoint.Y - LocalStartPoint.Y))),
-                FSecondaryColor,
-                FPrimaryColor,
-                PaintSelection
-              );
-            end
-            else
-            begin
-              MutableSurface.FillGradient(
-                LocalStartPoint.X,
-                LocalStartPoint.Y,
-                LocalEndPoint.X,
-                LocalEndPoint.Y,
-                FSecondaryColor,
-                FPrimaryColor,
-                PaintSelection
-              );
-            end;
-          end
+            MutableSurface.FillGradientAdvanced(
+              LocalStartPoint.X,
+              LocalStartPoint.Y,
+              LocalEndPoint.X,
+              LocalEndPoint.Y,
+              FSecondaryColor,
+              FPrimaryColor,
+              TGradientKind(EnsureRange(FGradientType, 0, Ord(High(TGradientKind)))),
+              TGradientRepeatMode(EnsureRange(FGradientRepeatMode, 0, Ord(High(TGradientRepeatMode)))),
+              PaintSelection
+            )
           else
-          begin
-            if FGradientType = 1 then
-            begin
-              { Radial: primary in center, secondary at edge }
-              MutableSurface.FillRadialGradient(
-                LocalStartPoint.X,
-                LocalStartPoint.Y,
-                Round(Sqrt(Sqr(LocalEndPoint.X - LocalStartPoint.X) + Sqr(LocalEndPoint.Y - LocalStartPoint.Y))),
-                FPrimaryColor,
-                FSecondaryColor,
-                PaintSelection
-              );
-            end
-            else
-            begin
-              MutableSurface.FillGradient(
-                LocalStartPoint.X,
-                LocalStartPoint.Y,
-                LocalEndPoint.X,
-                LocalEndPoint.Y,
-                FPrimaryColor,
-                FSecondaryColor,
-                PaintSelection
-              );
-            end;
-          end;
+            MutableSurface.FillGradientAdvanced(
+              LocalStartPoint.X,
+              LocalStartPoint.Y,
+              LocalEndPoint.X,
+              LocalEndPoint.Y,
+              FPrimaryColor,
+              FSecondaryColor,
+              TGradientKind(EnsureRange(FGradientType, 0, Ord(High(TGradientKind)))),
+              TGradientRepeatMode(EnsureRange(FGradientRepeatMode, 0, Ord(High(TGradientRepeatMode)))),
+              PaintSelection
+            );
         end;
       tkRectangle:
         begin
@@ -9532,14 +9995,14 @@ begin
           if DoFill then
             MutableSurface.DrawRoundedRectangle(
               LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-              StrokeWidth, FillColor, True, 255, PaintSelection);
+              StrokeWidth, FillColor, True, 255, PaintSelection, FRoundedCornerRadius);
           if DoOutline then
             if UseDashedOutline then
-              DrawDashedRoundedRectangleOutline(LocalStartPoint, LocalEndPoint, StrokeWidth)
+              DrawDashedRoundedRectangleOutline(LocalStartPoint, LocalEndPoint, StrokeWidth, FRoundedCornerRadius)
             else
               MutableSurface.DrawRoundedRectangle(
                 LocalStartPoint.X, LocalStartPoint.Y, LocalEndPoint.X, LocalEndPoint.Y,
-                StrokeWidth, ActivePaintColor, False, 255, PaintSelection
+                StrokeWidth, ActivePaintColor, False, 255, PaintSelection, FRoundedCornerRadius
               );
         end;
       tkEllipseShape:
@@ -11064,6 +11527,13 @@ begin
   try
     if Assigned(FOptionLabel) then
       FOptionLabel.Caption := TR('Size:', '大小：');
+    if Assigned(FTextAlignLabel) then
+      FTextAlignLabel.Caption := TR('Align:', '对齐：');
+    ResetComboItems(FTextAlignCombo,
+      [TR('Left', '左对齐'), TR('Center', '居中'), TR('Right', '右对齐')],
+      EnsureRange(FTextLastResult.Alignment, 0, 2));
+    if Assigned(FTextAlignCombo) then
+      FTextAlignCombo.Hint := TR('Text alignment', '文本对齐方式');
     if Assigned(FTextFontButton) then
       FTextFontButton.Hint := TR('Choose font and style', '选择字体和样式');
     if Assigned(FOpacityLabel) then
@@ -11139,10 +11609,17 @@ begin
     if Assigned(FGradientTypeLabel) then
       FGradientTypeLabel.Caption := TR('Type:', '类型：');
     ResetComboItems(FGradientTypeCombo,
-      [TR('Linear', '线性'), TR('Radial', '径向')],
-      FGradientType);
+      [TR('Linear', '线性'), TR('Radial', '径向'), TR('Conical', '圆锥'), TR('Diamond', '菱形')],
+      EnsureRange(FGradientType, 0, 3));
     if Assigned(FGradientTypeCombo) then
       FGradientTypeCombo.Hint := TR('Gradient type', '渐变类型');
+    if Assigned(FGradientRepeatLabel) then
+      FGradientRepeatLabel.Caption := TR('Repeat:', '重复：');
+    ResetComboItems(FGradientRepeatCombo,
+      [TR('None', '无'), TR('Sawtooth', '锯齿'), TR('Triangular', '三角波')],
+      EnsureRange(FGradientRepeatMode, 0, 2));
+    if Assigned(FGradientRepeatCombo) then
+      FGradientRepeatCombo.Hint := TR('Gradient repeat mode', '渐变重复模式');
     if Assigned(FGradientReverseCheck) then
     begin
       FGradientReverseCheck.Caption := TR('Reverse', '反向');
@@ -11153,6 +11630,13 @@ begin
       FCloneAlignedCheck.Caption := TR('Aligned', '对齐');
       FCloneAlignedCheck.Hint := TR('Keep the clone source aligned across multiple strokes', '在多次笔划中保持仿制源对齐');
     end;
+    if Assigned(FCloneSampleLabel) then
+      FCloneSampleLabel.Caption := TR('Sample:', '采样：');
+    ResetComboItems(FCloneSampleCombo,
+      [TR('Current Layer', '当前图层'), TR('Image', '图像合成')],
+      EnsureRange(FCloneSampleSource, 0, 1));
+    if Assigned(FCloneSampleCombo) then
+      FCloneSampleCombo.Hint := TR('Clone sample source', '仿制采样来源');
     if Assigned(FRecolorPreserveValueCheck) then
     begin
       FRecolorPreserveValueCheck.Caption := TR('Preserve Value', '保持明度');
@@ -11196,6 +11680,28 @@ begin
       FRecolorModeCombo.Hint := TR('How recolor mixes target color into matching pixels', '重着色将目标色混入匹配像素的方式');
     if Assigned(FMosaicBlockLabel) then
       FMosaicBlockLabel.Caption := TR('Block:', '块大小：');
+    if Assigned(FCropAspectLabel) then
+      FCropAspectLabel.Caption := TR('Aspect:', '比例：');
+    ResetComboItems(
+      FCropAspectCombo,
+      [TR('Free', '自由'), '1:1', '4:3', '16:9', TR('Current Image', '当前图像')],
+      EnsureRange(FCropAspectMode, 0, 4)
+    );
+    if Assigned(FCropAspectCombo) then
+      FCropAspectCombo.Hint := TR('Crop aspect constraint', '裁剪宽高比例约束');
+    if Assigned(FCropGuideLabel) then
+      FCropGuideLabel.Caption := TR('Guide:', '参考线：');
+    ResetComboItems(
+      FCropGuideCombo,
+      [TR('None', '无'), TR('Thirds', '三分线'), TR('Center', '中心线')],
+      EnsureRange(FCropGuideMode, 0, 2)
+    );
+    if Assigned(FCropGuideCombo) then
+      FCropGuideCombo.Hint := TR('Crop composition guide overlay', '裁剪构图辅助线');
+    if Assigned(FRoundedRadiusLabel) then
+      FRoundedRadiusLabel.Caption := TR('Corner:', '圆角：');
+    if Assigned(FRoundedRadiusSpin) then
+      FRoundedRadiusSpin.Hint := TR('Rounded rectangle corner radius (px)', '圆角矩形角半径（像素）');
     if Assigned(FPickerSampleLabel) then
       FPickerSampleLabel.Caption := TR('Sample:', '采样：');
     ResetComboItems(FPickerSampleCombo,
@@ -12288,6 +12794,29 @@ begin
   FRecolorStrokeSourceValid := False;
 end;
 
+procedure TMainForm.SetCloneOptionsForTest(AAligned: Boolean; ASampleSource: Integer);
+begin
+  FCloneAligned := AAligned;
+  FCloneSampleSource := EnsureRange(ASampleSource, 0, 1);
+  if not FCloneAligned then
+    FCloneAlignedOffsetValid := False;
+end;
+
+procedure TMainForm.SetCropOptionsForTest(AAspectMode, AGuideMode: Integer);
+begin
+  FCropAspectMode := EnsureRange(AAspectMode, 0, 4);
+  FCropGuideMode := EnsureRange(AGuideMode, 0, 2);
+end;
+
+function TMainForm.CloneSnapshotPixelForTest(X, Y: Integer; out APixel: TRGBA32): Boolean;
+begin
+  Result := Assigned(FCloneStampSnapshot) and FCloneStampSnapshot.InBounds(X, Y);
+  if Result then
+    APixel := FCloneStampSnapshot[X, Y]
+  else
+    APixel := TransparentColor;
+end;
+
 procedure TMainForm.SetBrushSizeForTest(ASize: Integer);
 begin
   FBrushSize := Max(1, ASize);
@@ -12528,7 +13057,6 @@ begin
             FPendingSelectionMode,
             FWandSampleSource = 1,
             FWandContiguous,
-            FSelAntiAlias,
             FSelFeather,
             'Magic Wand'
           )
@@ -12571,7 +13099,10 @@ begin
           FCloneStampSampled := True;
           FCloneAlignedOffsetValid := False;
           FCloneStampSnapshot.Free;
-          FCloneStampSnapshot := FDocument.ActiveLayer.Surface.Clone;
+          if FCloneSampleSource = 1 then
+            FCloneStampSnapshot := FDocument.Composite
+          else
+            FCloneStampSnapshot := FDocument.ActiveLayer.Surface.Clone;
           FPointerDown := False;
           if Assigned(FPaintBox) then
           begin
@@ -12777,7 +13308,9 @@ begin
       tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop, tkMosaic:
         begin
           FShiftConstrain := ssShift in Shift;
-          if FShiftConstrain then
+          if (FCurrentTool = tkCrop) and (FCropAspectMode > 0) then
+            FLastImagePoint := ConstrainCropPoint(FDragStart, ImagePoint)
+          else if FShiftConstrain then
             FLastImagePoint := ConstrainShapePoint(FDragStart, ImagePoint, FCurrentTool)
           else
             FLastImagePoint := ImagePoint;
@@ -12862,7 +13395,9 @@ begin
   end;
   ImagePoint := CanvasToImage(X, Y);
   { Apply Shift-key constraint for shape tools }
-  if (ssShift in Shift) and (FCurrentTool in [tkLine, tkGradient,
+  if (FCurrentTool = tkCrop) and (FCropAspectMode > 0) then
+    ImagePoint := ConstrainCropPoint(FDragStart, ImagePoint)
+  else if (ssShift in Shift) and (FCurrentTool in [tkLine, tkGradient,
     tkRectangle, tkRoundedRectangle, tkEllipseShape,
     tkSelectRect, tkSelectEllipse, tkCrop]) then
     ImagePoint := ConstrainShapePoint(FDragStart, ImagePoint, FCurrentTool);
@@ -12983,7 +13518,8 @@ begin
         FDragStart.Y,
         ImagePoint.X,
         ImagePoint.Y,
-        FPendingSelectionMode
+        FPendingSelectionMode,
+        FSelAntiAlias
       );
     end;
     SyncSelectionOverlayUI(True);
@@ -13008,7 +13544,8 @@ begin
         FDragStart.Y,
         ImagePoint.X,
         ImagePoint.Y,
-        FPendingSelectionMode
+        FPendingSelectionMode,
+        FSelAntiAlias
       );
     end;
     SyncSelectionOverlayUI(True);
@@ -13028,7 +13565,7 @@ begin
     else
     begin
       FDocument.PushHistory(PaintToolName(FCurrentTool));
-      FDocument.SelectLasso(FLassoPoints, FPendingSelectionMode);
+      FDocument.SelectLasso(FLassoPoints, FPendingSelectionMode, FSelAntiAlias);
     end;
     SetLength(FLassoPoints, 0);
     SyncSelectionOverlayUI(True);
@@ -13919,18 +14456,13 @@ end;
 procedure TMainForm.InlineTextEditKeyDown(Sender: TObject; var Key: Word;
   Shift: TShiftState);
 begin
-  if (Key = VK_RETURN) and (ssShift in Shift) then
+  if (Key = VK_RETURN) and ((ssMeta in Shift) or (ssCtrl in Shift)) then
   begin
     CommitInlineTextEdit(True);
     Key := 0;
     Exit;
   end;
   case Key of
-    VK_RETURN:
-      begin
-        CommitInlineTextEdit(True);
-        Key := 0;
-      end;
     VK_ESCAPE:
       begin
         CommitInlineTextEdit(False);
@@ -14935,7 +15467,15 @@ procedure TMainForm.GradientTypeComboChanged(Sender: TObject);
 begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FGradientTypeCombo) then Exit;
-  FGradientType := FGradientTypeCombo.ItemIndex;
+  FGradientType := EnsureRange(FGradientTypeCombo.ItemIndex, 0, 3);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.GradientRepeatComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FGradientRepeatCombo) then Exit;
+  FGradientRepeatMode := EnsureRange(FGradientRepeatCombo.ItemIndex, 0, 2);
   RefreshCanvas;
 end;
 
@@ -14954,6 +15494,14 @@ begin
   FCloneAligned := FCloneAlignedCheck.Checked;
   if not FCloneAligned then
     FCloneAlignedOffsetValid := False;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.CloneSampleComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FCloneSampleCombo) then Exit;
+  FCloneSampleSource := EnsureRange(FCloneSampleCombo.ItemIndex, 0, 1);
   RefreshCanvas;
 end;
 
@@ -15022,8 +15570,6 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FSelAntiAliasCheck) then Exit;
   FSelAntiAlias := FSelAntiAliasCheck.Checked;
-  if Assigned(FSelFeatherSpin) then
-    FSelFeatherSpin.Enabled := FSelAntiAlias;
   RefreshCanvas;
 end;
 
@@ -15032,6 +15578,43 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FSelFeatherSpin) then Exit;
   FSelFeather := EnsureRange(FSelFeatherSpin.Value, 0, 128);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.CropAspectComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FCropAspectCombo) then Exit;
+  FCropAspectMode := EnsureRange(FCropAspectCombo.ItemIndex, 0, 4);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.CropGuideComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FCropGuideCombo) then Exit;
+  FCropGuideMode := EnsureRange(FCropGuideCombo.ItemIndex, 0, 2);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.RoundedRadiusSpinChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FRoundedRadiusSpin) then Exit;
+  FRoundedCornerRadius := EnsureRange(FRoundedRadiusSpin.Value, 1, 1024);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.TextAlignComboChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FTextAlignCombo) then Exit;
+  FTextLastResult.Alignment := EnsureRange(FTextAlignCombo.ItemIndex, 0, 2);
+  if Assigned(FInlineTextEdit) and FInlineTextEdit.Visible then
+  begin
+    UpdateInlineTextEditStyle;
+    UpdateInlineTextEditBounds;
+  end;
   RefreshCanvas;
 end;
 

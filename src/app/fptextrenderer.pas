@@ -16,13 +16,23 @@ function RenderTextToSurface(const AResult: TTextDialogResult;
 implementation
 
 uses
-  Graphics, FPLCLBridge;
+  Classes, SysUtils, Math, Graphics, FPLCLBridge;
 
 function RenderTextToSurface(const AResult: TTextDialogResult;
   AColor: TRGBA32): TRasterSurface;
 var
   Bitmap: TBitmap;
-  TextW, TextH: Integer;
+  TextW: Integer;
+  TextH: Integer;
+  MaxLineWidth: Integer;
+  LineWidth: Integer;
+  LineHeight: Integer;
+  DrawX: Integer;
+  DrawY: Integer;
+  LineIndex: Integer;
+  LineText: string;
+  Lines: TStringList;
+  NormalizedText: string;
   Clr: TColor;
 begin
   Result := nil;
@@ -30,7 +40,14 @@ begin
     Exit;
 
   Bitmap := TBitmap.Create;
+  Lines := TStringList.Create;
   try
+    NormalizedText := StringReplace(AResult.Text, #13#10, #10, [rfReplaceAll]);
+    NormalizedText := StringReplace(NormalizedText, #13, #10, [rfReplaceAll]);
+    Lines.Text := NormalizedText;
+    if Lines.Count = 0 then
+      Lines.Add('');
+
     { Configure font on a temporary Bitmap so TextWidth/Height work }
     Bitmap.Width := 4;
     Bitmap.Height := 4;
@@ -45,8 +62,16 @@ begin
     else
       Bitmap.Canvas.Font.Style := Bitmap.Canvas.Font.Style - [fsItalic];
 
-    TextW := Bitmap.Canvas.TextWidth(AResult.Text) + 2;
-    TextH := Bitmap.Canvas.TextHeight(AResult.Text) + 2;
+    LineHeight := Max(1, Bitmap.Canvas.TextHeight('Ag'));
+    MaxLineWidth := 1;
+    for LineIndex := 0 to Lines.Count - 1 do
+    begin
+      LineWidth := Bitmap.Canvas.TextWidth(Lines[LineIndex]);
+      if LineWidth > MaxLineWidth then
+        MaxLineWidth := LineWidth;
+    end;
+    TextW := MaxLineWidth + 2;
+    TextH := (LineHeight * Max(1, Lines.Count)) + 2;
     if TextW < 1 then TextW := 1;
     if TextH < 1 then TextH := 1;
 
@@ -69,12 +94,27 @@ begin
     { Draw text with requested color }
     Clr := RGBToColor(AColor.R, AColor.G, AColor.B);
     Bitmap.Canvas.Font.Color := Clr;
-    Bitmap.Canvas.TextOut(1, 1, AResult.Text);
+    for LineIndex := 0 to Lines.Count - 1 do
+    begin
+      LineText := Lines[LineIndex];
+      LineWidth := Bitmap.Canvas.TextWidth(LineText);
+      case EnsureRange(AResult.Alignment, 0, 2) of
+        1:
+          DrawX := 1 + Max(0, (MaxLineWidth - LineWidth) div 2);
+        2:
+          DrawX := 1 + Max(0, MaxLineWidth - LineWidth);
+      else
+        DrawX := 1;
+      end;
+      DrawY := 1 + (LineIndex * LineHeight);
+      Bitmap.Canvas.TextOut(DrawX, DrawY, LineText);
+    end;
 
     Result := BitmapToSurface(Bitmap);
     { Make white pixels transparent so only the text is opaque }
     TransparentizeSurface(Result, RGBA(255, 255, 255), 20);
   finally
+    Lines.Free;
     Bitmap.Free;
   end;
 end;
