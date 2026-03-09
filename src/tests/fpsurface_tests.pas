@@ -41,6 +41,8 @@ type
     procedure RecolorBrushHueModeShiftsHueOnly;
     procedure RecolorBrushSaturationModeShiftsSaturationOnly;
     procedure RecolorBrushLuminosityModeShiftsValueOnly;
+    procedure RecolorBrushColorModeCannotRecolorBlack;
+    procedure RecolorBrushReplaceRGBModeCanRecolorBlack;
     procedure RenderCloudsWritesNonTransparentPixels;
     procedure PixelateBlursPixelsIntoBlocks;
     procedure VignetteDarkensEdges;
@@ -823,6 +825,49 @@ begin
 
     AssertTrue('luminosity mode should darken the source color', Surface[2, 2].R < 120);
     AssertTrue('luminosity mode should keep source hue family', Surface[2, 2].R > Surface[2, 2].G);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushColorModeCannotRecolorBlack;
+{ In Color mode (and PreserveValue), recoloring black pixels has no visible
+  effect because HSV Value=0 makes the output black regardless of hue/sat.
+  This is inherent to the HSV colour model. }
+var
+  Surface: TRasterSurface;
+  After: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 255));
+    Surface.RecolorBrush(2, 2, 2, RGBA(0, 0, 0, 255), RGBA(255, 0, 0, 255),
+      10, 255, False, nil, rbmColor);
+    After := Unpremultiply(Surface[2, 2]);
+    AssertEquals('Color mode: black pixel R stays 0', 0, After.R);
+    AssertEquals('Color mode: black pixel G stays 0', 0, After.G);
+    AssertEquals('Color mode: black pixel B stays 0', 0, After.B);
+  finally
+    Surface.Free;
+  end;
+end;
+
+procedure TFPSurfaceTests.RecolorBrushReplaceRGBModeCanRecolorBlack;
+{ ReplaceRGB mode directly substitutes R/G/B channels, so it can
+  change black to any colour. }
+var
+  Surface: TRasterSurface;
+  After: TRGBA32;
+begin
+  Surface := TRasterSurface.Create(5, 5);
+  try
+    Surface.Clear(RGBA(0, 0, 0, 255));
+    Surface.RecolorBrush(2, 2, 2, RGBA(0, 0, 0, 255), RGBA(255, 0, 0, 255),
+      10, 255, False, nil, rbmReplaceRGBCompat);
+    After := Unpremultiply(Surface[2, 2]);
+    AssertEquals('ReplaceRGB mode: black pixel should become red', 255, After.R);
+    AssertEquals('ReplaceRGB mode: black pixel G should stay 0', 0, After.G);
+    AssertEquals('ReplaceRGB mode: black pixel B should stay 0', 0, After.B);
   finally
     Surface.Free;
   end;
