@@ -316,6 +316,9 @@ type
     FSelFeather: Integer;
     FSelFeatherLabel: TLabel;
     FSelFeatherSpin: TSpinEdit;
+    FSelCornerRadius: Integer;
+    FSelCornerRadiusLabel: TLabel;
+    FSelCornerRadiusSpin: TSpinEdit;
     { Crop tool options }
     { 0=Free, 1=1:1, 2=4:3, 3=16:9, 4=Current Image }
     FCropAspectMode: Integer;
@@ -634,6 +637,8 @@ type
     procedure RefreshTabStrip;
     function TabDocumentDisplayName(AIndex: Integer): string;
     procedure OpenFileInNewTab(const AFileName: string);
+    procedure OpenFileInCurrentTab(const AFileName: string);
+    procedure FormDropFiles(Sender: TObject; const FileNames: array of string);
     procedure MoveDocumentTab(AFromIndex, AToIndex: Integer);
     function PointToTabStrip(AControl: TControl; X, Y: Integer): TPoint;
     procedure BuildTabThumbnail(AIndex: Integer; AImage: TImage);
@@ -670,6 +675,7 @@ type
     procedure PickerSampleComboChanged(Sender: TObject);
     procedure SelAntiAliasChanged(Sender: TObject);
     procedure SelFeatherSpinChanged(Sender: TObject);
+    procedure SelCornerRadiusSpinChanged(Sender: TObject);
     procedure CropAspectComboChanged(Sender: TObject);
     procedure CropGuideComboChanged(Sender: TObject);
     procedure RoundedRadiusSpinChanged(Sender: TObject);
@@ -977,6 +983,7 @@ begin
   FPickerSampleSource := 0;
   FSelAntiAlias := True;
   FSelFeather := 0;
+  FSelCornerRadius := 0;
   FCropAspectMode := 0;
   FCropGuideMode := 1;
   FRoundedCornerRadius := 16;
@@ -1062,6 +1069,8 @@ begin
   OnKeyUp := @FormKeyUp;
   OnCloseQuery := @FormCloseQuery;
   OnResize := @FormResize;
+  AllowDropFiles := True;
+  OnDropFiles := @FormDropFiles;
 
   FPrimaryColor := RGBA(0, 0, 0, 255);
   FSecondaryColor := RGBA(255, 255, 255, 255);
@@ -1123,6 +1132,7 @@ begin
   FPickerSampleSource := 0;
   FSelAntiAlias := True;
   FSelFeather := 0;
+  FSelCornerRadius := 0;
   FCropAspectMode := 0;
   FCropGuideMode := 1;
   FRoundedCornerRadius := 16;
@@ -3028,6 +3038,13 @@ begin
       FSelFeatherSpin.Enabled := True;
       FSelFeatherSpin.Value := EnsureRange(FSelFeather, FSelFeatherSpin.MinValue, FSelFeatherSpin.MaxValue);
     end;
+    if Assigned(FSelCornerRadiusLabel) then
+      FSelCornerRadiusLabel.Visible := FCurrentTool = tkSelectRect;
+    if Assigned(FSelCornerRadiusSpin) then
+    begin
+      FSelCornerRadiusSpin.Visible := FCurrentTool = tkSelectRect;
+      FSelCornerRadiusSpin.Value := EnsureRange(FSelCornerRadius, FSelCornerRadiusSpin.MinValue, FSelCornerRadiusSpin.MaxValue);
+    end;
     if Assigned(FTextFontButton) then
     begin
       FTextFontButton.Visible := IsTextTool;
@@ -3238,6 +3255,10 @@ begin
   { Selection Feather }
   PlaceLabel(FSelFeatherLabel);
   PlaceControl(FSelFeatherSpin);
+
+  { Selection Corner Radius }
+  PlaceLabel(FSelCornerRadiusLabel);
+  PlaceControl(FSelCornerRadiusSpin);
 
   { Wand Contiguous }
   PlaceControl(FWandContiguousCheck);
@@ -4792,6 +4813,32 @@ begin
   FSelFeatherSpin.OnChange := @SelFeatherSpinChanged;
   FSelFeatherSpin.Font.Size := OptionsBarFontSize;
   FSelFeatherSpin.Font.Color := ChromeTextColor;
+
+  { Selection corner radius (rounded rectangle selection) }
+  FSelCornerRadiusLabel := TLabel.Create(FOptionsBarPanel);
+  FSelCornerRadiusLabel.Parent := FOptionsBarPanel;
+  FSelCornerRadiusLabel.Caption := TR('Radius:', '圆角：');
+  FSelCornerRadiusLabel.Left := 720;
+  FSelCornerRadiusLabel.Top := OptionsBarLabelTop;
+  FSelCornerRadiusLabel.Font.Size := OptionsBarFontSize;
+  FSelCornerRadiusLabel.Font.Color := ChromeTextColor;
+  FSelCornerRadiusLabel.Visible := False;
+
+  FSelCornerRadiusSpin := TSpinEdit.Create(FOptionsBarPanel);
+  FSelCornerRadiusSpin.Parent := FOptionsBarPanel;
+  FSelCornerRadiusSpin.Left := 780;
+  FSelCornerRadiusSpin.Top := OptionsBarControlTop;
+  FSelCornerRadiusSpin.Height := OptionsBarControlHeight;
+  FSelCornerRadiusSpin.Width := 60;
+  FSelCornerRadiusSpin.MinValue := 0;
+  FSelCornerRadiusSpin.MaxValue := 500;
+  FSelCornerRadiusSpin.Value := FSelCornerRadius;
+  FSelCornerRadiusSpin.Visible := False;
+  FSelCornerRadiusSpin.OnChange := @SelCornerRadiusSpinChanged;
+  FSelCornerRadiusSpin.Font.Size := OptionsBarFontSize;
+  FSelCornerRadiusSpin.Font.Color := ChromeTextColor;
+  FSelCornerRadiusSpin.Hint := TR('Rounded corner radius for rectangle selection (0=sharp)', '矩形选区圆角半径（0=直角）');
+  FSelCornerRadiusSpin.ShowHint := True;
 
   UpdateToolOptionControl;
   UpdateZoomControls;
@@ -13570,6 +13617,7 @@ begin
         FPendingSelectionMode,
         FSelAntiAlias,
         FSelFeather,
+        FSelCornerRadius,
         PaintToolName(FCurrentTool)
       )
     else
@@ -13581,7 +13629,8 @@ begin
         ImagePoint.X,
         ImagePoint.Y,
         FPendingSelectionMode,
-        FSelAntiAlias
+        FSelAntiAlias,
+        FSelCornerRadius
       );
     end;
     SyncSelectionOverlayUI(True);
@@ -15284,6 +15333,67 @@ begin
   end;
 end;
 
+procedure TMainForm.OpenFileInCurrentTab(const AFileName: string);
+var
+  Surface: TRasterSurface;
+  LoadedDocument: TImageDocument;
+  ResolvedFileName: string;
+begin
+  ResolvedFileName := ExpandFileName(AFileName);
+  try
+    if SameText(ExtractFileExt(ResolvedFileName), '.fpd') then
+    begin
+      LoadedDocument := LoadNativeDocumentFromFile(ResolvedFileName);
+    end
+    else if TryLoadDocumentFromFile(ResolvedFileName, LoadedDocument) then
+      { loaded }
+    else
+    begin
+      LoadedDocument := TImageDocument.Create(1, 1);
+      Surface := LoadSurfaceFromFile(ResolvedFileName);
+      try
+        LoadedDocument.ReplaceWithSingleLayer(Surface, ExtractFileName(ResolvedFileName));
+      finally
+        Surface.Free;
+      end;
+    end;
+    { Replace current tab's document in-place }
+    FDocument.Free;
+    FDocument := LoadedDocument;
+    FTabDocuments[FActiveTabIndex] := FDocument;
+    FCurrentFileName := ResolvedFileName;
+    FTabFileNames[FActiveTabIndex] := ResolvedFileName;
+    FTabDirtyFlags[FActiveTabIndex] := False;
+    FDirty := False;
+    RegisterRecentFile(ResolvedFileName);
+    ResetTransientCanvasState;
+    SyncDocumentReplacementUI(False);
+    RefreshTabStrip;
+    UpdateCaption;
+  except
+    on E: Exception do
+      MessageDlg(TR('Open', '打开'), TR('Open failed: ', '打开失败：') + E.Message, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TMainForm.FormDropFiles(Sender: TObject; const FileNames: array of string);
+var
+  I: Integer;
+  FirstInCurrent: Boolean;
+begin
+  if Length(FileNames) = 0 then
+    Exit;
+  { First file: open in current tab if it is an untouched new document }
+  FirstInCurrent := (FCurrentFileName = '') and (not FDirty);
+  if FirstInCurrent then
+    OpenFileInCurrentTab(FileNames[0])
+  else
+    OpenFileInNewTab(FileNames[0]);
+  { Remaining files always open in new tabs }
+  for I := 1 to High(FileNames) do
+    OpenFileInNewTab(FileNames[I]);
+end;
+
 { ── Colors Panel RGBA Controls ───────────────────────────────────────────── }
 
 procedure TMainForm.UpdateColorSpins;
@@ -15640,6 +15750,14 @@ begin
   if FUpdatingToolOption then Exit;
   if not Assigned(FSelFeatherSpin) then Exit;
   FSelFeather := EnsureRange(FSelFeatherSpin.Value, 0, 128);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.SelCornerRadiusSpinChanged(Sender: TObject);
+begin
+  if FUpdatingToolOption then Exit;
+  if not Assigned(FSelCornerRadiusSpin) then Exit;
+  FSelCornerRadius := EnsureRange(FSelCornerRadiusSpin.Value, 0, 500);
   RefreshCanvas;
 end;
 

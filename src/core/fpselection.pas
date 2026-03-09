@@ -41,7 +41,8 @@ type
     procedure SelectRectangle(
       X1, Y1, X2, Y2: Integer;
       AMode: TSelectionCombineMode = scReplace;
-      AAntiAlias: Boolean = False
+      AAntiAlias: Boolean = False;
+      ACornerRadius: Integer = 0
     );
     procedure SelectEllipse(
       X1, Y1, X2, Y2: Integer;
@@ -132,6 +133,28 @@ begin
   OutsideDist := Sqrt(Sqr(OutsideX) + Sqr(OutsideY));
   { IQ sdBox is negative inside; invert so positive means inside for SDFCoverage. }
   Result := -(OutsideDist + Min(Max(DX, DY), 0.0));
+end;
+
+function RoundedRectSelSDF(PX, PY: Double; ALeft, ATop, ARight, ABottom: Double; ARadius: Double): Double;
+var
+  HalfW, HalfH, CX, CY, DX, DY, CornerDist: Double;
+begin
+  HalfW := (ARight - ALeft) / 2.0;
+  HalfH := (ABottom - ATop) / 2.0;
+  CX := (ALeft + ARight) / 2.0;
+  CY := (ATop + ABottom) / 2.0;
+  ARadius := Min(ARadius, Min(HalfW, HalfH));
+  DX := Abs(PX - CX) - (HalfW - ARadius);
+  DY := Abs(PY - CY) - (HalfH - ARadius);
+  if (DX <= 0.0) and (DY <= 0.0) then
+    CornerDist := Max(DX, DY)
+  else if DX <= 0.0 then
+    CornerDist := DY
+  else if DY <= 0.0 then
+    CornerDist := DX
+  else
+    CornerDist := Sqrt(DX * DX + DY * DY);
+  Result := ARadius - CornerDist;
 end;
 
 { --- End SDF Helpers --- }
@@ -461,7 +484,8 @@ end;
 procedure TSelectionMask.SelectRectangle(
   X1, Y1, X2, Y2: Integer;
   AMode: TSelectionCombineMode;
-  AAntiAlias: Boolean
+  AAntiAlias: Boolean;
+  ACornerRadius: Integer
 );
 var
   IntersectMask: TSelectionMask;
@@ -478,12 +502,18 @@ var
   Existing: Byte;
   X: Integer;
   Y: Integer;
+  UseRounded: Boolean;
+  Radius: Double;
 begin
+  UseRounded := ACornerRadius > 0;
+  if UseRounded then
+    AAntiAlias := True;
+
   if AMode = scIntersect then
   begin
     IntersectMask := TSelectionMask.Create(FWidth, FHeight);
     try
-      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace, AAntiAlias);
+      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace, AAntiAlias, ACornerRadius);
       IntersectWith(IntersectMask);
     finally
       IntersectMask.Free;
@@ -499,7 +529,7 @@ begin
   if AMode = scReplace then
     Clear;
 
-  if not AAntiAlias then
+  if (not AAntiAlias) and (not UseRounded) then
   begin
     for Y := TopY to BottomY do
       for X := LeftX to RightX do
@@ -514,11 +544,16 @@ begin
   CenterY := (TopY + BottomY + 1) / 2.0;
   HalfW := Max(0.5, (RightX - LeftX + 1) / 2.0);
   HalfH := Max(0.5, (BottomY - TopY + 1) / 2.0);
+  Radius := Min(ACornerRadius, Min(HalfW, HalfH));
 
   for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
     for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
     begin
-      Dist := RectSDF(X + 0.5, Y + 0.5, CenterX, CenterY, HalfW, HalfH);
+      if UseRounded then
+        Dist := RoundedRectSelSDF(X + 0.5, Y + 0.5,
+          LeftX, TopY, RightX + 1, BottomY + 1, Radius)
+      else
+        Dist := RectSDF(X + 0.5, Y + 0.5, CenterX, CenterY, HalfW, HalfH);
       Cov := SDFCoverage(Dist);
       if Cov = 0 then
         Continue;

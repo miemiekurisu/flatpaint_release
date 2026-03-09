@@ -339,6 +339,7 @@ begin
         scReplace,
         True,
         2,
+        0,
         'Rect Select'
       )
     );
@@ -368,6 +369,7 @@ begin
         scReplace,
         False,
         2,
+        0,
         'Rect Select'
       )
     );

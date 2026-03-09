@@ -52,6 +52,7 @@ type
       AMode: TSelectionCombineMode;
       AAntiAlias: Boolean;
       AFeatherRadius: Integer;
+      ACornerRadius: Integer;
       const AHistoryLabel: string
     ): Boolean;
     function CommitEllipseSelection(
@@ -234,6 +235,7 @@ function TSelectionToolController.CommitRectangleSelection(
   AMode: TSelectionCombineMode;
   AAntiAlias: Boolean;
   AFeatherRadius: Integer;
+  ACornerRadius: Integer;
   const AHistoryLabel: string
 ): Boolean;
 begin
@@ -247,7 +249,8 @@ begin
     AEndPoint.X,
     AEndPoint.Y,
     AMode,
-    AAntiAlias
+    AAntiAlias,
+    ACornerRadius
   );
   ApplyFeatherIfNeeded(ADocument, AFeatherRadius);
 end;

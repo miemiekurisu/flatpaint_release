@@ -202,7 +202,8 @@ type
     procedure SelectRectangle(
       X1, Y1, X2, Y2: Integer;
       AMode: TSelectionCombineMode = scReplace;
-      AAntiAlias: Boolean = False
+      AAntiAlias: Boolean = False;
+      ACornerRadius: Integer = 0
     );
     procedure SelectEllipse(
       X1, Y1, X2, Y2: Integer;
@@ -1138,10 +1139,11 @@ end;
 procedure TImageDocument.SelectRectangle(
   X1, Y1, X2, Y2: Integer;
   AMode: TSelectionCombineMode;
-  AAntiAlias: Boolean
+  AAntiAlias: Boolean;
+  ACornerRadius: Integer
 );
 begin
-  FSelection.SelectRectangle(X1, Y1, X2, Y2, AMode, AAntiAlias);
+  FSelection.SelectRectangle(X1, Y1, X2, Y2, AMode, AAntiAlias, ACornerRadius);
 end;
 
 procedure TImageDocument.SelectEllipse(
