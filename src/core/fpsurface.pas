@@ -194,6 +194,29 @@ implementation
 uses
   Math;
 
+const
+  { BT.709 approximate luma weights for integer arithmetic (sum = 256). }
+  LUMA_WEIGHT_RED   = 77;
+  LUMA_WEIGHT_GREEN = 150;
+  LUMA_WEIGHT_BLUE  = 29;
+  LUMA_DIVISOR      = 256;
+
+  { HSV hue constants. }
+  DEGREES_PER_HUE_SECTOR = 60.0;
+  FULL_CIRCLE_DEGREES    = 360.0;
+
+  { Box-blur radius ceiling to bound kernel size. }
+  MAX_BOX_BLUR_RADIUS = 64;
+
+  { Surface-blur radius ceiling. }
+  MAX_SURFACE_BLUR_RADIUS = 24;
+
+  { Maximum tile size for TileReflection. }
+  MAX_TILE_REFLECTION_SIZE = 256;
+
+  { Maximum posterize levels. }
+  MAX_POSTERIZE_LEVELS = 64;
+
 function ClampChannel(Value: Integer): Byte; inline;
 begin
   if Value < 0 then
@@ -231,7 +254,7 @@ end;
 
 function LumaOfColor(const AColor: TRGBA32): Integer; inline;
 begin
-  Result := (AColor.R * 77 + AColor.G * 150 + AColor.B * 29) div 256;
+  Result := (AColor.R * LUMA_WEIGHT_RED + AColor.G * LUMA_WEIGHT_GREEN + AColor.B * LUMA_WEIGHT_BLUE) div LUMA_DIVISOR;
 end;
 
 procedure RGBToHSV(const AColor: TRGBA32; out H, S, V: Double); inline;
@@ -264,16 +287,16 @@ begin
   end;
 
   if SameValue(MaxValue, RedValue) then
-    H := 60.0 * ((GreenValue - BlueValue) / Delta)
+    H := DEGREES_PER_HUE_SECTOR * ((GreenValue - BlueValue) / Delta)
   else if SameValue(MaxValue, GreenValue) then
-    H := 60.0 * (2.0 + ((BlueValue - RedValue) / Delta))
+    H := DEGREES_PER_HUE_SECTOR * (2.0 + ((BlueValue - RedValue) / Delta))
   else
-    H := 60.0 * (4.0 + ((RedValue - GreenValue) / Delta));
+    H := DEGREES_PER_HUE_SECTOR * (4.0 + ((RedValue - GreenValue) / Delta));
 
   while H < 0.0 do
-    H := H + 360.0;
-  while H >= 360.0 do
-    H := H - 360.0;
+    H := H + FULL_CIRCLE_DEGREES;
+  while H >= FULL_CIRCLE_DEGREES do
+    H := H - FULL_CIRCLE_DEGREES;
 end;
 
 function HSVToRGBA(H, S, V: Double; Alpha: Byte): TRGBA32; inline;
@@ -301,11 +324,11 @@ begin
 
   NormalizedHue := H;
   while NormalizedHue < 0.0 do
-    NormalizedHue := NormalizedHue + 360.0;
-  while NormalizedHue >= 360.0 do
-    NormalizedHue := NormalizedHue - 360.0;
+    NormalizedHue := NormalizedHue + FULL_CIRCLE_DEGREES;
+  while NormalizedHue >= FULL_CIRCLE_DEGREES do
+    NormalizedHue := NormalizedHue - FULL_CIRCLE_DEGREES;
 
-  NormalizedHue := NormalizedHue / 60.0;
+  NormalizedHue := NormalizedHue / DEGREES_PER_HUE_SECTOR;
   HueSector := Floor(NormalizedHue);
   Fraction := NormalizedHue - HueSector;
 
@@ -2176,7 +2199,7 @@ var
 begin
   for Index := 0 to High(FPixels) do
   begin
-    Luma := (FPixels[Index].R * 77 + FPixels[Index].G * 150 + FPixels[Index].B * 29) div 256;
+    Luma := (FPixels[Index].R * LUMA_WEIGHT_RED + FPixels[Index].G * LUMA_WEIGHT_GREEN + FPixels[Index].B * LUMA_WEIGHT_BLUE) div LUMA_DIVISOR;
     FPixels[Index].R := ClampChannel(Luma);
     FPixels[Index].G := ClampChannel(Luma);
     FPixels[Index].B := ClampChannel(Luma);
@@ -2344,7 +2367,7 @@ begin
     if FPixels[Index].A = 0 then
       Continue;
     Straight := Unpremultiply(FPixels[Index]);
-    Luma := (Straight.R * 77 + Straight.G * 150 + Straight.B * 29) div 256;
+    Luma := (Straight.R * LUMA_WEIGHT_RED + Straight.G * LUMA_WEIGHT_GREEN + Straight.B * LUMA_WEIGHT_BLUE) div LUMA_DIVISOR;
     if Luma >= Threshold then
       ChannelValue := 255
     else
@@ -2372,7 +2395,7 @@ var
   end;
 
 begin
-  LevelCount := EnsureRange(Levels, 2, 64) - 1;
+  LevelCount := EnsureRange(Levels, 2, MAX_POSTERIZE_LEVELS) - 1;
   ScaleValue := 255.0 / LevelCount;
   for Index := 0 to High(FPixels) do
   begin
@@ -2403,8 +2426,8 @@ var
 begin
   if Radius < 1 then
     Radius := 1
-  else if Radius > 64 then
-    Radius := 64;
+  else if Radius > MAX_BOX_BLUR_RADIUS then
+    Radius := MAX_BOX_BLUR_RADIUS;
   Temp := TRasterSurface.Create(FWidth, FHeight);
   try
     WindowSize := (Radius * 2) + 1;
@@ -3120,8 +3143,8 @@ begin
           BX := X + DX;
           if (BX < 0) or (BX >= SnapW) then Continue;
           Pix := Snap[BY * SnapW + BX];
-          Luma := (Pix.R * 77 + Pix.G * 150 + Pix.B * 29) div 256;
-          BucketIdx := (Luma * BucketCount) div 256;
+          Luma := (Pix.R * LUMA_WEIGHT_RED + Pix.G * LUMA_WEIGHT_GREEN + Pix.B * LUMA_WEIGHT_BLUE) div LUMA_DIVISOR;
+          BucketIdx := (Luma * BucketCount) div LUMA_DIVISOR;
           if BucketIdx >= BucketCount then BucketIdx := BucketCount - 1;
           Inc(Bucket[BucketIdx].SumR, Pix.R);
           Inc(Bucket[BucketIdx].SumG, Pix.G);
@@ -3236,7 +3259,7 @@ var
   SampleCount: Integer;
   Pixel: TRGBA32;
 begin
-  Radius := EnsureRange(Radius, 1, 24);
+  Radius := EnsureRange(Radius, 1, MAX_SURFACE_BLUR_RADIUS);
   Source := Clone;
   try
     for Y := 0 to FHeight - 1 do
@@ -3287,7 +3310,7 @@ var
   BaseLuma: Integer;
   PixelLuma: Integer;
 begin
-  Radius := EnsureRange(Radius, 1, 24);
+  Radius := EnsureRange(Radius, 1, MAX_SURFACE_BLUR_RADIUS);
   Source := Clone;
   try
     for Y := 0 to FHeight - 1 do
@@ -3617,7 +3640,7 @@ var
   MirrorX, MirrorY: Integer;
   SourceX, SourceY: Integer;
 begin
-  TileSize := EnsureRange(TileSize, 2, 256);
+  TileSize := EnsureRange(TileSize, 2, MAX_TILE_REFLECTION_SIZE);
   Source := Clone;
   try
     for Y := 0 to FHeight - 1 do

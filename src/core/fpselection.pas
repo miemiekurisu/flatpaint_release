@@ -76,13 +76,21 @@ implementation
 uses
   Math, SysUtils;
 
+const
+  { Offset to move integer coordinates to pixel center for SDF evaluation. }
+  PIXEL_CENTER_OFFSET = 0.5;
+  { Guard against degenerate zero-length vectors in SDF math. }
+  SDF_EPSILON = 1.0e-12;
+  { Initial SDF distance used as "infinitely far away". }
+  SDF_LARGE_DISTANCE = 1.0e30;
+
 { --- SDF Anti-Aliasing Helpers (duplicated from fpsurface for dependency isolation) --- }
 
 function SDFCoverage(DistPixels: Double): Byte; inline;
 var
   Coverage: Double;
 begin
-  Coverage := DistPixels + 0.5;
+  Coverage := DistPixels + PIXEL_CENTER_OFFSET;
   if Coverage <= 0.0 then
     Exit(0);
   if Coverage >= 1.0 then
@@ -99,7 +107,7 @@ begin
   NX := (PX - CX) / RX;
   NY := (PY - CY) / RY;
   NLen := Sqrt(NX * NX + NY * NY);
-  if NLen < 1.0e-12 then
+  if NLen < SDF_EPSILON then
     Exit(Min(RX, RY));
   Result := (1.0 - NLen) * Min(RX, RY) * (NLen / Sqrt((NX * NX) / (RX * RX) + (NY * NY) / (RY * RY)));
 end;
@@ -175,10 +183,10 @@ begin
   PreviousIndex := High(APoints);
   for Index := 0 to High(APoints) do
   begin
-    CurrentX := APoints[Index].X + 0.5;
-    CurrentY := APoints[Index].Y + 0.5;
-    PreviousX := APoints[PreviousIndex].X + 0.5;
-    PreviousY := APoints[PreviousIndex].Y + 0.5;
+    CurrentX := APoints[Index].X + PIXEL_CENTER_OFFSET;
+    CurrentY := APoints[Index].Y + PIXEL_CENTER_OFFSET;
+    PreviousX := APoints[PreviousIndex].X + PIXEL_CENTER_OFFSET;
+    PreviousY := APoints[PreviousIndex].Y + PIXEL_CENTER_OFFSET;
     if ((CurrentY > AY) <> (PreviousY > AY)) and
        (AX < (((PreviousX - CurrentX) * (AY - CurrentY)) / (PreviousY - CurrentY)) + CurrentX) then
       Result := not Result;
@@ -550,10 +558,10 @@ begin
     for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
     begin
       if UseRounded then
-        Dist := RoundedRectSelSDF(X + 0.5, Y + 0.5,
+        Dist := RoundedRectSelSDF(X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET,
           LeftX, TopY, RightX + 1, BottomY + 1, Radius)
       else
-        Dist := RectSDF(X + 0.5, Y + 0.5, CenterX, CenterY, HalfW, HalfH);
+        Dist := RectSDF(X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET, CenterX, CenterY, HalfW, HalfH);
       Cov := SDFCoverage(Dist);
       if Cov = 0 then
         Continue;
@@ -632,8 +640,8 @@ begin
     for Y := TopY to BottomY do
       for X := LeftX to RightX do
       begin
-        NX := (X + 0.5 - CenterX) / RadiusX;
-        NY := (Y + 0.5 - CenterY) / RadiusY;
+        NX := (X + PIXEL_CENTER_OFFSET - CenterX) / RadiusX;
+        NY := (Y + PIXEL_CENTER_OFFSET - CenterY) / RadiusY;
         if ((NX * NX) + (NY * NY)) > 1.0 then
           Continue;
         case AMode of
@@ -649,7 +657,7 @@ begin
   for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
     for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
     begin
-      Dist := EllipseSDF(X + 0.5, Y + 0.5, CenterX, CenterY, RadiusX, RadiusY);
+      Dist := EllipseSDF(X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET, CenterX, CenterY, RadiusX, RadiusY);
       Cov := SDFCoverage(Dist);
       if Cov = 0 then
         Continue;
@@ -767,7 +775,7 @@ begin
     for Y := TopY to BottomY do
       for X := LeftX to RightX do
       begin
-        if not PointInsidePolygon(APoints, X + 0.5, Y + 0.5) then
+        if not PointInsidePolygon(APoints, X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET) then
           Continue;
         ApplyCoverage(X, Y, 255);
       end;
@@ -777,16 +785,16 @@ begin
   for Y := TopY to BottomY do
     for X := LeftX to RightX do
     begin
-      PX := X + 0.5;
-      PY := Y + 0.5;
+      PX := X + PIXEL_CENTER_OFFSET;
+      PY := Y + PIXEL_CENTER_OFFSET;
       Inside := PointInsidePolygon(APoints, PX, PY);
-      MinDist := 1.0e30;
+      MinDist := SDF_LARGE_DISTANCE;
       for PointIndex := 0 to High(APoints) do
       begin
         NextIndex := (PointIndex + 1) mod Length(APoints);
         EdgeDist := DistToSegment(PX, PY,
-          APoints[PointIndex].X + 0.5, APoints[PointIndex].Y + 0.5,
-          APoints[NextIndex].X + 0.5, APoints[NextIndex].Y + 0.5);
+          APoints[PointIndex].X + PIXEL_CENTER_OFFSET, APoints[PointIndex].Y + PIXEL_CENTER_OFFSET,
+          APoints[NextIndex].X + PIXEL_CENTER_OFFSET, APoints[NextIndex].Y + PIXEL_CENTER_OFFSET);
         if EdgeDist < MinDist then
           MinDist := EdgeDist;
       end;
