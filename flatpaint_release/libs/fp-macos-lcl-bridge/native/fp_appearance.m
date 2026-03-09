@@ -62,3 +62,63 @@ void FPSetInterpolationQuality(int quality) {
     }
     CGContextSetInterpolationQuality(ctx, q);
 }
+
+/*
+ * Draw a marching-ants polyline on the current NSGraphicsContext.
+ *
+ * Renders two passes in a single call:
+ *   1) White solid base stroke  – ensures the outline is visible on any background
+ *   2) Black dashed overlay     – MarqueeSegmentLength-pixel dash with animated phase
+ *
+ * The CGContext already carries the LCL SetWindowOrgEx translation (Cocoa LCL
+ * applies it via CGContextTranslateCTM), so coordinates are in LCL logical space.
+ *
+ * pointsXY  : interleaved doubles [x0,y0, x1,y1, …] in LCL logical coordinates
+ * count     : number of POINTS (array has count*2 doubles)
+ * dashLen   : dash/gap length in user-space points (typically 4)
+ * dashPhase : phase offset for animation (advances each timer tick)
+ * closed    : non-zero to close the subpath
+ *
+ * Pascal side:
+ *   FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
+ *     ADashLength, ADashPhase: Double; AClosed: LongInt); cdecl;
+ */
+void FPDrawMarchingAntsPolyline(const double *pointsXY, int count,
+                                double dashLen, double dashPhase,
+                                int closed) {
+    if (!pointsXY || count < 2) return;
+    NSGraphicsContext *gc = [NSGraphicsContext currentContext];
+    if (!gc) return;
+    CGContextRef ctx = (CGContextRef)[gc CGContext];
+    if (!ctx) return;
+
+    CGContextSaveGState(ctx);
+    CGContextSetLineWidth(ctx, 1.0);
+    CGContextSetLineCap(ctx, kCGLineCapButt);
+    CGContextSetLineJoin(ctx, kCGLineJoinMiter);
+
+    /* --- Pass 1: white solid base --- */
+    CGContextSetRGBStrokeColor(ctx, 1.0, 1.0, 1.0, 1.0);
+    CGContextSetLineDash(ctx, 0, NULL, 0);
+    CGContextBeginPath(ctx);
+    CGContextMoveToPoint(ctx, (CGFloat)pointsXY[0], (CGFloat)pointsXY[1]);
+    for (int i = 1; i < count; i++)
+        CGContextAddLineToPoint(ctx, (CGFloat)pointsXY[i * 2], (CGFloat)pointsXY[i * 2 + 1]);
+    if (closed)
+        CGContextClosePath(ctx);
+    CGContextStrokePath(ctx);
+
+    /* --- Pass 2: black dashed overlay --- */
+    CGFloat dashLengths[2] = { (CGFloat)dashLen, (CGFloat)dashLen };
+    CGContextSetRGBStrokeColor(ctx, 0.0, 0.0, 0.0, 1.0);
+    CGContextSetLineDash(ctx, (CGFloat)dashPhase, dashLengths, 2);
+    CGContextBeginPath(ctx);
+    CGContextMoveToPoint(ctx, (CGFloat)pointsXY[0], (CGFloat)pointsXY[1]);
+    for (int i = 1; i < count; i++)
+        CGContextAddLineToPoint(ctx, (CGFloat)pointsXY[i * 2], (CGFloat)pointsXY[i * 2 + 1]);
+    if (closed)
+        CGContextClosePath(ctx);
+    CGContextStrokePath(ctx);
+
+    CGContextRestoreGState(ctx);
+}

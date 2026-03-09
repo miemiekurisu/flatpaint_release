@@ -17,6 +17,14 @@ function FPGetScreenBackingScale: Double; cdecl;
   0 = none (nearest-neighbor), 1 = low, 2 = medium, 3 = high. }
 procedure FPSetInterpolationQuality(AQuality: LongInt); cdecl;
 
+{ Draw a marching-ants polyline on the current NSGraphicsContext.
+  Two passes: white solid base + black dashed overlay.
+  APointsXY = interleaved doubles [x0,y0, x1,y1, ...].
+  ACount    = number of points (array has ACount*2 doubles).
+  AClosed   = non-zero to close the path. }
+procedure FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
+  ADashLength: Double; ADashPhase: Double; AClosed: LongInt); cdecl;
+
 implementation
 
 {$IFDEF TESTING}
@@ -34,10 +42,18 @@ procedure FPSetInterpolationQuality(AQuality: LongInt); cdecl;
 begin
   { no-op in headless test builds }
 end;
+
+procedure FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
+  ADashLength: Double; ADashPhase: Double; AClosed: LongInt); cdecl;
+begin
+  { no-op in headless test builds }
+end;
 {$ELSE}
 procedure FPForceAquaAppearance(ANSViewHandle: Pointer); cdecl; external;
 function FPGetScreenBackingScale: Double; cdecl; external;
 procedure FPSetInterpolationQuality(AQuality: LongInt); cdecl; external;
+procedure FPDrawMarchingAntsPolyline(APointsXY: PDouble; ACount: LongInt;
+  ADashLength: Double; ADashPhase: Double; AClosed: LongInt); cdecl; external;
 
 {$LINK fp_appearance.o}
 {$ENDIF}

@@ -5275,13 +5275,9 @@ var
   ContourIndex: Integer;
   Offset: Integer;
   SegmentCount: Integer;
-  StepIndex: Integer;
-  PointA: TPoint;
-  PointB: TPoint;
-  X1: Integer;
-  Y1: Integer;
-  X2: Integer;
-  Y2: Integer;
+  I: Integer;
+  P: TPoint;
+  PointsXY: array of Double;
 begin
   if not Assigned(FDocument) or not FDocument.HasSelection then
     Exit;
@@ -5289,10 +5285,6 @@ begin
   EnsureSelectionMarqueeCache;
   if Length(FSelectionMarqueeContourOffsets) = 0 then
     Exit;
-
-  ACanvas.Brush.Style := bsClear;
-  ACanvas.Pen.Style := psSolid;
-  ACanvas.Pen.Width := 1;
 
   for ContourIndex := 0 to High(FSelectionMarqueeContourOffsets) do
   begin
@@ -5302,35 +5294,25 @@ begin
       Continue;
     if SegmentCount = 1 then
     begin
-      PointA := FSelectionMarqueePoints[Offset];
-      if MarqueeStepUsesDarkColor(0, FMarqueeDashPhase) then
-        ACanvas.Pen.Color := clBlack
-      else
-        ACanvas.Pen.Color := clWhite;
-      X1 := Round((PointA.X + 0.5) * FZoomScale);
-      Y1 := Round((PointA.Y + 0.5) * FZoomScale);
-      ACanvas.MoveTo(X1, Y1);
-      ACanvas.LineTo(X1 + 1, Y1);
+      P := FSelectionMarqueePoints[Offset];
+      SetLength(PointsXY, 4);
+      PointsXY[0] := (P.X + 0.5) * FZoomScale;
+      PointsXY[1] := (P.Y + 0.5) * FZoomScale;
+      PointsXY[2] := (P.X + 0.5) * FZoomScale + 1;
+      PointsXY[3] := (P.Y + 0.5) * FZoomScale;
+      FPDrawMarchingAntsPolyline(@PointsXY[0], 2,
+        MarqueeSegmentLength, FMarqueeDashPhase, 0);
       Continue;
     end;
-    for StepIndex := 0 to SegmentCount - 1 do
+    SetLength(PointsXY, SegmentCount * 2);
+    for I := 0 to SegmentCount - 1 do
     begin
-      if not MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-        Continue;
-      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-        ACanvas.Pen.Color := clBlack
-      else
-        ACanvas.Pen.Color := clWhite;
-
-      PointA := FSelectionMarqueePoints[Offset + StepIndex];
-      PointB := FSelectionMarqueePoints[Offset + ((StepIndex + 1) mod SegmentCount)];
-      X1 := Round((PointA.X + 0.5) * FZoomScale);
-      Y1 := Round((PointA.Y + 0.5) * FZoomScale);
-      X2 := Round((PointB.X + 0.5) * FZoomScale);
-      Y2 := Round((PointB.Y + 0.5) * FZoomScale);
-      ACanvas.MoveTo(X1, Y1);
-      ACanvas.LineTo(X2, Y2);
+      P := FSelectionMarqueePoints[Offset + I];
+      PointsXY[I * 2] := (P.X + 0.5) * FZoomScale;
+      PointsXY[I * 2 + 1] := (P.Y + 0.5) * FZoomScale;
     end;
+    FPDrawMarchingAntsPolyline(@PointsXY[0], SegmentCount,
+      MarqueeSegmentLength, FMarqueeDashPhase, 1);
   end;
 end;
 
@@ -5339,75 +5321,17 @@ procedure TMainForm.DrawMarqueeRectangleOverlay(
   ALeft, ATop, ARight, ABottom: Integer
 );
 var
-  StepIndex: Integer;
-  X: Integer;
-  Y: Integer;
+  RectPts: array[0..9] of Double;
 begin
-  if ARight <= ALeft then
+  if (ARight <= ALeft) or (ABottom <= ATop) then
     Exit;
-  if ABottom <= ATop then
-    Exit;
-
-  ACanvas.Brush.Style := bsClear;
-  ACanvas.Pen.Style := psSolid;
-  ACanvas.Pen.Width := 1;
-  StepIndex := 0;
-
-  for X := ALeft to ARight - 2 do
-  begin
-    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-    begin
-      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-        ACanvas.Pen.Color := clBlack
-      else
-        ACanvas.Pen.Color := clWhite;
-      ACanvas.MoveTo(X, ATop);
-      ACanvas.LineTo(X + 1, ATop);
-    end;
-    Inc(StepIndex);
-  end;
-
-  for Y := ATop to ABottom - 2 do
-  begin
-    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-    begin
-      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-        ACanvas.Pen.Color := clBlack
-      else
-        ACanvas.Pen.Color := clWhite;
-      ACanvas.MoveTo(ARight - 1, Y);
-      ACanvas.LineTo(ARight - 1, Y + 1);
-    end;
-    Inc(StepIndex);
-  end;
-
-  for X := ARight - 1 downto ALeft + 1 do
-  begin
-    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-    begin
-      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-        ACanvas.Pen.Color := clBlack
-      else
-        ACanvas.Pen.Color := clWhite;
-      ACanvas.MoveTo(X, ABottom - 1);
-      ACanvas.LineTo(X - 1, ABottom - 1);
-    end;
-    Inc(StepIndex);
-  end;
-
-  for Y := ABottom - 1 downto ATop + 1 do
-  begin
-    if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-    begin
-      if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-        ACanvas.Pen.Color := clBlack
-      else
-        ACanvas.Pen.Color := clWhite;
-      ACanvas.MoveTo(ALeft, Y);
-      ACanvas.LineTo(ALeft, Y - 1);
-    end;
-    Inc(StepIndex);
-  end;
+  RectPts[0] := ALeft;        RectPts[1] := ATop;
+  RectPts[2] := ARight - 1;   RectPts[3] := ATop;
+  RectPts[4] := ARight - 1;   RectPts[5] := ABottom - 1;
+  RectPts[6] := ALeft;        RectPts[7] := ABottom - 1;
+  RectPts[8] := ALeft;        RectPts[9] := ATop;
+  FPDrawMarchingAntsPolyline(@RectPts[0], 5,
+    MarqueeSegmentLength, FMarqueeDashPhase, 0);
 end;
 
 procedure TMainForm.DrawMarqueeEllipseOverlay(
@@ -5422,13 +5346,9 @@ var
   CenterX: Double;
   CenterY: Double;
   StepCount: Integer;
-  StepIndex: Integer;
-  ThetaA: Double;
-  ThetaB: Double;
-  X1: Integer;
-  Y1: Integer;
-  X2: Integer;
-  Y2: Integer;
+  I: Integer;
+  Theta: Double;
+  EllipsePts: array of Double;
 begin
   WidthPixels := ARight - ALeft;
   HeightPixels := ABottom - ATop;
@@ -5444,28 +5364,15 @@ begin
   RadiusY := Max(0.5, HeightPixels * 0.5);
   StepCount := Max(24, Round(2.0 * Pi * Max(RadiusX, RadiusY)));
 
-  ACanvas.Brush.Style := bsClear;
-  ACanvas.Pen.Style := psSolid;
-  ACanvas.Pen.Width := 1;
-
-  for StepIndex := 0 to StepCount - 1 do
+  SetLength(EllipsePts, StepCount * 2);
+  for I := 0 to StepCount - 1 do
   begin
-    if not MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-      Continue;
-    if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-      ACanvas.Pen.Color := clBlack
-    else
-      ACanvas.Pen.Color := clWhite;
-
-    ThetaA := 2.0 * Pi * StepIndex / StepCount;
-    ThetaB := 2.0 * Pi * (StepIndex + 1) / StepCount;
-    X1 := Round(CenterX + Cos(ThetaA) * RadiusX);
-    Y1 := Round(CenterY + Sin(ThetaA) * RadiusY);
-    X2 := Round(CenterX + Cos(ThetaB) * RadiusX);
-    Y2 := Round(CenterY + Sin(ThetaB) * RadiusY);
-    ACanvas.MoveTo(X1, Y1);
-    ACanvas.LineTo(X2, Y2);
+    Theta := 2.0 * Pi * I / StepCount;
+    EllipsePts[I * 2] := CenterX + Cos(Theta) * RadiusX;
+    EllipsePts[I * 2 + 1] := CenterY + Sin(Theta) * RadiusY;
   end;
+  FPDrawMarchingAntsPolyline(@EllipsePts[0], StepCount,
+    MarqueeSegmentLength, FMarqueeDashPhase, 1);
 end;
 
 procedure TMainForm.DrawMarqueePolylineOverlay(
@@ -5474,56 +5381,27 @@ procedure TMainForm.DrawMarqueePolylineOverlay(
   AClosePath: Boolean
 );
 var
-  SegmentIndex: Integer;
-  SegmentCount: Integer;
-  StartPoint: TPoint;
-  EndPoint: TPoint;
-  StepCount: Integer;
-  StepInSegment: Integer;
-  StepIndex: Integer;
-  X1: Integer;
-  Y1: Integer;
-  X2: Integer;
-  Y2: Integer;
+  I: Integer;
+  PtCount: Integer;
+  PointsXY: array of Double;
+  ClosedFlag: LongInt;
 begin
-  if Length(APoints) < 2 then
+  PtCount := Length(APoints);
+  if PtCount < 2 then
     Exit;
 
-  ACanvas.Brush.Style := bsClear;
-  ACanvas.Pen.Style := psSolid;
-  ACanvas.Pen.Width := 1;
-  StepIndex := 0;
-
-  SegmentCount := High(APoints);
-  if AClosePath then
-    Inc(SegmentCount);
-
-  for SegmentIndex := 0 to SegmentCount - 1 do
+  SetLength(PointsXY, PtCount * 2);
+  for I := 0 to PtCount - 1 do
   begin
-    StartPoint := APoints[SegmentIndex mod Length(APoints)];
-    EndPoint := APoints[(SegmentIndex + 1) mod Length(APoints)];
-    StepCount := Max(
-      1,
-      Max(Abs(EndPoint.X - StartPoint.X), Abs(EndPoint.Y - StartPoint.Y))
-    );
-    for StepInSegment := 0 to StepCount - 1 do
-    begin
-      if MarqueeStepVisible(StepIndex, FMarqueeDashPhase) then
-      begin
-        if MarqueeStepUsesDarkColor(StepIndex, FMarqueeDashPhase) then
-          ACanvas.Pen.Color := clBlack
-        else
-          ACanvas.Pen.Color := clWhite;
-        X1 := Round((StartPoint.X + (EndPoint.X - StartPoint.X) * StepInSegment / StepCount + 0.5) * FZoomScale);
-        Y1 := Round((StartPoint.Y + (EndPoint.Y - StartPoint.Y) * StepInSegment / StepCount + 0.5) * FZoomScale);
-        X2 := Round((StartPoint.X + (EndPoint.X - StartPoint.X) * (StepInSegment + 1) / StepCount + 0.5) * FZoomScale);
-        Y2 := Round((StartPoint.Y + (EndPoint.Y - StartPoint.Y) * (StepInSegment + 1) / StepCount + 0.5) * FZoomScale);
-        ACanvas.MoveTo(X1, Y1);
-        ACanvas.LineTo(X2, Y2);
-      end;
-      Inc(StepIndex);
-    end;
+    PointsXY[I * 2] := (APoints[I].X + 0.5) * FZoomScale;
+    PointsXY[I * 2 + 1] := (APoints[I].Y + 0.5) * FZoomScale;
   end;
+  if AClosePath then
+    ClosedFlag := 1
+  else
+    ClosedFlag := 0;
+  FPDrawMarchingAntsPolyline(@PointsXY[0], PtCount,
+    MarqueeSegmentLength, FMarqueeDashPhase, ClosedFlag);
 end;
 
 procedure TMainForm.DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
