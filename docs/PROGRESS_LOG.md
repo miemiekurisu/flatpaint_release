@@ -4,6 +4,37 @@
 - This is a cumulative historical log and contains pre-FPC entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## Rectangle Selection Edge Adjustment
+
+### Changes
+
+1. **Added post-draw edge adjustment for rectangle selection tool**:
+   - After drawing a rectangle selection, users can drag any of the 4 edges to resize.
+   - Marching-ants preview (clean, no extra solid outline) updates in real time while dragging.
+   - Cursor changes to resize arrows (`crSizeWE`/`crSizeNS`) on `FPaintBox` when hovering over draggable edges.
+   - Press Enter to commit the adjusted selection, Escape to cancel.
+   - Clicking outside the edges also commits and allows starting a new selection.
+   - Rounded corners are correctly re-applied when committing adjusted bounds.
+   - Switching tools automatically commits the pending adjustment.
+
+2. **Visual fixes (follow-up)**:
+   - Cursor is set on `FPaintBox.Cursor` (not form-level `Cursor`) so the resize arrows appear correctly over the canvas control.
+   - During edge-drag (`FPointerDown` + `FSelAdjusting`), the old-style preview rectangle/marching-ants from the initial draw phase are suppressed — only the adjustment preview is drawn.
+   - Removed redundant solid-black rectangle border from the adjustment preview; only marching ants are rendered for a clean appearance matching the committed selection overlay.
+
+3. **Files modified**:
+   - `src/app/mainform.pas`: Added `FSelAdjusting`, `FSelAdjRect`, `FSelAdjDragEdge` fields; `BeginSelAdjust`, `CommitSelAdjust`, `CancelSelAdjust`, `SelAdjEdgeAtPoint`, `SelAdjCursorForEdge` methods; intercepted MouseDown/Move/Up and KeyDown for adjustment state machine; added adjustment preview in PaintCanvasTo; guarded old preview code in `PaintCanvasTo`.
+   - `src/tests/tools_select_tests.pas`: Added 2 tests (`AdjustedRectSelection_CommitsNewBounds`, `AdjustedRectSelection_RoundedCornersPreserved`).
+
+4. **Design reference**: GIMP rectangle selection tool edge-adjustment behavior (architecture reference only, original implementation).
+
+### Verification
+
+- `bash ./scripts/run_tests_ci.sh`
+  - Result: **passed**, `403` tests, `0` errors, `0` failures.
+- `bash ./scripts/build.sh`
+  - Result: **success**, app bundle regenerated at `dist/FlatPaint.app`.
+
 ## 2026-03-09 (medium-priority GIMP parity gap closure: tool option depth)
 
 ### Changes
@@ -2184,3 +2215,20 @@ Six bugs were identified through systematic trace of the three reported failure 
   - Added explicit Gate-C manual validation file: `docs/RELEASE_SMOKE_CHECKLIST.md`, and linked it from `docs/ARCHITECTURE_RENOVATION_PLAN.md`.
   - Synced stale docs to current regression baseline (`363` tests), including `docs/PRD.md`, `docs/FEATURE_MATRIX.md`, and `docs/SHORTCUT_POLICY.md`.
   - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:363 E:0 F:0`).
+- **2026-03-09 — Rounded-corner preview during draw + edge-case unit tests.**
+  - Feature row mapping: `Select/rectangle` in `docs/FEATURE_MATRIX.md`.
+  - Bug fix: rounded-corner rectangle selection now shows rounded corners in the marching-ants preview while drawing (FPointerDown) and during edge-adjustment mode, not only after committing. Previously the preview always drew a sharp rectangle regardless of `FSelCornerRadius`.
+  - Implementation: added `DrawMarqueeRoundedRectOverlay` — generates a parametric rounded-rect polyline (4 quarter-circle arcs × 8 steps + 4 straight segments + 1 close = 37 points) and calls `FPDrawMarchingAntsPolyline`. Updated both preview drawing paths (initial drag and adjustment mode) to use it when `FSelCornerRadius > 0`.
+  - Added `ACanvas.RoundRect` call before the marching ants overlay in the initial draw preview so the filled selection indicator also shows rounded corners.
+  - Added 9 edge-case unit tests for `TSelectionMask.SelectRectangle`: single-pixel select, inverted coordinates, out-of-bounds clamping, radius larger than half-size, subtract mode, anti-alias edge coverage, rounded subtract preserving surrounds, full-document-extent coverage, and zero-area (fully OOB) producing no selection.
+  - Added development rule #26: edge-case and extreme-value test requirements for core functions.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:412 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-10 — Rounded-rect marquee arc fix + adjustment-mode animation + state leak fixes.**
+  - Feature row mapping: `Select/rectangle` in `docs/FEATURE_MATRIX.md`.
+  - Bug fix: `DrawMarqueeRoundedRectOverlay` arc geometry was fundamentally wrong — the top-left arc used an incorrect trigonometric formula (`CX - R*cos(angle)` instead of `CX + R*cos(angle)`) with wrong angle range, producing stray diagonal lines from origin to the rectangle. Rewrote all 4 arcs with consistent parametric formula: `X = CX + R*cos(angle)`, `Y = CY + R*sin(angle)` using screen-coordinate convention (angle 0=right, π/2=down, π=left, 3π/2=up).
+  - Bug fix: marching ants animation was mouse-dependent during edge-adjustment mode because `FDocument.HasSelection` is `False` before commit, so `ShouldAnimateMarqueeNow` fell through to the `PointerInCanvas` check. Added early `Exit(True)` when `FSelAdjusting` is `True`.
+  - Bug fix: `FSelAdjusting` state leaked across tabs and document closes. Added `CancelSelAdjust` calls to `SwitchToTab` and `CloseDocumentTab`.
+  - Performance: converted `DrawMarqueeRoundedRectOverlay` from dynamic `SetLength` allocation (heap churn every paint frame) to static array `array[0..MaxPts*2-1] of Double`.
+  - Added 2 marquee animation policy tests to `fpmarqueehelpers_tests`.
+  - Updated `docs/FEATURE_MATRIX.md` Selection tools row to mention post-draw edge adjustment and rounded-corner preview.
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:414 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.

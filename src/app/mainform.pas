@@ -319,6 +319,10 @@ type
     FSelCornerRadius: Integer;
     FSelCornerRadiusLabel: TLabel;
     FSelCornerRadiusSpin: TSpinEdit;
+    { Rectangle selection edge-adjustment state }
+    FSelAdjusting: Boolean;       { True while user can drag edges }
+    FSelAdjRect: TRect;           { Pending rect in image coords (Left,Top = min corner) }
+    FSelAdjDragEdge: Integer;     { 0=none, 1=left, 2=top, 3=right, 4=bottom }
     { Crop tool options }
     { 0=Free, 1=1:1, 2=4:3, 3=16:9, 4=Current Image }
     FCropAspectMode: Integer;
@@ -407,6 +411,12 @@ type
     procedure EndStatusProgress;
     procedure AutoDeselectSelection(const AReason: string);
     procedure MaybeAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind);
+    { Rectangle selection edge-adjustment helpers }
+    procedure BeginSelAdjust(const AStartPt, AEndPt: TPoint);
+    procedure CommitSelAdjust;
+    procedure CancelSelAdjust;
+    function SelAdjEdgeAtPoint(const AImagePt: TPoint): Integer;
+    function SelAdjCursorForEdge(AEdge: Integer): TCursor;
     function ShouldAutoDeselectFromBlankClick(
       const APoint: TPoint;
       AButton: TMouseButton;
@@ -464,6 +474,7 @@ type
     procedure DrawCloneLinkOverlay(ACanvas: TCanvas; const ASourcePoint, ADestPoint: TPoint);
     procedure DrawSelectionMarqueeOverlay(ACanvas: TCanvas);
     procedure DrawMarqueeRectangleOverlay(ACanvas: TCanvas; ALeft, ATop, ARight, ABottom: Integer);
+    procedure DrawMarqueeRoundedRectOverlay(ACanvas: TCanvas; ALeft, ATop, ARight, ABottom: Integer; ARadius: Double);
     procedure DrawMarqueeEllipseOverlay(ACanvas: TCanvas; ALeft, ATop, ARight, ABottom: Integer);
     procedure DrawMarqueePolylineOverlay(ACanvas: TCanvas; const APoints: array of TPoint; AClosePath: Boolean);
     procedure DrawCloneSourceOverlay(ACanvas: TCanvas; const APoint: TPoint; ARadius: Integer);
@@ -984,6 +995,8 @@ begin
   FSelAntiAlias := True;
   FSelFeather := 0;
   FSelCornerRadius := 0;
+  FSelAdjusting := False;
+  FSelAdjDragEdge := 0;
   FCropAspectMode := 0;
   FCropGuideMode := 1;
   FRoundedCornerRadius := 16;
@@ -1133,6 +1146,8 @@ begin
   FSelAntiAlias := True;
   FSelFeather := 0;
   FSelCornerRadius := 0;
+  FSelAdjusting := False;
+  FSelAdjDragEdge := 0;
   FCropAspectMode := 0;
   FCropGuideMode := 1;
   FRoundedCornerRadius := 16;
@@ -2669,6 +2684,8 @@ begin
   SetLength(FLassoPoints, 0);
   ResetLineCurveState;
   ClearMovePixelsTransactionState;
+  if FSelAdjusting then
+    CancelSelAdjust;
   FPendingSelectionMode := scReplace;
 end;
 
@@ -2758,9 +2775,116 @@ end;
 
 procedure TMainForm.MaybeAutoDeselectOnToolSwitch(AOldTool, ANewTool: TToolKind);
 begin
+  { Always commit pending edge-adjustment when switching away from rect select }
+  if FSelAdjusting and (AOldTool = tkSelectRect) and (ANewTool <> tkSelectRect) then
+    CommitSelAdjust;
   if not ShouldAutoDeselectOnToolSwitch(AOldTool, ANewTool) then
     Exit;
   AutoDeselectSelection(LocalizedAction('Deselect'));
+end;
+
+{ ── Rectangle Selection Edge-Adjustment ─────────────────────────────────── }
+
+procedure TMainForm.BeginSelAdjust(const AStartPt, AEndPt: TPoint);
+begin
+  FSelAdjusting := True;
+  FSelAdjDragEdge := 0;
+  FSelAdjRect.Left := Min(AStartPt.X, AEndPt.X);
+  FSelAdjRect.Top := Min(AStartPt.Y, AEndPt.Y);
+  FSelAdjRect.Right := Max(AStartPt.X, AEndPt.X);
+  FSelAdjRect.Bottom := Max(AStartPt.Y, AEndPt.Y);
+  RefreshCanvas;
+end;
+
+procedure TMainForm.CommitSelAdjust;
+var
+  R: TRect;
+begin
+  if not FSelAdjusting then
+    Exit;
+  FSelAdjusting := False;
+  FSelAdjDragEdge := 0;
+  R := FSelAdjRect;
+  if (R.Right > R.Left) and (R.Bottom > R.Top) then
+  begin
+    if Assigned(FSelectionController) then
+      FSelectionController.CommitRectangleSelection(
+        FDocument,
+        Point(R.Left, R.Top),
+        Point(R.Right, R.Bottom),
+        FPendingSelectionMode,
+        FSelAntiAlias,
+        FSelFeather,
+        FSelCornerRadius,
+        PaintToolName(FCurrentTool)
+      )
+    else
+    begin
+      FDocument.PushHistory(PaintToolName(FCurrentTool));
+      FDocument.SelectRectangle(
+        R.Left, R.Top, R.Right, R.Bottom,
+        FPendingSelectionMode,
+        FSelAntiAlias,
+        FSelCornerRadius
+      );
+    end;
+    SyncSelectionOverlayUI(True);
+  end;
+  if Assigned(FPaintBox) then
+    FPaintBox.Cursor := crDefault;
+  RefreshCanvas;
+end;
+
+procedure TMainForm.CancelSelAdjust;
+begin
+  if not FSelAdjusting then
+    Exit;
+  FSelAdjusting := False;
+  FSelAdjDragEdge := 0;
+  if Assigned(FPaintBox) then
+    FPaintBox.Cursor := crDefault;
+  RefreshCanvas;
+end;
+
+function TMainForm.SelAdjEdgeAtPoint(const AImagePt: TPoint): Integer;
+const
+  EdgeThreshold = 5;  { pixels in image space }
+var
+  R: TRect;
+  Thr: Integer;
+begin
+  Result := 0;
+  R := FSelAdjRect;
+  { Scale threshold inversely with zoom so it feels consistent at any zoom }
+  if FZoomScale > 0.1 then
+    Thr := Max(2, Round(EdgeThreshold / FZoomScale))
+  else
+    Thr := EdgeThreshold;
+  { Must be near the rect vertically/horizontally to count }
+  if (AImagePt.Y >= R.Top - Thr) and (AImagePt.Y <= R.Bottom + Thr) then
+  begin
+    if Abs(AImagePt.X - R.Left) <= Thr then
+      Exit(1);  { left edge }
+    if Abs(AImagePt.X - R.Right) <= Thr then
+      Exit(3);  { right edge }
+  end;
+  if (AImagePt.X >= R.Left - Thr) and (AImagePt.X <= R.Right + Thr) then
+  begin
+    if Abs(AImagePt.Y - R.Top) <= Thr then
+      Exit(2);  { top edge }
+    if Abs(AImagePt.Y - R.Bottom) <= Thr then
+      Exit(4);  { bottom edge }
+  end;
+end;
+
+function TMainForm.SelAdjCursorForEdge(AEdge: Integer): TCursor;
+begin
+  case AEdge of
+    1, 3: Result := crSizeWE;   { left / right }
+    2, 4: Result := crSizeNS;   { top / bottom }
+  else
+    Result := crDefault;
+  end;
 end;
 
 function TMainForm.ShouldAutoDeselectFromBlankClick(
@@ -5845,6 +5969,85 @@ begin
     MarqueeSegmentLength, FMarqueeDashPhase, 0);
 end;
 
+procedure TMainForm.DrawMarqueeRoundedRectOverlay(
+  ACanvas: TCanvas;
+  ALeft, ATop, ARight, ABottom: Integer;
+  ARadius: Double
+);
+const
+  ArcSteps = 8;
+  { 4 arcs × (ArcSteps+1) + 1 close = 37 points, × 2 for XY = 74 doubles }
+  MaxPts = 4 * (ArcSteps + 1) + 1;
+var
+  R: Double;
+  HalfW: Double;
+  HalfH: Double;
+  Pts: array[0 .. MaxPts * 2 - 1] of Double;
+  PtCount: Integer;
+  I: Integer;
+  J: Integer;
+  Angle: Double;
+  CX, CY: Double;
+begin
+  if (ARight <= ALeft) or (ABottom <= ATop) then
+    Exit;
+  HalfW := (ARight - ALeft) * 0.5;
+  HalfH := (ABottom - ATop) * 0.5;
+  R := ARadius;
+  if R > HalfW then R := HalfW;
+  if R > HalfH then R := HalfH;
+  if R < 1 then
+  begin
+    DrawMarqueeRectangleOverlay(ACanvas, ALeft, ATop, ARight, ABottom);
+    Exit;
+  end;
+  { Screen coords: angle 0=right, π/2=down, π=left, 3π/2=up.
+    X = CX + R*cos(angle),  Y = CY + R*sin(angle).
+    Path goes clockwise: TL(π→3π/2) → TR(3π/2→2π) → BR(0→π/2) → BL(π/2→π) → close. }
+  PtCount := MaxPts;
+  I := 0;
+  { Top-left arc: center (ALeft+R, ATop+R), angle π → 3π/2 }
+  CX := ALeft + R; CY := ATop + R;
+  for J := 0 to ArcSteps do
+  begin
+    Angle := Pi + Pi * 0.5 * J / ArcSteps;
+    Pts[I]     := CX + R * Cos(Angle);
+    Pts[I + 1] := CY + R * Sin(Angle);
+    Inc(I, 2);
+  end;
+  { Top-right arc: center (ARight-1-R, ATop+R), angle 3π/2 → 2π }
+  CX := ARight - 1 - R; CY := ATop + R;
+  for J := 0 to ArcSteps do
+  begin
+    Angle := 1.5 * Pi + Pi * 0.5 * J / ArcSteps;
+    Pts[I]     := CX + R * Cos(Angle);
+    Pts[I + 1] := CY + R * Sin(Angle);
+    Inc(I, 2);
+  end;
+  { Bottom-right arc: center (ARight-1-R, ABottom-1-R), angle 0 → π/2 }
+  CX := ARight - 1 - R; CY := ABottom - 1 - R;
+  for J := 0 to ArcSteps do
+  begin
+    Angle := Pi * 0.5 * J / ArcSteps;
+    Pts[I]     := CX + R * Cos(Angle);
+    Pts[I + 1] := CY + R * Sin(Angle);
+    Inc(I, 2);
+  end;
+  { Bottom-left arc: center (ALeft+R, ABottom-1-R), angle π/2 → π }
+  CX := ALeft + R; CY := ABottom - 1 - R;
+  for J := 0 to ArcSteps do
+  begin
+    Angle := Pi * 0.5 + Pi * 0.5 * J / ArcSteps;
+    Pts[I]     := CX + R * Cos(Angle);
+    Pts[I + 1] := CY + R * Sin(Angle);
+    Inc(I, 2);
+  end;
+  { Close path back to first point }
+  Pts[I] := Pts[0]; Pts[I + 1] := Pts[1];
+  FPDrawMarchingAntsPolyline(@Pts[0], PtCount,
+    MarqueeSegmentLength, FMarqueeDashPhase, 1);
+end;
+
 procedure TMainForm.DrawMarqueeEllipseOverlay(
   ACanvas: TCanvas;
   ALeft, ATop, ARight, ABottom: Integer
@@ -6357,38 +6560,55 @@ begin
         end;
       tkRectangle, tkSelectRect:
         begin
-          if FCurrentTool = tkRectangle then
+          { Skip old-style preview when edge-adjusting — handled below }
+          if not (FSelAdjusting and (FCurrentTool = tkSelectRect)) then
           begin
-            PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
-            if ShapePreviewOutline then
+            if FCurrentTool = tkRectangle then
             begin
-              if FShapeLineStyle = 1 then
-                ACanvas.Pen.Style := psDash
+              PreviewStrokeWidth := Min(20, Max(1, Round(Max(1, FBrushSize div 3) * FZoomScale)));
+              if ShapePreviewOutline then
+              begin
+                if FShapeLineStyle = 1 then
+                  ACanvas.Pen.Style := psDash
+                else
+                  ACanvas.Pen.Style := psSolid;
+                ACanvas.Pen.Width := PreviewStrokeWidth;
+              end
               else
-                ACanvas.Pen.Style := psSolid;
-              ACanvas.Pen.Width := PreviewStrokeWidth;
+                ACanvas.Pen.Style := psClear;
+              if ShapePreviewFill then
+                ACanvas.Brush.Style := bsDiagCross
+              else
+                ACanvas.Brush.Style := bsClear;
             end
             else
-              ACanvas.Pen.Style := psClear;
-            if ShapePreviewFill then
-              ACanvas.Brush.Style := bsDiagCross
-            else
+            begin
+              ACanvas.Pen.Width := 1;
+              ACanvas.Pen.Color := clBlack;
+              ACanvas.Pen.Style := psSolid;
               ACanvas.Brush.Style := bsClear;
-          end
-          else
-          begin
-            ACanvas.Pen.Width := 1;
-            ACanvas.Pen.Color := clBlack;
-            ACanvas.Pen.Style := psSolid;
-            ACanvas.Brush.Style := bsClear;
+            end;
+            LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
+            TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
+            RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
+            BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
+            if (FCurrentTool = tkSelectRect) and (FSelCornerRadius > 0) then
+            begin
+              PreviewRadius := EnsureRange(
+                Round(FSelCornerRadius * FZoomScale),
+                2,
+                Max(2, Min((RightX - LeftX) div 2, (BottomY - TopY) div 2))
+              );
+              ACanvas.RoundRect(LeftX, TopY, RightX, BottomY, PreviewRadius, PreviewRadius);
+              DrawMarqueeRoundedRectOverlay(ACanvas, LeftX, TopY, RightX, BottomY, PreviewRadius);
+            end
+            else
+            begin
+              ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
+              if FCurrentTool = tkSelectRect then
+                DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
+            end;
           end;
-          LeftX := Round(Min(FDragStart.X, FLastImagePoint.X) * FZoomScale);
-          TopY := Round(Min(FDragStart.Y, FLastImagePoint.Y) * FZoomScale);
-          RightX := Round((Max(FDragStart.X, FLastImagePoint.X) + 1) * FZoomScale);
-          BottomY := Round((Max(FDragStart.Y, FLastImagePoint.Y) + 1) * FZoomScale);
-          ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
-          if FCurrentTool = tkSelectRect then
-            DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
         end;
       tkCrop:
         begin
@@ -6577,11 +6797,32 @@ begin
     case FCurrentTool of
       tkLine, tkGradient, tkRectangle, tkRoundedRectangle, tkEllipseShape,
       tkSelectRect, tkSelectEllipse, tkCrop, tkMosaic:
-        DrawPointHoverOverlay(ACanvas, FDragStart);
+        if not (FSelAdjusting and (FCurrentTool = tkSelectRect)) then
+          DrawPointHoverOverlay(ACanvas, FDragStart);
       tkSelectLasso, tkFreeformShape:
         if Length(FLassoPoints) > 0 then
           DrawPointHoverOverlay(ACanvas, FLassoPoints[0]);
     end;
+  end;
+
+  { Draw marching-ants preview while adjusting rectangle selection edges }
+  if FSelAdjusting and (FCurrentTool = tkSelectRect) then
+  begin
+    LeftX := Round(Min(FSelAdjRect.Left, FSelAdjRect.Right) * FZoomScale);
+    TopY := Round(Min(FSelAdjRect.Top, FSelAdjRect.Bottom) * FZoomScale);
+    RightX := Round((Max(FSelAdjRect.Left, FSelAdjRect.Right) + 1) * FZoomScale);
+    BottomY := Round((Max(FSelAdjRect.Top, FSelAdjRect.Bottom) + 1) * FZoomScale);
+    if FSelCornerRadius > 0 then
+    begin
+      PreviewRadius := EnsureRange(
+        Round(FSelCornerRadius * FZoomScale),
+        2,
+        Max(2, Min((RightX - LeftX) div 2, (BottomY - TopY) div 2))
+      );
+      DrawMarqueeRoundedRectOverlay(ACanvas, LeftX, TopY, RightX, BottomY, PreviewRadius);
+    end
+    else
+      DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
   end;
 
   DrawHoverToolOverlay(ACanvas);
@@ -11933,6 +12174,9 @@ var
   PointerInCanvas: Boolean;
   HasSelectionMarquee: Boolean;
 begin
+  { Always animate during edge-adjustment preview (selection not committed yet) }
+  if FSelAdjusting then
+    Exit(True);
   PointerInCanvas := Assigned(FDocument) and
     (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) and
     (FLastImagePoint.X < FDocument.Width) and (FLastImagePoint.Y < FDocument.Height);
@@ -12759,6 +13003,23 @@ begin
     Exit;
   end;
 
+  { Rectangle selection edge-adjustment: Enter commits, Escape cancels }
+  if FSelAdjusting and (FCurrentTool = tkSelectRect) then
+  begin
+    if Key = VK_RETURN then
+    begin
+      CommitSelAdjust;
+      Key := 0;
+      Exit;
+    end;
+    if Key = VK_ESCAPE then
+    begin
+      CancelSelAdjust;
+      Key := 0;
+      Exit;
+    end;
+  end;
+
   if (Key = VK_ESCAPE) and Assigned(FMovePixelsController) and FMovePixelsController.Active then
   begin
     FPointerDown := False;
@@ -13059,6 +13320,24 @@ begin
   else
     FLastPointerPoint := Point(X, Y);
   FLastImagePoint := ImagePoint;
+  { Rectangle selection edge-adjustment: intercept mouse-down while adjusting }
+  if FSelAdjusting and (FCurrentTool = tkSelectRect) then
+  begin
+    FSelAdjDragEdge := SelAdjEdgeAtPoint(ImagePoint);
+    if FSelAdjDragEdge <> 0 then
+    begin
+      { Begin dragging that edge }
+      FPointerDown := True;
+      FPointerButton := Button;
+      if Assigned(FPaintBox) then
+        FPaintBox.MouseCapture := True;
+      RefreshStatus(ImagePoint);
+      Exit;
+    end;
+    { Clicked away from any edge — commit current rect and start fresh }
+    CommitSelAdjust;
+    { Fall through to normal mouse-down so a new selection can begin }
+  end;
   if (FCurrentTool = tkLine) and (Button = mbRight) and (FLineCurvePending or FLinePathOpen) then
   begin
     if FLineCurvePending and FLinePathOpen then
@@ -13343,6 +13622,19 @@ begin
       PaintBoxMouseUp(Sender, FPointerButton, Shift, X, Y);
       Exit;
     end;
+    { Rectangle selection edge-adjustment: drag active edge }
+    if FSelAdjusting and (FCurrentTool = tkSelectRect) and (FSelAdjDragEdge <> 0) then
+    begin
+      case FSelAdjDragEdge of
+        1: FSelAdjRect.Left := ImagePoint.X;
+        2: FSelAdjRect.Top := ImagePoint.Y;
+        3: FSelAdjRect.Right := ImagePoint.X;
+        4: FSelAdjRect.Bottom := ImagePoint.Y;
+      end;
+      FLastImagePoint := ImagePoint;
+      RefreshCanvas;
+    end
+    else
     case FCurrentTool of
       tkPencil, tkBrush, tkEraser:
         begin
@@ -13452,6 +13744,9 @@ begin
   if not FPointerDown or not (FCurrentTool in [tkPencil, tkBrush, tkEraser, tkMoveSelection, tkMovePixels,
     tkGradient, tkLine, tkRectangle, tkRoundedRectangle, tkEllipseShape, tkSelectRect, tkSelectEllipse, tkCrop, tkMosaic]) then
     FLastImagePoint := ImagePoint;
+  { Update cursor when hovering over adjustable selection edges }
+  if (not FPointerDown) and FSelAdjusting and (FCurrentTool = tkSelectRect) and Assigned(FPaintBox) then
+    FPaintBox.Cursor := SelAdjCursorForEdge(SelAdjEdgeAtPoint(ImagePoint));
   if (not FPointerDown) and Assigned(FPaintBox) and
      (
        PaintToolHasCanvasHoverOverlay(FCurrentTool) or
@@ -13490,6 +13785,23 @@ begin
   if Button = mbMiddle then
     DeactivateTempPan;
   FPointerDown := False;
+  { Rectangle selection edge-adjustment: finish edge drag }
+  if FSelAdjusting and (FCurrentTool = tkSelectRect) and (FSelAdjDragEdge <> 0) then
+  begin
+    { Normalize rect so Left<=Right, Top<=Bottom after drag }
+    FSelAdjRect := Rect(
+      Min(FSelAdjRect.Left, FSelAdjRect.Right),
+      Min(FSelAdjRect.Top, FSelAdjRect.Bottom),
+      Max(FSelAdjRect.Left, FSelAdjRect.Right),
+      Max(FSelAdjRect.Top, FSelAdjRect.Bottom)
+    );
+    FSelAdjDragEdge := 0;
+    if Assigned(FPaintBox) then
+      FPaintBox.MouseCapture := False;
+    RefreshCanvas;
+    RefreshStatus(ImagePoint);
+    Exit;
+  end;
   if FCurrentTool = tkRecolor then
   begin
     FRecolorStrokeSourceValid := False;
@@ -13609,31 +13921,8 @@ begin
   end;
   if FCurrentTool = tkSelectRect then
   begin
-    if Assigned(FSelectionController) then
-      FSelectionController.CommitRectangleSelection(
-        FDocument,
-        FDragStart,
-        ImagePoint,
-        FPendingSelectionMode,
-        FSelAntiAlias,
-        FSelFeather,
-        FSelCornerRadius,
-        PaintToolName(FCurrentTool)
-      )
-    else
-    begin
-      FDocument.PushHistory(PaintToolName(FCurrentTool));
-      FDocument.SelectRectangle(
-        FDragStart.X,
-        FDragStart.Y,
-        ImagePoint.X,
-        ImagePoint.Y,
-        FPendingSelectionMode,
-        FSelAntiAlias,
-        FSelCornerRadius
-      );
-    end;
-    SyncSelectionOverlayUI(True);
+    { Enter edge-adjustment mode instead of committing immediately }
+    BeginSelAdjust(FDragStart, ImagePoint);
   end;
   if FCurrentTool = tkSelectEllipse then
   begin
@@ -14646,6 +14935,7 @@ begin
   SealPendingStrokeHistory;
   CancelMovePixelsTransaction;
   CommitInlineTextEdit(True);
+  CancelSelAdjust;
 
   { Save current state }
   FTabFileNames[FActiveTabIndex] := FCurrentFileName;
@@ -14701,6 +14991,7 @@ begin
     SealPendingStrokeHistory;
   CancelMovePixelsTransaction;
   CommitInlineTextEdit(True);
+  CancelSelAdjust;
   if N <= 1 then
   begin
     { Cannot close the last tab — reset to blank instead }

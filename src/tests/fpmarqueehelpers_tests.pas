@@ -14,6 +14,8 @@ type
     procedure MarqueeStepColorAlternatesByPhase;
     procedure NextMarqueePhaseWrapsDeterministically;
     procedure MarqueeAnimationPolicyMatchesToolIntent;
+    procedure AnimationPolicy_SelectionAlwaysAnimates;
+    procedure AnimationPolicy_NoSelectionOffCanvasStops;
   end;
 
 implementation
@@ -53,6 +55,31 @@ begin
     ShouldAnimateMarqueeOverlay(tkBrush, False, False, True));
   AssertFalse('off-canvas pointer should suspend clone-only animation',
     ShouldAnimateMarqueeOverlay(tkCloneStamp, False, True, False));
+end;
+
+procedure TFPMarqueeHelpersTests.AnimationPolicy_SelectionAlwaysAnimates;
+begin
+  { When a committed selection exists, marching ants must animate
+    regardless of pointer position or active tool. }
+  AssertTrue('selection + off-canvas brush',
+    ShouldAnimateMarqueeOverlay(tkBrush, True, False, False));
+  AssertTrue('selection + off-canvas select rect',
+    ShouldAnimateMarqueeOverlay(tkSelectRect, True, False, False));
+  AssertTrue('selection + on-canvas eraser',
+    ShouldAnimateMarqueeOverlay(tkEraser, True, False, True));
+end;
+
+procedure TFPMarqueeHelpersTests.AnimationPolicy_NoSelectionOffCanvasStops;
+begin
+  { Without committed selection and pointer off-canvas, no selection-tool
+    marquee should animate. This is the scenario that caused the
+    mouse-dependent animation bug during edge-adjustment mode. }
+  AssertFalse('select rect off-canvas without selection',
+    ShouldAnimateMarqueeOverlay(tkSelectRect, False, False, False));
+  AssertFalse('select ellipse off-canvas without selection',
+    ShouldAnimateMarqueeOverlay(tkSelectEllipse, False, False, False));
+  AssertFalse('magic wand off-canvas without selection',
+    ShouldAnimateMarqueeOverlay(tkMagicWand, False, False, False));
 end;
 
 initialization

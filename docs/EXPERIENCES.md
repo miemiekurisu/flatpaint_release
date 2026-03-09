@@ -7,6 +7,17 @@ Use the same compact structure every time.
 - This is a cumulative historical issue log and includes legacy entries from earlier prototype phases.
 - The active implementation stack for current work is FPC + Lazarus.
 
+## Rectangle selection edge adjustment — state machine in UI layer
+- Problem: rectangle selection committed immediately on mouse-up, no post-draw adjustment was possible.
+- Approach: introduced a lightweight adjustment state machine (`FSelAdjusting`, `FSelAdjRect`, `FSelAdjDragEdge`) in mainform, intercepting MouseDown/Move/Up and KeyDown.
+- Key design: MouseUp enters adjustment mode instead of committing. Edge proximity detection uses image-space threshold scaled inversely by zoom. Enter/click-away commits; Escape cancels.
+- Lesson: the edge threshold must scale with zoom (`Max(2, Round(5 / FZoomScale))`) so it feels consistent at all zoom levels.
+- Lesson: normalizing rect bounds after drag (Min/Max for Left/Right, Top/Bottom) prevents inverted rects from causing selection artifacts.
+- Integration points: `MaybeAutoDeselectOnToolSwitch` must commit pending adjustment before tool change; `ResetTransientCanvasState` must cancel it.
+- Visual pitfall (follow-up fix): cursor must be set on `FPaintBox.Cursor`, not the form's `Cursor` property — LCL uses control-specific cursors and the form's cursor won't override a child control's.
+- Visual pitfall: when an overlay state (adjustment mode) coexists with `FPointerDown`, the `PaintCanvasTo` `if FPointerDown then` block still executes the old preview drawing for `tkSelectRect`. Must guard old preview paths with `not FSelAdjusting` to prevent double-drawing (stale dashed rectangle over the adjustment marching ants).
+- Visual pitfall: extra solid-rectangle borders on the adjustment preview look wrong; marching ants alone give a clean appearance matching the committed selection overlay.
+
 ## 2026-03-09 (selection option coupling made anti-alias behave like a feather enable switch)
 - Problem: `Anti-alias` checkbox in selection tools did not represent true edge-generation semantics and mainly worked as a feather enable gate.
 - Core error: anti-alias and feather responsibilities were coupled in controller/UI routing (`Anti-alias` -> `ApplyFeatherIfNeeded` enable flag).
@@ -2831,4 +2842,22 @@ Based on all findings, the strategy is revised from the previous entry's generic
 - Root cause: `FPDrawMarchingAntsPolyline` was designed for single-contour use; `DrawSelectionMarqueeOverlay` called it in a loop per contour. Each call created a separate CGPath and flushed through the GPU pipeline individually.
 - Fix: added `FPDrawMarchingAntsMultiContour()` in `fp_appearance.m` that accepts ALL contours at once, builds a single CGPath with multiple subpaths (one `CGContextMoveToPoint` per contour), and strokes the entire path in exactly 2 `CGContextStrokePath` calls total regardless of contour count. Rewrote `DrawSelectionMarqueeOverlay` to pre-build flat coordinate arrays and call the batch function once.
 - Reuse note: when rendering multiple independent contours/subpaths as marching ants, ALWAYS batch them into a single CGPath with multiple subpaths. Never loop calling `CGContextStrokePath` per contour — each call triggers a GPU command buffer flush. The CGPath multi-subpath pattern (`CGContextMoveToPoint` for each new subpath) is the correct batching approach.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+### Rounded-rect marquee arc geometry: use standard parametric form
+- Issue: `DrawMarqueeRoundedRectOverlay` generated stray diagonal lines from canvas origin to the selection rectangle. Four corner arcs used inconsistent trigonometric formulas — the top-left arc used `CX - R*cos(angle)` with angle range π/2..π (wrong center offset and wrong direction), while arcs 2–4 used different sin/cos permutations.
+- Root cause: the original code attempted ad-hoc trig per corner instead of a single consistent parametric formula. The top-left arc wandered in the wrong direction, and the closing point bridged back via a diagonal.
+- Fix: rewrote all 4 arcs with one canonical formula: `X = CX + R*cos(angle)`, `Y = CY + R*sin(angle)` using screen-coordinate convention where angle 0=right, π/2=down, π=left, 3π/2=up. Each corner center is offset by R from the rectangle border; angles sweep 90° per arc in clockwise order.
+- Reuse note: for parametric arc polylines in screen coordinates, ALWAYS use `X = CX + R*cos(a)`, `Y = CY + R*sin(a)` with angles increasing clockwise (0=right, π/2=down). Never use ad-hoc sign flips per corner — that leads to inconsistent winding.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+### FSelAdjusting state leak across tabs and document close
+- Issue: switching tabs or closing documents while `FSelAdjusting = True` left the state machine corrupted — stale `FSelAdjRect` and `FSelAdjDragEdge` values persisted into the next document.
+- Root cause: `SwitchToTab` and `CloseDocumentTab` reset `FPointerDown` and `FLassoPoints` but did not call `CancelSelAdjust`.
+- Fix: added `CancelSelAdjust` calls to both `SwitchToTab` (before saving current state) and `CloseDocumentTab` (before checking tab count).
+- Reuse note: any transient tool state machine (adjustment mode, inline edit, move-pixels transaction) must be explicitly cancelled on ALL context-switch paths: tab switch, document close, tool switch, AND new-document creation. Audit ALL such paths whenever adding a new stateful mode.
+- Repeat count: `This issue has occurred 1 time(s)`
+- Issue: `DrawMarqueeRoundedRectOverlay` declared `Theta: Double` as the for-loop control variable. FPC requires ordinal (integer) types for `for` loops — compile error `(4007) Ordinal expression expected`.
+- Fix: replaced `Theta: Double` with `J: Integer` as loop variable, computed `Angle: Double` from `J` inside each loop body.
+- Reuse note: in FPC, `for` loop variables MUST be ordinal types (Integer, Byte, etc.). For floating-point iteration, use an integer counter and compute the float value inside the loop.
 - Repeat count: `This issue has occurred 1 time(s)`
