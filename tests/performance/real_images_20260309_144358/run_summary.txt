@@ -1,0 +1,14 @@
+run_start=2026-03-09 14:43:58
+run_end=2026-03-09 14:49:28
+run_seconds=330
+seed=20260309
+input_dir=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/scripts/testPic
+run_root=/tmp/flatpaint_real_stress_20260309_144358
+report_dir=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358
+steps_per_image=20
+image_count=2
+metrics=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358/metrics.tsv
+summary=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358/op_summary.tsv
+system_log=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358/logs/system_flatpaint.log
+system_error_log=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358/logs/system_flatpaint_errors.log
+history_file=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_history.tsv

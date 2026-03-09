@@ -11,8 +11,9 @@ STEPS_PER_IMAGE=20
 SEED="${SEED:-20260309}"
 RUN_TAG="$(date '+%Y%m%d_%H%M%S')"
 RUN_ROOT="/tmp/flatpaint_real_stress_${RUN_TAG}"
-REPORT_DIR="$ROOT_DIR/dist/runtime_profile/real_images_${RUN_TAG}"
-HISTORY_FILE="$ROOT_DIR/dist/runtime_profile/real_images_history.tsv"
+PERF_ROOT="$ROOT_DIR/tests/performance"
+REPORT_DIR="$PERF_ROOT/real_images_${RUN_TAG}"
+HISTORY_FILE="$PERF_ROOT/real_images_history.tsv"
 
 usage() {
   cat <<'EOF'
@@ -23,7 +24,7 @@ Options:
   --input-dir <dir>       Input directory with source images (default: scripts/testPic)
   --steps <n>             Random operation count per image (default: 20)
   --seed <n>              Random seed for reproducibility (default: 20260309 or $SEED)
-  --report-dir <dir>      Output report directory (default: dist/runtime_profile/real_images_<timestamp>)
+  --report-dir <dir>      Output report directory (default: tests/performance/real_images_<timestamp>)
   --run-root <dir>        Temporary working root (default: /tmp/flatpaint_real_stress_<timestamp>)
   --cli <path>            flatpaint_cli path (default: ./flatpaint_cli)
   --help                  Show this help
@@ -368,25 +369,27 @@ RUN_END_EPOCH="$(date '+%s')"
   --predicate '(process == "flatpaint_cli" || process == "FlatPaint") && (eventMessage CONTAINS[c] "error" || eventMessage CONTAINS[c] "fault" || eventMessage CONTAINS[c] "exception" || eventMessage CONTAINS[c] "oom" || eventMessage CONTAINS[c] "malloc")' \
   >"$REPORT_DIR/logs/system_flatpaint_errors.log" 2>&1 || true
 
-awk -F'\t' '
-NR == 1 { next }
-$6 == 0 {
-  op = $3
-  count[op]++
-  real_sum[op] += $7
-  user_sum[op] += $8
-  sys_sum[op] += $9
-  if ($7 > real_max[op]) real_max[op] = $7
-  if ($10 > rss_max[op]) rss_max[op] = $10
-}
-END {
+{
   printf "op_name\tcount\tavg_real_sec\tavg_user_sec\tavg_sys_sec\tmax_real_sec\tmax_rss_mb\n"
-  for (op in count) {
-    printf "%s\t%d\t%.4f\t%.4f\t%.4f\t%.4f\t%.2f\n",
-      op, count[op], real_sum[op]/count[op], user_sum[op]/count[op], sys_sum[op]/count[op], real_max[op], rss_max[op]/1024/1024
+  awk -F'\t' '
+  NR == 1 { next }
+  $6 == 0 {
+    op = $3
+    count[op]++
+    real_sum[op] += $7
+    user_sum[op] += $8
+    sys_sum[op] += $9
+    if ($7 > real_max[op]) real_max[op] = $7
+    if ($10 > rss_max[op]) rss_max[op] = $10
   }
-}
-' "$REPORT_DIR/metrics.tsv" | sort >"$REPORT_DIR/op_summary.tsv"
+  END {
+    for (op in count) {
+      printf "%s\t%d\t%.4f\t%.4f\t%.4f\t%.4f\t%.2f\n",
+        op, count[op], real_sum[op]/count[op], user_sum[op]/count[op], sys_sum[op]/count[op], real_max[op], rss_max[op]/1024/1024
+    }
+  }
+  ' "$REPORT_DIR/metrics.tsv" | sort
+} >"$REPORT_DIR/op_summary.tsv"
 
 peak_rss_bytes="$(awk -F'\t' 'NR>1 && $10+0 > max { max=$10+0 } END { print max+0 }' "$REPORT_DIR/metrics.tsv")"
 slowest_real_sec="$(awk -F'\t' 'NR>1 && $7+0 > max { max=$7+0 } END { print max+0 }' "$REPORT_DIR/metrics.tsv")"
@@ -420,7 +423,20 @@ printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.2f\t%.4f\t%s\t%s\n' \
   "$(awk -v b="$peak_rss_bytes" 'BEGIN { print b / 1024 / 1024 }')" "$slowest_real_sec" \
   "$REPORT_DIR" "$REPORT_DIR/run_summary.txt" >>"$HISTORY_FILE"
 
+{
+  printf 'Top 10 by peak RSS (MB)\n'
+  printf 'op_index\timage_name\top_name\treal_sec\tmax_rss_mb\n'
+  awk -F'\t' 'NR>1 {printf "%s\t%s\t%s\t%s\t%.2f\n", $1, $2, $3, $7, $10/1024/1024}' \
+    "$REPORT_DIR/metrics.tsv" | sort -t$'\t' -k5,5nr | head -n 10
+  printf '\nTop 10 by real time (sec)\n'
+  printf 'op_index\timage_name\top_name\treal_sec\tmax_rss_mb\n'
+  awk -F'\t' 'NR>1 {printf "%s\t%s\t%s\t%s\t%.2f\n", $1, $2, $3, $7, $10/1024/1024}' \
+    "$REPORT_DIR/metrics.tsv" | sort -t$'\t' -k4,4nr | head -n 10
+  printf '\nFailures: %s / %s\n' "$failed_ops" "$total_ops"
+} >"$REPORT_DIR/hotspots.txt"
+
 log "Run summary: $REPORT_DIR/run_summary.txt"
 log "Operation metrics: $REPORT_DIR/metrics.tsv"
 log "Operation summary: $REPORT_DIR/op_summary.tsv"
+log "Hotspot report: $REPORT_DIR/hotspots.txt"
 log "History index: $HISTORY_FILE"

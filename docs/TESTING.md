@@ -28,7 +28,7 @@ Runtime profiling (macOS):
 bash ./scripts/profile_runtime_macos.sh --duration 60 --max-rss-mb 1200
 ```
 
-- Runtime profiling output is stored under `dist/runtime_profile/<timestamp>/`.
+- Runtime profiling output is stored under `tests/performance/runtime_<timestamp>/`.
 - Use this for GUI-path stall/memory regression checks that headless tests cannot cover.
 
 Real-image stress run (macOS, CLI):
@@ -39,5 +39,6 @@ Real-image stress run (macOS, CLI):
 bash ./scripts/stress_real_images_cli.sh --steps 20 --seed 20260309
 ```
 
-- Reports are written to `dist/runtime_profile/real_images_<timestamp>/`.
+- Reports are written to `tests/performance/real_images_<timestamp>/`.
 - Original images are preserved; only temporary copies under `/tmp` are mutated.
+- Run history indexes are appended automatically to `tests/performance/runtime_history.tsv` and `tests/performance/real_images_history.tsv`.

@@ -1,0 +1,2 @@
+run_tag	run_start	run_end	run_seconds	seed	steps_per_image	image_count	total_ops	failed_ops	peak_rss_mb	slowest_real_sec	report_dir	run_summary
+20260309_144358	2026-03-09 14:43:58	2026-03-09 14:49:28	330	20260309	20	2	56	0	245.89	38.4300	/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358	/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/real_images_20260309_144358/run_summary.txt

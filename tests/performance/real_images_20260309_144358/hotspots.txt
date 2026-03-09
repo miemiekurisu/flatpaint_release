@@ -1,0 +1,27 @@
+Top 10 by peak RSS (MB)
+op_index	image_name	op_name	real_sec	max_rss_mb
+29	test_pic2.jpg	normalize_png	1.57	245.89
+30	test_pic2.jpg	croprect	1.41	224.14
+51	test_pic2.jpg	addlayerdoc	38.43	220.14
+56	test_pic2.jpg	export_tiff	7.13	201.98
+34	test_pic2.jpg	resize	2.01	194.52
+42	test_pic2.jpg	eraselasso_complex	9.72	188.58
+45	test_pic2.jpg	movepixelslasso_complex	9.28	177.64
+37	test_pic2.jpg	movepixelslasso_complex	9.91	177.48
+53	test_pic2.jpg	export_png	7.66	176.23
+35	test_pic2.jpg	noise	2.56	176.05
+
+Top 10 by real time (sec)
+op_index	image_name	op_name	real_sec	max_rss_mb
+51	test_pic2.jpg	addlayerdoc	38.43	220.14
+23	test_pic1.jpg	addlayerdoc	30.06	138.50
+52	test_pic2.jpg	flattendoc	29.25	163.53
+24	test_pic1.jpg	flattendoc	24.12	136.97
+50	test_pic2.jpg	wrapdoc	19.11	125.72
+22	test_pic1.jpg	wrapdoc	17.01	105.41
+37	test_pic2.jpg	movepixelslasso_complex	9.91	177.48
+42	test_pic2.jpg	eraselasso_complex	9.72	188.58
+45	test_pic2.jpg	movepixelslasso_complex	9.28	177.64
+49	test_pic2.jpg	movepixelslasso_complex	9.01	172.42
+
+Failures: 0 / 56

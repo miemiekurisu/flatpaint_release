@@ -5,7 +5,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_APP_TARGET="$ROOT_DIR/dist/FlatPaint.app"
-DEFAULT_OUTPUT_ROOT="$ROOT_DIR/dist/runtime_profile"
+DEFAULT_OUTPUT_ROOT="$ROOT_DIR/tests/performance"
+RUNTIME_HISTORY_FILE="$DEFAULT_OUTPUT_ROOT/runtime_history.tsv"
 
 DURATION_SEC="45"
 INTERVAL_SEC="0.5"
@@ -34,7 +35,7 @@ Options:
   --pid <pid>               Attach to an existing process instead of launching
   --duration <seconds>      Monitor window in seconds (default: 45)
   --interval <seconds>      Sampling interval in seconds (default: 0.5)
-  --output <dir>            Output directory (default: dist/runtime_profile/<timestamp>)
+  --output <dir>            Output directory (default: tests/performance/runtime_<timestamp>)
   --max-rss-mb <mb>         Fail with non-zero if peak RSS exceeds this threshold
   --high-cpu-pct <pct>      High-CPU threshold percent (default: 95)
   --high-cpu-seconds <sec>  Consecutive high-CPU budget (default: 3)
@@ -183,9 +184,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-  OUTPUT_DIR="$DEFAULT_OUTPUT_ROOT/$(date '+%Y%m%d_%H%M%S')"
+  OUTPUT_DIR="$DEFAULT_OUTPUT_ROOT/runtime_$(date '+%Y%m%d_%H%M%S')"
 fi
 mkdir -p -- "$OUTPUT_DIR"
+RUN_TAG="$(basename -- "$OUTPUT_DIR")"
+RUN_START_HUMAN="$(date '+%Y-%m-%d %H:%M:%S')"
 
 if [[ -z "$PID" ]]; then
   if [[ ! -e "$APP_TARGET" && -x "$ROOT_DIR/flatpaint" ]]; then
@@ -360,5 +363,17 @@ fi
 
 log "Summary: $SUMMARY_FILE"
 cat "$SUMMARY_FILE"
+
+RUN_END_HUMAN="$(date '+%Y-%m-%d %H:%M:%S')"
+mkdir -p -- "$(dirname -- "$RUNTIME_HISTORY_FILE")"
+if [[ ! -f "$RUNTIME_HISTORY_FILE" ]]; then
+  printf 'run_tag\trun_start\trun_end\tstatus\ttarget_duration_sec\tobserved_duration_sec\tsample_count\tpeak_rss_mb\tavg_rss_mb\tpeak_cpu_pct\tmax_high_cpu_streak_sec\tmax_rss_threshold_mb\toutput_dir\tsummary\tcsv\tsample_report\tvmmap_summary\n' >"$RUNTIME_HISTORY_FILE"
+fi
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  "$RUN_TAG" "$RUN_START_HUMAN" "$RUN_END_HUMAN" "$status" "$DURATION_SEC" "$observed_duration_sec" \
+  "$observed_samples" "$(to_mb "$max_rss_kb")" "$(to_mb "$avg_rss_kb")" "$max_cpu_pct" \
+  "$max_high_cpu_streak_sec" "${MAX_RSS_MB:-<none>}" "$OUTPUT_DIR" "$SUMMARY_FILE" "$CSV_FILE" \
+  "$SAMPLE_FILE" "$VMMAP_FILE" >>"$RUNTIME_HISTORY_FILE"
+log "History index: $RUNTIME_HISTORY_FILE"
 
 exit "$exit_code"

@@ -16,7 +16,7 @@
 
 - Script: `scripts/profile_runtime_macos.sh`
 - System tools used by script:
-  - `ps` for periodic `rss/vsz/%cpu/thread/state` sampling
+- `ps` for periodic `rss/vsz/%cpu/state` sampling
   - `sample` for stack capture around suspected hang windows
   - `vmmap -summary` for memory region profile
 
@@ -60,9 +60,9 @@ bash ./scripts/profile_runtime_macos.sh \
 
 By default the script writes to:
 
-- `dist/runtime_profile/<timestamp>/process_samples.csv`
-- `dist/runtime_profile/<timestamp>/summary.txt`
-- `dist/runtime_profile/<timestamp>/sample.txt`
-- `dist/runtime_profile/<timestamp>/vmmap_summary.txt`
+- `tests/performance/runtime_<timestamp>/process_samples.csv`
+- `tests/performance/runtime_<timestamp>/summary.txt`
+- `tests/performance/runtime_<timestamp>/sample.txt`
+- `tests/performance/runtime_<timestamp>/vmmap_summary.txt`
 
 Use `summary.txt` as the quick regression signal and keep the other files for root-cause analysis.

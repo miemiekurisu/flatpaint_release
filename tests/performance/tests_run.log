@@ -1,0 +1,439 @@
+true
+ Time:00.357 N:381 E:0 F:0 I:0
+  TFPSurfaceTests Time:00.001 N:61 E:0 F:0 I:0
+    00.000  ZeroRadiusLinePaintsSinglePixelSteps
+    00.000  AutoLevelStretchesVisiblePixelsOnly
+    00.000  HueSaturationShiftsHueAndPreservesAlpha
+    00.000  GammaCurveDarkensMidtonesAndSkipsTransparentPixels
+    00.000  LevelsMapsRangeAndSkipsTransparentPixels
+    00.000  ResizeBilinearBlendsNeighborPixels
+    00.000  RoundedRectangleLeavesHardCornersOpen
+    00.000  PolygonOutlineClosesLastSegmentAndKeepsInteriorOpen
+    00.000  FilledPolygonPaintsInterior
+    00.000  MaskedLineOnlyPaintsInsideSelection
+    00.000  MaskedLineCoverageScalesAlpha
+    00.000  MaskedGradientLeavesUnselectedPixelsUntouched
+    00.000  MaskedGradientCoverageBlendsPartiallySelectedPixels
+    00.000  MaskedRadialGradientCoverageBlendsPartiallySelectedPixels
+    00.000  FillSelectionCoverageScalesOpacity
+    00.000  CopySelectionCoverageScalesAlpha
+    00.000  MoveSelectedPixelsCoverageUsesSoftCopyAndSoftErase
+    00.000  EmbossShiftsPixelsRelativeToNeighbors
+    00.000  SoftenBlursHighContrastEdge
+    00.000  RecolorBrushReplacesMatchingPixels
+    00.000  RecolorBrushContiguousLimitsConnectedRegion
+    00.000  RecolorBrushOpacityBlendsTowardTarget
+    00.000  RecolorBrushPreserveValueKeepsShading
+    00.000  RecolorBrushColorModePreservesValue
+    00.000  RecolorBrushHueModeShiftsHueOnly
+    00.000  RecolorBrushSaturationModeShiftsSaturationOnly
+    00.001  RecolorBrushLuminosityModeShiftsValueOnly
+    00.000  RenderCloudsWritesNonTransparentPixels
+    00.000  PixelateBlursPixelsIntoBlocks
+    00.000  VignetteDarkensEdges
+    00.000  DrawLineOpacityScalesAlphaChannel
+    00.000  DashedLineLeavesExpectedGapPixels
+    00.000  DashedPolylineClosesOutlineWithVisibleGaps
+    00.000  DashedPolylineEllipseHasGapPixels
+    00.000  DrawLineFullOpacityMatchesDirectPaint
+    00.000  EraserLineReducesAlphaChannel
+    00.000  DrawLineSoftHardnessProducesGradientEdge
+    00.000  SquareLineBrushCoversCornerPixels
+    00.000  QuadraticBezierBendsTowardControlPoint
+    00.000  CubicBezierUsesBothControlHandles
+    00.000  MotionBlurChangesPixels
+    00.000  MedianFilterReducesNoise
+    00.000  MedianFilterUpdatesAlphaAndKeepsPremulInvariant
+    00.000  OilPaintChangesPixels
+    00.000  FrostedGlassDisplacesPixels
+    00.000  ZoomBlurSmearsCentreBrightness
+    00.000  CopyRegionToClipsPartiallyOutOfBoundsSource
+    00.000  OverwriteRegionClipsPartiallyOutOfBoundsDestination
+    00.000  PixelateRectSelectionAveragesOnlySelectedPixels
+    00.000  RadialGradientFadesFromCenter
+    00.000  UnfocusSoftensSingleBrightPixel
+    00.000  SurfaceBlurKeepsHardEdgeFromBleeding
+    00.000  BulgePullsGradientTowardCenter
+    00.000  DentsPushesGradientAwayFromCenter
+    00.000  ReliefProducesDirectionalShading
+    00.000  RedEyeReducesRedDominance
+    00.000  TileReflectionMirrorsWithinTiles
+    00.000  CrystallizeCollapsesSingleCellToOneColor
+    00.000  InkSketchChangesHighContrastPixels
+    00.000  MandelbrotRenderWritesVisibleFractal
+    00.000  JuliaRenderWritesVisibleFractal
+  TFPUIHelpersTests Time:00.001 N:28 E:0 F:0 I:0
+    00.000  ToolDisplayOrderStartsWithSelectionTools
+    00.000  ZoomToolAppearsBeforePaintTools
+    00.000  PanAndPencilAppearInExpectedBands
+    00.000  FreeformShapeAppearsAfterBasicShapes
+    00.000  ToolMetadataIsCompleteForDisplayOrder
+    00.000  ToolGlyphsStayCompact
+    00.000  ToolShortcutMetadataStaysAssigned
+    00.000  ToolDisplayLabelsExposeShortcutHints
+    00.000  CropTextCloneRecolorAppearInDisplayOrder
+    00.000  TotalDisplayCountIsCorrect
+    00.000  UtilityGlyphsStayCompact
+    00.000  ShortcutCyclesSelectionTools
+    00.000  ShortcutCyclesMoveTools
+    00.000  ShortcutCyclesShapeTools
+    00.001  ShortcutSingleKeyMaps
+    00.000  ToolSwitchSelectionPolicyMatchesEditorRules
+    00.000  ToolSwitchAutoDeselectPolicyMatchesSelectionRules
+    00.000  ToolOptionSwitchPersistsOldAndRestoresNew
+    00.000  TempPanStateTransitionsAreIdempotent
+    00.000  TabCycleIndexFollowsShortcutPolicy
+    00.000  BlankClickAutoDeselectPolicyMatchesSelectionRules
+    00.000  AdvancedToolsAdvertiseCanvasHoverFeedback
+    00.000  BrushOverlayClassificationStaysFocused
+    00.000  LineToolHintMentionsStraightByDefault
+    00.000  LineToolHintMentionsOptionalBezier
+    00.000  TextToolHintMentionsInlineEditing
+    00.000  ColorShortcutTogglesTarget
+    00.000  LayerOpacityHelpersRoundTripPercentScale
+  TMainFormTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  DefaultToolStartsAsRectangleSelect
+    00.000  SpacebarPanShortcut
+    00.000  MiddleMousePanShortcut
+  TMainFormIntegrationTests Time:00.000 N:8 E:0 F:0 I:0
+    00.000  MetaModifiedShortcutsStayReservedForCommands
+    00.000  PencilStyleStrokeChangesVisibleCompositePixel
+    00.000  BucketMaskIntersectedWithSelectionOnlyFillsInsideSelection
+    00.000  ColorPickerKeepsVisiblePaintAlphaWhenSamplingTransparentPixel
+    00.000  ColorPickerUnpremultipliesSampledRGB
+    00.000  DefaultLineToolCommitsStraightSegmentOnRelease
+    00.000  DragToolsCommitWhenMouseButtonStateDropsBeforeMouseUp
+    00.000  NewMouseDownCommitsPendingBrushStroke
+  TFPDocumentTests Time:00.000 N:29 E:0 F:0 I:0
+    00.000  HistoryDepthTracksUndoAndRedo
+    00.000  HistoryLabelsTrackUndoAndRedo
+    00.000  HistoryTimelineRowCountMatchesDepths
+    00.000  HistoryTimeline_CurrentIndexIsUndoDepth
+    00.000  HistoryTimeline_UndoRestoresPixelState
+    00.000  HistoryTimeline_NavigateViaRowClickSimulation
+    00.000  HistoryTimeline_ClickInitialStateUndoesAll
+    00.000  MagicWandIntersectKeepsOnlySharedRegion
+    00.000  MagicWandAddSubtractUsesCoverageCombineSemantics
+    00.000  LayerBlendModeDefaultsToNormal
+    00.000  LayerBlendModePreservedInClone
+    00.000  LayerOffsetMetadataPreservedInClone
+    00.000  LayerOffsetMetadataPreservedAcrossFullSnapshotUndoRedo
+    00.000  Rotate90ClockwiseRemapsOffsetUsingCanvasAndLayerSize
+    00.000  Rotate90CounterClockwiseRemapsOffsetUsingCanvasAndLayerSize
+    00.000  MoveLayerReordersAndTracksActiveLayer
+    00.000  BackgroundLayerStaysLockedAtBottom
+    00.000  BackgroundLayerEraseAndMovePreserveOpacity
+    00.000  BackgroundLayerSoftMoveKeepsFeatheredIntensity
+    00.000  MergeDownUsesPremultipliedBlendPath
+    00.000  StoredSelectionRoundtrips
+    00.000  CopySelectionStoresSelectionForPasteRoute
+    00.000  CopyMergedStoresSelectionForPasteRoute
+    00.000  CompositeAppliesLayerOffsetsAtRuntime
+    00.000  FillSelectionUsesLayerOffsetMapping
+    00.000  CropWithOffsetLayerKeepsVisiblePixels
+    00.000  CropToSelectionWithOffsetLayerKeepsVisiblePixels
+    00.000  NewBlankStartsWithWhiteBackground
+    00.000  NewToolKindCountIsCorrect
+  TToolsMoveTests Time:00.000 N:2 E:0 F:0 I:0
+    00.000  MoveSelectionBy_ShiftsSelectionMask
+    00.000  MoveSelectedPixelsBy_MovesPixelsAndSelection
+  TToolTransactionTests Time:00.089 N:4 E:0 F:0 I:0
+    00.033  MovePixelsDragDoesNotMutateLayerBeforeMouseUp
+    00.017  MovePixelsClickWithoutDeltaDoesNotPushHistory
+    00.019  MovePixelsEscapeCancelsPreviewAndRestoresSelection
+    00.020  MovePixelsToolSwitchCancelsPreviewAndRestoresSelection
+  TToolsSelectTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  Document_SelectRectangle_ReplaceAndIntersect
+    00.000  Document_SelectEllipse_BasicAndSubtract
+    00.000  Document_SelectLasso_PolygonReplace
+  TFPSelectionTests Time:00.000 N:8 E:0 F:0 I:0
+    00.000  RectangleIntersectKeepsOnlyOverlap
+    00.000  PolygonIntersectCanClearToEmpty
+    00.000  HasSelectionAndBoundsRectTrackCoverageChanges
+    00.000  BoundsRectCacheInvalidatesAcrossTransformMutations
+    00.000  TranslateToClipsAndOffsetsCoverage
+    00.000  FeatherSoftensEdges
+    00.000  InvertPreservesByteCoverage
+    00.000  TransformPathsPreserveCoverageValues
+  TFPPaletteHelpersTests Time:00.001 N:17 E:0 F:0 I:0
+    00.001  PaletteTitlesAreNonEmpty
+    00.000  DefaultPaletteRectsMatchCornerClusters
+    00.000  DefaultPaletteRectsDoNotOverlap
+    00.000  WorkspaceAwareDefaultRectsStaySeparated
+    00.000  PaletteShortcutsFollowShortcutPolicy
+    00.000  PaletteShortcutLabelsStayReadable
+    00.000  PaletteChromeMetricsStayCompact
+    00.000  LightThemeUsesBrightMacOSChrome
+    00.000  ChromeAccentBandsStayDistinct
+    00.000  PaletteDragTintDiffersFromRestTint
+    00.000  ToolsPaletteUsesNarrowTwoColumnLayout
+    00.000  SnapPaletteRectAlignsToNearbyWorkspaceEdges
+    00.000  ClampWorkspaceRectReservesRulerBands
+    00.000  ClampPaletteRectHonorsRulerBands
+    00.000  ColorsPanelFitsSystemPickerAndSliderRows
+    00.000  PaletteHeightsFitDeeperPanelControls
+    00.000  ToolsPaletteHeightFitsAllVisibleToolRows
+  TFPTabHelpersTests Time:00.000 N:7 E:0 F:0 I:0
+    00.000  TabStripMetricsStayStable
+    00.000  TabCardLeftUsesFixedStride
+    00.000  TabContentWidthIncludesAddButton
+    00.000  DropIndexRoundsToNearestSlot
+    00.000  ActiveTabScrollsIntoView
+    00.000  ActiveIndexTracksForwardReorder
+    00.000  ActiveIndexTracksBackwardReorder
+  TFPIOTests Time:00.003 N:15 E:0 F:0 I:0
+    00.000  DefaultSaveOptionsExposeRealFormatControls
+    00.000  JpegStreamSaveSupportsExtensionNormalizationAndGrayscaleOutput
+    00.000  BmpSaveHonorsTrueColorBitsPerPixelAndDisablesRLE
+    00.000  PnmSaveHonorsBinaryAndColorDepthOptions
+    00.001  LoaderCanSniffPngWithUnknownExtension
+    00.000  PngRoundTripPreservesAlphaByDefault
+    00.000  TargaRoundTripPreservesPixels
+    00.001  LoaderCanReadMinimalXCFProject
+    00.000  XcfCanLoadLayeredDocument
+    00.000  XcfImportPreservesLayerOffsetMetadata
+    00.000  UnifiedOpenFilterIncludesProjectsAndPSD
+    00.000  KraLoadRaisesDescriptiveError
+    00.000  KraZipLoadExtractsMergedImage
+    00.000  PdnLoadRaisesDescriptiveError
+    00.001  PdnZipLoadExtractsPNG
+  TFPNewImageHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  EstimatedSizeMatchesRGBAFootprint
+    00.000  PixelsConvertToPrintInches
+    00.000  CentimeterPrintSizeConvertsBackToPixels
+  TFPUtilityHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  UtilityStripKeepsSixCommands
+    00.000  UtilityStripStartsWithPaletteWindows
+    00.000  UtilityHintsAreNonEmpty
+    00.000  PaletteWindowsKeepCommandShortcuts
+  TCLIIntegrationTests Time:00.009 N:1 E:0 F:0 I:0
+    00.009  Test_CLI_New_And_Brush
+  TIntegrationDocumentFlowTests Time:00.000 N:1 E:0 F:0 I:0
+    00.000  Test_SaveLoadDocument_PreservesPixels
+  TIntegrationNativeRoundTripTests Time:00.001 N:2 E:0 F:0 I:0
+    00.001  Test_MultiLayer_SaveLoad_PreservesLayersAndPixels
+    00.000  Test_SelectionCoverage_SaveLoad_PreservesByteMask
+  TFormatCompatTests Time:00.003 N:2 E:0 F:0 I:0
+    00.000  Test_PNG_RoundTrip_PreservesPixels
+    00.003  Test_ExportDoc_UsingCLI_ProducesComposite
+  TUIAppleScriptTests Time:00.000 N:1 E:0 F:0 I:0
+    00.000  Test_Try_Run_UI_Script_If_App_Present
+  TUIPrototypeTests Time:00.034 N:3 E:0 F:0 I:0
+    00.034  Test_Osascript_Available
+    00.000  Test_LightTheme_UsesReadableContrast
+    00.000  Test_UtilityButtons_StayCompact
+  TPerfSnapshotTests Time:00.013 N:1 E:0 F:0 I:0
+    00.013  Test_PushHistory_MultipleSnapshots_NoException
+  TFPRulerHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  RulerMetricsStayCompact
+    00.000  LowerZoomUsesLargerMajorSteps
+    00.000  MinorStepTracksMajorStep
+  TFPZoomHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  ZoomPresetsStayOrdered
+    00.000  ZoomStepFunctionsUsePresetLadder
+    00.000  ZoomCaptionsStayHumanReadable
+    00.000  QuickSizeToggleUsesDeterministicThreshold
+  TFPViewHelpersTests Time:00.000 N:6 E:0 F:0 I:0
+    00.000  PixelGridRequiresExplicitEnable
+    00.000  PixelGridRequiresHighZoom
+    00.000  PixelGridVisualConstantsStayStable
+    00.000  SaveCaptionUsesEllipsisOnlyWhenAFilePromptIsNeeded
+    00.000  DiscardConfirmationTracksDirtyState
+    00.000  WindowCaptionUsesEditedSuffixForDirtyDocuments
+  TFPIconHelpersTests Time:00.003 N:10 E:0 F:0 I:0
+    00.000  ToolIconsCoverEveryDisplayedTool
+    00.000  UtilityIconsCoverEveryUtilityButton
+    00.000  CommandIconsCoverMainToolbarAndLayerActions
+    00.000  CommandIconsCoverColorPanelAndPaletteChrome
+    00.000  TopToolbarCaptionAliasesStayMapped
+    00.001  RepresentativeLucideSourceAssetsExist
+    00.000  RepresentativeRenderedAssetsExist
+    00.000  RepresentativeRetinaAssetsExist
+    00.002  ToolIconsCanLoadRenderedAssets
+    00.000  ToolIconsPreferRetinaRenderedAssets
+  TFPShortcutHelpersTests Time:00.000 N:1 E:0 F:0 I:0
+    00.000  CoreEditShortcutsFollowPolicy
+  TFPToolbarHelpersTests Time:00.000 N:5 E:0 F:0 I:0
+    00.000  ToolbarVerticalBandsStayAligned
+    00.000  LeftCommandGroupsUseConsistentSpacing
+    00.000  FileGroupStaysWideEnoughForIconLabels
+    00.000  RightClustersStayAnchoredAndSeparated
+    00.000  ZoomControlsFitInsideZoomCluster
+  TMutationGuardTests Time:00.000 N:8 E:0 F:0 I:0
+    00.000  MutableActiveLayerSurfaceRespectsLockState
+    00.000  BeginActiveLayerMutationRespectsLockAndHistory
+    00.000  BeginDocumentMutationRespectsLockAndHistory
+    00.000  LockedActiveLayerBlocksAdjustmentMutation
+    00.000  LockedActiveLayerBlocksSelectionDrivenMutation
+    00.000  LockedActiveLayerBlocksSurfacePasteAndRotateRoutes
+    00.000  LockedLayerBlocksDocumentWidePixelMutation
+    00.000  UnlockedMutationsStillApply
+  THistoryTransactionTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  RegionTransactionCommitRestoresViaUndo
+    00.000  RegionTransactionUnionCapturePreservesEarlierOriginalPixels
+    00.000  RegionTransactionSelectionSnapshotRestoresSelectionOnUndoRedo
+    00.000  RegionTransactionClearDropsPendingWithoutHistoryNoise
+  TToolControllerTests Time:00.000 N:12 E:0 F:0 I:0
+    00.000  StrokeControllerCommitRestoresViaUndo
+    00.000  StrokeControllerUnionCapturePreservesEarlierOriginalPixels
+    00.000  MovePixelsControllerCommitMovesPixelsAndSelection
+    00.000  MovePixelsControllerUndoRedoRestoresSelectionAndPixels
+    00.000  MovePixelsControllerBackgroundCommitKeepsOpaqueFillAndUndo
+    00.000  MovePixelsControllerBeginSessionBlockedByLockedLayer
+    00.000  MovePixelsControllerCommitBlockedByLockedLayer
+    00.000  MovePixelsControllerCancelRestoresSelectionWithoutHistory
+    00.000  SelectionModeMappingFollowsModifierContract
+    00.000  SelectionRectangleCommitPushesHistoryAndSelection
+    00.000  SelectionMoveControllerPushesHistoryAndMovesMask
+    00.000  SelectionMagicWandCommitPushesHistoryAndSelectsSample
+  TFPCurvesHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  GammaClampStaysWithinDocumentedRange
+    00.000  ParseGammaTextFallsBackAndClamps
+    00.000  SliderMappingRoundTripsToTwoDecimalPrecision
+    00.000  GammaFormattingStaysStable
+  TFPPosterizeHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  PosterizeClampStaysWithinDocumentedRange
+    00.000  ParsePosterizeTextFallsBackAndClamps
+    00.000  SliderMappingMatchesDocumentedRange
+  TFPBlurHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  BlurClampStaysWithinDocumentedRange
+    00.000  ParseBlurTextFallsBackAndClamps
+    00.000  SliderMappingMatchesDocumentedRange
+  TFPNoiseHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  NoiseClampStaysWithinDocumentedRange
+    00.000  ParseNoiseTextFallsBackAndClamps
+    00.000  SliderMappingMatchesDocumentedRange
+  TFPHueSaturationHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  HueClampStaysWithinDocumentedRange
+    00.000  SaturationClampStaysWithinDocumentedRange
+    00.000  ParseDeltaTextFallsBackAndClamps
+  TFPLevelsHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  DefaultSettingsMatchIdentityLevels
+    00.000  InputBoundsStayOrderedDuringNormalization
+    00.000  OutputBoundsKeepIndependentClampRules
+    00.000  ParseLevelTextFallsBackAndClamps
+  TFPBrightnessContrastHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  DefaultSettingsStartNeutral
+    00.000  BrightnessClampStaysWithinDocumentedRange
+    00.000  ContrastClampStaysWithinDocumentedRange
+    00.000  ParseAdjustmentTextFallsBackAndClamps
+  TFPResizeHelpersTests Time:00.000 N:3 E:0 F:0 I:0
+    00.000  AspectLinkScalesPairedDimension
+    00.000  AspectLinkClampsToAtLeastOnePixel
+    00.000  ResampleModeCaptionsStayStable
+  TFPViewportHelpersTests Time:00.000 N:14 E:0 F:0 I:0
+    00.000  CenteredContentOffsetCentersSmallerCanvas
+    00.000  CenteredContentOffsetClampsLargeCanvasToOrigin
+    00.000  ZoomSliderMappingUsesZoomPresets
+    00.000  ClampZoomScaleAppliesSupportedBounds
+    00.000  ZoomScaleEffectivelyEqualUsesClampAndEpsilon
+    00.000  DisplayInterpolationQualityTracksZoomBands
+    00.000  ViewportImageCoordinateRespectsCanvasOffset
+    00.000  ScrollPositionForAnchorKeepsAnchorStable
+    00.000  MaxViewportScrollPositionUsesCanvasGeometry
+    00.000  ClampViewportScrollPositionRespectsComputedRange
+    00.000  ClampViewportScrollDeltaBlocksOverscrollDirections
+    00.000  PannedScrollPositionMovesOppositeToDrag
+    00.000  ZoomWheelUsesCrossEditorModifierRule
+    00.000  WheelScrollPixelsMapsDeltaToStableStep
+  TFPStatusHelpersTests Time:00.000 N:7 E:0 F:0 I:0
+    00.000  ComputedPanelWidthsStayWithinAvailableWidth
+    00.000  ZoomPanelStaysAsDedicatedRightCluster
+    00.000  ZoomPanelLeftEqualsLeadingPanelWidths
+    00.000  ProgressPanelBridgesLayerAndUnitSlots
+    00.000  ProgressWidgetsStayInsideProgressPanel
+    00.000  ZoomLabelWidthLeavesReadableCaptionSpace
+    00.000  ZoomTrackWidthStaysInsideZoomPanel
+  TFPFileMenuHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  AcquirePrefersClipboardWhenImageExists
+    00.000  AcquireFallsBackToFileWhenClipboardIsEmpty
+    00.000  SaveAllUsesSaveAsForUntitledDocument
+    00.000  SaveAllUsesDirectSaveForBoundDocument
+  TFPMagnifierHelpersTests Time:00.000 N:2 E:0 F:0 I:0
+    00.000  ComputeLoupeRectsRejectsInvalidInputs
+    00.000  ComputeLoupeRectsClampInsideVisibleCanvas
+  TFPMarqueeHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  MarqueeStepVisibilityFollowsDashPattern
+    00.000  MarqueeStepColorAlternatesByPhase
+    00.000  NextMarqueePhaseWrapsDeterministically
+    00.000  MarqueeAnimationPolicyMatchesToolIntent
+  TPipelineIntegrationTests Time:00.187 N:41 E:0 F:0 I:0
+    00.002  PencilStrokeModifiesSurfacePixels
+    00.001  OpaquePencilStrokeOverwritesExistingPixel
+    00.001  BrushStrokeModifiesSurfacePixels
+    00.001  EraserStrokeModifiesSurfacePixels
+    00.025  SelectionOverlayUsesDashedBoundaryPattern
+    00.025  LassoSelectionOverlayUsesDashedBoundaryPattern
+    00.029  MagicWandSelectionOverlayUsesDashedBoundaryPattern
+    00.001  DrawingWithMoveChangesPixels
+    00.002  LineDragCommitsPixels
+    00.002  LineDashedStyleCommitsVisibleGapPattern
+    00.002  LineDragClipsToSelectionMask
+    00.002  RectangleDragCommitsPixels
+    00.001  EllipseDragCommitsPixels
+    00.004  OffsetLayerLineDragCommitsPixelsAtLayerLocalPosition
+    00.004  FillWithinActiveSelectionOverwritesExistingPixels
+    00.001  RecolorToolRespectsSelectionScopeAndUndoRedo
+    00.002  RecolorOnceSamplingKeepsInitialSourceAcrossDrag
+    00.002  RecolorContinuousSamplingResamplesAcrossDrag
+    00.002  RecolorContiguousDragKeepsApplyingAcrossLargeFlatRegion
+    00.001  MouseUpAfterPencilStrokePushesHistory
+    00.001  MouseUpAfterBrushStrokePushesHistory
+    00.025  FillToolPushesHistoryOnMouseDown
+    00.001  LockedLayerBlocksPencilStrokeAtMainFormEdge
+    00.001  LockedLayerBlocksFillToolAtMainFormEdge
+    00.005  LockedLayerAllowsMoveSelectionAtMainFormEdge
+    00.003  ClickingOutsideSelectionAutoDeselects
+    00.001  ToolbarSwitchFromSelectionToFillKeepsSelection
+    00.001  SwitchingFromSelectionToBrushPreservesSelection
+    00.001  SwitchingWithinSelectionFamilyKeepsSelection
+    00.003  AddLayerPushesHistory
+    00.002  MultipleStrokesIncrementHistory
+    00.001  UndoRedoAfterLongPencilStrokeRestoresPixels
+    00.002  AddLayerIncreasesLayerCount
+    00.003  AddLayerSetsNewLayerAsActive
+    00.001  SpaceKeyActivatesTempPan
+    00.001  SpaceKeyUpDeactivatesTempPan
+    00.001  ExplicitToolPropertyChangeClearsTempPanFlag
+    00.001  PinchGestureAdjustsZoomScale
+    00.001  DrawingBumpsRenderRevision
+    00.001  DrawingSetsDirtyFlag
+    00.021  DrawBlackOnWhiteChangesDisplayPixel
+  TFPColorPremulTests Time:00.011 N:16 E:0 F:0 I:0
+    00.000  PremultiplyOpaqueIsIdentity
+    00.000  PremultiplyTransparentIsAllZeros
+    00.000  PremultiplyHalfAlphaHalvesChannels
+    00.011  UnpremultiplyRoundTripsWithinTolerance
+    00.000  RGBAPremulMatchesPremultiply
+    00.000  BlendNormalSourceOverOpaqueSrc
+    00.000  BlendNormalSourceOverTransparentSrc
+    00.000  BlendNormalSourceOverPartialAlpha
+    00.000  EllipseSDFInteriorPixelsAreFullOpacity
+    00.000  EllipseSDFExteriorPixelsAreTransparent
+    00.000  EllipseSDFEdgePixelsHavePartialAlpha
+    00.000  RoundedRectEdgePixelsHavePartialAlpha
+    00.000  SelectEllipseEdgeHasFractionalCoverage
+    00.000  SelectPolygonEdgeHasFractionalCoverage
+    00.000  FilledPolygonEdgeHasPartialAlpha
+    00.000  ResizeBilinearNoDarkHaloOnTransparentBorder
+  TFPClipboardHelpersTests Time:00.000 N:4 E:0 F:0 I:0
+    00.000  ClipboardSurfaceMetaRoundTripsOffset
+    00.000  ClipboardSurfaceMetaRejectsDimensionMismatch
+    00.000  ClipboardSurfaceMetaRejectsInvalidSignature
+    00.000  PublishBitmapToClipboardWithMetaRejectsInvalidInputs
+  TFPAboutContentTests Time:00.001 N:3 E:0 F:0 I:0
+    00.000  AboutSectionsExposeNonEmptyTitlesAndText
+    00.000  AboutTextHasNoTemplatePlaceholders
+    00.001  AboutSectionsMatchAssetSourceFiles
+  TFPColorWheelHelpersTests Time:00.000 N:2 E:0 F:0 I:0
+    00.000  SVSquareRebuildsWhenHueChangesOrCacheMissing
+    00.000  SVSquareSkipsRebuildForStableHueAndSize
+  TFPMenuHelpersTests Time:00.000 N:1 E:0 F:0 I:0
+    00.000  ExplicitApplicationMenuStrategyMatchesPlatform
+
+Number of run tests: 381
+Number of errors:    0
+Number of failures:  0
+
+
+
