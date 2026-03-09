@@ -2778,3 +2778,30 @@ Based on all findings, the strategy is revised from the previous entry's generic
 - Root cause: many FPC writer options are public properties without published RTTI exposure; `GetPropList` does not enumerate them.
 - Fix: switched capability audit to source-level inspection against local FPC tree (`/Users/chrischan/Documents/workspace.nosync/lazarus/fpc/3.2.4/sources`) and found a missed parameter (`TFPWriterPNM.FullWidth`), then wired it through save options/UI/tests.
 - Reuse note: for FPC/Lazarus encoder feature audits, use source/API inspection as primary evidence; RTTI is insufficient for completeness checks.
+
+## 2026-03-09 — History re-entrancy: Cocoa programmatic ItemIndex fires OnClick, causing auto-Undo
+- Problem: drawing tools appeared to work (visual feedback during drag) but strokes never "landed" on canvas; undo history only ever showed 0 or 1 entries, never grew. All 236 unit tests passed (headless, no UI widgets).
+- Core error: `FHistory.Count` mysteriously reset to 0 between every `PushHistory` call.
+- Investigation: created `TDebugObjectList` subclass overriding `Notify` to log all ADDED/EXTRACTED/DELETED events with stack traces. Caught EXTRACTED notification immediately after ADDED, proving Undo was called right after PushHistory.
+- Root cause: in `RefreshHistoryPanel`, `FHistoryList.ItemIndex := UndoCount` on macOS Cocoa widgetset fires the `OnClick` event (unlike Win32/GTK). `HistoryListClick` has "before/after toggle" logic: when `ClickedIndex = CurrentIndex`, it calls `FDocument.Undo`, immediately undoing the operation just committed. Tests didn't catch it because `CreateForTesting` sets `FHistoryList := nil` and `RefreshHistoryPanel` exits early.
+- Fix: disconnect `OnClick` before programmatic `ItemIndex` update: `FHistoryList.OnClick := nil; ... FHistoryList.ItemIndex := UndoCount; ... FHistoryList.OnClick := @HistoryListClick;`
+- Reuse note: on macOS Cocoa LCL, ALWAYS disconnect event handlers before programmatic widget updates. When tests pass but runtime fails, suspect UI event re-entrancy. `TObjectList.Notify` override is excellent for tracking mysterious list modifications.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-09 — Marquee overlay hung: O(N) per-pixel Canvas.LineTo calls on Cocoa cause 4s hang + 600 MB alloc
+- Problem: lasso selection caused 4+ second hang during paint. macOS hung-report showed 100% main-thread time in `DrawSelectionMarqueeOverlay` → per-pixel `Canvas.LineTo`.
+- Core error: O(N) individual `Canvas.MoveTo`/`Canvas.LineTo` calls (N = boundary pixel count). Each call went through LCL → Cocoa → `CGContextDrawPath` = separate CG display-list entry + allocation. For 10K+ boundary pixels ≈ 20K+ CG calls ≈ 4 s + 600 MB alloc.
+- Investigation: analyzed macOS hung log; all 14/14 samples showed main thread blocked in `DrawSelectionMarqueeOverlay` → `Canvas.LineTo` → Cocoa → `CGContextDrawPath`. Identified four marquee overlay methods all using the same per-pixel-draw pattern: `DrawSelectionMarqueeOverlay`, `DrawMarqueeRectangleOverlay`, `DrawMarqueeEllipseOverlay`, `DrawMarqueePolylineOverlay`.
+- Root cause: architectural defect — all four overlay methods issued individual CG stroke calls per pixel instead of batch path operations.
+- Fix: added native `FPDrawMarchingAntsPolyline()` in `fp_appearance.m` that draws directly on `[NSGraphicsContext currentContext].CGContext` with 2-pass stroke (white solid base + black dashed overlay). Total: 2 CG stroke calls per contour regardless of point count. Pascal bridge in `FPAppearanceBridge.pas`. All four overlay methods rewritten.
+- Reuse note: never issue O(N) individual `Canvas.LineTo` calls on Cocoa — use a single path/polyline via native bridge. For exact dash control on macOS, bypass LCL pen management and call `CGContextSetLineDash` directly.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+## 2026-03-09 — Native CG drawing double-offset: Cocoa LCL SetWindowOrgEx uses CGContextTranslateCTM, not software offset
+- Problem: after switching marquee overlay to native CG drawing, selection overlay was offset by a large amount from actual selection.
+- Core error: native function applied `CGContextTranslateCTM(ctx, PadX, PadY)` for canvas offset, but LCL Cocoa backend already applied the same translation via `SetWindowOrgEx` → `TCocoaContext.UpdateContextOfs` → `CGContextTranslateCTM(CGContext, dx, dy)`. Result: overlay drawn at 2× the correct offset.
+- Investigation: traced LCL Cocoa source at `cocoagdiobjects.pas` `UpdateContextOfs` method — confirmed `SetWindowOrgEx` modifies the CGContext CTM directly, not a software offset.
+- Root cause: incorrect assumption that LCL's `SetWindowOrgEx` was a software-level offset; on Cocoa it translates the actual CG context.
+- Fix: removed offset parameters from `FPDrawMarchingAntsPolyline()` entirely. The CGContext already has the correct translation from `SetWindowOrgEx`, so LCL logical coordinates are directly correct.
+- Reuse note: when drawing natively on `[NSGraphicsContext currentContext].CGContext` within an LCL paint handler, the CG context already carries the LCL window-origin translation. Do NOT add additional CTM offsets for `SetWindowOrgEx`-based padding.
+- Repeat count: `This issue has occurred 1 time(s)`

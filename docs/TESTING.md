@@ -20,3 +20,13 @@ How to run locally:
 CI notes:
 - The `run_tests_ci.sh` script compiles and runs the full test suite and exits with non-zero on failure.
 - For macOS UI automation, extend `ui_prototype_tests` with AppleScript or use an external runner (Sikuli, PyAutoGUI) for image-based assertions.
+
+Runtime profiling (macOS):
+
+```bash
+# 60s runtime monitor, enforce RSS budget
+bash ./scripts/profile_runtime_macos.sh --duration 60 --max-rss-mb 1200
+```
+
+- Runtime profiling output is stored under `dist/runtime_profile/<timestamp>/`.
+- Use this for GUI-path stall/memory regression checks that headless tests cannot cover.
