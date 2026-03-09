@@ -2371,6 +2371,11 @@ var
   OffsetIndex: Integer;
   PointIndex: Integer;
   DashIndex: Integer;
+  TotalBoundary: Integer;
+  MaxTracePerContour: Integer;
+  PointsUsed: Integer;
+  ContoursUsed: Integer;
+  PointsBudget: Integer;
 const
   NeighborDX: array[0..7] of Integer = (-1, 0, 1, 1, 1, 0, -1, -1);
   NeighborDY: array[0..7] of Integer = (-1, -1, -1, 0, 1, 1, 1, 0);
@@ -2437,18 +2442,30 @@ const
     LocalIndex: Integer;
     LocalPoint: TPoint;
     LocalPixelIndex: Integer;
+    NewPointsNeeded: Integer;
+    NewContoursNeeded: Integer;
   begin
     if ContourCount <= 0 then
       Exit;
+    if PointsUsed + ContourCount > PointsBudget then
+      Exit;
 
-    OffsetIndex := Length(FSelectionMarqueeContourOffsets);
-    SetLength(FSelectionMarqueeContourOffsets, OffsetIndex + 1);
-    SetLength(FSelectionMarqueeContourLengths, OffsetIndex + 1);
-    CacheOffset := Length(FSelectionMarqueePoints);
-    FSelectionMarqueeContourOffsets[OffsetIndex] := CacheOffset;
-    FSelectionMarqueeContourLengths[OffsetIndex] := ContourCount;
+    NewContoursNeeded := ContoursUsed + 1;
+    if NewContoursNeeded > Length(FSelectionMarqueeContourOffsets) then
+    begin
+      SetLength(FSelectionMarqueeContourOffsets, Max(256, NewContoursNeeded * 2));
+      SetLength(FSelectionMarqueeContourLengths, Length(FSelectionMarqueeContourOffsets));
+    end;
 
-    SetLength(FSelectionMarqueePoints, CacheOffset + ContourCount);
+    CacheOffset := PointsUsed;
+    NewPointsNeeded := PointsUsed + ContourCount;
+    if NewPointsNeeded > Length(FSelectionMarqueePoints) then
+      SetLength(FSelectionMarqueePoints, Max(1024, NewPointsNeeded * 2));
+
+    FSelectionMarqueeContourOffsets[ContoursUsed] := CacheOffset;
+    FSelectionMarqueeContourLengths[ContoursUsed] := ContourCount;
+    Inc(ContoursUsed);
+
     for LocalIndex := 0 to ContourCount - 1 do
     begin
       LocalPoint := BoundaryContour[LocalIndex];
@@ -2458,6 +2475,7 @@ const
          (FSelectionMarqueeStepMap[LocalPixelIndex] < 0) then
         FSelectionMarqueeStepMap[LocalPixelIndex] := LocalIndex;
     end;
+    PointsUsed := NewPointsNeeded;
   end;
 
   procedure TraceBoundaryContour(const AStartPoint: TPoint);
@@ -2502,7 +2520,7 @@ const
       if not NeighborFound then
         Break;
       Inc(TraceGuard);
-      if TraceGuard > (WidthPixels * HeightPixels * 4) then
+      if TraceGuard > MaxTracePerContour then
         Break;
     until (CurrentPoint.X = AStartPoint.X) and
           (CurrentPoint.Y = AStartPoint.Y) and
@@ -2558,12 +2576,35 @@ begin
       BoundaryMask[PixelIndex] := 1;
     end;
 
+  { Count boundary pixels to set reasonable trace and allocation limits }
+  TotalBoundary := 0;
+  for PixelIndex := 0 to WidthPixels * HeightPixels - 1 do
+    if BoundaryMask[PixelIndex] <> 0 then
+      Inc(TotalBoundary);
+
+  { Cap per-contour trace at 4× boundary count, hard-capped at 500K to prevent
+    degenerate Moore tracing oscillation on noisy selections from allocating
+    hundreds of MB and crashing. }
+  MaxTracePerContour := Min(Max(TotalBoundary * 4, 4096), 500000);
+
+  { Total points budget: generous but bounded to prevent memory exhaustion }
+  PointsBudget := Min(TotalBoundary * 8 + 8192, 2000000);
+
+  { Pre-allocate output arrays with estimated capacity }
+  PointsUsed := 0;
+  ContoursUsed := 0;
+  SetLength(FSelectionMarqueePoints, Min(Max(1024, TotalBoundary * 2), PointsBudget));
+  SetLength(FSelectionMarqueeContourOffsets, Max(256, TotalBoundary div 2));
+  SetLength(FSelectionMarqueeContourLengths, Length(FSelectionMarqueeContourOffsets));
+
   for Y := 0 to HeightPixels - 1 do
     for X := 0 to WidthPixels - 1 do
     begin
       PixelIndex := SelectionIndex(X, Y);
       if (BoundaryMask[PixelIndex] = 0) or (BoundaryVisited[PixelIndex] <> 0) then
         Continue;
+      if PointsUsed >= PointsBudget then
+        Break;
       StartPoint := Point(X, Y);
       TraceBoundaryContour(StartPoint);
     end;
@@ -2575,18 +2616,31 @@ begin
       PixelIndex := SelectionIndex(X, Y);
       if (BoundaryMask[PixelIndex] = 0) or (BoundaryVisited[PixelIndex] <> 0) then
         Continue;
+      if PointsUsed >= PointsBudget then
+        Break;
       if FSelectionMarqueeStepMap[PixelIndex] < 0 then
         FSelectionMarqueeStepMap[PixelIndex] := DashIndex;
-      PointIndex := Length(FSelectionMarqueePoints);
-      OffsetIndex := Length(FSelectionMarqueeContourOffsets);
-      SetLength(FSelectionMarqueePoints, PointIndex + 1);
-      SetLength(FSelectionMarqueeContourOffsets, OffsetIndex + 1);
-      SetLength(FSelectionMarqueeContourLengths, OffsetIndex + 1);
-      FSelectionMarqueePoints[PointIndex] := Point(X, Y);
-      FSelectionMarqueeContourOffsets[OffsetIndex] := PointIndex;
-      FSelectionMarqueeContourLengths[OffsetIndex] := 1;
+
+      { Append orphan point using pre-allocated arrays }
+      if PointsUsed >= Length(FSelectionMarqueePoints) then
+        SetLength(FSelectionMarqueePoints, Max(1024, PointsUsed * 2));
+      if ContoursUsed >= Length(FSelectionMarqueeContourOffsets) then
+      begin
+        SetLength(FSelectionMarqueeContourOffsets, Max(256, ContoursUsed * 2));
+        SetLength(FSelectionMarqueeContourLengths, Length(FSelectionMarqueeContourOffsets));
+      end;
+      FSelectionMarqueePoints[PointsUsed] := Point(X, Y);
+      FSelectionMarqueeContourOffsets[ContoursUsed] := PointsUsed;
+      FSelectionMarqueeContourLengths[ContoursUsed] := 1;
+      Inc(PointsUsed);
+      Inc(ContoursUsed);
       Inc(DashIndex);
     end;
+
+  { Trim arrays to actual used size }
+  SetLength(FSelectionMarqueePoints, PointsUsed);
+  SetLength(FSelectionMarqueeContourOffsets, ContoursUsed);
+  SetLength(FSelectionMarqueeContourLengths, ContoursUsed);
 
   FSelectionMarqueeCacheValid := True;
 end;
@@ -8948,6 +9002,14 @@ begin
   begin
     ASurface := FClipboardSurface;
     AOffset := FClipboardOffset;
+    { When the clipboard image exactly matches the document canvas size,
+      paste at origin so the image fills the canvas without offset.
+      This covers: cross-tab paste after New (sized to clipboard),
+      and external paste into a matching-size canvas. }
+    if Assigned(FDocument) and
+       (ASurface.Width = FDocument.Width) and
+       (ASurface.Height = FDocument.Height) then
+      AOffset := Point(0, 0);
   end
   else
   begin
