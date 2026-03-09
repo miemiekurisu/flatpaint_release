@@ -6425,7 +6425,11 @@ begin
     end;
   end;
 
-  DrawSelectionMarqueeOverlay(ACanvas);
+  { Hide committed selection marquee while drawing a new rect selection
+    or adjusting edges — avoids double-marquee overlay }
+  if not ((FPointerDown and (FCurrentTool = tkSelectRect)) or
+          (FSelAdjusting and (FCurrentTool = tkSelectRect))) then
+    DrawSelectionMarqueeOverlay(ACanvas);
 
   if (FCurrentTool = tkLine) and FLineBezierMode and FLinePathOpen and (not FLineCurvePending) and
      (FLastImagePoint.X >= 0) and (FLastImagePoint.Y >= 0) then
@@ -6599,14 +6603,14 @@ begin
                 2,
                 Max(2, Min((RightX - LeftX) div 2, (BottomY - TopY) div 2))
               );
-              ACanvas.RoundRect(LeftX, TopY, RightX, BottomY, PreviewRadius, PreviewRadius);
               DrawMarqueeRoundedRectOverlay(ACanvas, LeftX, TopY, RightX, BottomY, PreviewRadius);
             end
             else
             begin
-              ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
               if FCurrentTool = tkSelectRect then
-                DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY);
+                DrawMarqueeRectangleOverlay(ACanvas, LeftX, TopY, RightX, BottomY)
+              else
+                ACanvas.Rectangle(LeftX, TopY, RightX, BottomY);
             end;
           end;
         end;

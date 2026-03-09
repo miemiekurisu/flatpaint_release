@@ -16,6 +16,7 @@ type
     procedure MarqueeAnimationPolicyMatchesToolIntent;
     procedure AnimationPolicy_SelectionAlwaysAnimates;
     procedure AnimationPolicy_NoSelectionOffCanvasStops;
+    procedure MarqueeSegmentConstantsAreConsistent;
   end;
 
 implementation
@@ -80,6 +81,16 @@ begin
     ShouldAnimateMarqueeOverlay(tkSelectEllipse, False, False, False));
   AssertFalse('magic wand off-canvas without selection',
     ShouldAnimateMarqueeOverlay(tkMagicWand, False, False, False));
+end;
+
+procedure TFPMarqueeHelpersTests.MarqueeSegmentConstantsAreConsistent;
+begin
+  { MarqueeColorPeriod must be exactly 2x segment length for proper
+    dark/light alternation. PhaseWrap must be a multiple of period
+    so wrap-around is seamless. }
+  AssertEquals('period = 2 * segment', MarqueeSegmentLength * 2, MarqueeColorPeriod);
+  AssertEquals('wrap is multiple of period', 0, MarqueePhaseWrap mod MarqueeColorPeriod);
+  AssertTrue('wrap > 0', MarqueePhaseWrap > 0);
 end;
 
 initialization

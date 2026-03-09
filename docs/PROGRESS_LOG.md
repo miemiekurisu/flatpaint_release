@@ -2232,3 +2232,9 @@ Six bugs were identified through systematic trace of the three reported failure 
   - Added 2 marquee animation policy tests to `fpmarqueehelpers_tests`.
   - Updated `docs/FEATURE_MATRIX.md` Selection tools row to mention post-draw edge adjustment and rounded-corner preview.
   - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:414 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.
+- **2026-03-10 — WYSIWYG marching-ants-only rect selection preview + double-marquee suppression.**
+  - Feature row mapping: `Select/rectangle` in `docs/FEATURE_MATRIX.md`.
+  - Bug fix: rectangle selection preview during drawing showed both a solid black LCL `RoundRect`/`Rectangle` outline AND a marching ants overlay side-by-side with mismatched corner radii (LCL uses a different rounding algorithm). Removed the LCL pen outline entirely for `tkSelectRect`; preview now uses only `DrawMarqueeRectangleOverlay` / `DrawMarqueeRoundedRectOverlay` for true WYSIWYG.
+  - Bug fix: when drawing a new rectangle selection over an existing committed selection, both marquees appeared simultaneously (double-marquee). For ellipse/lasso/wand this was not visible because those tools commit immediately. Added guard in `PaintCanvasTo`: skip `DrawSelectionMarqueeOverlay` when `FPointerDown` or `FSelAdjusting` is active and `FCurrentTool = tkSelectRect`.
+  - Added 2 new tests: `SelectRect_ReplaceModeClearsPrevious` (tools_select_tests), `MarqueeSegmentConstantsAreConsistent` (fpmarqueehelpers_tests).
+  - Verification: `bash ./scripts/run_tests_ci.sh` passed (`N:416 E:0 F:0`); `bash ./scripts/build.sh` passed and refreshed `dist/FlatPaint.app`.

@@ -2844,7 +2844,19 @@ Based on all findings, the strategy is revised from the previous entry's generic
 - Reuse note: when rendering multiple independent contours/subpaths as marching ants, ALWAYS batch them into a single CGPath with multiple subpaths. Never loop calling `CGContextStrokePath` per contour — each call triggers a GPU command buffer flush. The CGPath multi-subpath pattern (`CGContextMoveToPoint` for each new subpath) is the correct batching approach.
 - Repeat count: `This issue has occurred 1 time(s)`
 
-### Rounded-rect marquee arc geometry: use standard parametric form
+### Rectangle selection preview: use only marching ants, not LCL pen outline
+- Issue: rectangle selection preview showed a solid black LCL `ACanvas.RoundRect`/`ACanvas.Rectangle` outline plus a separate marching-ants overlay. The two used different rounding algorithms, producing visibly mismatched corners when `FSelCornerRadius > 0`.
+- Root cause: the original `tkSelectRect` preview code shared the `tkRectangle` (shape drawing tool) code path, which uses LCL canvas primitives for the pen outline. When marching ants were added, the old LCL outline was not removed.
+- Fix: for `tkSelectRect`, removed `ACanvas.RoundRect` and `ACanvas.Rectangle` calls entirely. Preview now uses only `DrawMarqueeRectangleOverlay` / `DrawMarqueeRoundedRectOverlay` (the Cocoa CGPath-based marching ants). The `tkRectangle` shape tool still uses its own LCL outline.
+- Reuse note: selection tool previews must use only the marching-ants overlay system (CGPath-backed). Never mix LCL canvas primitives with the native overlay — they use different coordinate rounding. Shape drawing tools (`tkRectangle`, `tkEllipse`, etc.) should continue using LCL primitives since they preview the actual pen stroke.
+- Repeat count: `This issue has occurred 1 time(s)`
+
+### Double marquee when drawing new rect selection over existing one
+- Issue: drawing a new rectangle selection while an old committed selection existed showed both marquees simultaneously.
+- Root cause: `DrawSelectionMarqueeOverlay` draws the committed selection unconditionally. The `FPointerDown` preview then draws the new selection on top. For ellipse/lasso/wand this was not visible because those tools commit immediately (replacing the old selection), but rect selection only commits on MouseUp.
+- Fix: added guard before `DrawSelectionMarqueeOverlay` call in `PaintCanvasTo`: skip it when `(FPointerDown or FSelAdjusting) and (FCurrentTool = tkSelectRect)`.
+- Reuse note: whenever a selection tool has a multi-phase commit (draw then adjust), suppress the committed-selection marquee during all intermediate phases to avoid visual doubling.
+- Repeat count: `This issue has occurred 1 time(s)`
 - Issue: `DrawMarqueeRoundedRectOverlay` generated stray diagonal lines from canvas origin to the selection rectangle. Four corner arcs used inconsistent trigonometric formulas — the top-left arc used `CX - R*cos(angle)` with angle range π/2..π (wrong center offset and wrong direction), while arcs 2–4 used different sin/cos permutations.
 - Root cause: the original code attempted ad-hoc trig per corner instead of a single consistent parametric formula. The top-left arc wandered in the wrong direction, and the closing point bridged back via a diagonal.
 - Fix: rewrote all 4 arcs with one canonical formula: `X = CX + R*cos(angle)`, `Y = CY + R*sin(angle)` using screen-coordinate convention where angle 0=right, π/2=down, π=left, 3π/2=up. Each corner center is offset by R from the rectangle border; angles sweep 90° per arc in clockwise order.

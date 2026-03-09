@@ -29,6 +29,7 @@ type
     procedure SelectRect_RoundedSubtractPreservesSurround;
     procedure SelectRect_FullDocumentExtent;
     procedure SelectRect_ZeroAreaProducesNoSelection;
+    procedure SelectRect_ReplaceModeClearsPrevious;
   end;
 
 implementation
@@ -371,6 +372,31 @@ begin
   try
     Mask.SelectRectangle(-5, -5, -1, -1, scReplace, False, 0);
     AssertFalse('no selection for fully out-of-bounds rect', Mask.HasSelection);
+  finally
+    Mask.Free;
+  end;
+end;
+
+procedure TToolsSelectTests.SelectRect_ReplaceModeClearsPrevious;
+var
+  Mask: TSelectionMask;
+begin
+  { Replace mode must clear the old selection before creating the new one.
+    This ensures that when drawing a new rect selection over an existing one,
+    only the new selection exists after commit — no double-marquee. }
+  Mask := TSelectionMask.Create(50, 50);
+  try
+    { First selection: large area }
+    Mask.SelectRectangle(0, 0, 40, 40, scReplace, False, 0);
+    AssertTrue('first selection present', Mask.Selected[5, 5]);
+    { Second selection: small area, replace mode }
+    Mask.SelectRectangle(20, 20, 30, 30, scReplace, False, 0);
+    AssertFalse('old area cleared by replace', Mask.Selected[5, 5]);
+    AssertTrue('new area selected', Mask.Selected[25, 25]);
+    { Same with rounded corners: replace clears small rect, new rounded rect applied }
+    Mask.SelectRectangle(0, 0, 49, 49, scReplace, False, 15);
+    AssertEquals('rounded center fully selected', 255, Mask.Coverage(25, 25));
+    AssertEquals('rounded corner excluded', 0, Mask.Coverage(0, 0));
   finally
     Mask.Free;
   end;
