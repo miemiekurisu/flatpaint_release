@@ -1,0 +1,31 @@
+Top 12 by peak RSS (MB)
+op_index	image_name	phase	op_name	real_sec	max_rss_mb
+87	smoke.png	coverage_doc	exportdoc_png	0.48	10.39
+21	smoke.png	coverage_raster	internal_resize_rebalance	0.05	9.53
+27	smoke.png	coverage_raster	internal_resize_rebalance	0.06	9.42
+29	smoke.png	coverage_raster	internal_resize_rebalance	0.06	9.42
+31	smoke.png	coverage_raster	internal_resize_rebalance	0.06	9.42
+23	smoke.png	coverage_raster	internal_resize_rebalance	0.05	9.22
+25	smoke.png	coverage_raster	internal_resize_rebalance	0.06	9.09
+28	smoke.png	coverage_raster	movepixelswand	0.06	8.80
+63	smoke.png	coverage_raster	movepixelsrect	0.03	8.66
+30	smoke.png	coverage_raster	fill	0.06	8.41
+26	smoke.png	coverage_raster	sharpen	0.07	8.39
+6	smoke.png	coverage_raster	fillellipse	0.03	8.36
+
+Top 12 by real time (sec)
+op_index	image_name	phase	op_name	real_sec	max_rss_mb
+88	smoke.png	coverage_doc	setopacitydoc	1.64	6.70
+85	smoke.png	coverage_doc	grayscaledoc	1.62	6.73
+86	smoke.png	coverage_doc	blurdoc	1.61	7.78
+84	smoke.png	coverage_doc_bootstrap	duplayerdoc	1.50	6.70
+89	smoke.png	coverage_doc	deletelayerdoc	1.40	6.69
+94	smoke.png	coverage_doc	outlinedoc	1.31	6.72
+92	smoke.png	coverage_doc	movelayerdoc	1.30	5.69
+90	smoke.png	coverage_doc	renamelayerdoc	1.28	5.72
+83	smoke.png	coverage_doc_bootstrap	pastedoc	1.22	7.84
+112	smoke.png	coverage_doc	setactivedoc	0.97	4.67
+111	smoke.png	doc_internal	addlayerdoc	0.91	6.80
+100	smoke.png	doc_internal	addlayerdoc	0.90	6.80
+
+Failures: 0 / 114

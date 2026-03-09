@@ -1,0 +1,5 @@
+status=INTERRUPTED
+reason=manual stop due heavy runtime on 4K image during initial smoke validation
+time=2026-03-09 15:36:00
+metrics=/Users/kurisu/Documents/workspace.nosync/project/flatpaint/tests/performance/tool_menu_coverage_20260309_152334/metrics.tsv
+notes=use this run only as partial trace; coverage/hotspot summaries were not generated

@@ -42,3 +42,16 @@ bash ./scripts/stress_real_images_cli.sh --steps 20 --seed 20260309
 - Reports are written to `tests/performance/real_images_<timestamp>/`.
 - Original images are preserved; only temporary copies under `/tmp` are mutated.
 - Run history indexes are appended automatically to `tests/performance/runtime_history.tsv` and `tests/performance/real_images_history.tsv`.
+
+Tool/menu coverage stress run (macOS, CLI):
+
+```bash
+# Coverage-driven stress:
+# - guarantees every required tool/menu operation runs at least once
+# - randomizes order and adds random extra repetitions
+bash ./scripts/stress_tool_menu_coverage_cli.sh --seed 20260309 --extra-min 12 --extra-max 24
+```
+
+- Reports are written to `tests/performance/tool_menu_coverage_<timestamp>/`.
+- Coverage summary is in `coverage.tsv` and run history is appended to `tests/performance/tool_menu_coverage_history.tsv` (`status` shows `COMPLETED` or `INTERRUPTED`).
+- On 4K/5K images this run is intentionally heavy; use `--max-images 1` for shorter validation passes.

@@ -1,0 +1,72 @@
+FlatPaintCLI
+Usage:
+  flatpaint_cli new <width> <height> <output>
+  flatpaint_cli brush <input> <output> <x> <y> <radius> <r> <g> <b>
+  flatpaint_cli erase <input> <output> <x> <y> <radius>
+  flatpaint_cli fill <input> <output> <x> <y> <r> <g> <b>
+  flatpaint_cli gradient <input> <output> <x1> <y1> <x2> <y2> <r1> <g1> <b1> <r2> <g2> <b2>
+  flatpaint_cli line <input> <output> <x1> <y1> <x2> <y2> <size> <r> <g> <b>
+  flatpaint_cli rect <input> <output> <x1> <y1> <x2> <y2> <size> <r> <g> <b>
+  flatpaint_cli ellipse <input> <output> <x1> <y1> <x2> <y2> <size> <r> <g> <b>
+  flatpaint_cli fillrect <input> <output> <x1> <y1> <x2> <y2> <r> <g> <b>
+  flatpaint_cli fillellipse <input> <output> <x1> <y1> <x2> <y2> <r> <g> <b>
+  flatpaint_cli eraserect <input> <output> <x1> <y1> <x2> <y2>
+  flatpaint_cli movepixelsrect <input> <output> <x1> <y1> <x2> <y2> <dx> <dy>
+  flatpaint_cli croprect <input> <output> <x1> <y1> <x2> <y2>
+  flatpaint_cli filllasso <input> <output> <r> <g> <b> <x1> <y1> [<x2> <y2> ...]
+  flatpaint_cli eraselasso <input> <output> <x1> <y1> [<x2> <y2> ...]
+  flatpaint_cli movepixelslasso <input> <output> <dx> <dy> <x1> <y1> [<x2> <y2> ...]
+  flatpaint_cli croplasso <input> <output> <x1> <y1> [<x2> <y2> ...]
+  flatpaint_cli extractrect <input> <output> <x1> <y1> <x2> <y2>
+  flatpaint_cli extractlasso <input> <output> <x1> <y1> [<x2> <y2> ...]
+  flatpaint_cli fillwand <input> <output> <x> <y> <tolerance> <r> <g> <b>
+  flatpaint_cli erasewand <input> <output> <x> <y> <tolerance>
+  flatpaint_cli movepixelswand <input> <output> <x> <y> <tolerance> <dx> <dy>
+  flatpaint_cli cropwand <input> <output> <x> <y> <tolerance>
+  flatpaint_cli extractwand <input> <output> <x> <y> <tolerance>
+  flatpaint_cli crop <input> <output> <x> <y> <width> <height>
+  flatpaint_cli resize <input> <output> <width> <height>
+  flatpaint_cli fliph <input> <output>
+  flatpaint_cli flipv <input> <output>
+  flatpaint_cli rot180 <input> <output>
+  flatpaint_cli rotcw <input> <output>
+  flatpaint_cli rotccw <input> <output>
+  flatpaint_cli autolevel <input> <output>
+  flatpaint_cli invert <input> <output>
+  flatpaint_cli grayscale <input> <output>
+  flatpaint_cli brightness <input> <output> <delta>
+  flatpaint_cli contrast <input> <output> <amount>
+  flatpaint_cli sepia <input> <output>
+  flatpaint_cli blackwhite <input> <output> <threshold>
+  flatpaint_cli posterize <input> <output> <levels>
+  flatpaint_cli blur <input> <output> <radius>
+  flatpaint_cli sharpen <input> <output>
+  flatpaint_cli noise <input> <output> <amount>
+  flatpaint_cli outline <input> <output>
+  flatpaint_cli wrapdoc <input-image> <output-fpd>
+  flatpaint_cli exportdoc <input-fpd> <output-image>
+  flatpaint_cli exportlayerdoc <input-fpd> <layer-index> <output-image>
+  flatpaint_cli addlayerdoc <input-fpd> <layer-image> <output-fpd>
+  flatpaint_cli pastedoc <input-fpd> <image> <x> <y> <output-fpd>
+  flatpaint_cli autoleveldoc <input-fpd> <output-fpd>
+  flatpaint_cli invertdoc <input-fpd> <output-fpd>
+  flatpaint_cli grayscaledoc <input-fpd> <output-fpd>
+  flatpaint_cli brightnessdoc <input-fpd> <delta> <output-fpd>
+  flatpaint_cli contrastdoc <input-fpd> <amount> <output-fpd>
+  flatpaint_cli sepiadoc <input-fpd> <output-fpd>
+  flatpaint_cli blackwhitedoc <input-fpd> <threshold> <output-fpd>
+  flatpaint_cli posterizedoc <input-fpd> <levels> <output-fpd>
+  flatpaint_cli blurdoc <input-fpd> <radius> <output-fpd>
+  flatpaint_cli sharpendoc <input-fpd> <output-fpd>
+  flatpaint_cli noisedoc <input-fpd> <amount> <output-fpd>
+  flatpaint_cli outlinedoc <input-fpd> <output-fpd>
+  flatpaint_cli setactivedoc <input-fpd> <layer-index> <output-fpd>
+  flatpaint_cli duplayerdoc <input-fpd> <layer-index> <output-fpd>
+  flatpaint_cli deletelayerdoc <input-fpd> <layer-index> <output-fpd>
+  flatpaint_cli movelayerdoc <input-fpd> <from-index> <to-index> <output-fpd>
+  flatpaint_cli renamelayerdoc <input-fpd> <layer-index> <new-name> <output-fpd>
+  flatpaint_cli setvisibledoc <input-fpd> <layer-index> <0|1> <output-fpd>
+  flatpaint_cli setopacitydoc <input-fpd> <layer-index> <opacity> <output-fpd>
+  flatpaint_cli rot180doc <input-fpd> <output-fpd>
+  flatpaint_cli mergedowndoc <input-fpd> <layer-index> <output-fpd>
+  flatpaint_cli flattendoc <input-fpd> <output-fpd>
