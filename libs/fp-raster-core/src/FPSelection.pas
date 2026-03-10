@@ -20,9 +20,13 @@ type
     FWidth: Integer;
     FHeight: Integer;
     FData: array of Byte;
+    FSelectedCount: Integer;
+    FBoundsCache: TRect;
+    FBoundsDirty: Boolean;
     function GetSelected(X, Y: Integer): Boolean;
     procedure SetSelected(X, Y: Integer; AValue: Boolean);
     function IndexOf(X, Y: Integer): Integer; inline;
+    procedure RebuildSelectionCache;
   public
     constructor Create(AWidth, AHeight: Integer);
     procedure SetSize(AWidth, AHeight: Integer);
@@ -34,10 +38,24 @@ type
     procedure IntersectWith(AMask: TSelectionMask);
     function InBounds(X, Y: Integer): Boolean; inline;
     function HasSelection: Boolean;
-    procedure SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode = scReplace);
-    procedure SelectPolygon(const APoints: array of TPoint; AMode: TSelectionCombineMode = scReplace);
+    procedure SelectRectangle(
+      X1, Y1, X2, Y2: Integer;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = False;
+      ACornerRadius: Integer = 0
+    );
+    procedure SelectEllipse(
+      X1, Y1, X2, Y2: Integer;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = True
+    );
+    procedure SelectPolygon(
+      const APoints: array of TPoint;
+      AMode: TSelectionCombineMode = scReplace;
+      AAntiAlias: Boolean = True
+    );
     procedure MoveBy(DeltaX, DeltaY: Integer);
+    procedure TranslateTo(ADest: TSelectionMask; DeltaX, DeltaY: Integer);
     procedure FlipHorizontal;
     procedure FlipVertical;
     procedure Rotate90Clockwise;
@@ -58,13 +76,21 @@ implementation
 uses
   Math, SysUtils;
 
+const
+  { Offset to move integer coordinates to pixel center for SDF evaluation. }
+  PIXEL_CENTER_OFFSET = 0.5;
+  { Guard against degenerate zero-length vectors in SDF math. }
+  SDF_EPSILON = 1.0e-12;
+  { Initial SDF distance used as "infinitely far away". }
+  SDF_LARGE_DISTANCE = 1.0e30;
+
 { --- SDF Anti-Aliasing Helpers (duplicated from fpsurface for dependency isolation) --- }
 
 function SDFCoverage(DistPixels: Double): Byte; inline;
 var
   Coverage: Double;
 begin
-  Coverage := DistPixels + 0.5;
+  Coverage := DistPixels + PIXEL_CENTER_OFFSET;
   if Coverage <= 0.0 then
     Exit(0);
   if Coverage >= 1.0 then
@@ -81,7 +107,7 @@ begin
   NX := (PX - CX) / RX;
   NY := (PY - CY) / RY;
   NLen := Sqrt(NX * NX + NY * NY);
-  if NLen < 1.0e-12 then
+  if NLen < SDF_EPSILON then
     Exit(Min(RX, RY));
   Result := (1.0 - NLen) * Min(RX, RY) * (NLen / Sqrt((NX * NX) / (RX * RX) + (NY * NY) / (RY * RY)));
 end;
@@ -102,6 +128,43 @@ begin
   Result := Sqrt(Sqr(PX - ProjX) + Sqr(PY - ProjY));
 end;
 
+function RectSDF(PX, PY, CX, CY, HalfW, HalfH: Double): Double; inline;
+var
+  DX, DY: Double;
+  OutsideX, OutsideY: Double;
+  OutsideDist: Double;
+begin
+  DX := Abs(PX - CX) - HalfW;
+  DY := Abs(PY - CY) - HalfH;
+  OutsideX := Max(DX, 0.0);
+  OutsideY := Max(DY, 0.0);
+  OutsideDist := Sqrt(Sqr(OutsideX) + Sqr(OutsideY));
+  { IQ sdBox is negative inside; invert so positive means inside for SDFCoverage. }
+  Result := -(OutsideDist + Min(Max(DX, DY), 0.0));
+end;
+
+function RoundedRectSelSDF(PX, PY: Double; ALeft, ATop, ARight, ABottom: Double; ARadius: Double): Double;
+var
+  HalfW, HalfH, CX, CY, DX, DY, CornerDist: Double;
+begin
+  HalfW := (ARight - ALeft) / 2.0;
+  HalfH := (ABottom - ATop) / 2.0;
+  CX := (ALeft + ARight) / 2.0;
+  CY := (ATop + ABottom) / 2.0;
+  ARadius := Min(ARadius, Min(HalfW, HalfH));
+  DX := Abs(PX - CX) - (HalfW - ARadius);
+  DY := Abs(PY - CY) - (HalfH - ARadius);
+  if (DX <= 0.0) and (DY <= 0.0) then
+    CornerDist := Max(DX, DY)
+  else if DX <= 0.0 then
+    CornerDist := DY
+  else if DY <= 0.0 then
+    CornerDist := DX
+  else
+    CornerDist := Sqrt(DX * DX + DY * DY);
+  Result := ARadius - CornerDist;
+end;
+
 { --- End SDF Helpers --- }
 
 function PointInsidePolygon(const APoints: array of TPoint; AX, AY: Double): Boolean;
@@ -120,10 +183,10 @@ begin
   PreviousIndex := High(APoints);
   for Index := 0 to High(APoints) do
   begin
-    CurrentX := APoints[Index].X + 0.5;
-    CurrentY := APoints[Index].Y + 0.5;
-    PreviousX := APoints[PreviousIndex].X + 0.5;
-    PreviousY := APoints[PreviousIndex].Y + 0.5;
+    CurrentX := APoints[Index].X + PIXEL_CENTER_OFFSET;
+    CurrentY := APoints[Index].Y + PIXEL_CENTER_OFFSET;
+    PreviousX := APoints[PreviousIndex].X + PIXEL_CENTER_OFFSET;
+    PreviousY := APoints[PreviousIndex].Y + PIXEL_CENTER_OFFSET;
     if ((CurrentY > AY) <> (PreviousY > AY)) and
        (AX < (((PreviousX - CurrentX) * (AY - CurrentY)) / (PreviousY - CurrentY)) + CurrentX) then
       Result := not Result;
@@ -142,6 +205,47 @@ begin
   Result := (Y * FWidth) + X;
 end;
 
+procedure TSelectionMask.RebuildSelectionCache;
+var
+  X: Integer;
+  Y: Integer;
+  DataIndex: Integer;
+  MinX: Integer;
+  MinY: Integer;
+  MaxX: Integer;
+  MaxY: Integer;
+begin
+  FSelectedCount := 0;
+  MinX := FWidth;
+  MinY := FHeight;
+  MaxX := -1;
+  MaxY := -1;
+  DataIndex := 0;
+  for Y := 0 to FHeight - 1 do
+    for X := 0 to FWidth - 1 do
+    begin
+      if FData[DataIndex] <> 0 then
+      begin
+        Inc(FSelectedCount);
+        if X < MinX then
+          MinX := X;
+        if Y < MinY then
+          MinY := Y;
+        if X > MaxX then
+          MaxX := X;
+        if Y > MaxY then
+          MaxY := Y;
+      end;
+      Inc(DataIndex);
+    end;
+
+  if FSelectedCount = 0 then
+    FBoundsCache := Rect(0, 0, 0, 0)
+  else
+    FBoundsCache := Rect(MinX, MinY, MaxX + 1, MaxY + 1);
+  FBoundsDirty := False;
+end;
+
 procedure TSelectionMask.SetSize(AWidth, AHeight: Integer);
 begin
   FWidth := Max(1, AWidth);
@@ -154,12 +258,21 @@ procedure TSelectionMask.Clear;
 begin
   if Length(FData) > 0 then
     FillChar(FData[0], Length(FData), 0);
+  FSelectedCount := 0;
+  FBoundsCache := Rect(0, 0, 0, 0);
+  FBoundsDirty := False;
 end;
 
 procedure TSelectionMask.SelectAll;
 begin
   if Length(FData) > 0 then
     FillChar(FData[0], Length(FData), 255);
+  FSelectedCount := Length(FData);
+  if FSelectedCount > 0 then
+    FBoundsCache := Rect(0, 0, FWidth, FHeight)
+  else
+    FBoundsCache := Rect(0, 0, 0, 0);
+  FBoundsDirty := False;
 end;
 
 procedure TSelectionMask.Invert;
@@ -168,6 +281,7 @@ var
 begin
   for Index := 0 to High(FData) do
     FData[Index] := 255 - FData[Index];
+  RebuildSelectionCache;
 end;
 
 procedure TSelectionMask.Assign(ASource: TSelectionMask);
@@ -179,6 +293,9 @@ begin
   SetLength(FData, Length(ASource.FData));
   if Length(FData) > 0 then
     Move(ASource.FData[0], FData[0], Length(FData));
+  FSelectedCount := ASource.FSelectedCount;
+  FBoundsCache := ASource.FBoundsCache;
+  FBoundsDirty := ASource.FBoundsDirty;
 end;
 
 function TSelectionMask.Clone: TSelectionMask;
@@ -201,6 +318,7 @@ begin
   for Y := 0 to FHeight - 1 do
     for X := 0 to FWidth - 1 do
       FData[IndexOf(X, Y)] := Min(FData[IndexOf(X, Y)], AMask.Coverage(X, Y));
+  RebuildSelectionCache;
 end;
 
 function TSelectionMask.InBounds(X, Y: Integer): Boolean;
@@ -217,22 +335,15 @@ end;
 
 procedure TSelectionMask.SetSelected(X, Y: Integer; AValue: Boolean);
 begin
-  if not InBounds(X, Y) then
-    Exit;
   if AValue then
-    FData[IndexOf(X, Y)] := 255
+    SetCoverage(X, Y, 255)
   else
-    FData[IndexOf(X, Y)] := 0;
+    SetCoverage(X, Y, 0);
 end;
 
 function TSelectionMask.HasSelection: Boolean;
-var
-  Index: Integer;
 begin
-  for Index := 0 to High(FData) do
-    if FData[Index] <> 0 then
-      Exit(True);
-  Result := False;
+  Result := FSelectedCount > 0;
 end;
 
 function TSelectionMask.Coverage(X, Y: Integer): Byte;
@@ -243,10 +354,56 @@ begin
 end;
 
 procedure TSelectionMask.SetCoverage(X, Y: Integer; AValue: Byte);
+var
+  PixelIndex: Integer;
+  OldSelected: Boolean;
+  NewSelected: Boolean;
 begin
   if not InBounds(X, Y) then
     Exit;
-  FData[IndexOf(X, Y)] := AValue;
+  PixelIndex := IndexOf(X, Y);
+  if FData[PixelIndex] = AValue then
+    Exit;
+
+  OldSelected := FData[PixelIndex] <> 0;
+  NewSelected := AValue <> 0;
+  FData[PixelIndex] := AValue;
+
+  if OldSelected = NewSelected then
+    Exit;
+
+  if NewSelected then
+  begin
+    Inc(FSelectedCount);
+    if FSelectedCount = 1 then
+    begin
+      FBoundsCache := Rect(X, Y, X + 1, Y + 1);
+      FBoundsDirty := False;
+    end
+    else if not FBoundsDirty then
+    begin
+      if X < FBoundsCache.Left then
+        FBoundsCache.Left := X;
+      if Y < FBoundsCache.Top then
+        FBoundsCache.Top := Y;
+      if X >= FBoundsCache.Right then
+        FBoundsCache.Right := X + 1;
+      if Y >= FBoundsCache.Bottom then
+        FBoundsCache.Bottom := Y + 1;
+    end;
+  end
+  else
+  begin
+    if FSelectedCount > 0 then
+      Dec(FSelectedCount);
+    if FSelectedCount = 0 then
+    begin
+      FBoundsCache := Rect(0, 0, 0, 0);
+      FBoundsDirty := False;
+    end
+    else
+      FBoundsDirty := True;
+  end;
 end;
 
 procedure TSelectionMask.Feather(ARadius: Integer);
@@ -329,47 +486,15 @@ begin
       CoverageValue := 0;
     FData[Index] := EnsureRange(CoverageValue, 0, 255);
   end;
+  RebuildSelectionCache;
 end;
 
-procedure TSelectionMask.SelectRectangle(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
-var
-  IntersectMask: TSelectionMask;
-  LeftX: Integer;
-  RightX: Integer;
-  TopY: Integer;
-  BottomY: Integer;
-  X: Integer;
-  Y: Integer;
-begin
-  if AMode = scIntersect then
-  begin
-    IntersectMask := TSelectionMask.Create(FWidth, FHeight);
-    try
-      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace);
-      IntersectWith(IntersectMask);
-    finally
-      IntersectMask.Free;
-    end;
-    Exit;
-  end;
-
-  LeftX := Max(0, Min(X1, X2));
-  RightX := Min(FWidth - 1, Max(X1, X2));
-  TopY := Max(0, Min(Y1, Y2));
-  BottomY := Min(FHeight - 1, Max(Y1, Y2));
-
-  if AMode = scReplace then
-    Clear;
-
-  for Y := TopY to BottomY do
-    for X := LeftX to RightX do
-      case AMode of
-        scReplace, scAdd: Selected[X, Y] := True;
-        scSubtract: Selected[X, Y] := False;
-      end;
-end;
-
-procedure TSelectionMask.SelectEllipse(X1, Y1, X2, Y2: Integer; AMode: TSelectionCombineMode);
+procedure TSelectionMask.SelectRectangle(
+  X1, Y1, X2, Y2: Integer;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean;
+  ACornerRadius: Integer
+);
 var
   IntersectMask: TSelectionMask;
   LeftX: Integer;
@@ -378,19 +503,25 @@ var
   BottomY: Integer;
   CenterX: Double;
   CenterY: Double;
-  RadiusX: Double;
-  RadiusY: Double;
-  X: Integer;
-  Y: Integer;
+  HalfW: Double;
+  HalfH: Double;
   Dist: Double;
   Cov: Byte;
   Existing: Byte;
+  X: Integer;
+  Y: Integer;
+  UseRounded: Boolean;
+  Radius: Double;
 begin
+  UseRounded := ACornerRadius > 0;
+  if UseRounded then
+    AAntiAlias := True;
+
   if AMode = scIntersect then
   begin
     IntersectMask := TSelectionMask.Create(FWidth, FHeight);
     try
-      IntersectMask.SelectEllipse(X1, Y1, X2, Y2, scReplace);
+      IntersectMask.SelectRectangle(X1, Y1, X2, Y2, scReplace, AAntiAlias, ACornerRadius);
       IntersectWith(IntersectMask);
     finally
       IntersectMask.Free;
@@ -406,15 +537,31 @@ begin
   if AMode = scReplace then
     Clear;
 
+  if (not AAntiAlias) and (not UseRounded) then
+  begin
+    for Y := TopY to BottomY do
+      for X := LeftX to RightX do
+        case AMode of
+          scReplace, scAdd: Selected[X, Y] := True;
+          scSubtract: Selected[X, Y] := False;
+        end;
+    Exit;
+  end;
+
   CenterX := (LeftX + RightX + 1) / 2.0;
   CenterY := (TopY + BottomY + 1) / 2.0;
-  RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
-  RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
+  HalfW := Max(0.5, (RightX - LeftX + 1) / 2.0);
+  HalfH := Max(0.5, (BottomY - TopY + 1) / 2.0);
+  Radius := Min(ACornerRadius, Min(HalfW, HalfH));
 
   for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
     for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
     begin
-      Dist := EllipseSDF(X + 0.5, Y + 0.5, CenterX, CenterY, RadiusX, RadiusY);
+      if UseRounded then
+        Dist := RoundedRectSelSDF(X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET,
+          LeftX, TopY, RightX + 1, BottomY + 1, Radius)
+      else
+        Dist := RectSDF(X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET, CenterX, CenterY, HalfW, HalfH);
       Cov := SDFCoverage(Dist);
       if Cov = 0 then
         Continue;
@@ -440,7 +587,107 @@ begin
     end;
 end;
 
-procedure TSelectionMask.SelectPolygon(const APoints: array of TPoint; AMode: TSelectionCombineMode);
+procedure TSelectionMask.SelectEllipse(
+  X1, Y1, X2, Y2: Integer;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
+var
+  IntersectMask: TSelectionMask;
+  LeftX: Integer;
+  RightX: Integer;
+  TopY: Integer;
+  BottomY: Integer;
+  CenterX: Double;
+  CenterY: Double;
+  RadiusX: Double;
+  RadiusY: Double;
+  X: Integer;
+  Y: Integer;
+  Dist: Double;
+  NX: Double;
+  NY: Double;
+  Cov: Byte;
+  Existing: Byte;
+begin
+  if AMode = scIntersect then
+  begin
+    IntersectMask := TSelectionMask.Create(FWidth, FHeight);
+    try
+      IntersectMask.SelectEllipse(X1, Y1, X2, Y2, scReplace, AAntiAlias);
+      IntersectWith(IntersectMask);
+    finally
+      IntersectMask.Free;
+    end;
+    Exit;
+  end;
+
+  LeftX := Max(0, Min(X1, X2));
+  RightX := Min(FWidth - 1, Max(X1, X2));
+  TopY := Max(0, Min(Y1, Y2));
+  BottomY := Min(FHeight - 1, Max(Y1, Y2));
+
+  if AMode = scReplace then
+    Clear;
+
+  CenterX := (LeftX + RightX + 1) / 2.0;
+  CenterY := (TopY + BottomY + 1) / 2.0;
+  RadiusX := Max(0.5, (RightX - LeftX + 1) / 2.0);
+  RadiusY := Max(0.5, (BottomY - TopY + 1) / 2.0);
+
+  if not AAntiAlias then
+  begin
+    for Y := TopY to BottomY do
+      for X := LeftX to RightX do
+      begin
+        NX := (X + PIXEL_CENTER_OFFSET - CenterX) / RadiusX;
+        NY := (Y + PIXEL_CENTER_OFFSET - CenterY) / RadiusY;
+        if ((NX * NX) + (NY * NY)) > 1.0 then
+          Continue;
+        case AMode of
+          scReplace, scAdd:
+            SetCoverage(X, Y, 255);
+          scSubtract:
+            SetCoverage(X, Y, 0);
+        end;
+      end;
+    Exit;
+  end;
+
+  for Y := Max(0, TopY - 1) to Min(FHeight - 1, BottomY + 1) do
+    for X := Max(0, LeftX - 1) to Min(FWidth - 1, RightX + 1) do
+    begin
+      Dist := EllipseSDF(X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET, CenterX, CenterY, RadiusX, RadiusY);
+      Cov := SDFCoverage(Dist);
+      if Cov = 0 then
+        Continue;
+      case AMode of
+        scReplace, scAdd:
+        begin
+          Existing := Coverage(X, Y);
+          if Cov > Existing then
+            SetCoverage(X, Y, Cov);
+        end;
+        scSubtract:
+        begin
+          Existing := Coverage(X, Y);
+          if Existing > 0 then
+          begin
+            if Cov >= Existing then
+              SetCoverage(X, Y, 0)
+            else
+              SetCoverage(X, Y, Existing - Cov);
+          end;
+        end;
+      end;
+    end;
+end;
+
+procedure TSelectionMask.SelectPolygon(
+  const APoints: array of TPoint;
+  AMode: TSelectionCombineMode;
+  AAntiAlias: Boolean
+);
 var
   IntersectMask: TSelectionMask;
   LeftX: Integer;
@@ -490,7 +737,7 @@ begin
   begin
     IntersectMask := TSelectionMask.Create(FWidth, FHeight);
     try
-      IntersectMask.SelectPolygon(APoints, scReplace);
+      IntersectMask.SelectPolygon(APoints, scReplace, AAntiAlias);
       IntersectWith(IntersectMask);
     finally
       IntersectMask.Free;
@@ -523,19 +770,31 @@ begin
   if (LeftX > RightX) or (TopY > BottomY) then
     Exit;
 
+  if not AAntiAlias then
+  begin
+    for Y := TopY to BottomY do
+      for X := LeftX to RightX do
+      begin
+        if not PointInsidePolygon(APoints, X + PIXEL_CENTER_OFFSET, Y + PIXEL_CENTER_OFFSET) then
+          Continue;
+        ApplyCoverage(X, Y, 255);
+      end;
+    Exit;
+  end;
+
   for Y := TopY to BottomY do
     for X := LeftX to RightX do
     begin
-      PX := X + 0.5;
-      PY := Y + 0.5;
+      PX := X + PIXEL_CENTER_OFFSET;
+      PY := Y + PIXEL_CENTER_OFFSET;
       Inside := PointInsidePolygon(APoints, PX, PY);
-      MinDist := 1.0e30;
+      MinDist := SDF_LARGE_DISTANCE;
       for PointIndex := 0 to High(APoints) do
       begin
         NextIndex := (PointIndex + 1) mod Length(APoints);
         EdgeDist := DistToSegment(PX, PY,
-          APoints[PointIndex].X + 0.5, APoints[PointIndex].Y + 0.5,
-          APoints[NextIndex].X + 0.5, APoints[NextIndex].Y + 0.5);
+          APoints[PointIndex].X + PIXEL_CENTER_OFFSET, APoints[PointIndex].Y + PIXEL_CENTER_OFFSET,
+          APoints[NextIndex].X + PIXEL_CENTER_OFFSET, APoints[NextIndex].Y + PIXEL_CENTER_OFFSET);
         if EdgeDist < MinDist then
           MinDist := EdgeDist;
       end;
@@ -572,6 +831,54 @@ begin
 
   if Length(FData) > 0 then
     Move(NewData[0], FData[0], Length(FData));
+  RebuildSelectionCache;
+end;
+
+procedure TSelectionMask.TranslateTo(ADest: TSelectionMask; DeltaX, DeltaY: Integer);
+var
+  DestY: Integer;
+  SourceY: Integer;
+  DestStartX: Integer;
+  SourceStartX: Integer;
+  CopyLen: Integer;
+begin
+  if ADest = nil then
+    Exit;
+  if ADest = Self then
+  begin
+    MoveBy(DeltaX, DeltaY);
+    Exit;
+  end;
+
+  ADest.Clear;
+  if (FSelectedCount = 0) or (Length(FData) = 0) then
+    Exit;
+
+  for DestY := 0 to ADest.FHeight - 1 do
+  begin
+    SourceY := DestY - DeltaY;
+    if (SourceY < 0) or (SourceY >= FHeight) then
+      Continue;
+
+    SourceStartX := -DeltaX;
+    DestStartX := 0;
+    if SourceStartX < 0 then
+    begin
+      DestStartX := -SourceStartX;
+      SourceStartX := 0;
+    end;
+
+    CopyLen := Min(FWidth - SourceStartX, ADest.FWidth - DestStartX);
+    if CopyLen <= 0 then
+      Continue;
+
+    Move(
+      FData[SourceY * FWidth + SourceStartX],
+      ADest.FData[DestY * ADest.FWidth + DestStartX],
+      CopyLen
+    );
+  end;
+  ADest.RebuildSelectionCache;
 end;
 
 procedure TSelectionMask.FlipHorizontal;
@@ -593,6 +900,8 @@ begin
       FData[LeftIndex] := FData[RightIndex];
       FData[RightIndex] := Temp;
     end;
+  if FSelectedCount > 0 then
+    FBoundsDirty := True;
 end;
 
 procedure TSelectionMask.FlipVertical;
@@ -614,6 +923,8 @@ begin
       FData[TopIndex] := FData[BottomIndex];
       FData[BottomIndex] := Temp;
     end;
+  if FSelectedCount > 0 then
+    FBoundsDirty := True;
 end;
 
 procedure TSelectionMask.Rotate90Clockwise;
@@ -697,36 +1008,12 @@ begin
 end;
 
 function TSelectionMask.BoundsRect: TRect;
-var
-  MinX: Integer;
-  MinY: Integer;
-  MaxX: Integer;
-  MaxY: Integer;
-  X: Integer;
-  Y: Integer;
 begin
-  if not HasSelection then
+  if FSelectedCount = 0 then
     Exit(Rect(0, 0, 0, 0));
-
-  MinX := FWidth - 1;
-  MinY := FHeight - 1;
-  MaxX := 0;
-  MaxY := 0;
-  for Y := 0 to FHeight - 1 do
-    for X := 0 to FWidth - 1 do
-      if Selected[X, Y] then
-      begin
-        if X < MinX then
-          MinX := X;
-        if Y < MinY then
-          MinY := Y;
-        if X > MaxX then
-          MaxX := X;
-        if Y > MaxY then
-          MaxY := Y;
-      end;
-
-  Result := Rect(MinX, MinY, MaxX + 1, MaxY + 1);
+  if FBoundsDirty then
+    RebuildSelectionCache;
+  Result := FBoundsCache;
 end;
 
 end.

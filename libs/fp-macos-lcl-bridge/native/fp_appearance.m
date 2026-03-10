@@ -122,3 +122,82 @@ void FPDrawMarchingAntsPolyline(const double *pointsXY, int count,
 
     CGContextRestoreGState(ctx);
 }
+
+/*
+ * Draw multiple marching-ants contours in a SINGLE CGPath stroke.
+ *
+ * Batches all contours into one CGPath with multiple subpaths, then
+ * strokes the entire path in exactly 2 passes (white base + black dash).
+ * This avoids the O(N) GPU draw-call overhead that occurs when calling
+ * FPDrawMarchingAntsPolyline once per contour.
+ *
+ * pointsXY        : interleaved doubles [x0,y0, x1,y1, …] for ALL contours
+ * contourOffsets   : per-contour start index into pointsXY (in POINTS, not doubles)
+ * contourLengths   : per-contour point count
+ * contourCount     : number of contours
+ * closedFlags      : per-contour flag: non-zero to close that subpath
+ * dashLen          : dash/gap length in user-space points
+ * dashPhase        : phase offset for animation
+ *
+ * Pascal side:
+ *   FPDrawMarchingAntsMultiContour(APointsXY: PDouble;
+ *     AContourOffsets, AContourLengths, AClosedFlags: PLongInt;
+ *     AContourCount: LongInt;
+ *     ADashLength, ADashPhase: Double); cdecl;
+ */
+void FPDrawMarchingAntsMultiContour(const double *pointsXY,
+                                     const int *contourOffsets,
+                                     const int *contourLengths,
+                                     const int *closedFlags,
+                                     int contourCount,
+                                     double dashLen, double dashPhase) {
+    if (!pointsXY || contourCount <= 0) return;
+    NSGraphicsContext *gc = [NSGraphicsContext currentContext];
+    if (!gc) return;
+    CGContextRef ctx = (CGContextRef)[gc CGContext];
+    if (!ctx) return;
+
+    CGContextSaveGState(ctx);
+    CGContextSetLineWidth(ctx, 1.0);
+    CGContextSetLineCap(ctx, kCGLineCapButt);
+    CGContextSetLineJoin(ctx, kCGLineJoinMiter);
+
+    /* --- Pass 1: white solid base --- */
+    CGContextSetRGBStrokeColor(ctx, 1.0, 1.0, 1.0, 1.0);
+    CGContextSetLineDash(ctx, 0, NULL, 0);
+    CGContextBeginPath(ctx);
+    for (int c = 0; c < contourCount; c++) {
+        int off = contourOffsets[c];
+        int len = contourLengths[c];
+        if (len < 1) continue;
+        CGContextMoveToPoint(ctx, (CGFloat)pointsXY[off * 2],
+                                  (CGFloat)pointsXY[off * 2 + 1]);
+        for (int i = 1; i < len; i++)
+            CGContextAddLineToPoint(ctx, (CGFloat)pointsXY[(off + i) * 2],
+                                         (CGFloat)pointsXY[(off + i) * 2 + 1]);
+        if (closedFlags[c])
+            CGContextClosePath(ctx);
+    }
+    CGContextStrokePath(ctx);
+
+    /* --- Pass 2: black dashed overlay --- */
+    CGFloat dashLengths[2] = { (CGFloat)dashLen, (CGFloat)dashLen };
+    CGContextSetRGBStrokeColor(ctx, 0.0, 0.0, 0.0, 1.0);
+    CGContextSetLineDash(ctx, (CGFloat)dashPhase, dashLengths, 2);
+    CGContextBeginPath(ctx);
+    for (int c = 0; c < contourCount; c++) {
+        int off = contourOffsets[c];
+        int len = contourLengths[c];
+        if (len < 1) continue;
+        CGContextMoveToPoint(ctx, (CGFloat)pointsXY[off * 2],
+                                  (CGFloat)pointsXY[off * 2 + 1]);
+        for (int i = 1; i < len; i++)
+            CGContextAddLineToPoint(ctx, (CGFloat)pointsXY[(off + i) * 2],
+                                         (CGFloat)pointsXY[(off + i) * 2 + 1]);
+        if (closedFlags[c])
+            CGContextClosePath(ctx);
+    }
+    CGContextStrokePath(ctx);
+
+    CGContextRestoreGState(ctx);
+}
