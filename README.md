@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="flatpaint.png" alt="FlatPaint" width="1024">
+</p>
+
 # 关于Pascal和Lazarus
 
 嗯，我相信Pascal依然是写桌面app最好的语言。
