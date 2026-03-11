@@ -1,10 +1,14 @@
 FlatPaint public libraries in `libs` folder are licensed under:
+FlatPaint `libs` 目录下的公共库基于以下许可证发布：
 
 - GNU Lesser General Public License (LGPL), version 2.1 or later
+  GNU 宽松通用公共许可证（LGPL），版本 2.1 或更高
 - with the Lazarus modified linking exception
+  附带 Lazarus 修改版链接例外条款
 
-See:
+See / 参阅：
 - `licenses/COPYING.LGPL.txt`
 - `licenses/COPYING.modifiedLGPL.txt`
 
 This applies only to source files published inside this `libs` folder.
+此许可证仅适用于本 `libs` 目录下发布的源代码文件。

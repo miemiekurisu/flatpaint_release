@@ -1,22 +1,40 @@
+# 契机
+
+我很想说，我的目的是告别macos上收费轻量级修图软件。
+
+每当需要临时修一下图的时候，就会发现功能十分阳春的软件都要$10，或者广告满天飞，或者大部分功能要付费后使用，要不然就是网页版网页版网页版，就非常之……不爽 -_-||。
+
+写得不是很好，感觉个别控件还是存在一定程度性能问题，有问题可以提到issue上，我会想办法一一解决。
+
+二进制不开源，虽然写得不是很好，也是谨防某些个人或者组织白X。
+
+关于二进制bundle包的版权声明如下：
+
+1. 授权给个人、教育及
+
+2. 任何人或组织不得以任何原因对二进制bundle，包括但不限于：重打包，
+
+3. 
+
 # FlatPaint
 
 A lightweight raster image editor for macOS Apple Silicon, with a partial-open release of reusable public libraries.  
-一款面向 macOS Apple Silicon 的轻量级位图编辑器，同时发布了部分可复用公共库的开源版本。
+一款基于 Lazarus/FPC的 macOS Apple Silicon 下的轻量级位图编辑器，同时发布了部分可复用公共库的开源版本（for FPC & Lazarus）。
 
 FlatPaint is designed for practical desktop image editing with a compact application structure and a clear separation between the end-user app and the reusable libraries behind it.  
-FlatPaint 面向实际桌面图像编辑场景，强调轻量、直接和清晰的工程结构，并将终端应用与底层可复用库明确分离。
+FlatPaint 面向实际桌面图像编辑场景，将可复用库明确分离。
+本软件的二进制包为暂不开源但免费使用。并没有额外的$99加入apple developer，所以二进制包可能会有安全警告，请移步设置里开启。
 
 ## Why FlatPaint
-## 项目定位
 
 FlatPaint focuses on the parts of raster editing that matter most in day-to-day use: layers, selections, painting tools, drawing tools, transforms, export controls, and platform-native integration on macOS.  
-FlatPaint 聚焦于位图编辑中最常用、最核心的能力：图层、选区、绘画工具、绘图工具、图像变换、导出控制，以及 macOS 平台上的原生集成体验。
+FlatPaint 有常用的功能：图层、选区、绘画工具、绘图工具、图像变换、导出控制，以及 macOS 平台上的原生集成体验。
 
 This repository also includes a partial-open release pack for several reusable FPC / Lazarus-related libraries extracted from the project.  
 本仓库同时包含一个部分开源发布包，用于公开发布从项目中拆分出的若干 FPC / Lazarus 相关可复用库。
 
 ## Highlights
-## 功能亮点
+## 功能
 
 - Multi-layer raster editing with undo / redo and blend modes  
   支持多图层位图编辑，并具备撤销 / 重做与混合模式
@@ -54,32 +72,23 @@ This repository also includes a partial-open release pack for several reusable F
 - Main release artifact: `FlatPaint.app`  
   主发布产物：`FlatPaint.app`
 
-## Quality
-## 质量情况
-
-- CI regression suite: 351 tests passing at packaging time  
-  CI 回归测试：打包时共有 351 项测试通过
-
-- About metadata is embedded at build time from `assets/about/*.txt`  
-  About 元数据在构建时从 `assets/about/*.txt` 嵌入
-
 ## Release Package
 ## 发布包内容
 
-The release payload includes:  
-发布包包含：
+Release binaries are available on the [Releases](../../releases) page:  
+可以在 [Releases](../../releases) 页面下载预编译二进制文件：
 
-- `release/FlatPaint.app` — macOS Apple Silicon application bundle  
-  `release/FlatPaint.app` —— macOS Apple Silicon 应用程序包
+- `FlatPaint-macos-arm64.dmg` — macOS disk image (drag to Applications)  
+  `FlatPaint-macos-arm64.dmg` —— macOS 磁盘映像（拖入 Applications 即可安装）
 
-- `release/APP_FEATURES.md` — feature summary  
-  `release/APP_FEATURES.md` —— 功能摘要
+- `FlatPaint-macos-arm64.zip` — macOS application bundle zip  
+  `FlatPaint-macos-arm64.zip` —— macOS 应用程序包压缩文件
 
-- `release/packages/*.zip` — application and library source packages  
-  `release/packages/*.zip` —— 应用程序与库源码压缩包
+- `fp-*.zip` — library source packages  
+  `fp-*.zip` —— 库源码压缩包
 
-- `release/packages/SHA256SUMS.txt` — checksum file  
-  `release/packages/SHA256SUMS.txt` —— 校验文件
+- `SHA256SUMS.txt` — checksum file  
+  `SHA256SUMS.txt` —— 校验文件
 
 ## Open Libraries
 ## 开源库
@@ -117,14 +126,5 @@ Each library folder includes:
 - `examples/smoke_test.lpr`  
   `examples/smoke_test.lpr` —— 基础冒烟测试示例
 
-## Build
-## 构建
-
-### Build the release app
-### 构建发布版应用
-
-From the project root:  
-在项目根目录执行：
-
-```bash
-bash ./scripts/build-release.sh
+To build and verify all libraries at once, run `libs/verify_libs.sh`.  
+运行 `libs/verify_libs.sh` 可一次性构建并验证所有库。

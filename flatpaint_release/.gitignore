@@ -1,0 +1,11 @@
+# Internal packaging script (not part of public repo)
+package_release.sh
+
+# Build artifacts (uploaded as GitHub Release assets)
+release/
+
+# macOS metadata
+.DS_Store
+
+# Feature doc (bundled into release, not tracked)
+APP_FEATURES.md

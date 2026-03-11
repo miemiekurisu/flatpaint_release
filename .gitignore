@@ -43,5 +43,11 @@ DerivedData/
 *~
 .DS_Store
 
+# Release packaging script (internal only)
+flatpaint_release/package_release.sh
+
+# Release build artifacts (uploaded as GitHub Release assets, not tracked in git)
+flatpaint_release/release/
+
 # macOS debug symbols
 *.dSYM
