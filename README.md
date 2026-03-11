@@ -1,3 +1,9 @@
+# 关于Pascal和Lazarus
+
+嗯，我相信Pascal依然是写桌面app最好的语言。
+
+我依然相信Lazarus（Delphi）是写桌面app最好的IDE。
+
 # 契机
 
 我很想说，我的目的是告别macos上收费轻量级修图软件。
